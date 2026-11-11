@@ -15,8 +15,10 @@ import nerfview
 from pytorch_msssim import SSIM
 from torchmetrics.image import PeakSignalNoiseRatio
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
+from tools.viewer import create_gsplat_viewer
 
 from models.gaussians.basics import *
+from utils.geometry import camera_shutter_fraction, interpolate_camera_poses
 
 logger = logging.getLogger()
 
@@ -81,6 +83,7 @@ class BasicTrainer(nn.Module):
         self.optim_general = optim
         self.losses_dict = losses
         self.render_cfg = render
+        self._init_renderer()
         self.res_schedule = res_schedule
         self.model_config = model_config
         self.num_iters = self.optim_general.get("num_iters", 30000)
@@ -237,10 +240,15 @@ class BasicTrainer(nn.Module):
                 from models.losses import safe_binary_cross_entropy
                 sky_opacity_loss_fn = lambda pred, gt: safe_binary_cross_entropy(pred, gt, limit=0.1, reduction="mean")
         self.sky_opacity_loss_fn = sky_opacity_loss_fn
+
+        self.use_depth_supervision = (
+            self.losses_dict.get("depth") is not None
+            or self.losses_dict.get("inverse_depth_smoothness") is not None
+        )
         
         depth_loss_fn = None
         depth_loss_cfg = self.losses_dict.get("depth", None)
-        if depth_loss_cfg is not None:
+        if depth_loss_cfg is not None and self.use_depth_supervision:
             from models.losses import DepthLoss
             depth_loss_fn = DepthLoss(
                 loss_type=depth_loss_cfg.loss_type,
@@ -278,12 +286,23 @@ class BasicTrainer(nn.Module):
         
     def postprocess_per_train_step(self, step: int) -> None:
         radii = self.info["radii"]
-        if self.render_cfg.absgrad:
-            grads = self.info["means2d"].absgrad.clone()
+        if radii.ndim == 3:
+            radii = radii.amax(dim=-1)
+        if self.render_cfg.get("render_mode", "default") == "default":
+            if self.render_cfg.absgrad:
+                grads = self.info["means2d"].absgrad.clone()
+            else:
+                grads = self.info["means2d"].grad.clone()
+            grads[..., 0] *= self.info["width"] / 2.0 * self.render_cfg.batch_size
+            grads[..., 1] *= self.info["height"] / 2.0 * self.render_cfg.batch_size
+        elif self.render_cfg.get("render_mode", "default") == "geer":
+            # GEER already accumulates absolute contributions and applies distance scaling.
+            grads = self.info["geer_gradient"].grad.clone()
         else:
-            grads = self.info["means2d"].grad.clone()
-        grads[..., 0] *= self.info["width"] / 2.0 * self.render_cfg.batch_size
-        grads[..., 1] *= self.info["height"] / 2.0 * self.render_cfg.batch_size
+            if self.render_cfg.absgrad:
+                grads = self.info["means3d"].grad.clone().abs()[None, ...]
+            else:
+                grads = self.info["means3d"].grad.clone()[None, ...]
         
         for class_name in self.gaussian_classes.keys():
             gaussian_mask = self.pts_labels == self.gaussian_classes[class_name]
@@ -310,9 +329,12 @@ class BasicTrainer(nn.Module):
             self.viewer.update(step, num_train_rays_per_step)
     
     def update_visibility_filter(self) -> None:
+        radii = self.info["radii"]
+        if radii.ndim == 3:
+            radii = radii.amax(dim=-1)
         for class_name in self.gaussian_classes.keys():
             gaussian_mask = self.pts_labels == self.gaussian_classes[class_name]
-            self.models[class_name].cur_radii = self.info["radii"][0, gaussian_mask]
+            self.models[class_name].cur_radii = radii[0, gaussian_mask]
 
     def process_camera(
         self,
@@ -329,12 +351,25 @@ class BasicTrainer(nn.Module):
             camtoworlds = self.models["CamPose"](camtoworlds, image_ids)
         
         # collect camera information
+        if camera_infos.get("shutter_type", "GLOBAL") != "GLOBAL" and any(
+            key in self.models for key in ("CamPose", "CamPosePerturb")
+        ):
+            raise ValueError(
+                "Pose optimization for rolling-shutter cameras is unsupported; disable CamPose/CamPosePerturb"
+            )
         camera_dict = dataclass_camera(
             camtoworlds=camtoworlds,
             camtoworlds_gt=camtoworlds_gt,
             Ks=camera_infos["intrinsics"],
-            H=camera_infos["height"],
-            W=camera_infos["width"]
+            H=int(camera_infos["height"]),
+            W=int(camera_infos["width"]),
+            camera_model=camera_infos.get("camera_model", "pinhole"),
+            radial_coeffs=camera_infos.get("radial_coeffs"),
+            tangential_coeffs=camera_infos.get("tangential_coeffs"),
+            ftheta_parameters=camera_infos.get("ftheta_parameters"),
+            camtoworlds_end=camera_infos.get("camera_to_world_end"),
+            shutter_type=camera_infos.get("shutter_type", "GLOBAL"),
+            render_mode=camera_infos.get("render_mode"),
         )
         
         return camera_dict
@@ -382,21 +417,123 @@ class BasicTrainer(nn.Module):
         
         return gaussians
     
+    def _init_renderer(self):
+        """Inspect the installed rasterizer once, before rendering any frames."""
+        import inspect
+
+        self._rasterization_parameters = set(inspect.signature(rasterization).parameters)
+        self._geer_supports_ftheta = False
+        if 'with_geer' in self._rasterization_parameters:
+            try:
+                from gsplat.geer.camera import get_camera_tanfov
+            except ImportError:
+                return
+            self._geer_supports_ftheta = (
+                'ftheta_coeffs' in inspect.signature(get_camera_tanfov).parameters
+            )
+
+    def camera_rasterization_kwargs(self, cam, mode):
+        """Build rasterizer arguments for this camera and render mode."""
+        if mode not in ('default', 'ut', 'geer'):
+            raise ValueError('render_mode must be default, ut or geer')
+        parameters = self._rasterization_parameters
+        extra = {}
+        if mode != 'default':
+            if self.render_cfg.packed:
+                raise ValueError('DriveStudio UT/GEER training requires packed=false')
+            extra.update(with_ut=mode == 'ut', with_eval3d=True)
+        if mode == 'geer':
+            extra['with_geer'] = True
+        if mode == 'default' and (
+            cam.radial_coeffs is not None or cam.tangential_coeffs is not None
+        ):
+            raise ValueError('Native lens distortion requires UT or GEER')
+        if cam.camera_model != 'pinhole' and mode == 'default':
+            raise ValueError('Native fisheye/FTheta cameras require UT or GEER')
+        if cam.camera_model not in ('pinhole', 'fisheye', 'ftheta'):
+            raise ValueError('Unsupported camera model: ' + cam.camera_model)
+        if cam.camera_model != 'pinhole' or 'camera_model' in parameters:
+            extra['camera_model'] = cam.camera_model
+        if cam.radial_coeffs is not None:
+            extra['radial_coeffs'] = cam.radial_coeffs[None]
+        if cam.tangential_coeffs is not None:
+            extra['tangential_coeffs'] = cam.tangential_coeffs[None]
+        if cam.camera_model == 'ftheta':
+            if mode == 'geer' and not self._geer_supports_ftheta:
+                raise RuntimeError(
+                    'GEER needs native FTheta culling support; install the compatible renderer described in docs/PhysicalAI.md'
+                )
+            if 'ftheta_coeffs' not in parameters:
+                raise RuntimeError('Installed gsplat lacks FTheta support; see docs/PhysicalAI.md')
+            from gsplat.cuda._wrapper import FThetaCameraDistortionParameters, FThetaPolynomialType
+
+            p = cam.ftheta_parameters
+            if p is None or list(p['resolution']) != [int(cam.W), int(cam.H)]:
+                raise ValueError('FTheta calibration must match the rendered image resolution')
+            extra['ftheta_coeffs'] = FThetaCameraDistortionParameters(
+                reference_poly=FThetaPolynomialType[str(p['reference_poly'])],
+                pixeldist_to_angle_poly=tuple(float(v) for v in p['pixeldist_to_angle_poly']),
+                angle_to_pixeldist_poly=tuple(float(v) for v in p['angle_to_pixeldist_poly']),
+                max_angle=float(p['max_angle']),
+                linear_cde=tuple(float(v) for v in p['linear_cde']),
+            )
+        if cam.shutter_type != 'GLOBAL':
+            if mode == 'default' or cam.camtoworlds_end is None:
+                raise ValueError('Rolling-shutter cameras require UT/GEER and exposure-end poses')
+            from gsplat.cuda._wrapper import RollingShutterType
+
+            extra['rolling_shutter'] = RollingShutterType[cam.shutter_type]
+            extra['viewmats_rs'] = torch.linalg.inv(cam.camtoworlds_end)[None]
+        missing = set(extra) - set(parameters)
+        if missing:
+            raise RuntimeError(
+                f'Installed gsplat lacks {sorted(missing)} for {mode}; see docs/PhysicalAI.md'
+            )
+        if self.render_cfg.get('tile_size') is not None:
+            extra['tile_size'] = int(self.render_cfg.tile_size)
+        return extra
+
     def render_gaussians(
         self,
         gs: dataclass_gs,
         cam: dataclass_camera,
         **kwargs,
     ) -> Dict[str, torch.Tensor]:
+        render_mode = cam.render_mode or self.render_cfg.get("render_mode", "default")
+        camera_kwargs = self.camera_rasterization_kwargs(cam, render_mode)
+        viewmat = torch.linalg.inv(cam.camtoworlds)
+        colors = gs.rgbs
+        native_depth = render_mode != "default" and self.use_depth_supervision
+        if render_mode != "default":
+            kwargs["render_mode"] = "RGB"
+        if native_depth:
+            # Rasterize world positions so depth can use each pixel's exposure pose.
+            colors = torch.cat((colors, gs.means), dim=-1)
+            # Separate RGB and XYZ passes limit register use with larger tiles.
+            kwargs["channel_chunk"] = 3
+            depth_axis, depth_offset = viewmat[2, :3], viewmat[2, 3]
+            if cam.shutter_type != "GLOBAL":
+                vertical = cam.shutter_type in ("ROLLING_TOP_TO_BOTTOM", "ROLLING_BOTTOM_TO_TOP")
+                size = cam.H if vertical else cam.W
+                coordinates = torch.arange(size, device=colors.device, dtype=colors.dtype) + 0.5
+                pixels = torch.stack((coordinates, coordinates), dim=-1)
+                fraction = camera_shutter_fraction(pixels, cam.W, cam.H, cam.shutter_type)
+                fraction = fraction[:, None] if vertical else fraction[None, :]
+                rotation, origin = interpolate_camera_poses(
+                    cam.camtoworlds, cam.camtoworlds_end, fraction
+                )
+                depth_axis = rotation[..., :, 2]
+                depth_offset = -(depth_axis * origin).sum(dim=-1)
     
         def render_fn(opaticy_mask=None, return_info=False):
             renders, alphas, info = rasterization(
                 means=gs.means,
                 quats=gs.quats,
                 scales=gs.scales,
-                opacities=gs.opacities.squeeze()*opaticy_mask if opaticy_mask is not None else gs.opacities.squeeze(),
-                colors=gs.rgbs,
-                viewmats=torch.linalg.inv(cam.camtoworlds)[None, ...],  # [C, 4, 4]
+                opacities=gs.opacities.squeeze() *
+                opaticy_mask if opaticy_mask is not None else gs.opacities.squeeze(),
+                colors=colors,
+                viewmats=viewmat[None, ...],  # [C, 4, 4]
                 Ks=cam.Ks[None, ...],  # [C, 3, 3]
                 width=cam.W,
                 height=cam.H,
@@ -404,14 +541,24 @@ class BasicTrainer(nn.Module):
                 absgrad=self.render_cfg.absgrad,
                 sparse_grad=self.render_cfg.sparse_grad,
                 rasterize_mode="antialiased" if self.render_cfg.antialiased else "classic",
+                **camera_kwargs,
                 **kwargs,
             )
             renders = renders[0]
             alphas = alphas[0].squeeze(-1)
             assert self.render_cfg.batch_size == 1, "batch size must be 1, will support batch size > 1 in the future"
             
-            assert renders.shape[-1] == 4, f"Must render rgb, depth and alpha"
-            rendered_rgb, rendered_depth = torch.split(renders, [3, 1], dim=-1)
+            if native_depth:
+                rendered_rgb, positions = torch.split(renders, [3, 3], dim=-1)
+                positions = positions / alphas[..., None].clamp_min(1e-8)
+                rendered_depth = (positions * depth_axis).sum(dim=-1) + depth_offset
+                rendered_depth = torch.where(alphas > 1e-8, rendered_depth, 0.0)[..., None]
+            elif renders.shape[-1] == 4:
+                rendered_rgb, rendered_depth = torch.split(renders, [3, 1], dim=-1)
+            elif renders.shape[-1] == 3:
+                rendered_rgb, rendered_depth = renders, None
+            else:
+                raise RuntimeError("Unexpected rasterizer output channels")
             
             if not return_info:
                 return torch.clamp(rendered_rgb, max=1.0), rendered_depth, alphas[..., None]
@@ -422,12 +569,24 @@ class BasicTrainer(nn.Module):
         rgb, depth, opacity, self.info = render_fn(return_info=True)
         results = {
             "rgb_gaussians": rgb,
-            "depth": depth, 
             "opacity": opacity
         }
         
+        if depth is not None:
+            results["depth"] = depth
+        
         if self.training:
-            self.info["means2d"].retain_grad()
+            if render_mode == "default":
+                self.info["means2d"].retain_grad()
+            elif render_mode == "geer":
+                if self.info.get("geer_gradient") is None:
+                    raise RuntimeError(
+                        "GEER training requires gsplat with geer_gradient support"
+                    )
+                self.info["geer_gradient"].retain_grad()
+            else:
+                self.info["means3d"] = gs.means
+                self.info["means3d"].retain_grad()
         
         return results, render_fn
 
@@ -483,7 +642,7 @@ class BasicTrainer(nn.Module):
             cam=processed_cam,
             near_plane=self.render_cfg.near_plane,
             far_plane=self.render_cfg.far_plane,
-            render_mode="RGB+ED",
+            render_mode="RGB+ED" if self.render_cfg.get("render_mode", "default") == "default" else "RGB",
             radius_clip=self.render_cfg.get('radius_clip', 0.)
         )
         
@@ -550,7 +709,7 @@ class BasicTrainer(nn.Module):
             loss_dict.update({"sky_loss_opacity": sky_loss_opacity})
         
         # depth loss
-        if self.depth_loss_fn is not None:
+        if self.use_depth_supervision and self.depth_loss_fn is not None:
             gt_depth = image_infos["lidar_depth_map"] 
             lidar_hit_mask = (gt_depth > 0).float() * valid_loss_mask
             pred_depth = outputs["depth"]
@@ -574,7 +733,7 @@ class BasicTrainer(nn.Module):
             
         # from pvg: https://github.com/fudan-zvg/PVG/blob/b4162a9135282e0f3c929054f16be1b3fbacd77a/train.py#L161
         inverse_depth_smoothness_reg = self.losses_dict.get("inverse_depth_smoothness", None)
-        if inverse_depth_smoothness_reg is not None:
+        if self.use_depth_supervision and inverse_depth_smoothness_reg is not None:
             inverse_depth = 1 / (outputs["depth"] + 1e-5)
             loss_inv_depth = kornia.losses.inverse_depth_smoothness_loss(
                 inverse_depth[None].repeat(1, 1, 1, 3).permute(0, 3, 1, 2),
@@ -714,13 +873,13 @@ class BasicTrainer(nn.Module):
         logger.info(f"Saved a checkpoint to {ckpt_path}")
         
     def init_viewer(self, port: int = 8080):
-        # a simple viewer for background ONLY visualization
-        self.server = viser.ViserServer(port=port, verbose=False)
-        self.viewer = nerfview.Viewer(
-            server=self.server,
-            render_fn=self._viewer_render_fn,
+        self.viewer = create_gsplat_viewer(
+            self,
+            port=port,
             mode="training",
+            num_frames=getattr(self, "num_timesteps", 1),
         )
+        self.server = self.viewer.server
 
     @torch.no_grad()
     def _viewer_render_fn(
