@@ -139,6 +139,7 @@ class RigidNodes(VanillaGaussians):
                 
                 avg_grad_norm = self.xys_grad_norm / self.vis_counts
                 high_grads = (avg_grad_norm > self.ctrl_cfg.densify_grad_thresh).squeeze()
+                high_grads = self.fastgs_filter_densify(high_grads)
                 
                 splits = (
                     self.get_scaling.max(dim=-1).values > \
@@ -242,6 +243,7 @@ class RigidNodes(VanillaGaussians):
                 # cull big screen space
                 assert self.max_2Dsize is not None
                 culls = culls | (self.max_2Dsize > self.ctrl_cfg.cull_screen_size).squeeze()
+        culls = self.fastgs_extra_culls(culls)
         self._means = Parameter(self._means[~culls].detach())
         self._scales = Parameter(self._scales[~culls].detach())
         self._quats = Parameter(self._quats[~culls].detach())

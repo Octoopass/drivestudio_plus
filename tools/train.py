@@ -121,6 +121,8 @@ def main(args):
         scene_aabb=dataset.get_aabb().reshape(2, 3),
         device=device
     )
+    # training views for FastGS multi-view scoring (only used when trainer.fastgs.enabled)
+    trainer.fastgs_view_source = dataset.train_image_set
     
     # NOTE: If resume, gaussians will be loaded from checkpoint
     #       If not, gaussians will be initialized from dataset

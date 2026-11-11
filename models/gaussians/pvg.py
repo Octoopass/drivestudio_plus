@@ -22,6 +22,7 @@ from models.gaussians.vanilla import VanillaGaussians
 logger = logging.getLogger()
 
 class PeriodicVibrationGaussians(VanillaGaussians):
+    fastgs_supported = False   # PVG has its own refinement, not hooked up to FastGS
     def __init__(
         self,
         **kwargs

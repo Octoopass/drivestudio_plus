@@ -26,6 +26,8 @@ from models.gaussians.basics import *
 logger = logging.getLogger()
 
 class VanillaGaussians(nn.Module):
+    # refinement_after() / cull_gaussians() apply the FastGS masks set by the trainer
+    fastgs_supported = True
 
     def __init__(
         self,
@@ -59,6 +61,8 @@ class VanillaGaussians(nn.Module):
         # init models
         self.xys_grad_norm = None
         self.max_2Dsize = None
+        self.fastgs_densify_mask = None   # [num_points] bool, set by the trainer for one step
+        self.fastgs_prune_mask = None     # [num_points] bool, set by the trainer for one step
         self._means = torch.zeros(1, 3, device=self.device)
         if self.ball_gaussians:
             self._scales = torch.zeros(1, 1, device=self.device)
@@ -190,6 +194,26 @@ class VanillaGaussians(nn.Module):
                 self.max_2Dsize[full_mask], newradii / float(last_size)
             )
         
+    def fastgs_filter_densify(self, high_grads: torch.Tensor) -> torch.Tensor:
+        """Keep only the high-gradient gaussians that also pass the trainer's multi-view test."""
+        mask = self.fastgs_densify_mask
+        if mask is None:
+            return high_grads
+        kept = high_grads & mask.reshape(high_grads.shape)
+        print(f"     FastGS: {int(kept.sum())} of {int(high_grads.sum())} high-gradient gaussians pass the multi-view test")
+        return kept
+
+    def fastgs_extra_culls(self, culls: torch.Tensor) -> torch.Tensor:
+        """Add the trainer's multi-view prune mask to the gaussians about to be culled."""
+        mask = self.fastgs_prune_mask
+        if mask is None:
+            return culls
+        if mask.shape[0] < culls.shape[0]:
+            # gaussians appended by densification earlier in this refinement are not pruned
+            mask = torch.cat([mask, mask.new_zeros(culls.shape[0] - mask.shape[0])])
+        print(f"     FastGS prune: {int((mask & ~culls).sum())}")
+        return culls | mask
+
     def get_gaussian_param_groups(self) -> Dict[str, List[Parameter]]:
         return {
             self.class_prefix+"xyz": [self._means],
@@ -221,6 +245,7 @@ class VanillaGaussians(nn.Module):
                 
                 avg_grad_norm = self.xys_grad_norm / self.vis_counts
                 high_grads = (avg_grad_norm > self.ctrl_cfg.densify_grad_thresh).squeeze()
+                high_grads = self.fastgs_filter_densify(high_grads)
                 
                 splits = (
                     self.get_scaling.max(dim=-1).values > \
@@ -319,6 +344,7 @@ class VanillaGaussians(nn.Module):
                 # cull big screen space
                 assert self.max_2Dsize is not None
                 culls = culls | (self.max_2Dsize > self.ctrl_cfg.cull_screen_size).squeeze()
+        culls = self.fastgs_extra_culls(culls)
         self._means = Parameter(self._means[~culls].detach())
         self._scales = Parameter(self._scales[~culls].detach())
         self._quats = Parameter(self._quats[~culls].detach())

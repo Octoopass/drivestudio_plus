@@ -17,6 +17,7 @@ RGB_tuples = torch.tensor(np.vstack([phalp_colors] * 10), dtype=torch.float32) /
 logger = logging.getLogger()
 
 class SMPLNodes(RigidNodes):
+    fastgs_supported = False   # SMPL gaussians are never densified or culled
     def __init__(
         self,
         **kwargs
