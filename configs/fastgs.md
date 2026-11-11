@@ -4,7 +4,7 @@ An adaptation of the densification and pruning rules of [FastGS](https://github.
 It changes which Gaussians are added and removed; it does not change the renderer, so it works with
 `render_mode: default`, `ut` and `geer`.
 
-Enable it under `trainer` in a method config (see `streetgs_fastgs.yaml`, `streetgs_geer_fastgs.yaml`):
+Enable it under `trainer` in a method config (see `streetgs_fastgs.yaml`, `streetgs_geer_fastgs.yaml`, `omnire_fastgs.yaml`):
 
 ```yaml
 trainer:
