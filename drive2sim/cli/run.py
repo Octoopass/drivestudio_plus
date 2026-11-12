@@ -15,7 +15,6 @@ import argparse
 
 from drive2sim.cli.approach import add_plan_arguments, resolve_from_args
 from drive2sim.cli.output import (
-    CommandError,
     confirm,
     emit,
     event_printer,
@@ -29,6 +28,7 @@ from drive2sim.engine import housekeeping
 from drive2sim.engine.run import D2S_DIR, RUN_FILE, create_run, execute_run, request_cancel
 from drive2sim.engine.run import list_runs as read_runs
 from drive2sim.engine.workdir import Workdir
+from drive2sim.kaggle.executor import push_run
 
 
 def register(
@@ -85,22 +85,29 @@ def _report(args: argparse.Namespace, record: RunRecord) -> int:
 
 
 def start_run(args: argparse.Namespace) -> int:
-    """Tạo một run mới rồi chạy hết các stage.
+    """Tạo một run mới rồi chạy hết các stage, trên máy hoặc trên Kaggle.
+
+    Với ``--executor kaggle``, run được tạo trên máy rồi đẩy lên Kaggle (``d2s kaggle push``);
+    lệnh trả về ngay, kết quả tải về bằng ``d2s kaggle pull``.
 
     Args:
         args: Tham số dòng lệnh như ``approach check``, thêm ``executor``.
 
     Returns:
-        ``0`` nếu run xong, ``1`` nếu một stage lỗi.
-
-    Raises:
-        CommandError: Nếu chọn ``--executor kaggle`` (chưa có).
+        ``0`` nếu run xong (hoặc đã đẩy lên Kaggle), ``1`` nếu một stage lỗi.
     """
-    if args.executor != "local":
-        raise CommandError("chạy trên Kaggle chưa có; dùng --executor local")
     workdir, scene, split, plan = resolve_from_args(args)
     run_dir = create_run(plan, workdir, scene, split, executor=args.executor)
     info(args, f"tạo run {run_dir.name} ở {workdir.relative(run_dir)}")
+    if args.executor == "kaggle":
+        state = push_run(workdir, run_dir.name)
+        emit(
+            args,
+            {"run_id": run_dir.name, "kaggle": state.to_dict()},
+            f"đã đẩy run {run_dir.name} lên notebook {state.kernel}; "
+            f"xem: d2s kaggle status {run_dir.name}; tải về: d2s kaggle pull {run_dir.name}",
+        )
+        return 0
     return _report(args, execute_run(run_dir, workdir, sink=event_printer(args)))
 
 

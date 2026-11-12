@@ -314,6 +314,7 @@ runs/<scene_id>/<approach_id>/<run_id>/
     ├── log.txt                          # log của engine, traceback của stage lỗi
     ├── pid                              # pid của tiến trình đang chạy run; xoá khi xong
     ├── cancel                           # có file này là có yêu cầu huỷ; engine xoá khi đã huỷ
+    ├── kaggle.json                      # run chạy trên Kaggle: notebook, lần đẩy, dataset, commit (mục 9.2)
     └── stages/
         ├── train.drivestudio/           # thư mục log của DriveStudio
         │   ├── scene_view/000/          # cảnh ảo bằng symlink: thư mục cảnh + mask, SMPL từ cache
@@ -551,16 +552,24 @@ d2s-worker --job job.json --result result.json
 
 ### 9.2 Gói job cho Kaggle
 
+Run được tạo trên máy (`executor: kaggle`) rồi đẩy lên Kaggle bằng `d2s kaggle push` (`d2s run start --executor kaggle` tự gọi). Gói job là vài file JSON nhỏ, nhúng thẳng vào notebook sinh từ `drive2sim/kaggle/templates/run.ipynb`:
+
 ```
 bundle/
-├── job.json                     # run_id, approach_id, preset, options, commit của repo
-├── approach.yaml
-├── cache_refs.json              # cache_key của các artifact đã có
-├── resume.json                  # checkpoint để chạy tiếp, nếu có
-└── scene_ref.json               # slug của Kaggle dataset chứa cảnh, scene_id, converter_version
+├── run.json          # run.json đã tạo trên máy: approach, lựa chọn, tham số từng stage
+├── split.json        # split của run
+├── scene_ref.json    # {"scene_id", "converter_version", "kaggle_dataset"}
+└── resume.json       # {"kernel": notebook của lần đẩy trước, hoặc null}
 ```
 
-Notebook chạy `d2s run start --bundle bundle/`, ghi kết quả ra `/kaggle/working/runs/` và `/kaggle/working/cache/` theo đúng cấu trúc mục 5 và 6. Checkpoint giữa chừng phải đủ để chạy tiếp (model và trạng thái optimizer). Lệnh `d2s kaggle pull` tải hai thư mục này về và ghép vào thư mục làm việc trên máy.
+- **Cảnh** được upload một lần thành dataset private `<người dùng>/d2s-<hash8>`, với `hash8` băm từ `<scene_id>@<converter_version>`; ingest lại bằng converter khác thì upload dataset mới.
+- **Code**: notebook `git clone` đúng commit của repo (remote `origin`, hoặc biến `D2S_KAGGLE_REPO`), nên commit phải có trên remote; `kaggle push` từ chối nếu chưa push.
+- **Notebook** `<người dùng>/d2s-<hash8 của run_id>-<lần đẩy>`, private, có GPU (`machine_shape` mặc định `NvidiaTeslaT4`, đổi bằng `--accelerator`) và internet. Notebook in phiên bản GPU và PyTorch, cài phụ thuộc (giữ PyTorch có sẵn), rồi chạy `d2s kaggle run bundle/ --workdir /kaggle/working --input-root /kaggle/input`.
+- `d2s kaggle run` tìm cảnh dưới `--input-root` theo `manifest.yaml` (không giả định đường dẫn gắn của Kaggle), dựng `data/<scene_id>/` bằng symlink tới từng mục của cảnh, ghi `splits/` mới, rồi chạy run như `run resume`. Kết quả ở `/kaggle/working/runs/` và `/kaggle/working/cache/` theo đúng cấu trúc mục 5 và 6; ô cuối notebook xoá `data/` và mọi symlink để output chỉ còn kết quả.
+- **Chạy tiếp**: phiên bị ngắt thì `d2s kaggle pull` rồi `d2s kaggle push` lần nữa. Lần đẩy sau gắn output của notebook trước (`kernel_sources`) và ghi tên nó vào `resume.json`; `d2s kaggle run` chép run và cache trong output đó vào thư mục làm việc trước khi chạy, nên stage đã xong không chạy lại và `train.drivestudio` chạy tiếp từ `checkpoint_resume.pth`.
+- `d2s kaggle pull` tải output, thay nội dung `d2s/` của run bằng bản trên Kaggle (giữ `kaggle.json`), chép thêm các kết quả cache máy chưa có.
+
+Chưa chạy thật: cờ của lệnh `kaggle` đã kiểm với Kaggle CLI 2.2.5, còn ô cài phụ thuộc trong notebook phụ thuộc câu hỏi mở về phiên bản PyTorch (ARCHITECTURE mục 8).
 
 ## 10. Quy tắc đặt tên và CLI
 
@@ -624,7 +633,8 @@ Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dà
 | `d2s run start <approach_id> --scene <scene_id> --split <split_id> [--preset <tên>] [--set <ô>=<giá trị>]... [--executor local\|kaggle]` | Chạy |
 | `d2s run resume <run_id>` | Chạy tiếp từ stage dở |
 | `d2s run status <run_id>` / `d2s run list [--scene <scene_id>]` / `d2s run cancel <run_id>` / `d2s run delete <run_id>` | Theo dõi, liệt kê, huỷ, xoá thư mục run |
-| `d2s kaggle push <run_id>` / `d2s kaggle status <run_id>` / `d2s kaggle pull <run_id>` | Làm việc với Kaggle (thường do `run start --executor kaggle` tự gọi) |
+| `d2s kaggle push <run_id> [--branch <branch>] [--accelerator <GPU>]` / `d2s kaggle status <run_id>` / `d2s kaggle pull <run_id>` | Đẩy run lên Kaggle (lần sau chạy tiếp), xem trạng thái notebook, tải kết quả về (mục 9.2); `push` do `run start --executor kaggle` tự gọi |
+| `d2s kaggle run <gói> [--input-root <thư mục>]` | Chỉ dùng trong notebook Kaggle: dựng thư mục làm việc từ gói job rồi chạy run |
 | `d2s report <run_id>...` | Bảng so sánh nhiều run |
 | `d2s export ply <run_id>` / `d2s export preview <run_id>` | Chạy lại stage export cho một run |
 | `d2s cache list [--scene <scene_id>]` / `d2s cache gc [--scene <scene_id>]` | Xem, dọn cache |
@@ -694,7 +704,7 @@ Route đã có (`drive2sim/studio/api/routes/`):
 | `GET`, `POST /api/scenes/{scene_id}/splits`, `GET .../splits/{split_id}` | Liệt kê, tạo, xem split; thân của `POST`: `strategy`, `cameras`, `frame_range`, `split_id` | `split list`, `split create`, `split show` |
 | `GET /api/approaches`, `GET /api/approaches/{approach_id}` | Đọc file approach | `approach list`, `approach show` |
 | `POST /api/approaches/{approach_id}/check` | Thân: `scene_id`, `split_id`, `preset`, `options`, `stage_params`. Trả `options` đã quyết định, `lidar_usage`, `stages` (kèm `cache_hit`) và `blocked_choices` (ô → lựa chọn bị khoá kèm lý do) để giao diện làm mờ | `approach check` |
-| `POST /api/runs` | Thân như `check` cộng `approach_id`, `executor`; tạo run, xếp vào hàng đợi chạy nền | `run start` |
+| `POST /api/runs` | Thân như `check` cộng `approach_id`, `executor`; tạo run, xếp vào hàng đợi chạy nền (`local`) hoặc đẩy lên Kaggle ở nền (`kaggle`) | `run start` |
 | `GET /api/runs`, `GET /api/runs/{run_id}` | Liệt kê (lọc `scene_id`, `status`); `run.json` cộng `summary` và `run_dir` | `run list`, `run status` |
 | `POST /api/runs/{run_id}/resume` | Chạy tiếp; `409` nếu run đang chạy | `run resume` |
 | `GET /api/runs/{run_id}/events`, `GET /api/events` | Sự kiện SSE (mục 11.4) | |
@@ -703,7 +713,9 @@ Route đã có (`drive2sim/studio/api/routes/`):
 | `GET /api/report` | Bảng so sánh (lọc `scene_id`, `split_id`, `run_id` lặp lại được); `?format=csv` để xuất | `report` |
 | `POST /api/sources/inspect` | Thân `{"path"}`; kết quả nhận dạng như `source inspect --json`; `404` nếu không có thư mục | `source inspect` |
 | `POST /api/sources/ingest` | Thân `path`, `source_type`, `version`, `sequence`, `scene_id`, `interpolate_n`; chọn chuỗi ngay (`400` kèm các lựa chọn nếu thiếu), rồi ingest nền; trả `202` kèm việc | `scene ingest` |
-| `GET /api/jobs`, `GET /api/jobs/{job_id}` | Việc ingest: `job_id`, `label`, `status` (`queued`, `running`, `succeeded`, `failed`), `scene_id`, `error`; giữ trong bộ nhớ tới khi tắt Studio | |
+| `GET /api/jobs`, `GET /api/jobs/{job_id}` | Việc nền (ingest, đẩy và tải Kaggle): `job_id`, `kind` (`ingest`, `kaggle_push`, `kaggle_pull`), `label`, `status` (`queued`, `running`, `succeeded`, `failed`), `result` (`scene_id` hoặc `run_id`), `error`; giữ trong bộ nhớ tới khi tắt Studio | |
+| `GET /api/kaggle/{run_id}` | `kaggle.json` của run cộng `status` của notebook | `kaggle status` |
+| `POST /api/kaggle/{run_id}/push`, `POST /api/kaggle/{run_id}/pull` | Đẩy, tải ở nền; trả `202` kèm việc | `kaggle push`, `kaggle pull` |
 | `POST /api/scenes/{scene_id}/validate` | Kiểm tra lại, ghi và trả báo cáo | `scene validate` |
 | `DELETE /api/scenes/{scene_id}`, `DELETE /api/scenes/{scene_id}/splits/{split_id}` | `{"removed": [...]}`; `409` khi run đang chạy hoặc split còn run dùng | `scene delete`, `split delete` |
 | `POST /api/runs/{run_id}/cancel` | Ghi yêu cầu huỷ (mục 6.1); trả `run.json` hiện tại | `run cancel` |
@@ -712,7 +724,7 @@ Route đã có (`drive2sim/studio/api/routes/`):
 | `GET /api/cache`, `POST /api/cache/gc` | Liệt kê (kèm `size_bytes`, `used_by`); dọn, thân `scene_id`, `dry_run` | `cache list`, `cache gc` |
 | `GET /files/<đường dẫn>` | File trong `D2S_WORKDIR`; đường dẫn ra ngoài thư mục làm việc trả `404` | |
 
-Chưa có: nhóm `kaggle`. Run chạy nền **lần lượt từng run** trong một luồng (`drive2sim/studio/api/jobs.py`): một người, một máy, hai run train cùng lúc sẽ tranh GPU. Ingest chạy ở luồng riêng, nên không phải chờ run train xong.
+Run chạy nền **lần lượt từng run** trong một luồng (`drive2sim/studio/api/jobs.py`): một người, một máy, hai run train cùng lúc sẽ tranh GPU. Việc nền dài (ingest, Kaggle) chạy ở luồng riêng, nên không phải chờ run train xong.
 
 ### 11.2 Thân và kết quả
 
@@ -736,6 +748,7 @@ Mọi lỗi trả về cùng một hình dạng, HTTP status theo loại:
 | 409 | `conflict` | Đối tượng đã tồn tại, hoặc run đang chạy mà bị yêu cầu xoá | 1 |
 | 422 | `blocked` | Không thoả điều kiện dữ liệu hoặc `constraints` (mục 4.2) | 3 |
 | 500 | `internal` | Lỗi không lường trước; `message` không lộ traceback, traceback vào log | 1 |
+| 502 | `kaggle_failed` | Lệnh `kaggle` lỗi: chưa cài, chưa có khoá API, commit chưa push, notebook trước còn chạy | 1 |
 | 503 | `worker_unavailable` | Worker render chưa sẵn sàng hoặc đã chết | 1 |
 
 Mã lỗi của worker (mục 9.1) và của run (mục 6.2) dùng cùng bảng, thêm `env_missing`, `worker_crashed`, `cancelled`, và `stage_failed` (một stage ném lỗi khi chạy; ghi trong `run.json`, mã thoát CLI `1`). `code` là `snake_case`, thêm mã mới thì ghi vào bảng này. `message` tiếng Việt, viết cho người dùng, không phải cho lập trình viên.

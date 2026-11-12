@@ -34,7 +34,7 @@ pythonpath = ["."]
 line-length = 99
 target-version = "py39"
 # Mã cũ lấy từ DriveStudio và mã bên thứ ba chưa theo chuẩn này (AGENTS.md mục 4).
-extend-exclude = ["drive2sim/recon", "third_party"]
+extend-exclude = ["drive2sim/recon", "third_party", "drive2sim/kaggle/templates"]
 
 [tool.ruff.lint]
 # E/W: PEP 8; F: lỗi logic; I: thứ tự import; N: đặt tên PEP 8; ANN: chú thích kiểu;

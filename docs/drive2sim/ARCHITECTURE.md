@@ -227,7 +227,7 @@ NCore vẫn dùng ở hai chỗ: là **một nguồn vào** (PhysicalAI, CARLA g
 **Ưu điểm.** Không tốn tiền GPU; cùng lệnh `d2s run start`, chỉ đổi `--executor`.
 
 **Nhược điểm.**
-- Phiên bị ngắt sau một thời gian, nên phải lưu checkpoint đầy đủ và chạy tiếp được. Hiện chạy tiếp đang hỏng (mục 7.2).
+- Phiên bị ngắt sau một thời gian, nên phải lưu checkpoint đầy đủ và chạy tiếp được. Chạy tiếp đã sửa trong code, chưa chạy thử (mục 7.2).
 - Upload cảnh lớn lâu.
 - Không xem viewer được trong lúc train.
 
@@ -374,12 +374,12 @@ drivestudio_plus/                          branch drive2sim
 │   ├── stages/                            commands.py, scene_view.py; prep/masks_segformer.py, prep/smpl.py, train/drivestudio.py, eval/standard.py, export/ply_world.py (đã có); init/, render/ (khung)
 │   ├── engine/                            stage.py, registry.py, resolve.py, approaches.py, workdir.py, scenes.py, cache.py, run.py, report.py, housekeeping.py (xoá, dọn cache)
 │   ├── approaches/                        omnire.yaml, streetgs.yaml
-│   ├── kaggle/                (khung)     client.py, bundle.py, templates/<tên>.ipynb
+│   ├── kaggle/                            client.py, bundle.py, executor.py, templates/run.ipynb
 │   ├── sim/                   (khung)     renderer.py (L2), actors.py (L3), server/ (L4; protos/ từ NuRec)
 │   ├── studio/                            api/ (app.py, state.py, events.py, jobs.py, routes/<nhóm>.py); frontend/ (Vite + React: src/pages/, src/components/, src/locales/, src/api/generated/, dist/ đã build); viz/ (khung)
 │   ├── external/              (khung)     <codebase>/: worker cho codebase ngoài
 │   ├── scripts/               (khung)     công cụ phát triển chạy một lần
-│   └── cli/                               main.py, output.py; source.py, scene.py, split.py, approach.py, run.py, report.py, export.py, cache.py, studio.py, schema.py
+│   └── cli/                               main.py, output.py; source.py, scene.py, split.py, approach.py, run.py, report.py, export.py, cache.py, kaggle.py, studio.py, schema.py
 ├── third_party/                           smplx (pip -e, import smplx); Humans4D (submodule, import hmr2); ncore (submodule, tag v19.9.0: converter NCore)
 ├── envs/                      (khung)     file môi trường: main.yml, <codebase>.yml (mục 2.9)
 └── tests/drive2sim/           (khung)     cùng cây thư mục với drive2sim/; fixtures/
@@ -516,7 +516,7 @@ Tên renderer theo CONTRACTS mục 10.3 (`3dgs`, `3dgut`, `3dgeer`); engine đ�
 
 ### 4.6 kaggle
 
-Đóng gói job, upload cảnh thành dataset private (một lần, nhận diện theo `scene_id` và phiên bản converter), sinh notebook từ `kaggle/templates/`, chỉ cài repo và chạy `d2s run start --bundle`, theo dõi qua Kaggle API, tải output về và ghép vào `runs/` và `cache/`.
+Đóng gói job, upload cảnh thành dataset private (một lần, nhận diện theo `scene_id` và phiên bản converter), sinh notebook từ `kaggle/templates/run.ipynb`, cài repo đúng commit và chạy `d2s kaggle run <gói>`, theo dõi bằng lệnh `kaggle`, tải output về và ghép vào `runs/` và `cache/` (CONTRACTS mục 9.2). `client.py` gọi lệnh `kaggle` trong tiến trình con, nên máy không dùng Kaggle không cần cài gì và test thay được Kaggle bằng hàm giả; `bundle.py` dựng và đọc gói; `executor.py` đẩy, hỏi trạng thái, tải về.
 
 ### 4.7 export
 
@@ -600,12 +600,13 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (thư mục DriveStudio
 | Stage bọc DriveStudio: `train.drivestudio`, `eval.standard`, `export.ply_world`; approach `omnire`, `streetgs` | Xong trong code; dựng lệnh có test; **chưa chạy thật** (cần GPU); approach chưa chạy được tới khi có `prep.to_drivestudio` | |
 | CLI `d2s`: `scene list/show`, `split create/list/show`, `approach list/show/check`, `run start/resume/status/list` | Xong; 138 test đạt trên Python 3.9 và 3.12 | |
 | CLI: `scene ingest/validate/delete`, `split delete`, `run cancel/delete`, `report`, `export`, `cache list/gc`, `studio` | Xong | |
-| CLI còn lại: `kaggle`, `serve` | Chưa làm; làm cùng phần tương ứng | |
+| CLI còn lại: `serve` | Chưa làm; làm cùng `sim/server/` | |
 | Studio API (`studio/api`): cảnh, split, approach (`check` kèm lựa chọn bị khoá), run chạy nền, SSE, log, video, bảng so sánh, `/files/`; lệnh `d2s studio` | Xong; 163 test đạt trên Python 3.9 và 3.12; đã chạy thử server thật | |
 | Studio API: nhận dạng và ingest nền (`/api/sources`, `/api/jobs`), huỷ, xoá, export run, xoá cảnh và split, kiểm tra lại cảnh, cache | Xong; 182 test đạt trên Python 3.9 và 3.12 | |
 | Studio giao diện (`studio/frontend`): nhóm A (tổng quan cảnh, camera, ảnh đồng bộ theo khung, split trên thanh thời gian, báo cáo kiểm tra, tạo split), chạy mới (ô chọn bị khoá kèm lý do, xem trước stage và cache), nhóm B và C (làn đường stage theo SSE, metric, kết quả, video, log, chạy tiếp), nhóm D (bảng xếp hạng, PSNR theo thời gian train và VRAM, CSV, video cạnh nhau); tiếng Việt và tiếng Anh; chế độ sáng, tối; màn hình hẹp | Xong; đã xem bằng trình duyệt trên dữ liệu mẫu (không phải dữ liệu thật) | |
 | Studio còn thiếu: sơ đồ rig nhìn từ trên xuống và quỹ đạo xe trên bản đồ 2D (cần đọc extrinsics, pose theo cách lưu của từng dataset); depth và tách lớp; xuất hình cho báo cáo (mới có CSV); viewer 3D (`studio/viz`); nhóm E | Chưa làm | |
-| Kaggle (`kaggle/`), `envs/main.yml` | Chưa làm; cần teammate trả lời mục 8 câu 1 | |
+| Kaggle (`kaggle/`): upload cảnh, notebook có gói job, đẩy, trạng thái, tải về, chạy tiếp qua output notebook trước; `run start --executor kaggle`; Studio `/api/kaggle` | Xong trong code; test với Kaggle giả; cờ lệnh `kaggle` đã kiểm với Kaggle CLI 2.2.5; **chưa chạy thật** | |
+| `envs/main.yml`, ô cài phụ thuộc trong notebook Kaggle | Chưa chốt; cần trả lời mục 8 câu 1 | |
 | Stage `prep.masks_segformer`, `prep.smpl` (cache, thư mục cảnh ảo); đầu vào tuỳ chọn của stage; approach `omnire`, `streetgs` có stage prep | Xong trong code; có test với script giả; **chưa chạy thật** (cần GPU, `transformers`, `hmr2`) | |
 | Tầng dữ liệu: `source inspect`; `scene ingest` cho nuScenes (gọi script có sẵn, sinh manifest); kiểm tra cấu trúc | Xong trong code; có test với dữ liệu giả; **chưa chạy thật** (cần nuScenes và `nuscenes-devkit`) | |
 | Bộ kiểm tra: chiếu LiDAR lên ảnh | Chưa làm; báo cáo ghi mục `projection.not_run` | |

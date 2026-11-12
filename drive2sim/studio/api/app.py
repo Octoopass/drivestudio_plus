@@ -29,9 +29,10 @@ from drive2sim.engine.resolve import BlockedError, ResolveError
 from drive2sim.engine.scenes import SplitError, SplitExistsError
 from drive2sim.engine.workdir import Workdir, WorkdirError
 from drive2sim.ingest.dispatch import IngestRequestError
+from drive2sim.kaggle.client import KaggleError
 from drive2sim.studio.api.events import EventBroker
-from drive2sim.studio.api.jobs import IngestJobs, RunQueue
-from drive2sim.studio.api.routes import approaches, cache, report, runs, scenes, sources
+from drive2sim.studio.api.jobs import BackgroundJobs, RunQueue
+from drive2sim.studio.api.routes import approaches, cache, kaggle, report, runs, scenes, sources
 from drive2sim.studio.api.state import StudioState
 
 FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
@@ -82,6 +83,10 @@ def _install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(IngestRequestError)
     async def invalid_ingest(request: Request, error: IngestRequestError) -> JSONResponse:
         return error_response(400, "invalid_request", str(error))
+
+    @app.exception_handler(KaggleError)
+    async def kaggle_failed(request: Request, error: KaggleError) -> JSONResponse:
+        return error_response(502, "kaggle_failed", str(error))
 
     @app.exception_handler(ResolveError)
     async def invalid_resolve(request: Request, error: ResolveError) -> JSONResponse:
@@ -139,7 +144,7 @@ def create_app(
         """Khi tắt Studio, chờ run đang chạy xong rồi mới thoát."""
         yield
         app.state.studio.queue.shutdown()
-        app.state.studio.ingest_jobs.shutdown()
+        app.state.studio.jobs.shutdown()
 
     app = FastAPI(
         title="drive2sim Studio",
@@ -149,10 +154,10 @@ def create_app(
     )
     broker = EventBroker()
     app.state.studio = StudioState(
-        workdir, broker, RunQueue(workdir, broker, registry), registry, IngestJobs(workdir)
+        workdir, broker, RunQueue(workdir, broker, registry), registry, BackgroundJobs(workdir)
     )
     _install_error_handlers(app)
-    for module in (sources, scenes, approaches, runs, report, cache):
+    for module in (sources, scenes, approaches, runs, report, cache, kaggle):
         app.include_router(module.router)
 
     @app.get("/files/{path:path}")

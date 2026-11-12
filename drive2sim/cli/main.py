@@ -2,8 +2,9 @@
 
 Lệnh có dạng ``d2s <nhóm> <hành động> [tuỳ chọn]`` (CONTRACTS mục 10.4). File này chứa:
 - ``build_parser``: dựng parser với mọi nhóm lệnh (``source``, ``scene``, ``split``,
-  ``approach``, ``run``, ``report``, ``export``, ``cache``, ``studio``, ``schema``) và tuỳ chọn
-  chung ``--workdir``, ``--json``, ``--verbose``, ``--quiet``, ``--yes``.
+  ``approach``, ``run``, ``report``, ``export``, ``cache``, ``kaggle``, ``studio``,
+  ``schema``) và tuỳ chọn chung ``--workdir``, ``--json``, ``--verbose``, ``--quiet``,
+  ``--yes``.
 - ``main``: phân tích dòng lệnh, nạp mọi stage, gọi lệnh, và đổi lỗi thành mã thoát:
   ``0`` thành công; ``1`` lỗi khi chạy; ``2`` sai cú pháp hoặc sai giá trị; ``3`` bị khoá vì
   không thoả điều kiện hoặc ràng buộc; ``130`` bị ngắt bằng Ctrl-C.
@@ -27,6 +28,7 @@ from drive2sim.cli import (
     approach,
     cache,
     export,
+    kaggle,
     report,
     run,
     scene,
@@ -41,6 +43,7 @@ from drive2sim.engine.housekeeping import InUseError
 from drive2sim.engine.registry import load_builtin_stages
 from drive2sim.engine.resolve import BlockedError, ResolveError
 from drive2sim.engine.workdir import WorkdirError
+from drive2sim.kaggle.client import KaggleError
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -84,7 +87,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"d2s {_version()}")
     groups = parser.add_subparsers(dest="group", required=True)
-    for module in (source, scene, split, approach, run, report, export, cache, studio, schema):
+    for module in (
+        source,
+        scene,
+        split,
+        approach,
+        run,
+        report,
+        export,
+        cache,
+        kaggle,
+        studio,
+        schema,
+    ):
         module.register(groups, common)
     return parser
 
@@ -139,6 +154,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return EXIT_ERROR
     except CacheBusyError as error:
         _print_error(args, "conflict", str(error))
+        return EXIT_ERROR
+    except KaggleError as error:
+        _print_error(args, "kaggle_failed", str(error))
         return EXIT_ERROR
     except CommandError as error:
         _print_error(args, error.code, str(error))

@@ -9,7 +9,7 @@ Tiến trình Studio không nạp model: các stage bọc DriveStudio chạy scr
 
 File này chứa:
 - ``RunQueue``: nhận run cần chạy, chạy bằng ``execute_run``, chuyển sự kiện tới ``EventBroker``.
-- ``IngestJobs``: chạy ingest nền ở luồng riêng và giữ trạng thái từng việc.
+- ``BackgroundJobs``: chạy việc nền dài (ingest, Kaggle) ở luồng riêng, giữ trạng thái từng việc.
 """
 
 import logging
@@ -97,13 +97,12 @@ class RunQueue:
         self._executor.shutdown(wait=True)
 
 
-class IngestJobs:
-    """Chạy ingest nền cho Studio và giữ trạng thái từng việc trong bộ nhớ.
+class BackgroundJobs:
+    """Chạy việc nền dài (ingest, đẩy và tải Kaggle) và giữ trạng thái từng việc trong bộ nhớ.
 
-    Ingest gọi script tiền xử lý có thể chạy nhiều phút, nên ``POST /api/sources/ingest`` trả
-    lời ngay kèm ``job_id`` và giao diện hỏi lại ``GET /api/jobs/{job_id}``. Một luồng riêng,
-    tách khỏi hàng đợi run, để ingest không phải chờ run train xong. Trạng thái mất khi tắt
-    Studio; kết quả thật (``data/<scene_id>/``) vẫn còn trên đĩa.
+    Các việc này có thể chạy nhiều phút, nên route trả lời ngay kèm ``job_id`` và giao diện hỏi
+    lại ``GET /api/jobs/{job_id}``. Một luồng riêng, tách khỏi hàng đợi run, để không phải chờ
+    run train xong. Trạng thái mất khi tắt Studio; kết quả thật vẫn còn trên đĩa.
 
     Attributes:
         workdir: Thư mục làm việc.
@@ -115,13 +114,14 @@ class IngestJobs:
         self._lock = threading.Lock()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="d2s-ingest")
 
-    def submit(self, label: str, work: Callable[[], str]) -> dict:
-        """Xếp một việc ingest vào hàng đợi.
+    def submit(self, kind: str, label: str, work: Callable[[], Optional[str]]) -> dict:
+        """Xếp một việc vào hàng đợi.
 
         Args:
+            kind: Loại việc: ``ingest``, ``kaggle_push``, ``kaggle_pull``.
             label: Mô tả ngắn hiện trên giao diện, ví dụ ``nuscenes scene-0061``.
-            work: Hàm làm việc, trả về ``scene_id`` đã ghi; lỗi gì thì việc thành ``failed``
-                kèm thông báo lỗi.
+            work: Hàm làm việc, trả về ``scene_id`` hoặc ``run_id`` liên quan (để giao diện mở);
+                lỗi gì thì việc thành ``failed`` kèm thông báo lỗi.
 
         Returns:
             Trạng thái ban đầu của việc (``queued``).
@@ -129,10 +129,10 @@ class IngestJobs:
         job_id = uuid.uuid4().hex[:12]
         job = {
             "job_id": job_id,
-            "kind": "ingest",
+            "kind": kind,
             "label": label,
             "status": "queued",
-            "scene_id": None,
+            "result": None,
             "error": None,
             "created_at": time.time(),
             "finished_at": None,
@@ -142,16 +142,16 @@ class IngestJobs:
         self._executor.submit(self._run, job_id, work)
         return dict(job)
 
-    def _run(self, job_id: str, work: Callable[[], str]) -> None:
+    def _run(self, job_id: str, work: Callable[[], Optional[str]]) -> None:
         """Chạy một việc và ghi kết quả vào trạng thái."""
         self._update(job_id, status="running")
         try:
-            scene_id = work()
+            result = work()
         except Exception as error:
-            logger.exception("ingest job %s failed", job_id)
+            logger.exception("job %s failed", job_id)
             self._update(job_id, status="failed", error=str(error), finished_at=time.time())
         else:
-            self._update(job_id, status="succeeded", scene_id=scene_id, finished_at=time.time())
+            self._update(job_id, status="succeeded", result=result, finished_at=time.time())
 
     def _update(self, job_id: str, **changes: object) -> None:
         with self._lock:

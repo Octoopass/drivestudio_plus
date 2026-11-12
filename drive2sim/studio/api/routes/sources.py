@@ -7,7 +7,7 @@ File này chứa:
 - ``POST /api/sources/inspect``: xem thư mục có dataset gì, phiên bản, chuỗi nào.
 - ``POST /api/sources/ingest``: chọn chuỗi (lỗi chọn trả ``400`` ngay), rồi ingest nền; trả
   ``202`` kèm việc.
-- ``GET /api/jobs``, ``GET /api/jobs/{job_id}``: trạng thái các việc ingest.
+- ``GET /api/jobs``, ``GET /api/jobs/{job_id}``: trạng thái các việc nền (ingest, Kaggle).
 """
 
 from pathlib import Path
@@ -93,24 +93,24 @@ def ingest(body: IngestBody, request: Request) -> dict:
         )
         return scene_dir.name
 
-    return state.ingest_jobs.submit(f"{target.dataset} {target.sequence}", work)
+    return state.jobs.submit("ingest", f"{target.dataset} {target.sequence}", work)
 
 
 @router.get("/api/jobs")
 def list_jobs(request: Request) -> dict:
-    """Liệt kê các việc ingest từ lúc mở Studio, mới nhất trước."""
-    items = state_of(request).ingest_jobs.list()
+    """Liệt kê các việc nền từ lúc mở Studio, mới nhất trước."""
+    items = state_of(request).jobs.list()
     return {"items": items, "total": len(items)}
 
 
 @router.get("/api/jobs/{job_id}")
 def get_job(job_id: str, request: Request) -> dict:
-    """Trạng thái một việc ingest.
+    """Trạng thái một việc nền.
 
-    Trạng thái là ``queued``, ``running``, ``succeeded`` (kèm ``scene_id``) hoặc ``failed`` (kèm
-    ``error``).
+    Trạng thái là ``queued``, ``running``, ``succeeded`` (``result`` là ``scene_id`` hoặc
+    ``run_id`` liên quan) hoặc ``failed`` (kèm ``error``).
     """
-    job = state_of(request).ingest_jobs.get(job_id)
+    job = state_of(request).jobs.get(job_id)
     if job is None:
         raise HTTPException(404, f"không có việc {job_id}")
     return job

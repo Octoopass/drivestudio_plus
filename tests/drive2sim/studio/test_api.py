@@ -16,6 +16,7 @@ video, ``eval.standard`` ghi ``summary.json``), rồi kiểm tra:
 import asyncio
 import json
 import struct
+import subprocess
 import threading
 from pathlib import Path
 
@@ -29,6 +30,7 @@ from drive2sim.core.schema import SCHEMA_VERSIONS, Manifest, Summary
 from drive2sim.engine.registry import StageRegistry
 from drive2sim.engine.stage import Stage, StageContext
 from drive2sim.engine.workdir import Workdir
+from drive2sim.kaggle import client as kaggle_client
 from drive2sim.studio.api.app import create_app
 from drive2sim.studio.api.events import EventBroker, stream_events
 from tests.drive2sim.samples import MANIFEST
@@ -138,6 +140,11 @@ def make_registry() -> StageRegistry:
     return registry
 
 
+def no_kaggle_cli(command: list[str]) -> subprocess.CompletedProcess:
+    """Thay lệnh kaggle thật: mọi lệnh đều báo chưa đăng nhập."""
+    return subprocess.CompletedProcess(command, 1, "", "401 Unauthorized")
+
+
 @pytest.fixture()
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     workdir = Workdir(tmp_path / "work")
@@ -153,6 +160,10 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     approaches.mkdir()
     (approaches / "toy.yaml").write_text(TOY)
     monkeypatch.setattr(paths, "APPROACHES_DIR", approaches)
+    # Không bao giờ gọi Kaggle thật trong test, kể cả khi máy có khoá API.
+    monkeypatch.delenv("KAGGLE_USERNAME", raising=False)
+    monkeypatch.setenv("KAGGLE_CONFIG_DIR", str(tmp_path / "no-kaggle"))
+    monkeypatch.setattr(kaggle_client, "_run_cli", no_kaggle_cli)
     app = create_app(workdir, registry=make_registry(), frontend_dir=None)
     with TestClient(app) as test_client:
         yield test_client
@@ -267,7 +278,12 @@ def test_run_lifecycle(client: TestClient) -> None:
         "/api/runs",
         json={"approach_id": "toy", "scene_id": SCENE, "split_id": split_id, "executor": "kaggle"},
     )
-    assert kaggle.status_code == 400
+    assert kaggle.status_code == 202 and kaggle.json()["executor"] == "kaggle"
+    client.app.state.studio.jobs.wait_idle()
+    push_job = client.get("/api/jobs").json()["items"][0]
+    assert push_job["kind"] == "kaggle_push" and push_job["status"] == "failed"
+    status = client.get(f"/api/kaggle/{kaggle.json()['run_id']}")
+    assert status.status_code == 502 and status.json()["error"]["code"] == "kaggle_failed"
 
 
 def test_files_block_traversal(client: TestClient) -> None:
@@ -368,11 +384,11 @@ def test_source_inspect_and_ingest_job(
     )
     job = client.post("/api/sources/ingest", json={"path": str(raw), "sequence": "scene-0103"})
     assert job.status_code == 202 and job.json()["status"] in ("queued", "running")
-    client.app.state.studio.ingest_jobs.wait_idle()
+    client.app.state.studio.jobs.wait_idle()
     done = client.get(f"/api/jobs/{job.json()['job_id']}").json()
-    assert done["status"] == "succeeded" and done["scene_id"] == "nuscenes_scene-0103"
+    assert done["status"] == "succeeded" and done["result"] == "nuscenes_scene-0103"
     again = client.post("/api/sources/ingest", json={"path": str(raw), "sequence": "scene-0103"})
-    client.app.state.studio.ingest_jobs.wait_idle()
+    client.app.state.studio.jobs.wait_idle()
     failed = client.get(f"/api/jobs/{again.json()['job_id']}").json()
     assert failed["status"] == "failed" and "đã có" in failed["error"]
     assert client.get("/api/jobs").json()["total"] == 2
