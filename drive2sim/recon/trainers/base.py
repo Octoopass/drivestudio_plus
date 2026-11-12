@@ -23,7 +23,7 @@ from drive2sim.recon.utils.geometry import camera_shutter_fraction, interpolate_
 
 logger = logging.getLogger()
 
-# Defaults for trainer.fastgs (multi-view densification / pruning, see configs/fastgs.md)
+# Defaults for trainer.fastgs (multi-view densification / pruning, see docs/methods/fastgs.md)
 FASTGS_DEFAULTS = dict(
     enabled=False,
     num_views=10,             # training views sampled per scoring pass (spread evenly over the clip)

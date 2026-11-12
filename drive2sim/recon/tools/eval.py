@@ -11,7 +11,7 @@ import torch
 from drive2sim.recon.data.driving_dataset import DrivingDataset
 from drive2sim.recon.utils.misc import import_str
 from drive2sim.recon.trainers import BasicTrainer
-from drive2sim.recon.models.video_utils import (
+from drive2sim.recon.rendering.videos import (
     render_images,
     render_novel_views
 )

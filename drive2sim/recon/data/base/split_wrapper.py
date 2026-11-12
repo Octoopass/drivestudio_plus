@@ -1,7 +1,7 @@
 from typing import List, Tuple
 import torch
 
-from .pixel_source import ScenePixelSource
+from drive2sim.recon.data.base.pixel_source import ScenePixelSource
 
 class SplitWrapper(torch.utils.data.Dataset):
 

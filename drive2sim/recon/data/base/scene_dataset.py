@@ -7,9 +7,9 @@ import torch
 from omegaconf import OmegaConf
 from torch import Tensor
 
-from .lidar_source import SceneLidarSource
-from .pixel_source import ScenePixelSource
-from .split_wrapper import SplitWrapper
+from drive2sim.recon.data.base.lidar_source import SceneLidarSource
+from drive2sim.recon.data.base.pixel_source import ScenePixelSource
+from drive2sim.recon.data.base.split_wrapper import SplitWrapper
 
 logger = logging.getLogger()
 

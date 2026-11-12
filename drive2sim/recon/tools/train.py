@@ -13,7 +13,7 @@ from drive2sim.recon.tools.eval import do_evaluation
 from drive2sim.recon.utils.misc import import_str
 from drive2sim.recon.utils.backup import backup_project
 from drive2sim.recon.utils.logging import MetricLogger, setup_logging
-from drive2sim.recon.models.video_utils import render_images, save_videos
+from drive2sim.recon.rendering.videos import render_images, save_videos
 from drive2sim.recon.data.driving_dataset import DrivingDataset
 
 logger = logging.getLogger()

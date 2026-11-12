@@ -33,12 +33,22 @@ On this branch all code lives in one Python package, `drive2sim/`. The DriveStud
 
 | Before | Now |
 |---|---|
-| `datasets/` | `drive2sim/recon/data/` |
+| `datasets/<dataset>/<dataset>_sourceloader.py` | `drive2sim/recon/data/loaders/<dataset>.py` |
+| `datasets/base/`, `datasets/driving_dataset.py`, `datasets/dataset_meta.py` | `drive2sim/recon/data/` (same names) |
+| `datasets/preprocess.py` | `drive2sim/recon/preprocess/run.py` |
+| `datasets/<dataset>/<dataset>_preprocess.py`, `_human_utils.py`, `_preview.py` | `drive2sim/recon/preprocess/<dataset>/process.py`, `human.py`, `preview.py` |
+| `datasets/tools/extract_masks.py`, `extract_masks_hf.py` | `drive2sim/recon/preprocess/masks/segformer_mmseg.py`, `segformer_hf.py` |
+| `datasets/tools/extract_smpl.py`, `humanpose_process.py`, `postprocess.py` | `drive2sim/recon/preprocess/smpl/extract.py`, `run.py`, `postprocess.py` |
+| `datasets/tools/multiprocess_utils.py` | `drive2sim/recon/preprocess/multiprocess.py` |
 | `models/` | `drive2sim/recon/models/` |
 | `models/trainers/` | `drive2sim/recon/trainers/` |
+| `models/video_utils.py` | `drive2sim/recon/rendering/videos.py` |
 | `utils/` | `drive2sim/recon/utils/` |
-| `tools/` | `drive2sim/recon/tools/` |
+| `tools/`, `utils/gather_results.py` | `drive2sim/recon/tools/` |
 | `data/ego_masks/`, `data/*.txt` | `drive2sim/assets/ego_masks/`, `drive2sim/assets/scene_lists/` |
+| `configs/<method>.yaml`, `configs/paper_legacy/` | `configs/methods/` |
+| `configs/3dgeer.md`, `configs/fastgs.md` | `docs/methods/` |
+| `docs/<Dataset>.md` | `docs/datasets/<dataset>.md` |
 
 Install with `pip install -e .` from the repository root (or keep `export PYTHONPATH=$(pwd)`), and run scripts as modules, for example `python -m drive2sim.recon.tools.train`. `smplx` and `hmr2` are imported as installed packages (`pip install -e third_party/smplx`, and `third_party/Humans4D` as described in `docs/HumanPose.md`). The design of the drive2sim tool is in `docs/drive2sim/`.
 
@@ -46,10 +56,10 @@ Install with `pip install -e .` from the repository root (or keep `export PYTHON
 
 | Change | Where | Guide |
 |---|---|---|
-| **Choice of renderer**: standard 3DGS, 3DGUT or 3DGEER, selected with `trainer.render.render_mode: default \| ut \| geer`. Also adds native fisheye / FTheta and rolling-shutter training, the PhysicalAI dataset and an interactive viewer. This is Bosch's DriveStudio patch from [boschresearch/3dgeer](https://github.com/boschresearch/3dgeer) (branch `gsplat-geer`, commit `f15cee2`), applied unchanged. | `drive2sim/recon/trainers/base.py`, `drive2sim/recon/tools/viewer.py`, `drive2sim/recon/data/physicalai/`, and others | [configs/3dgeer.md](configs/3dgeer.md) |
-| **FastGS-style multi-view densification and pruning**: Gaussians are added only where several training views agree the reconstruction is wrong, and low-opacity Gaussians are pruned late in training. Off by default; enabled with `trainer.fastgs.enabled: true`. Works with all three renderers. | `drive2sim/recon/trainers/base.py`, `drive2sim/recon/models/gaussians/vanilla.py`, `drive2sim/recon/models/nodes/rigid.py` | [configs/fastgs.md](configs/fastgs.md) |
+| **Choice of renderer**: standard 3DGS, 3DGUT or 3DGEER, selected with `trainer.render.render_mode: default \| ut \| geer`. Also adds native fisheye / FTheta and rolling-shutter training, the PhysicalAI dataset and an interactive viewer. This is Bosch's DriveStudio patch from [boschresearch/3dgeer](https://github.com/boschresearch/3dgeer) (branch `gsplat-geer`, commit `f15cee2`), applied unchanged. | `drive2sim/recon/trainers/base.py`, `drive2sim/recon/tools/viewer.py`, `drive2sim/recon/data/physicalai/`, and others | [configs/3dgeer.md](docs/methods/3dgeer.md) |
+| **FastGS-style multi-view densification and pruning**: Gaussians are added only where several training views agree the reconstruction is wrong, and low-opacity Gaussians are pruned late in training. Off by default; enabled with `trainer.fastgs.enabled: true`. Works with all three renderers. | `drive2sim/recon/trainers/base.py`, `drive2sim/recon/models/gaussians/vanilla.py`, `drive2sim/recon/models/nodes/rigid.py` | [configs/fastgs.md](docs/methods/fastgs.md) |
 | **Configs without camera-pose refinement**, so that training and held-out frames use the same dataset poses. | `configs/*_nocampose.yaml` | |
-| **Sky and dynamic masks without mmcv**: a drop-in replacement for `extract_masks.py` that uses the Hugging Face SegFormer-B5 port and runs in the main environment. | `drive2sim/recon/data/tools/extract_masks_hf.py` | |
+| **Sky and dynamic masks without mmcv**: a drop-in replacement for `extract_masks.py` that uses the Hugging Face SegFormer-B5 port and runs in the main environment. | `drive2sim/recon/preprocess/masks/segformer_hf.py` | |
 | **World-frame `.ply` export**: writes the static background (optionally with vehicles baked at one frame) in the standard INRIA 3DGS layout, plus a `scene.json` sidecar. DriveStudio's own export normalises positions into a unit box. | `drive2sim/recon/tools/export_ply.py` | |
 
 ### New configs
@@ -77,7 +87,7 @@ It follows [FastGS](https://github.com/fastgs/FastGS) in spirit but is not a por
 - Scores are averaged over the views that actually see a Gaussian. In a forward-driving clip most views do not see a given Gaussian, so averaging over all sampled views would block nearly all densification.
 - FastGS's pruning budget and its rasterizer speed-ups are not included.
 
-It applies to `Background`, `RigidNodes` and `DeformableNodes`; `SMPLNodes` and PVG are unchanged. Settings and tuning are described in [configs/fastgs.md](configs/fastgs.md).
+It applies to `Background`, `RigidNodes` and `DeformableNodes`; `SMPLNodes` and PVG are unchanged. Settings and tuning are described in [configs/fastgs.md](docs/methods/fastgs.md).
 
 ### Results so far
 
@@ -96,14 +106,14 @@ These runs differ in more than one setting (densification rule, CamPose on or of
 ```shell
 export PYTHONPATH=$(pwd)
 
-# sky and dynamic masks for processed scenes (replaces drive2sim/recon/data/tools/extract_masks.py)
-python -m drive2sim.recon.data.tools.extract_masks_hf \
+# sky and dynamic masks for processed scenes (replaces drive2sim/recon/preprocess/masks/segformer_mmseg.py)
+python -m drive2sim.recon.preprocess.masks.segformer_hf \
     --data_root data/nuscenes/processed_10Hz/mini \
     --start_idx 0 --num_scenes 1 --process_dynamic_mask
 
 # train with the FastGS-style densification
 python -m drive2sim.recon.tools.train \
-    --config_file configs/streetgs_fastgs.yaml \
+    --config_file configs/methods/streetgs_fastgs.yaml \
     --output_root $output_root --project $project --run_name $expname \
     dataset=nuscenes/1cams data.scene_idx=0 \
     data.pixel_source.load_smpl=False data.pixel_source.test_image_stride=10
@@ -119,7 +129,7 @@ python -m drive2sim.recon.tools.export_ply --ckpt $output_root/$project/$expname
 Upstream DriveStudio is MIT-licensed. The Bosch 3DGEER patch included here is released under **AGPL-3.0**, so this repository contains AGPL-3.0 code; check those terms before redistributing it or building a service on it. The branch `phase3` holds only the MIT-compatible additions (the two tools and the `*_nocampose` configs).
 
 ## About
-DriveStudio is a 3DGS codebase for urban scene reconstruction/simulation. It offers a system with multiple Gaussian representations to jointly reconstruct backgrounds, vehicles, and non-rigid categories (pedestrians, cyclists, etc.) from driving logs. DriveStudio also provides a unified data system supporting various popular driving datasets, including [Waymo](https://waymo.com/open/), [PandaSet](https://pandaset.org/), [Argoverse2](https://www.argoverse.org/av2.html), [KITTI](http://www.cvlibs.net/datasets/kitti/), [NuScenes](https://www.nuscenes.org/), [NuPlan](https://www.nuscenes.org/nuplan), and [PhysicalAI NCore](docs/PhysicalAI.md).
+DriveStudio is a 3DGS codebase for urban scene reconstruction/simulation. It offers a system with multiple Gaussian representations to jointly reconstruct backgrounds, vehicles, and non-rigid categories (pedestrians, cyclists, etc.) from driving logs. DriveStudio also provides a unified data system supporting various popular driving datasets, including [Waymo](https://waymo.com/open/), [PandaSet](https://pandaset.org/), [Argoverse2](https://www.argoverse.org/av2.html), [KITTI](http://www.cvlibs.net/datasets/kitti/), [NuScenes](https://www.nuscenes.org/), [NuPlan](https://www.nuscenes.org/nuplan), and [PhysicalAI NCore](docs/datasets/physicalai.md).
 
 This codebase also contains the **official implementation** of:
   > **OmniRe: Omni Urban Scene Reconstruction** <br> ICLR 2025 (Spotlight) <br> [Project Page](https://ziyc.github.io/omnire/) | [Paper](https://arxiv.org/abs/2408.16760) <br> [Ziyu Chen](https://ziyc.github.io/), [Jiawei Yang](https://jiawei-yang.github.io/), [Jiahui Huang](https://huangjh-pub.github.io/), [Riccardo de Lutio](https://riccardodelutio.github.io/), [Janick Martinez Esturo](https://www.jme.pub/), [Boris Ivanovic](https://www.borisivanovic.com/), [Or Litany](https://orlitany.github.io/), [Zan Gojcic](https://zgojcic.github.io/), [Sanja Fidler](https://www.cs.utoronto.ca/~fidler/), [Marco Pavone](https://stanford.edu/~pavone/), [Li Song](https://medialab.sjtu.edu.cn/author/li-song/), [Yue Wang](https://yuewang.xyz/)
@@ -147,7 +157,7 @@ Our codebase supports two types of Gaussian trainers:
 | [Deformable-GS](https://github.com/ingra14m/Deformable-3D-Gaussians) | Unofficial | Single | • Deformable Gaussians: Entire scene |
 | [PVG](https://github.com/fudan-zvg/PVG) | Unofficial | Single | • Periodic Vibration Gaussians: Entire scene |
 | [Street Gaussians](https://github.com/zju3dv/street_gaussians) | Unofficial | Multi | • Static Gaussians: Background, Vehicles |
-| [3DGEER](https://github.com/boschresearch/3dgeer) | Unofficial | Single/Multi | • Ray-Based Gaussians: Can be integrated with any other representation (see [here](./configs/3dgeer.md) for details) |
+| [3DGEER](https://github.com/boschresearch/3dgeer) | Unofficial | Single/Multi | • Ray-Based Gaussians: Can be integrated with any other representation (see [here](docs/methods/3dgeer.md) for details) |
 
 We extend our gratitude to the authors for their remarkable contributions. If you find these works useful, please consider citing them.
 
@@ -156,13 +166,13 @@ This codebase provides support for popular driving datasets. We offer instructio
 
 | Dataset | Instruction | Cameras | Sync Frequency | Object Annotation |
 |---------|-------------|---------|----------------|-------------------|
-| Waymo | [Data Process Instruction](docs/Waymo.md) | 5 cameras | 10Hz | ✅ |
-| NuScenes | [Data Process Instruction](docs/NuScenes.md) | 6 cameras | 2Hz (up to 10Hz*) | ✅ |
-| NuPlan | [Data Process Instruction](docs/Nuplan.md) | 8 cameras | 10Hz | ✅ |
-| ArgoVerse | [Data Process Instruction](docs/ArgoVerse.md) | 7 cameras | 10Hz | ✅ |
-| PandaSet | [Data Process Instruction](docs/Pandaset.md) | 6 cameras | 10Hz | ✅ |
-| KITTI | [Data Process Instruction](docs/KITTI.md) | 2 cameras | 10Hz | ✅ |
-| PhysicalAI NCore | [Data Process Instruction](docs/PhysicalAI.md) | 7 cameras | ~10Hz (processed) | ✅ |
+| Waymo | [Data Process Instruction](docs/datasets/waymo.md) | 5 cameras | 10Hz | ✅ |
+| NuScenes | [Data Process Instruction](docs/datasets/nuscenes.md) | 6 cameras | 2Hz (up to 10Hz*) | ✅ |
+| NuPlan | [Data Process Instruction](docs/datasets/nuplan.md) | 8 cameras | 10Hz | ✅ |
+| ArgoVerse | [Data Process Instruction](docs/datasets/argoverse.md) | 7 cameras | 10Hz | ✅ |
+| PandaSet | [Data Process Instruction](docs/datasets/pandaset.md) | 6 cameras | 10Hz | ✅ |
+| KITTI | [Data Process Instruction](docs/datasets/kitti.md) | 2 cameras | 10Hz | ✅ |
+| PhysicalAI NCore | [Data Process Instruction](docs/datasets/physicalai.md) | 7 cameras | ~10Hz (processed) | ✅ |
 
 *NOTE: For NuScenes data, LiDAR operates at 20Hz and cameras at 12Hz, but keyframes (with object annotations) are only at 2Hz. We provide a method to interpolate annotations up to 10Hz.
 
@@ -229,20 +239,20 @@ cd ../..
 
 Notes for this fork:
 
-- `requirements.txt` now also lists `plyfile` (for `drive2sim/recon/tools/export_ply.py`) and `transformers` (for `drive2sim/recon/data/tools/extract_masks_hf.py`).
+- `requirements.txt` now also lists `plyfile` (for `drive2sim/recon/tools/export_ply.py`) and `transformers` (for `drive2sim/recon/preprocess/masks/segformer_hf.py`).
 - If the gsplat-geer build stops with `glm/gtc/type_ptr.hpp: No such file`, the `glm` submodule is empty: clone [glm](https://github.com/g-truc/glm) 1.0.1 into `third_party/3dgeer/gsplat/cuda/csrc/third_party/glm` and install again.
 - Dataset-specific packages are still installed separately, as described in each dataset guide (for example `nuscenes-devkit` for nuScenes, the NCore SDK for PhysicalAI).
 
 ## 📊 Prepare Data
 We support most popular public driving datasets. Detailed instructions for downloading and processing each dataset are available in the following documents:
 
-- Waymo: [Data Process Instruction](docs/Waymo.md)
-- NuScenes: [Data Process Instruction](docs/NuScenes.md)
-- NuPlan: [Data Process Instruction](docs/Nuplan.md)
-- ArgoVerse: [Data Process Instruction](docs/ArgoVerse.md)
-- PandaSet: [Data Process Instruction](docs/Pandaset.md)
-- KITTI: [Data Process Instruction](docs/KITTI.md)
-- PhysicalAI NCore: [Data Process Instruction](docs/PhysicalAI.md)
+- Waymo: [Data Process Instruction](docs/datasets/waymo.md)
+- NuScenes: [Data Process Instruction](docs/datasets/nuscenes.md)
+- NuPlan: [Data Process Instruction](docs/datasets/nuplan.md)
+- ArgoVerse: [Data Process Instruction](docs/datasets/argoverse.md)
+- PandaSet: [Data Process Instruction](docs/datasets/pandaset.md)
+- KITTI: [Data Process Instruction](docs/datasets/kitti.md)
+- PhysicalAI NCore: [Data Process Instruction](docs/datasets/physicalai.md)
 
 ## 🚀 Running
 ### Training
@@ -252,7 +262,7 @@ start_timestep=0 # start frame index for training
 end_timestep=-1 # end frame index, -1 for the last frame
 
 python -m drive2sim.recon.tools.train \
-    --config_file configs/omnire.yaml \
+    --config_file configs/methods/omnire.yaml \
     --output_root $output_root \
     --project $project \
     --run_name $expname \
@@ -266,7 +276,7 @@ python -m drive2sim.recon.tools.train \
 - Specify dataset and number of cameras by setting `dataset`. Examples: `waymo/1cams`, `waymo/5cams`, `pandaset/6cams`, `argoverse/7cams`, etc.
   You can set up arbitrary camera combinations for each dataset. See `configs/datasets/` for custom configuration details.
 - For over 3 cameras or 450+ images, we recommend using `omnire_extended_cam.yaml`. It works better in practice.
-- For PhysicalAI, use `dataset=physicalai/7cams`. Native FTheta training uses GEER or UT with `data.pixel_source.undistort: False` in the dataset config; set it to `True` for pinhole rectification. See the [3DGEER guide](configs/3dgeer.md) for setup.
+- For PhysicalAI, use `dataset=physicalai/7cams`. Native FTheta training uses GEER or UT with `data.pixel_source.undistort: False` in the dataset config; set it to `True` for pinhole rectification. See the [3DGEER guide](docs/methods/3dgeer.md) for setup.
 ### Evaluation
 ```shell
 python -m drive2sim.recon.tools.eval --resume_from $ckpt_path
@@ -283,7 +293,7 @@ for scene_idx in {0..7}; do
         'NR==idx {print $1, $2, $3, $4}' drive2sim/assets/scene_lists/waymo_example_scenes.txt)
     
     python -m drive2sim.recon.tools.train \
-        --config_file configs/paper_legacy/omnire.yaml \
+        --config_file configs/methods/paper_legacy/omnire.yaml \
         --output_root logs/omnire_waymo/ \
         --project recon \
         --run_name ${scene_idx} \
@@ -301,7 +311,7 @@ for scene_idx in {0..7}; do
         'NR==idx {print $1, $2, $3, $4}' drive2sim/assets/scene_lists/waymo_example_scenes.txt)
     
     python -m drive2sim.recon.tools.train \
-        --config_file configs/paper_legacy/omnire.yaml \
+        --config_file configs/methods/paper_legacy/omnire.yaml \
         --output_root logs/omnire_waymo/ \
         --project nvs \
         --run_name ${scene_idx} \
@@ -312,7 +322,7 @@ for scene_idx in {0..7}; do
 done
 ```
 
-and run `drive2sim/recon/utils/gather_results.py` to get the results.
+and run `drive2sim/recon/tools/gather_results.py` to get the results.
 </details>
 
 ## 👏 Contributions
