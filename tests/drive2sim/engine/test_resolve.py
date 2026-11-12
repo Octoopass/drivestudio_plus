@@ -1,0 +1,251 @@
+"""Test bước quyết định danh sách stage: ô chọn, preset, auto, điều kiện dữ liệu, ràng buộc."""
+
+import copy
+from pathlib import Path
+from typing import Optional
+
+import pytest
+from pydantic import BaseModel, ConfigDict
+
+from drive2sim.core.schema import Approach, Manifest, Split
+from drive2sim.engine.registry import StageRegistry
+from drive2sim.engine.resolve import BlockedError, Plan, ResolveError, blocked_choices, resolve
+from drive2sim.engine.stage import Stage, StageContext
+
+MANIFEST = {
+    "schema_version": "d2s-manifest/0.1",
+    "scene_id": "nuscenes_scene-0061",
+    "source": {
+        "dataset": "nuscenes",
+        "sequence_id": "scene-0061",
+        "converter": "ncore.nuscenes",
+        "converter_version": "19.9.0",
+    },
+    "ncore": {
+        "version": "v4",
+        "sequence_id": "scene-0061",
+        "timestamp_interval_us": {"start": 0, "stop": 1000},
+    },
+    "track": "pinhole",
+    "cameras": [
+        {
+            "camera_id": "CAM_FRONT",
+            "model": "opencv_pinhole",
+            "resolution": [1600, 900],
+            "shutter": "GLOBAL",
+        },
+        {
+            "camera_id": "CAM_FISH",
+            "model": "opencv_fisheye",
+            "resolution": [1600, 900],
+            "shutter": "GLOBAL",
+        },
+    ],
+    "lidars": ["LIDAR_TOP"],
+    "timeline": {"reference_sensor": "CAM_FRONT", "num_frames": 10},
+    "available": {"lidar": True, "cuboids": "gt"},
+}
+
+SPLIT = {
+    "schema_version": "d2s-split/0.1",
+    "split_id": "every8_front1",
+    "scene_id": "nuscenes_scene-0061",
+    "strategy": "every_nth_frame:8",
+    "frame_range": [0, 9],
+    "cameras": ["CAM_FRONT"],
+    "train": [[0, "CAM_FRONT"]],
+    "test": [[8, "CAM_FRONT"]],
+}
+
+APPROACH = {
+    "schema_version": "d2s-approach/0.1",
+    "approach_id": "omnire",
+    "name": "OmniRe",
+    "version": "0.1.0",
+    "codebase": "drivestudio",
+    "track": "pinhole",
+    "level": "L1",
+    "requires": {
+        "camera_models": ["opencv_pinhole"],
+        "cuboids": "required",
+        "split_strategies": ["every_nth_frame"],
+    },
+    "options": {
+        "init": {"choices": ["init.lidar", "init.depth"], "default": "auto"},
+        "renderer": {"choices": ["3dgs", "3dgeer"], "default": "3dgs"},
+        "campose": {"choices": [False, True], "default": False},
+    },
+    "constraints": [
+        {"when": {"renderer": "3dgeer"}, "forbid": {"campose": True}, "reason": "GEER"}
+    ],
+    "presets": {"no_lidar": {"init": "init.depth"}, "fisheye": {"renderer": "3dgeer"}},
+    "stages": [
+        {"stage": "${options.init}"},
+        {
+            "stage": "train.fake",
+            "params": {"renderer": "${options.renderer}", "campose": "${options.campose}"},
+        },
+    ],
+}
+
+
+def _noop(
+    self: Stage, ctx: StageContext, inputs: dict[str, Path], params: BaseModel
+) -> dict[str, Path]:
+    return {}
+
+
+class TrainParams(BaseModel):
+    """Tham số của stage giả ``train.fake``."""
+
+    model_config = ConfigDict(extra="forbid")
+    renderer: str = "3dgs"
+    campose: bool = False
+    num_iters: int = 30000
+
+
+def make_registry() -> StageRegistry:
+    registry = StageRegistry()
+    stages = [
+        (
+            "init.lidar",
+            "InitLidarStage",
+            {"cacheable": True, "uses_lidar": True, "inputs": {"scene": "scene"}},
+        ),
+        ("init.depth", "InitDepthStage", {"cacheable": True, "inputs": {"scene": "scene"}}),
+        (
+            "train.fake",
+            "TrainFakeStage",
+            {
+                "inputs": {"points": "points_init", "split": "split"},
+                "outputs": {"model": "model"},
+                "Params": TrainParams,
+            },
+        ),
+        ("prep.undistort", "PrepUndistortStage", {"cacheable": True}),
+    ]
+    for stage_id, name, attrs in stages:
+        body = {"version": "0.1.0", "outputs": {"points": "points_init"}, "run": _noop, **attrs}
+        registry.register(stage_id)(type(name, (Stage,), body))
+    return registry
+
+
+def run_resolve(
+    approach: Optional[dict] = None,
+    manifest: Optional[dict] = None,
+    split: Optional[dict] = None,
+    **kwargs: object,
+) -> Plan:
+    return resolve(
+        Approach.model_validate(approach or APPROACH),
+        Manifest.model_validate(manifest or MANIFEST),
+        Split.model_validate(split or SPLIT),
+        registry=make_registry(),
+        **kwargs,
+    )
+
+
+def no_lidar_manifest() -> dict:
+    manifest = copy.deepcopy(MANIFEST)
+    manifest["lidars"] = []
+    manifest["available"]["lidar"] = False
+    return manifest
+
+
+def test_defaults_and_auto_with_lidar() -> None:
+    plan = run_resolve()
+    assert plan.options == {"init": "init.lidar", "renderer": "3dgs", "campose": False}
+    assert [s.stage_id for s in plan.stages] == ["init.lidar", "train.fake"]
+    assert plan.lidar_usage == ["init.lidar"]
+
+
+def test_auto_falls_back_without_lidar() -> None:
+    plan = run_resolve(manifest=no_lidar_manifest())
+    assert plan.options["init"] == "init.depth"
+    assert plan.lidar_usage == []
+
+
+def test_params_merged_and_inputs_wired() -> None:
+    plan = run_resolve(preset="fisheye", stage_params={"train.fake": {"num_iters": 100}})
+    train = plan.stages[1]
+    assert train.params == {"renderer": "3dgeer", "campose": False, "num_iters": 100}
+    assert train.input_sources == {"points": 0, "split": "split"}
+
+
+def test_explicit_lidar_choice_blocked_without_lidar() -> None:
+    with pytest.raises(BlockedError) as info:
+        run_resolve(manifest=no_lidar_manifest(), option_values={"init": "init.lidar"})
+    assert info.value.reasons[0].option == "init"
+    assert "LiDAR" in info.value.reasons[0].message
+
+
+def test_constraint_blocks() -> None:
+    with pytest.raises(BlockedError, match="GEER"):
+        run_resolve(preset="fisheye", option_values={"campose": True})
+
+
+def test_all_reasons_reported_together() -> None:
+    manifest = no_lidar_manifest()
+    manifest["available"]["cuboids"] = "none"
+    with pytest.raises(BlockedError) as info:
+        run_resolve(manifest=manifest, option_values={"init": "init.lidar"})
+    assert len(info.value.reasons) == 2
+
+
+def test_camera_model_needs_undistort() -> None:
+    split = {**SPLIT, "cameras": ["CAM_FISH"], "train": [[0, "CAM_FISH"]], "test": []}
+    with pytest.raises(BlockedError, match="prep.undistort"):
+        run_resolve(split=split)
+    approach = copy.deepcopy(APPROACH)
+    approach["stages"].insert(0, {"stage": "prep.undistort"})
+    run_resolve(approach=approach, split=split)
+
+
+def test_track_and_split_strategy_block() -> None:
+    approach = copy.deepcopy(APPROACH)
+    approach["track"] = "fisheye"
+    approach["requires"]["split_strategies"] = ["custom"]
+    with pytest.raises(BlockedError) as info:
+        run_resolve(approach=approach)
+    assert len(info.value.reasons) == 2
+
+
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"preset": "fast"}, "preset"),
+        ({"option_values": {"color": "red"}}, "không có ô"),
+        ({"option_values": {"campose": 1}}, "không phải lựa chọn"),
+        ({"stage_params": {"train.fake": {"bogus": 1}}}, "tham số"),
+        ({"stage_params": {"eval.standard": {"x": 1}}}, "không có trong danh sách"),
+    ],
+)
+def test_invalid_requests(kwargs: dict, match: str) -> None:
+    with pytest.raises(ResolveError, match=match):
+        run_resolve(**kwargs)
+
+
+def test_unknown_stage_and_missing_input() -> None:
+    approach = copy.deepcopy(APPROACH)
+    approach["stages"].append({"stage": "eval.standard"})
+    with pytest.raises(ResolveError, match="chưa có"):
+        run_resolve(approach=approach)
+    approach = copy.deepcopy(APPROACH)
+    approach["stages"] = [approach["stages"][1]]
+    with pytest.raises(ResolveError, match="points_init"):
+        run_resolve(approach=approach)
+
+
+def test_split_must_match_scene() -> None:
+    with pytest.raises(ResolveError, match="camera"):
+        run_resolve(split={**SPLIT, "cameras": ["CAM_X"], "train": [[0, "CAM_X"]], "test": []})
+
+
+def test_blocked_choices_for_studio() -> None:
+    result = blocked_choices(
+        Approach.model_validate(APPROACH),
+        Manifest.model_validate(no_lidar_manifest()),
+        make_registry(),
+    )
+    assert list(result) == ["init"]
+    assert result["init"][0].choice == "init.lidar"

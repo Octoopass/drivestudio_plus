@@ -205,7 +205,13 @@ Engine kiểm tra trước khi chạy. Approach hoặc một lựa chọn bị k
 - `track` của approach khác `track` của cảnh;
 - tổ hợp lựa chọn vi phạm một mục trong `constraints`.
 
-Studio và CLI dùng chung bước kiểm tra này.
+Studio và CLI dùng chung bước kiểm tra này (`drive2sim/engine/resolve.py`). Quy tắc chi tiết:
+- Giá trị của ô gộp theo thứ tự: `default` → preset → lựa chọn của người dùng. Ô còn `auto` lấy lựa chọn **đầu tiên** trong `choices` không bị khoá vì dữ liệu, nên thứ tự `choices` là thứ tự ưu tiên.
+- Stage có `uses_lidar: true` nghĩa là **cần** LiDAR; lựa chọn là stage đó bị khoá khi `available.lidar` là `false`.
+- Một ràng buộc bị vi phạm khi mọi cặp trong `when` và mọi cặp trong `forbid` đều khớp với lựa chọn. So sánh cả kiểu: `1` không khớp `true`.
+- Mô hình `ideal_pinhole` trong manifest được coi là `opencv_pinhole` khi so với `camera_models`.
+- Engine gom **mọi** lý do bị khoá rồi báo một lần (mã lỗi `blocked`, mã thoát `3`). Preset, ô, giá trị hay tham số stage không tồn tại, stage chưa đăng ký, hoặc một đầu vào artifact không có stage nào phía trước tạo ra, là lỗi yêu cầu (`invalid_request`, mã thoát `2`).
+- Studio lấy danh sách lựa chọn bị khoá theo từng ô để làm mờ, kèm lý do, trước khi người dùng bấm chạy.
 
 ### 4.3 Khai báo dùng LiDAR
 
