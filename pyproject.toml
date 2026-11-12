@@ -24,3 +24,28 @@ drive2sim = ["assets/**/*", "configs/**/*", "approaches/*.yaml", "kaggle/templat
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff]
+line-length = 99
+target-version = "py39"
+# Mã cũ lấy từ DriveStudio và mã bên thứ ba chưa theo chuẩn này (AGENTS.md mục 4).
+extend-exclude = ["drive2sim/recon", "third_party"]
+
+[tool.ruff.lint]
+# E/W: PEP 8; F: lỗi logic; I: thứ tự import; N: đặt tên PEP 8; ANN: chú thích kiểu;
+# D: docstring (quy ước Google); B: lỗi hay gặp; UP: cú pháp hiện đại hợp với Python 3.9.
+select = ["E", "W", "F", "I", "N", "ANN", "D", "B", "UP"]
+ignore = [
+    "D105",  # phương thức đặc biệt (__repr__, ...) không bắt buộc docstring
+    "D107",  # docstring đặt ở lớp thay vì __init__
+    "N815",  # tên trường T_a_b theo quy ước toạ độ (CONTRACTS mục 10.3)
+    "N802", "N803", "N806",  # như trên, cho hàm, tham số, biến
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Hàm test đặt tên mô tả rõ hành vi nên không bắt buộc docstring (AGENTS.md mục 4.3).
+"tests/**" = ["D103"]
+"**/__init__.py" = ["D104"]

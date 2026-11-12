@@ -4,7 +4,7 @@ Tài liệu này quy định định dạng của dữ liệu đi qua tool, inte
 
 Đây là thiết kế đích (`ARCHITECTURE.md` mục 7). Mọi file do tool ghi đều có trường `schema_version`; thay đổi làm vỡ tương thích thì tăng số đầu của phiên bản. Khi đọc, tool chấp nhận file cùng loại và cùng số đầu; khoá lạ bị báo lỗi để bắt lỗi gõ sai trong file viết tay.
 
-Các schema ở đây được cài trong `drive2sim/core/schema.py` (định danh ở `drive2sim/core/ids.py`, đọc ghi ở `drive2sim/core/io.py`). Test `tests/drive2sim/core/test_contracts_examples.py` đọc mọi ví dụ JSON và YAML có `schema_version` trong tài liệu này và kiểm tra chúng theo schema, nên tài liệu và code phải sửa cùng nhau.
+Các schema ở đây được cài trong `drive2sim/core/schema.py` (định danh ở `drive2sim/core/identifiers.py`, đọc ghi ở `drive2sim/core/files.py`). Test `tests/drive2sim/core/test_contracts_examples.py` đọc mọi ví dụ JSON và YAML có `schema_version` trong tài liệu này và kiểm tra chúng theo schema, nên tài liệu và code phải sửa cùng nhau.
 
 Trạng thái: bản nháp, ngày 12/11/2026.
 
@@ -497,7 +497,7 @@ Notebook chạy `d2s run start --bundle bundle/`, ghi kết quả ra `/kaggle/wo
 - File người viết tay hoặc sửa tay dùng YAML: `manifest.yaml`, `<approach_id>.yaml`. File tool ghi ra dùng JSON: `run.json`, `summary.json`, `env.json`, `artifact.json`, `validation.json`, file split.
 - Mảng số dùng NPZ; mask PNG; video MP4 H.264; Gaussian PLY.
 - Tên file và thư mục: `snake_case`, chữ thường. Thư mục của một stage đặt đúng theo `stage_id`.
-- Mã Python: module `snake_case`; lớp `PascalCase`; lớp stage đặt theo `<Nhóm><Tên>Stage`, ví dụ `PrepMasksSegformerStage` cho `prep.masks_segformer`.
+- Mã Python: module `snake_case`; lớp `PascalCase`; lớp stage đặt theo `<Nhóm><Tên>Stage`, ví dụ `PrepMasksSegformerStage` cho `prep.masks_segformer`. Quy tắc đặt tên đầy đủ cho module, lớp, hàm, biến, tham số ở `AGENTS.md` mục 4.2.
 - Package Python có `__init__.py`; thư mục chưa có file giữ trong git bằng `.gitkeep`, xoá `.gitkeep` khi thư mục đã có file.
 - File môi trường trong `envs/`: `main.yml` cho môi trường chính, `<codebase>.yml` cho codebase ngoài.
 

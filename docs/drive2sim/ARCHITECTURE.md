@@ -354,7 +354,7 @@ drivestudio_plus/                          branch drive2sim
 │   │   ├── rendering/                     videos.py
 │   │   ├── utils/                         camera, geometry, logging, misc, visualization, backup
 │   │   └── tools/                         train.py, eval.py, viewer.py, export_ply.py, gather_results.py (thay dần bằng stage và CLI)
-│   ├── core/                              ids.py, schema.py, io.py, split.py (đã có); transforms.py, camera.py, ncore_io.py (chưa có)
+│   ├── core/                              identifiers.py, schema.py, files.py, split.py (đã có); transforms.py, camera.py, ncore_io.py (chưa có)
 │   ├── ingest/                (khung)     <dataset>.py: converter → NCore V4; validate.py
 │   ├── stages/                (khung)     prep/, init/, train/, eval/, render/, export/: mỗi stage một file
 │   ├── engine/                (khung)     registry.py, resolve.py, run.py, cache.py
@@ -407,6 +407,8 @@ Chạy script bằng `python -m`, ví dụ `python -m drive2sim.recon.tools.trai
 | Fixture dữ liệu nhỏ cho test | `tests/drive2sim/fixtures/<scene_id>/` | | |
 | Công cụ phát triển chạy một lần | `drive2sim/scripts/` | `<động_từ>_<đối_tượng>.py` | Không dùng trong luồng chính; việc dùng thường xuyên phải thành lệnh CLI |
 | Tài liệu | `docs/drive2sim/` | `UPPER_CASE.md` cho tài liệu chính | Cập nhật cả ba tài liệu chính khi đổi thiết kế |
+
+Quy tắc viết code (PEP 8, đặt tên, chú thích kiểu, docstring tiếng Việt, SOLID, KISS, kiểm thử, commit) nằm trong `AGENTS.md` ở gốc repo.
 
 Quy tắc chung:
 - Mọi mã nằm trong package `drive2sim/`; không thêm thư mục mã mới ở gốc repo.
@@ -567,7 +569,7 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (NCore V4 + manifest.ya
 | Di chuyển mã DriveStudio vào `drive2sim/recon/` (ba lượt) | Xong; kiểm tra tĩnh đạt; chưa chạy thật | `7a7c121`, `726b3ba`, `9f35aff` |
 | Sửa chạy tiếp khi train | Xong trong code; chưa chạy thật | `7851701` |
 | Khung thư mục của tool, submodule NCore | Xong; các thư mục còn trống | `ceacb2c` |
-| `core`: định danh, schema mọi file trong CONTRACTS, đọc ghi, split | Xong; 60 test đạt trên Python 3.9 và 3.12; test đọc mọi ví dụ trong CONTRACTS | (commit này) |
+| `core`: định danh, schema mọi file trong CONTRACTS, đọc ghi, split | Xong; 60 test đạt trên Python 3.9 và 3.12; test đọc mọi ví dụ trong CONTRACTS; qua `ruff check` | `9bb7bbc`, (commit này) |
 | `core`: phép biến đổi toạ độ, mô hình camera, đọc NCore | Chưa làm | |
 | `engine`, `stages`, `approaches`, `cli` | Chưa làm | |
 | Studio (`studio/api`, `studio/frontend`, `studio/viz`) | Chưa làm | |
