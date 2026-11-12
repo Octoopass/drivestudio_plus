@@ -482,6 +482,8 @@ Notebook chạy `d2s run start --bundle bundle/`, ghi kết quả ra `/kaggle/wo
 - Mảng số dùng NPZ; mask PNG; video MP4 H.264; Gaussian PLY.
 - Tên file và thư mục: `snake_case`, chữ thường. Thư mục của một stage đặt đúng theo `stage_id`.
 - Mã Python: module `snake_case`; lớp `PascalCase`; lớp stage đặt theo `<Nhóm><Tên>Stage`, ví dụ `PrepMasksSegformerStage` cho `prep.masks_segformer`.
+- Package Python có `__init__.py`; thư mục chưa có file giữ trong git bằng `.gitkeep`, xoá `.gitkeep` khi thư mục đã có file.
+- File môi trường trong `envs/`: `main.yml` cho môi trường chính, `<codebase>.yml` cho codebase ngoài.
 
 ### 10.3 Tên trường và tham số
 

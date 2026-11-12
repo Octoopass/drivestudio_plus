@@ -228,6 +228,7 @@ Thiết kế đích: một đường duy nhất `NCore → thư mục DriveStudi
 - Mọi approach dòng DriveStudio dùng chung một môi trường của repo, với gsplat-geer. gsplat-geer có đủ ba renderer.
 - Codebase ngoài (NuRec, feed-forward...) chạy trong môi trường riêng, gọi qua tiến trình con: tool chạy `d2s-worker` trong môi trường đó, đưa vào file job JSON, đọc lại file kết quả JSON, nhận tiến độ qua stdout (CONTRACTS mục 9).
 - Tiến trình Studio không nạp model. Render cho viewer và server chạy trong một tiến trình worker riêng, giữ sống suốt phiên.
+- Mỗi môi trường mô tả bằng một file trong `envs/`: `main.yml` cho môi trường chính, `<codebase>.yml` cho codebase ngoài. File ghi phiên bản Python, PyTorch, CUDA và thư viện, để dựng lại bằng một lệnh, kể cả trong notebook Kaggle. `requirements.txt` hiện có chỉ liệt kê thư viện pip, không ghi được phiên bản Python hay CUDA. `envs/main.yml` sẽ viết sau lần chạy thử đầu tiên trên Kaggle, dựa trên môi trường thật sự chạy được.
 
 **Lý do.** Các codebase thường không cài chung được. Ví dụ đã kiểm: DriveStudio gốc cài `gsplat` 1.3.0 với `torch==2.0.0+cu117`; gsplat-geer cũng tên `gsplat` nhưng bản 1.5.3, và README của nó (`app/README.md`) ghi đã chạy với CUDA 12.1 và PyTorch 2.4.1. Hai bản cùng tên không nằm chung một môi trường được.
 
@@ -331,15 +332,15 @@ drivestudio_plus/                          branch drive2sim
 │   ├── media/                             hình cho README
 │   └── drive2sim/                         SPEC.md, ARCHITECTURE.md, CONTRACTS.md
 ├── drive2sim/
-│   ├── paths.py                           đường dẫn tới assets/ và drive2sim/configs/ trong package
+│   ├── paths.py                           đường dẫn tới assets/ và configs/ trong package
 │   ├── assets/                            ego_masks/<dataset>/<camera>.png, scene_lists/<dataset>_*.txt
-│   ├── drive2sim/configs/
+│   ├── configs/
 │   │   ├── methods/                       config method: <method>[_<biến thể>].yaml; paper_legacy/
-│   │   └── datasets/                      <dataset>/<số camera>cams.yaml; ncore/ (mới)
+│   │   └── datasets/                      <dataset>/<số camera>cams.yaml; ncore/ (khung)
 │   ├── recon/                             mã tái dựng (từ DriveStudio)
 │   │   ├── data/                          đọc dữ liệu đã tiền xử lý để train
 │   │   │   ├── base/                      pixel_source, lidar_source, scene_dataset, split_wrapper
-│   │   │   ├── loaders/                   <dataset>.py: một loader mỗi dataset; ncore.py (mới, loader chung)
+│   │   │   ├── loaders/                   <dataset>.py: một loader mỗi dataset; ncore.py (chưa có, loader chung)
 │   │   │   ├── driving_dataset.py
 │   │   │   └── dataset_meta.py
 │   │   ├── preprocess/                    dữ liệu gốc → thư mục DriveStudio
@@ -353,21 +354,23 @@ drivestudio_plus/                          branch drive2sim
 │   │   ├── rendering/                     videos.py
 │   │   ├── utils/                         camera, geometry, logging, misc, visualization, backup
 │   │   └── tools/                         train.py, eval.py, viewer.py, export_ply.py, gather_results.py (thay dần bằng stage và CLI)
-│   ├── core/                  (mới)       schema.py, manifest.py, split.py, transforms.py, camera.py, ncore_io.py
-│   ├── ingest/                (mới)       <dataset>.py: converter → NCore V4; validate.py
-│   ├── stages/                (mới)       prep/, init/, train/, eval/, render/, export/: mỗi stage một file
-│   ├── engine/                (mới)       registry.py, resolve.py, run.py, cache.py
-│   ├── approaches/            (mới)       <approach_id>.yaml
-│   ├── kaggle/                (mới)       client.py, bundle.py, templates/<tên>.ipynb
-│   ├── sim/                   (mới)       renderer.py (L2), actors.py (L3), server/ (L4; protos/ từ NuRec)
-│   ├── studio/                (mới)       api/ (app.py, routes/<nhóm>.py), viz/, frontend/ (Vite + React)
-│   ├── external/              (mới)       <codebase>/: worker cho codebase ngoài
-│   ├── scripts/               (mới)       công cụ phát triển chạy một lần
-│   └── cli/                   (mới)       main.py, <nhóm>.py
-├── third_party/                           smplx (pip -e, import smplx), Humans4D (submodule, import hmr2); ncore (mới)
-├── envs/                      (mới)       main.yml, <codebase>.yml
-└── tests/drive2sim/           (mới)       cùng cây thư mục với drive2sim/
+│   ├── core/                  (khung)     schema.py, manifest.py, split.py, transforms.py, camera.py, ncore_io.py
+│   ├── ingest/                (khung)     <dataset>.py: converter → NCore V4; validate.py
+│   ├── stages/                (khung)     prep/, init/, train/, eval/, render/, export/: mỗi stage một file
+│   ├── engine/                (khung)     registry.py, resolve.py, run.py, cache.py
+│   ├── approaches/            (khung)     <approach_id>.yaml
+│   ├── kaggle/                (khung)     client.py, bundle.py, templates/<tên>.ipynb
+│   ├── sim/                   (khung)     renderer.py (L2), actors.py (L3), server/ (L4; protos/ từ NuRec)
+│   ├── studio/                (khung)     api/ (app.py, routes/<nhóm>.py), viz/, frontend/ (Vite + React)
+│   ├── external/              (khung)     <codebase>/: worker cho codebase ngoài
+│   ├── scripts/               (khung)     công cụ phát triển chạy một lần
+│   └── cli/                   (khung)     main.py, <nhóm>.py
+├── third_party/                           smplx (pip -e, import smplx); Humans4D (submodule, import hmr2); ncore (submodule, pin d84bfc1: converter NCore)
+├── envs/                      (khung)     file môi trường: main.yml, <codebase>.yml (mục 2.9)
+└── tests/drive2sim/           (khung)     cùng cây thư mục với drive2sim/; fixtures/
 ```
+
+Chú thích: **(khung)** là thư mục đã tạo nhưng chưa có code: package Python chỉ có `__init__.py` rỗng, thư mục khác giữ bằng `.gitkeep`. **(chưa có)** là file chưa tạo. Tên file liệt kê trong các thư mục (khung) là tên dự kiến theo CONTRACTS mục 10, tạo khi viết code.
 
 Ở gốc repo chỉ còn những thứ không phải code của package: `docs/`, `tests/`, `third_party/`, `envs/`, `pyproject.toml`, `requirements.txt`. Config method, config dataset, file approach và assets đều nằm trong package, nên cài bằng `pip install` là có đủ; code tìm chúng qua `drive2sim/paths.py`, không phụ thuộc thư mục đang đứng.
 
@@ -556,9 +559,21 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (NCore V4 + manifest.ya
 
 ## 7. Hiện trạng và lộ trình refactor
 
-### 7.1 Đã có sẵn trong repo
+### 7.1 Tiến độ
 
-Loader 7 dataset; tiền xử lý (mask, SMPL); OmniRe, Street GS, PVG, Deformable-GS; renderer 3DGS / 3DGUT / 3DGEER; rolling shutter ở `ut`/`geer`; FastGS; `drive2sim/recon/tools/eval.py`; video; `drive2sim/recon/tools/viewer.py`; `drive2sim/recon/tools/export_ply.py`; đọc NCore V4 cho PhysicalAI.
+| Việc | Trạng thái | Commit |
+|---|---|---|
+| Docs thiết kế (SPEC, ARCHITECTURE, CONTRACTS) | Xong, cập nhật theo từng quyết định | |
+| Di chuyển mã DriveStudio vào `drive2sim/recon/` (ba lượt) | Xong; kiểm tra tĩnh đạt; chưa chạy thật | `7a7c121`, `726b3ba`, `9f35aff` |
+| Sửa chạy tiếp khi train | Xong trong code; chưa chạy thật | `7851701` |
+| Khung thư mục của tool, submodule NCore | Xong; các thư mục còn trống | `ceacb2c` |
+| `core`, `engine`, `stages`, `approaches`, `cli` | Chưa làm | |
+| Studio (`studio/api`, `studio/frontend`, `studio/viz`) | Chưa làm | |
+| Kaggle (`kaggle/`), `envs/main.yml` | Chưa làm; cần teammate trả lời mục 8 câu 1 | |
+| Tầng dữ liệu NCore (`ingest/`, loader `ncore.py`) | Chưa làm | |
+| `sim/` (L2–L4) | Chưa làm | |
+
+Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiền xử lý (mask, SMPL); OmniRe, Street GS, PVG, Deformable-GS; renderer 3DGS / 3DGUT / 3DGEER; rolling shutter ở `ut`/`geer`; FastGS; `tools/eval.py`; video; `tools/viewer.py`; `tools/export_ply.py`; đọc NCore V4 cho PhysicalAI.
 
 ### 7.2 Chênh lệch với thiết kế đích (đã kiểm trong code)
 
@@ -570,7 +585,7 @@ Loader 7 dataset; tiền xử lý (mask, SMPL); OmniRe, Street GS, PVG, Deformab
 | Đánh giá chạy ở cuối `drive2sim/recon/tools/train.py` | `do_evaluation` trong `drive2sim/recon/tools/train.py`, `drive2sim/recon/tools/eval.py` | Tách thành stage `eval.standard` |
 | Chỉ một kiểu split: test là các khung N, 2N, 3N... với mọi camera; 19 trên 21 config dataset đặt `test_image_stride: 0`, tức không có khung test | `split_train_test` trong `drive2sim/recon/data/driving_dataset.py` | Trước mắt chỉ dùng kiểu `every_nth_frame` (CONTRACTS mục 3.1); sau mới nhận split tuỳ ý |
 | ~~Chạy tiếp hỏng~~ **Đã sửa, chưa chạy thử:** trước đây khi có `--resume_from` thì không lưu checkpoint nữa; checkpoint chỉ có model; nạp optimizer báo `NotImplementedError`; chạy tiếp lặp lại bước đã lưu. Nay mỗi lần lưu ghi thêm `checkpoint_resume.pth` (model, optimizer, grad scaler; ghi đè, ghi qua file tạm rồi đổi tên), chạy tiếp nạp lại optimizer và bắt đầu từ bước sau bước đã lưu; khi train xong thì xoá file này | `drive2sim/recon/tools/train.py`, `drive2sim/recon/trainers/base.py` (`state_dict`, `load_state_dict`, `initialize_optimizer`, `save_checkpoint`) | Chạy thử trên Kaggle: ngắt giữa chừng, chạy tiếp, so với run không ngắt. Số liệu tích luỹ cho densify giữa hai lần refine và trạng thái ngẫu nhiên của bộ lấy mẫu ảnh chưa được lưu |
-| Config chép nguyên file: `streetgs_nocampose.yaml` khác `streetgs.yaml` 9 dòng trên 148; các bản `_ut`, `_geer`, `_fastgs` khác 10–19 dòng | `drive2sim/configs/*.yaml` | Một config gốc cho mỗi method; biến thể chỉ ghi phần khác, ứng với các ô chọn |
+| Config chép nguyên file: `streetgs_nocampose.yaml` khác `streetgs.yaml` 9 dòng trên 148; các bản `_ut`, `_geer`, `_fastgs` khác 10–19 dòng | `drive2sim/configs/methods/*.yaml` | Một config gốc cho mỗi method; biến thể chỉ ghi phần khác, ứng với các ô chọn |
 | Render nằm lẫn trong viewer và trainer | `drive2sim/recon/tools/viewer.py` (2523 dòng), `drive2sim/recon/trainers/base.py` (1125 dòng) | Tách hàm render dùng riêng cho `sim/` |
 | Export không có sky, SMPL, vật biến dạng; SH của xe không xoay theo xe | `drive2sim/recon/tools/export_ply.py` | Ghi rõ giới hạn; mở rộng cho `export.preview` |
 | Không có test | | `tests/drive2sim/`, bắt đầu bằng kiểm tra hồi quy của loader |
@@ -585,7 +600,7 @@ Loader 7 dataset; tiền xử lý (mask, SMPL); OmniRe, Street GS, PVG, Deformab
 
 ### 7.4 Thứ tự làm
 
-0. **Di chuyển mã DriveStudio vào `drive2sim/recon/`** (đã làm, hai lượt): đổi chỗ file, sửa import trong mã và chuỗi import trong config, thêm `pyproject.toml`, `drive2sim/paths.py` cho `assets/`; lượt hai tách `preprocess/` khỏi `data/loaders/`, chuyển import tương đối sang tuyệt đối, gom config method vào `configs/methods/`, docs vào `docs/datasets/` và `docs/methods/`; lượt ba chuyển `configs/` vào `drive2sim/configs/`. Đã kiểm tra tĩnh (mọi import `drive2sim...` và mọi chuỗi import trong config trỏ tới lớp có thật); **chưa chạy thật**.
+0. **Di chuyển mã DriveStudio vào `drive2sim/recon/`** (đã làm, hai lượt): đổi chỗ file, sửa import trong mã và chuỗi import trong config, thêm `pyproject.toml`, `drive2sim/paths.py` cho `assets/`; lượt hai tách `preprocess/` khỏi `data/loaders/`, chuyển import tương đối sang tuyệt đối, gom config method vào `configs/methods/`, docs vào `docs/datasets/` và `docs/methods/`; lượt ba chuyển `configs/` vào `drive2sim/configs/`. Sau đó tạo khung thư mục của tool và thêm submodule NCore. Đã kiểm tra tĩnh (mọi import `drive2sim...` và mọi chuỗi import trong config trỏ tới lớp có thật); **chưa chạy thật**.
 1. **Kaggle chạy tiếp được:** sửa chạy tiếp (mục 7.2; đã sửa trong code, chưa chạy thử) và làm `drive2sim/kaggle/`. Chạy được OmniRe trên cảnh nuScenes mini mà teammate đã dùng; đây cũng là lần kiểm tra hành vi của bước 0.
 2. **Engine và stage bọc mã hiện có:** registry, file approach có ô chọn, `train.drivestudio`, `eval.standard`, `render.videos`, `export.ply_world`, `run.json`, CLI `d2s`. Đạt L1 theo thiết kế; Studio nhóm A–D làm song song.
 3. **Tầng dữ liệu:** nuScenes mini → NCore bằng converter có sẵn (thử chạy không cần Bazel, trên Kaggle) → `prep.to_drivestudio` → loader NCore → kiểm tra hồi quy với loader cũ.
@@ -598,10 +613,10 @@ Loader 7 dataset; tiền xử lý (mask, SMPL); OmniRe, Street GS, PVG, Deformab
 
 ## 8. Câu hỏi mở
 
-1. Phiên bản PyTorch của môi trường chính; teammate chạy trên Kaggle bằng bản nào.
+1. Phiên bản PyTorch và CUDA của môi trường chính. Teammate đã train trên Kaggle T4 bằng `drivestudio_plus`, nhưng chưa rõ phiên bản PyTorch thực tế: `requirements.txt` ghi `torch==2.0.0+cu117`, README của gsplat-geer ghi đã chạy với 2.4.1, còn Kaggle có sẵn một bản PyTorch riêng. Cần lấy `torch.__version__`, `torch.version.cuda` từ notebook của teammate, hoặc tự xác định ở lần chạy thử đầu tiên.
 2. Chế độ `default` của gsplat-geer có cho kết quả giống DriveStudio gốc chạy gsplat 1.3.0 không. Nếu cần baseline đúng DriveStudio gốc thì thêm một môi trường riêng.
 3. Converter của NCore chạy được không cần Bazel không.
-4. Cách đóng gói môi trường: conda, venv hay container.
+4. Cách đóng gói môi trường (`envs/`): conda, venv hay container.
 5. AD stack và tiêu chí chấm điểm ở mức L4 (SPEC mục 14).
 6. Định dạng dữ liệu của mentor.
 
