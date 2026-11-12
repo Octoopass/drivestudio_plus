@@ -9,7 +9,15 @@ from typing import Callable
 import pytest
 from pydantic import ValidationError
 
-from drive2sim.core.schema import Approach, Manifest, RunRecord, Split, ValidationReport
+from drive2sim.core.schema import (
+    Approach,
+    JobResult,
+    JobSpec,
+    Manifest,
+    RunRecord,
+    Split,
+    ValidationReport,
+)
 
 APPROACH = {
     "schema_version": "d2s-approach/0.1",
@@ -195,3 +203,66 @@ def test_run_lidar_usage_must_be_a_stage() -> None:
         RunRecord.model_validate(
             modified(base, lambda data: data["approach"].update(approach_id="streetgs"))
         )
+
+
+JOB = {
+    "schema_version": "d2s-job/0.1",
+    "job_id": "20261112-081000-omnire-a1b2/train.external",
+    "kind": "stage",
+    "stage_id": "train.external",
+    "params": {"codebase": "nurec"},
+    "inputs": {"scene": "data/nuscenes_scene-0061"},
+    "output_dir": "runs/x/d2s/stages/train.external",
+    "env": "nurec",
+}
+
+RESULT_OK = {
+    "schema_version": "d2s-result/0.1",
+    "job_id": "20261112-081000-omnire-a1b2/train.external",
+    "status": "succeeded",
+    "outputs": {"model": "runs/x/d2s/stages/train.external/checkpoint_final.pth"},
+    "duration_s": 4380,
+    "peak_vram_mb": 7400,
+}
+
+
+def test_job_stage_requires_stage_id() -> None:
+    JobSpec.model_validate(JOB)
+    bad = copy.deepcopy(JOB)
+    del bad["stage_id"]
+    with pytest.raises(ValidationError):
+        JobSpec.model_validate(bad)
+
+
+def test_job_render_rejects_stage_id() -> None:
+    bad = {**JOB, "kind": "render"}
+    with pytest.raises(ValidationError):
+        JobSpec.model_validate(bad)
+    del bad["stage_id"]
+    JobSpec.model_validate(bad)
+
+
+def test_result_error_matches_status() -> None:
+    JobResult.model_validate(RESULT_OK)
+    with pytest.raises(ValidationError):
+        JobResult.model_validate({**RESULT_OK, "status": "failed"})
+    failed = {
+        **RESULT_OK,
+        "status": "failed",
+        "outputs": {},
+        "error": {"code": "env_missing", "message": "Thiếu môi trường"},
+    }
+    JobResult.model_validate(failed)
+    with pytest.raises(ValidationError):
+        JobResult.model_validate({**RESULT_OK, "error": failed["error"]})
+
+
+def test_result_rejects_unknown_error_code() -> None:
+    bad = {
+        **RESULT_OK,
+        "status": "failed",
+        "outputs": {},
+        "error": {"code": "something_else", "message": "x"},
+    }
+    with pytest.raises(ValidationError):
+        JobResult.model_validate(bad)

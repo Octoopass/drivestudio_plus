@@ -55,6 +55,20 @@ ArtifactType = Literal[
     "preview",
 ]
 RunStatus = Literal["pending", "running", "succeeded", "failed", "cancelled"]
+JobKind = Literal["stage", "render"]
+JobStatus = Literal["succeeded", "failed"]
+# Mã lỗi dùng chung cho worker và API (CONTRACTS mục 9.1 và 11.3); thêm mã mới thì thêm vào đây.
+ERROR_CODES: tuple[str, ...] = (
+    "invalid_request",
+    "not_found",
+    "conflict",
+    "blocked",
+    "internal",
+    "worker_unavailable",
+    "env_missing",
+    "worker_crashed",
+    "cancelled",
+)
 Executor = Literal["local", "kaggle"]
 
 # Phiên bản schema hiện tại của từng loại file.
@@ -68,6 +82,8 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "summary": "d2s-summary/0.1",
     "env": "d2s-env/0.1",
     "preview": "d2s-preview/0.1",
+    "job": "d2s-job/0.1",
+    "result": "d2s-result/0.1",
 }
 
 OPTION_REFERENCE_RE = re.compile(r"^\$\{options\.([a-z][a-z0-9_]*)\}$")
@@ -716,6 +732,82 @@ class Preview(VersionedFile):
     omitted: list[str] = []
 
 
+# ---------------------------------------------------------------- worker (CONTRACTS 9.1)
+
+
+class ErrorInfo(StrictModel):
+    """Lỗi do worker hoặc API báo về (CONTRACTS mục 9.1 và 11.3).
+
+    Attributes:
+        code: Mã lỗi ``snake_case`` trong ``ERROR_CODES``, để máy phân loại.
+        message: Thông báo tiếng Việt cho người dùng.
+        details: Thông tin thêm tuỳ loại lỗi.
+    """
+
+    code: str
+    message: str
+    details: dict[str, Any] = {}
+
+    @field_validator("code")
+    @classmethod
+    def _validate_code(cls, value: str) -> str:
+        """Mã lỗi phải nằm trong bảng ``ERROR_CODES``."""
+        if value not in ERROR_CODES:
+            raise ValueError(f"mã lỗi không có trong bảng: {value} (xem CONTRACTS mục 11.3)")
+        return value
+
+
+class JobSpec(VersionedFile):
+    """File ``job.json`` engine giao cho ``d2s-worker`` (CONTRACTS mục 9.1).
+
+    ``stage_id`` và ``params`` chỉ có khi ``kind`` là ``stage``; ``inputs`` ánh xạ tên đầu vào
+    sang đường dẫn tương đối với ``D2S_WORKDIR``.
+    """
+
+    FILE_KIND: ClassVar[str] = "job"
+    job_id: str
+    kind: JobKind
+    stage_id: Optional[StageId] = None
+    params: dict[str, Any] = {}
+    inputs: dict[str, str] = {}
+    output_dir: str
+    env: str
+
+    @model_validator(mode="after")
+    def _check_stage_fields(self) -> "JobSpec":
+        """Việc loại ``stage`` phải có ``stage_id``; loại khác không được có."""
+        if self.kind == "stage" and self.stage_id is None:
+            raise ValueError("job loại stage phải có stage_id")
+        if self.kind != "stage" and self.stage_id is not None:
+            raise ValueError(f"job loại {self.kind} không có stage_id")
+        return self
+
+
+class JobResult(VersionedFile):
+    """File ``result.json`` worker ghi khi xong việc (CONTRACTS mục 9.1).
+
+    Thành công thì ``outputs`` ánh xạ tên đầu ra sang đường dẫn và ``error`` trống; thất bại
+    thì ``error`` bắt buộc.
+    """
+
+    FILE_KIND: ClassVar[str] = "result"
+    job_id: str
+    status: JobStatus
+    outputs: dict[str, str] = {}
+    duration_s: float = Field(ge=0)
+    peak_vram_mb: int = Field(ge=0)
+    error: Optional[ErrorInfo] = None
+
+    @model_validator(mode="after")
+    def _check_error_matches_status(self) -> "JobResult":
+        """``error`` có khi và chỉ khi ``status`` là ``failed``."""
+        if self.status == "failed" and self.error is None:
+            raise ValueError("kết quả failed phải có error")
+        if self.status == "succeeded" and self.error is not None:
+            raise ValueError("kết quả succeeded không được có error")
+        return self
+
+
 # Tra lớp schema theo loại file trong schema_version, dùng bởi files.load_any.
 MODELS_BY_KIND: dict[str, type] = {
     "manifest": Manifest,
@@ -727,4 +819,6 @@ MODELS_BY_KIND: dict[str, type] = {
     "summary": Summary,
     "env": EnvRecord,
     "preview": Preview,
+    "job": JobSpec,
+    "result": JobResult,
 }
