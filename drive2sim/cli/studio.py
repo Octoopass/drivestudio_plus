@@ -9,6 +9,7 @@ Studio cần các gói của nhóm ``studio`` (``pip install -e ".[studio]"``).
 """
 
 import argparse
+import socket
 
 from drive2sim.cli.output import CommandError, info
 from drive2sim.engine.workdir import Workdir
@@ -41,7 +42,7 @@ def run_studio(args: argparse.Namespace) -> int:
         Mã thoát ``0`` khi server dừng.
 
     Raises:
-        CommandError: Nếu chưa cài ``fastapi`` hoặc ``uvicorn``.
+        CommandError: Nếu chưa cài ``fastapi`` hoặc ``uvicorn``, hoặc cổng đang bận.
     """
     try:
         import uvicorn
@@ -52,6 +53,15 @@ def run_studio(args: argparse.Namespace) -> int:
             f'Studio cần gói {error.name}; cài bằng: pip install -e ".[studio]"'
         ) from None
     workdir = Workdir.from_env(args.workdir)
+    # Thử giữ cổng trước khi báo địa chỉ, để không in "Studio ở ..." rồi mới báo cổng bận.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        try:
+            probe.bind((HOST, args.port))
+        except OSError:
+            raise CommandError(
+                f"cổng {args.port} đang có chương trình khác dùng; chọn cổng khác bằng --port",
+                "conflict",
+            ) from None
     info(args, f"Studio ở http://{HOST}:{args.port} (thư mục làm việc {workdir.root})")
     uvicorn.run(create_app(workdir), host=HOST, port=args.port, log_level="warning")
     return 0

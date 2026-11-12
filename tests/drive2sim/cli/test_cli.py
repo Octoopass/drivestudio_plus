@@ -292,3 +292,10 @@ def test_parse_set() -> None:
     assert stage_params == {"train.drivestudio": {"num_iters": 1000}}
     with pytest.raises(UsageError):
         parse_set(["renderer"])
+
+
+def test_schema_export(tmp_path: Path) -> None:
+    assert main(["schema", "export", "--out", str(tmp_path), "--quiet"]) == 0
+    run_schema = json.loads((tmp_path / "run.schema.json").read_text())
+    assert run_schema["title"] == "RunRecord"
+    assert "stages" in run_schema["properties"]
