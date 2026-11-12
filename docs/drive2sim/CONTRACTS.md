@@ -268,7 +268,7 @@ Riêng `train.*`: chạy tiếp bằng `checkpoint_resume.pth` (model, optimizer
 |---|---|
 | `scene_subset` | Kết quả của `prep.select`: danh sách camera, đoạn khung, độ phân giải đã chọn |
 | `masks` | Mask bầu trời, mask vật động (người, xe), lưu thành một component group NCore loại nhãn theo ảnh (`CameraLabelsComponent`) |
-| `smpl` | Tư thế người theo khung, định dạng của `drive2sim/recon/data/tools/humanpose_process.py` |
+| `smpl` | Tư thế người theo khung, định dạng của `drive2sim/recon/preprocess/smpl/run.py` |
 | `depth_prior` | Depth metric theo camera và khung, lưu như `masks`; kèm tên model |
 | `points_init` | `points_init.npz`: `points` `float32[M,3]` trong hệ `world`, `colors` `uint8[M,3]`, `track_ids` (tuỳ chọn) |
 | `drivestudio_scene` | Thư mục cảnh theo định dạng tiền xử lý của DriveStudio, do `prep.to_drivestudio` ghi |

@@ -105,7 +105,7 @@ Tool được làm trên branch `drive2sim`. Trên branch này, mã DriveStudio 
 - Cần một định dạng chung cho mọi nguồn, đúng tinh thần NCore của NuRec. NCore có sẵn converter cho phần lớn nguồn cần dùng, nên ít phải tự viết nhất.
 - Có đủ ba mô hình camera và rolling shutter, khớp `CameraSpec` của proto `SensorsimService` (mục 2.14).
 - NuRec đọc thẳng NCore, nên muốn so với NuRec thì không phải chuyển dữ liệu thêm lần nữa.
-- Patch Bosch đã có một đường đọc NCore (`drive2sim/recon/data/physicalai/`), làm nền cho loader chung (mục 2.4).
+- Patch Bosch đã có một đường đọc NCore (`drive2sim/recon/preprocess/physicalai/process.py`, `drive2sim/recon/data/loaders/physicalai.py`), làm nền cho loader chung (mục 2.4).
 
 **Ưu điểm.**
 - Không phải tự thiết kế và giữ một định dạng riêng.
@@ -134,7 +134,7 @@ Tool được làm trên branch `drive2sim`. Trên branch này, mã DriveStudio 
 
 ### 2.4 Một loader NCore chung thay cho loader riêng của từng dataset
 
-**Khái niệm.** DriveStudio hiện có 7 loader riêng (`drive2sim/recon/data/*/*_sourceloader.py`, 460–720 dòng mỗi file, tổng 3678 dòng). Thư mục sau tiền xử lý có cùng khung, nhưng mỗi loader tự xử lý quy ước calib, trục camera và box của dataset mình. Phần thật sự chung là interface Python (`ScenePixelSource`, `SceneLidarSource`). Loader được chọn trong config dataset bằng `data.pixel_source.type`, ví dụ `datasets.physicalai.physicalai_sourceloader.PhysicalAIPixelSource`.
+**Khái niệm.** DriveStudio hiện có 7 loader riêng (`drive2sim/recon/data/loaders/<dataset>.py`, 460–720 dòng mỗi file, tổng 3678 dòng). Thư mục sau tiền xử lý có cùng khung, nhưng mỗi loader tự xử lý quy ước calib, trục camera và box của dataset mình. Phần thật sự chung là interface Python (`ScenePixelSource`, `SceneLidarSource`). Loader được chọn trong config dataset bằng `data.pixel_source.type`, ví dụ `drive2sim.recon.data.loaders.physicalai.PhysicalAIPixelSource`.
 
 Thiết kế đích: một đường duy nhất `NCore → thư mục DriveStudio → loader NCore`, mở rộng từ đường PhysicalAI có sẵn.
 
@@ -325,45 +325,55 @@ Thiết kế đích: một đường duy nhất `NCore → thư mục DriveStudi
 drivestudio_plus/                          branch drive2sim
 ├── pyproject.toml                         package drive2sim; pip install -e .
 ├── requirements.txt                       thư viện nặng (PyTorch, gsplat-geer, ...)
-├── configs/                               config method (<method>*.yaml) và config dataset (datasets/<dataset>/)
-│   └── datasets/ncore/        (mới)       <số camera>cams.yaml cho loader NCore
+├── configs/
+│   ├── methods/                           config method: <method>[_<biến thể>].yaml; paper_legacy/
+│   └── datasets/                          <dataset>/<số camera>cams.yaml; ncore/ (mới)
+├── docs/
+│   ├── datasets/                          hướng dẫn tải và tiền xử lý: <dataset>.md, human_pose.md
+│   ├── methods/                           ghi chú phương pháp: 3dgeer.md, fastgs.md
+│   ├── media/                             hình cho README
+│   └── drive2sim/                         SPEC.md, ARCHITECTURE.md, CONTRACTS.md
 ├── drive2sim/
 │   ├── paths.py                           đường dẫn tới assets/ trong package
 │   ├── assets/                            ego_masks/<dataset>/<camera>.png, scene_lists/<dataset>_*.txt
-│   ├── recon/                             mã DriveStudio (đã chuyển vào)
-│   │   ├── data/                          ← datasets/: base/, <dataset>/ (tiền xử lý + loader), tools/, driving_dataset.py
-│   │   │   └── ncore/         (mới)       ncore_sourceloader.py: loader NCore chung
-│   │   ├── models/                        ← models/: gaussians/, nodes/, modules.py, losses.py, human_body.py, video_utils.py
-│   │   ├── trainers/                      ← models/trainers/
-│   │   ├── utils/                         ← utils/
-│   │   └── tools/                         ← tools/: train.py, eval.py, viewer.py, export_ply.py (tạm, thay dần bằng stage và CLI)
+│   ├── recon/                             mã tái dựng (từ DriveStudio)
+│   │   ├── data/                          đọc dữ liệu đã tiền xử lý để train
+│   │   │   ├── base/                      pixel_source, lidar_source, scene_dataset, split_wrapper
+│   │   │   ├── loaders/                   <dataset>.py: một loader mỗi dataset; ncore.py (mới, loader chung)
+│   │   │   ├── driving_dataset.py
+│   │   │   └── dataset_meta.py
+│   │   ├── preprocess/                    dữ liệu gốc → thư mục DriveStudio
+│   │   │   ├── run.py                     điểm vào: python -m drive2sim.recon.preprocess.run --dataset <dataset>
+│   │   │   ├── <dataset>/                 process.py, human.py, preview.py; waymo/download.py; utils.py khi cần
+│   │   │   ├── masks/                     segformer_mmseg.py, segformer_hf.py
+│   │   │   ├── smpl/                      run.py, extract.py, postprocess.py
+│   │   │   └── multiprocess.py
+│   │   ├── models/                        gaussians/, nodes/, modules.py, losses.py, human_body.py
+│   │   ├── trainers/                      base.py, single.py, scene_graph.py
+│   │   ├── rendering/                     videos.py
+│   │   ├── utils/                         camera, geometry, logging, misc, visualization, backup
+│   │   └── tools/                         train.py, eval.py, viewer.py, export_ply.py, gather_results.py (thay dần bằng stage và CLI)
 │   ├── core/                  (mới)       schema.py, manifest.py, split.py, transforms.py, camera.py, ncore_io.py
-│   ├── ingest/                (mới)       <dataset>.py: một converter mỗi nguồn; validate.py
-│   ├── stages/                (mới)
-│   │   ├── prep/                          select.py, undistort.py, masks_segformer.py, smpl.py, to_drivestudio.py
-│   │   ├── init/                          lidar.py, depth.py, slam.py
-│   │   ├── train/                         drivestudio.py, external.py
-│   │   ├── eval/                          standard.py
-│   │   ├── render/                        videos.py
-│   │   └── export/                        ply_world.py, preview.py
-│   ├── engine/                (mới)       registry.py, resolve.py (ô chọn, preset, ràng buộc), run.py, cache.py
+│   ├── ingest/                (mới)       <dataset>.py: converter → NCore V4; validate.py
+│   ├── stages/                (mới)       prep/, init/, train/, eval/, render/, export/: mỗi stage một file
+│   ├── engine/                (mới)       registry.py, resolve.py, run.py, cache.py
 │   ├── approaches/            (mới)       <approach_id>.yaml
 │   ├── kaggle/                (mới)       client.py, bundle.py, templates/<tên>.ipynb
-│   ├── sim/                   (mới)       renderer.py (L2), actors.py (L3), server/ (L4; protos/ chép từ NuRec)
-│   ├── studio/                (mới)
-│   │   ├── api/                           app.py, routes/<nhóm>.py
-│   │   ├── viz/                           viser_app.py, render_fn.py
-│   │   └── frontend/                      Vite + React (src/pages/, src/components/)
-│   ├── external/              (mới)       <codebase>/: môi trường và worker cho codebase ngoài
-│   ├── scripts/               (mới)       công cụ phát triển chạy một lần, không phải tính năng
-│   └── cli/                   (mới)       main.py, <nhóm>.py: một file cho mỗi nhóm lệnh (scene, split, run, ...)
-├── third_party/                           smplx (cài bằng pip -e, import là smplx), Humans4D (submodule, import là hmr2); ncore (mới)
+│   ├── sim/                   (mới)       renderer.py (L2), actors.py (L3), server/ (L4; protos/ từ NuRec)
+│   ├── studio/                (mới)       api/ (app.py, routes/<nhóm>.py), viz/, frontend/ (Vite + React)
+│   ├── external/              (mới)       <codebase>/: worker cho codebase ngoài
+│   ├── scripts/               (mới)       công cụ phát triển chạy một lần
+│   └── cli/                   (mới)       main.py, <nhóm>.py
+├── third_party/                           smplx (pip -e, import smplx), Humans4D (submodule, import hmr2); ncore (mới)
 ├── envs/                      (mới)       main.yml, <codebase>.yml
-├── docs/                                  hướng dẫn dataset của DriveStudio; docs/drive2sim/ (SPEC, ARCHITECTURE, CONTRACTS)
 └── tests/drive2sim/           (mới)       cùng cây thư mục với drive2sim/
 ```
 
-Chạy các script cũ của DriveStudio bằng `python -m`, ví dụ `python -m drive2sim.recon.tools.train`, `python -m drive2sim.recon.data.preprocess`. Chuỗi import trong config cũng theo đường dẫn mới, ví dụ `drive2sim.recon.models.nodes.RigidNodes`.
+Phân chia trong `drive2sim/recon/`:
+- `preprocess/` chỉ chạy một lần trên dữ liệu gốc, ghi ra thư mục DriveStudio; `data/` chỉ đọc thư mục đó khi train. Loader không import gì từ `preprocess/`.
+- Trong một nhóm, file đặt theo vai trò (`process.py`, `human.py`, `preview.py`), không lặp tên dataset trong tên file vì thư mục đã mang tên dataset.
+
+Chạy script bằng `python -m`, ví dụ `python -m drive2sim.recon.tools.train`, `python -m drive2sim.recon.preprocess.run`. Chuỗi import trong config theo đường dẫn mới, ví dụ `drive2sim.recon.models.nodes.RigidNodes`, `drive2sim.recon.data.loaders.nuscenes.NuScenesPixelSource`.
 
 ### 3.1 Code mới đặt ở đâu
 
@@ -374,10 +384,13 @@ Chạy các script cũ của DriveStudio bằng `python -m`, ví dụ `python -m
 | Loại artifact mới | `drive2sim/core/schema.py` | giá trị mới của `artifact_type` | Bảng CONTRACTS mục 5.4 |
 | Approach mới | `drive2sim/approaches/` | `<approach_id>.yaml` | Tự nạp khi engine khởi động |
 | Lựa chọn mới cho một ô (ví dụ `init.slam`) | Stage mới như trên | | Thêm vào `options.<ô>.choices` của approach |
-| Method, node, loại Gaussian mới | `drive2sim/recon/models/nodes/` hoặc `drive2sim/recon/models/gaussians/` | `<tên>.py`; lớp theo quy ước sẵn có (`<Tên>Nodes`, `<Tên>Gaussians`) | Config method trong `configs/`; giá trị mới cho tham số `method` của `train.drivestudio` |
-| Loader dữ liệu | `drive2sim/recon/data/ncore/` | Chỉ một loader NCore; không thêm loader riêng cho dataset mới, dataset mới đi qua `ingest/` | |
+| Method, node, loại Gaussian mới | `drive2sim/recon/models/nodes/` hoặc `drive2sim/recon/models/gaussians/` | `<tên>.py`; lớp theo quy ước sẵn có (`<Tên>Nodes`, `<Tên>Gaussians`) | Config method trong `configs/methods/`; giá trị mới cho tham số `method` của `train.drivestudio` |
+| Loader dữ liệu | `drive2sim/recon/data/loaders/` | `ncore.py`: chỉ một loader NCore; không thêm loader riêng cho dataset mới, dataset mới đi qua `ingest/` | Chuỗi `data.pixel_source.type` trong `configs/datasets/ncore/` |
 | Tiện ích dùng chung của phần tái dựng | `drive2sim/recon/utils/` | `<chủ_đề>.py` | |
-| Config method | `configs/` | `<method>.yaml`; biến thể kế thừa từ config gốc, chỉ ghi phần khác | |
+| Config method | `configs/methods/` | `<method>.yaml`; biến thể `<method>_<biến thể>.yaml` kế thừa từ config gốc, chỉ ghi phần khác | |
+| Bước tiền xử lý dữ liệu gốc cho DriveStudio (tạm, cho tới khi có `ingest/`) | `drive2sim/recon/preprocess/<dataset>/` hoặc `drive2sim/recon/preprocess/<loại>/` | `process.py`, `human.py`, `preview.py`; loại chung: `masks/`, `smpl/` | Nhánh `--dataset` trong `drive2sim/recon/preprocess/run.py` |
+| Hàm render, video | `drive2sim/recon/rendering/` | `<chủ_đề>.py` | |
+| Hướng dẫn dataset, ghi chú phương pháp | `docs/datasets/`, `docs/methods/` | `<tên>.md` chữ thường | |
 | Config dataset cho loader NCore | `configs/datasets/ncore/` | `<số camera>cams.yaml` | |
 | File đi kèm package (mask thân xe, danh sách cảnh) | `drive2sim/assets/<loại>/` | | Truy cập qua `drive2sim/paths.py`, không dùng đường dẫn tương đối theo thư mục đang chạy |
 | Codebase ngoài | `drive2sim/external/<codebase>/` | `worker.py`; môi trường ở `envs/<codebase>.yml` | Stage `train.external` với tham số `codebase: <tên>` |
@@ -423,16 +436,16 @@ Mỗi stage là một lớp đăng ký theo tên, theo interface ở CONTRACTS m
 |---|---|---|---|
 | `prep.select` | Chọn camera, đoạn khung, độ phân giải | có | |
 | `prep.undistort` | Khử méo về pinhole cho approach chỉ nhận pinhole | có | `data.pixel_source.undistort` của loader PhysicalAI |
-| `prep.masks_segformer` | Mask bầu trời và mask vật động | có | `drive2sim/recon/data/tools/extract_masks_hf.py` |
-| `prep.smpl` | Tư thế người | có | `drive2sim/recon/data/tools/humanpose_process.py`, `extract_smpl.py` |
-| `prep.to_drivestudio` | NCore → thư mục DriveStudio cho loader NCore | có | `drive2sim/recon/data/physicalai/physicalai_preprocess.py` |
+| `prep.masks_segformer` | Mask bầu trời và mask vật động | có | `drive2sim/recon/preprocess/masks/segformer_hf.py` |
+| `prep.smpl` | Tư thế người | có | `drive2sim/recon/preprocess/smpl/run.py`, `extract.py` |
+| `prep.to_drivestudio` | NCore → thư mục DriveStudio cho loader NCore | có | `drive2sim/recon/preprocess/physicalai/process.py` |
 | `init.lidar` | Điểm khởi tạo từ LiDAR | có | `get_lidar_samples` trong `drive2sim/recon/data/driving_dataset.py` |
 | `init.depth` | Điểm khởi tạo từ pose dataset + depth metric | có | Chưa có |
 | `init.slam` | Pose và điểm từ SLAM, khi rig không có pose | có | Chưa có |
 | `train.drivestudio` | Train bằng trainer DriveStudio; method, renderer, FastGS, CamPose chọn qua tham số | không | `drive2sim/recon/tools/train.py` |
 | `train.external` | Train bằng codebase ngoài, trong môi trường riêng | không | Chưa có |
 | `eval.standard` | Đánh giá theo protocol chung (SPEC mục 9) | không | `drive2sim/recon/tools/eval.py` (`do_evaluation`) |
-| `render.videos` | Video ảnh gốc, ảnh render, sai khác theo camera | không | `drive2sim/recon/models/video_utils.py` |
+| `render.videos` | Video ảnh gốc, ảnh render, sai khác theo camera | không | `drive2sim/recon/rendering/videos.py` |
 | `export.ply_world` | PLY 3DGS trong hệ world | không | `drive2sim/recon/tools/export_ply.py` |
 | `export.preview` | Gói xem trước cho Spark | không | Mở rộng `drive2sim/recon/tools/export_ply.py`; dữ liệu cần (`instances_quats`, `instances_trans`, `instances_fv`, `points_ids`) có sẵn trong `state_dict()` của RigidNodes (`drive2sim/recon/models/nodes/rigid.py:483`) |
 
@@ -549,8 +562,8 @@ Loader 7 dataset; tiền xử lý (mask, SMPL); OmniRe, Street GS, PVG, Deformab
 
 | Chênh lệch | Vị trí | Việc cần làm |
 |---|---|---|
-| Mỗi dataset một loader riêng | `drive2sim/recon/data/*/*_sourceloader.py` | Loader NCore chung (mục 2.4) |
-| Đường NCore chỉ dành cho PhysicalAI: gắn cứng 7 camera, tìm file `pai_*.json`, chỉ nhận F-theta, bắt buộc có LiDAR | `drive2sim/recon/data/physicalai/physicalai_preprocess.py` dòng 16, 36, 82–83, 411 | Đọc camera từ dữ liệu; thêm pinhole và fisheye OpenCV; cho phép không có LiDAR |
+| Mỗi dataset một loader riêng | `drive2sim/recon/data/loaders/<dataset>.py` | Loader NCore chung (mục 2.4) |
+| Đường NCore chỉ dành cho PhysicalAI: gắn cứng 7 camera, tìm file `pai_*.json`, chỉ nhận F-theta, bắt buộc có LiDAR | `drive2sim/recon/preprocess/physicalai/process.py` dòng 16, 36, 82–83, 411 | Đọc camera từ dữ liệu; thêm pinhole và fisheye OpenCV; cho phép không có LiDAR |
 | Khởi tạo nằm trong dataset và trainer, bắt buộc có LiDAR | `drive2sim/recon/data/driving_dataset.py:189` (`get_lidar_samples`) | Tách thành stage `init.*`; trainer nhận `points_init` |
 | Đánh giá chạy ở cuối `drive2sim/recon/tools/train.py` | `do_evaluation` trong `drive2sim/recon/tools/train.py`, `drive2sim/recon/tools/eval.py` | Tách thành stage `eval.standard` |
 | Chỉ một kiểu split: test là các khung N, 2N, 3N... với mọi camera; 19 trên 21 config dataset đặt `test_image_stride: 0`, tức không có khung test | `split_train_test` trong `drive2sim/recon/data/driving_dataset.py` | Trước mắt chỉ dùng kiểu `every_nth_frame` (CONTRACTS mục 3.1); sau mới nhận split tuỳ ý |
@@ -570,7 +583,7 @@ Loader 7 dataset; tiền xử lý (mask, SMPL); OmniRe, Street GS, PVG, Deformab
 
 ### 7.4 Thứ tự làm
 
-0. **Di chuyển mã DriveStudio vào `drive2sim/recon/`** (đã làm): đổi chỗ file, sửa import trong mã và chuỗi import trong config, thêm `pyproject.toml`, `drive2sim/paths.py` cho `assets/`. Đã kiểm tra tĩnh (mọi import `drive2sim...` và mọi chuỗi import trong config trỏ tới lớp có thật); **chưa chạy thật**.
+0. **Di chuyển mã DriveStudio vào `drive2sim/recon/`** (đã làm, hai lượt): đổi chỗ file, sửa import trong mã và chuỗi import trong config, thêm `pyproject.toml`, `drive2sim/paths.py` cho `assets/`; lượt hai tách `preprocess/` khỏi `data/loaders/`, chuyển import tương đối sang tuyệt đối, gom config method vào `configs/methods/`, docs vào `docs/datasets/` và `docs/methods/`. Đã kiểm tra tĩnh (mọi import `drive2sim...` và mọi chuỗi import trong config trỏ tới lớp có thật); **chưa chạy thật**.
 1. **Kaggle chạy tiếp được:** sửa chạy tiếp (mục 7.2; đã sửa trong code, chưa chạy thử) và làm `drive2sim/kaggle/`. Chạy được OmniRe trên cảnh nuScenes mini mà teammate đã dùng; đây cũng là lần kiểm tra hành vi của bước 0.
 2. **Engine và stage bọc mã hiện có:** registry, file approach có ô chọn, `train.drivestudio`, `eval.standard`, `render.videos`, `export.ply_world`, `run.json`, CLI `d2s`. Đạt L1 theo thiết kế; Studio nhóm A–D làm song song.
 3. **Tầng dữ liệu:** nuScenes mini → NCore bằng converter có sẵn (thử chạy không cần Bazel, trên Kaggle) → `prep.to_drivestudio` → loader NCore → kiểm tra hồi quy với loader cũ.
@@ -595,7 +608,7 @@ Loader 7 dataset; tiền xử lý (mask, SMPL); OmniRe, Street GS, PVG, Deformab
 - Repo: MIT (DriveStudio) cộng AGPL-3.0 (patch Bosch, FastGS dựa trên patch), nên phần thêm vào cũng phân phối theo AGPL.
 - gsplat-geer đi kèm `3dgs-license.txt` của Inria (phi thương mại).
 - `drive2sim/recon/tools/export_ply.py` dùng `plyfile` (GPLv3+).
-- Weights SegFormer của NVIDIA dùng trong `extract_masks_hf.py` chỉ cho dùng phi thương mại.
+- Weights SegFormer của NVIDIA dùng trong `drive2sim/recon/preprocess/masks/segformer_hf.py` chỉ cho dùng phi thương mại.
 - NCore, proto `SensorsimService`: Apache-2.0; giữ nguyên ghi chú bản quyền khi đưa vào repo.
 - viser, nerfview, Spark: MIT.
 - Dữ liệu (Waymo, nuScenes...) không nằm trong repo; dataset upload lên Kaggle luôn để private.
