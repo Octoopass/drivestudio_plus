@@ -250,6 +250,21 @@ class BasicTrainer(nn.Module):
         self.optimizer = torch.optim.Adam(groups, lr=0.0, eps=1e-15)
         self.lr_schedulers = lr_schedulers
         self.grad_scaler = torch.cuda.amp.GradScaler(enabled=self.optim_general.get("use_grad_scaler", False))
+
+        # restore optimizer state when resuming from a full checkpoint
+        pending = getattr(self, "_pending_optimizer_state", None)
+        if pending is not None:
+            optimizer_state, saved_group_names, grad_scaler_state = pending
+            group_names = [g["name"] for g in self.optimizer.param_groups]
+            if saved_group_names is not None and saved_group_names != group_names:
+                raise ValueError(
+                    f"Optimizer param groups differ from the checkpoint: {saved_group_names} vs {group_names}"
+                )
+            self.optimizer.load_state_dict(optimizer_state)
+            if grad_scaler_state is not None:
+                self.grad_scaler.load_state_dict(grad_scaler_state)
+            self._pending_optimizer_state = None
+            logger.info("Restored optimizer and grad-scaler state from the checkpoint")
     
     def _init_losses(self) -> None:
         sky_opacity_loss_fn = None
@@ -980,10 +995,12 @@ class BasicTrainer(nn.Module):
             "step": self.step,
         })
         if not only_model:
+            # Learning rates follow self.step through self.lr_schedulers, so only the
+            # optimizer and grad-scaler states are needed to resume training.
             state_dict.update({
-                "optimizer": {k: v.state_dict() for k, v in self.optimizer.items()},
-                # "lr_schedulers": {k: v.state_dict() for k, v in self.lr_schedulers.items()},
-                # "grad_scaler": self.grad_scaler.state_dict(),
+                "optimizer": self.optimizer.state_dict(),
+                "optimizer_group_names": [g["name"] for g in self.optimizer.param_groups],
+                "grad_scaler": self.grad_scaler.state_dict(),
             })
         return state_dict
 
@@ -992,21 +1009,16 @@ class BasicTrainer(nn.Module):
         self.step = step
         logger.info(f"Loading checkpoint at step {step}")
 
-        # load optimizer and schedulers
-        if "optimizer" in state_dict:
-            loaded_state_optimizers = state_dict.pop("optimizer")
-        # if "schedulers" in state_dict:
-        #     loaded_state_schedulers = state_dict.pop("schedulers")
-        # if "grad_scaler" in state_dict:
-        #     loaded_grad_scaler = state_dict.pop("grad_scaler")
+        # Optimizer state is kept aside and applied by initialize_optimizer(), which
+        # builds the optimizer for the parameters loaded below.
+        optimizer_state = state_dict.pop("optimizer", None)
+        optimizer_group_names = state_dict.pop("optimizer_group_names", None)
+        grad_scaler_state = state_dict.pop("grad_scaler", None)
+        self._pending_optimizer_state = None
         if not load_only_model:
-            raise NotImplementedError("Now only support loading model, \
-                it seems there is no need to load optimizer and schedulers")
-            for k, v in loaded_state_optimizers.items():
-                self.optimizer[k].load_state_dict(v)
-            for k, v in loaded_state_schedulers.items():
-                self.schedulers[k].load_state_dict(v)
-            self.grad_scaler.load_state_dict(loaded_grad_scaler)
+            if optimizer_state is None:
+                raise ValueError("Checkpoint has no optimizer state; it was saved with save_only_model=True")
+            self._pending_optimizer_state = (optimizer_state, optimizer_group_names, grad_scaler_state)
         
         # load model
         model_state_dict = state_dict.pop("models")
@@ -1033,22 +1045,32 @@ class BasicTrainer(nn.Module):
         """
         logger.info(f"Loading checkpoint from {ckpt_path}")
         state_dict = torch.load(ckpt_path)
+        if not load_only_model and "optimizer" not in state_dict:
+            logger.warning(f"{ckpt_path} holds only the model; training resumes with a fresh optimizer")
+            load_only_model = True
         self.load_state_dict(state_dict, load_only_model=load_only_model, strict=True)
         
     def save_checkpoint(
         self,
         log_dir: str,
         save_only_model: bool=True,
-        is_final: bool=False
+        is_final: bool=False,
+        name: str=None,
     ) -> None:
         """
-        Save model to checkpoint.
+        Save model (and, if save_only_model is False, optimizer state) to checkpoint.
+        The file is written under a temporary name and then renamed, so an interrupted
+        save never leaves a truncated checkpoint.
         """
-        if is_final:
+        if name is not None:
+            ckpt_path = os.path.join(log_dir, name)
+        elif is_final:
             ckpt_path = os.path.join(log_dir, f"checkpoint_final.pth")
         else:
             ckpt_path = os.path.join(log_dir, f"checkpoint_{self.step:05d}.pth")
-        torch.save(self.state_dict(only_model=save_only_model), ckpt_path)
+        tmp_path = ckpt_path + ".tmp"
+        torch.save(self.state_dict(only_model=save_only_model), tmp_path)
+        os.replace(tmp_path, ckpt_path)
         logger.info(f"Saved a checkpoint to {ckpt_path}")
         
     def init_viewer(self, port: int = 8080):

@@ -103,6 +103,9 @@ def setup(args):
     )
     return cfg
 
+# full checkpoint (model + optimizer state) written at every save, used to resume a run
+RESUME_CHECKPOINT = "checkpoint_resume.pth"
+
 def main(args):
     cfg = setup(args)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -127,12 +130,14 @@ def main(args):
     # NOTE: If resume, gaussians will be loaded from checkpoint
     #       If not, gaussians will be initialized from dataset
     if args.resume_from is not None:
+        # a full checkpoint (checkpoint_resume.pth) also restores the optimizer state;
+        # a model-only checkpoint falls back to a fresh optimizer
         trainer.resume_from_checkpoint(
             ckpt_path=args.resume_from,
-            load_only_model=True
+            load_only_model=False
         )
         logger.info(
-            f"Resuming training from {args.resume_from}, starting at step {trainer.step}"
+            f"Resuming training from {args.resume_from}, saved at step {trainer.step}, continuing at step {trainer.step + 1}"
         )
     else:
         trainer.init_gaussians_from_dataset(dataset=dataset)
@@ -174,7 +179,9 @@ def main(args):
     # setup metric logger
     metrics_file = os.path.join(cfg.log_dir, "metrics.json")
     metric_logger = MetricLogger(delimiter="  ", output_file=metrics_file)
-    all_iters = np.arange(trainer.step, trainer.num_iters + 1)
+    # a checkpoint is written after its step has finished, so a resumed run starts one step later
+    start_step = trainer.step + 1 if args.resume_from is not None else trainer.step
+    all_iters = np.arange(start_step, trainer.num_iters + 1)
     
     # DEBUG USE
     # do_evaluation(
@@ -294,13 +301,23 @@ def main(args):
         #----------------------------     Saving     --------------------------------
         do_save = step > 0 and (
             (step % cfg.logging.saveckpt_freq == 0) or (step == trainer.num_iters)
-        ) and (args.resume_from is None)
+        )
         if do_save:  
             trainer.save_checkpoint(
                 log_dir=cfg.log_dir,
                 save_only_model=True,
                 is_final=step == trainer.num_iters,
             )
+            resume_ckpt = os.path.join(cfg.log_dir, RESUME_CHECKPOINT)
+            if step < trainer.num_iters:
+                # full checkpoint (model + optimizer), overwritten at every save, for --resume_from
+                trainer.save_checkpoint(
+                    log_dir=cfg.log_dir,
+                    save_only_model=False,
+                    name=RESUME_CHECKPOINT,
+                )
+            elif os.path.exists(resume_ckpt):
+                os.remove(resume_ckpt)   # training finished; checkpoint_final.pth is kept
         
         #----------------------------------------------------------------------------
         #------------------------    Cache Image Error    ---------------------------
@@ -358,7 +375,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_root", default="./work_dirs/", help="path to save checkpoints and logs", type=str)
     
     # eval
-    parser.add_argument("--resume_from", default=None, help="path to checkpoint to resume from", type=str)
+    parser.add_argument("--resume_from", default=None, help=f"checkpoint to resume from; use <log_dir>/{RESUME_CHECKPOINT} to also restore the optimizer state", type=str)
     parser.add_argument("--render_video_postfix", type=str, default=None, help="an optional postfix for video")    
     
     # wandb logging part

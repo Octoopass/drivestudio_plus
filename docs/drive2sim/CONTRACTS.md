@@ -244,7 +244,7 @@ Stage đăng ký bằng `@register_stage("<stage_id>")`. Engine lo cache, file `
 
 `<hash8>` là 8 ký tự hex đầu của sha256 trên JSON chuẩn hoá của {tham số đã gộp, khoá cache của các artifact đầu vào}. Không băm nội dung dữ liệu: dữ liệu chuẩn sau ingest không đổi, `scene_id` cùng `source.converter_version` trong manifest là đủ để nhận diện. Thư mục đang ghi mang hậu tố `.partial`, chỉ đổi tên khi ghi xong.
 
-Riêng `train.*`: checkpoint đầy đủ (model và trạng thái optimizer) để chạy tiếp; file `done` chỉ ghi khi train xong.
+Riêng `train.*`: chạy tiếp bằng `checkpoint_resume.pth` (model, optimizer, grad scaler) trong thư mục run, truyền qua `--resume_from`; file `done` chỉ ghi khi train xong.
 
 ### 5.3 `artifact.json`
 
@@ -290,7 +290,9 @@ runs/<scene_id>/<approach_id>/<run_id>/
 ├── metrics.json                 # DriveStudio ghi: log metric trong lúc train
 ├── metrics/images_test_*.json   # DriveStudio ghi: kết quả đánh giá
 ├── videos/ images/ configs_bk/ backup/
-├── checkpoint_*.pth
+├── checkpoint_<bước>.pth         # chỉ model, sau mỗi lần lưu
+├── checkpoint_resume.pth        # model + optimizer + grad scaler, ghi đè mỗi lần lưu; xoá khi train xong
+├── checkpoint_final.pth         # chỉ model
 └── d2s/                         # tool ghi
     ├── run.json
     ├── summary.json
