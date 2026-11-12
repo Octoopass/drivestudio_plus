@@ -83,3 +83,71 @@ export interface RunEvent {
   step?: number;
   level?: string;
 }
+
+/** Việc nền của Studio: ingest, đẩy và tải Kaggle (GET /api/jobs). */
+export interface Job {
+  job_id: string;
+  kind: "ingest" | "kaggle_push" | "kaggle_pull";
+  label: string;
+  status: "queued" | "running" | "succeeded" | "failed";
+  result: string | null;
+  error: string | null;
+  created_at: number;
+  finished_at: number | null;
+}
+
+/** Kết quả nhận dạng thư mục dữ liệu gốc (POST /api/sources/inspect). */
+export interface SourceReport {
+  path: string;
+  dataset: string | null;
+  versions: Record<string, string[]>;
+  cameras: string[];
+  has_lidar: boolean | null;
+  has_cuboids: boolean | null;
+  ingest_supported: boolean;
+  inventory: Record<string, unknown>[];
+  notes: string[];
+}
+
+export interface CacheEntry {
+  cache_key: string;
+  scene_id: string;
+  stage_id: string;
+  size_bytes: number;
+  partial: boolean;
+  stale: boolean;
+  used_by: string[];
+}
+
+export interface CacheList extends List<CacheEntry> {
+  size_bytes: number;
+}
+
+export interface Splats {
+  preview: {
+    sh_degree: number;
+    rigid_actors: string[];
+    box_only_actors: string[];
+    omitted: string[];
+    background_url: string | null;
+    actor_urls: Record<string, string | null>;
+    poses_url: string | null;
+  } | null;
+  ply: string | null;
+}
+
+export interface ActorPoses {
+  track_ids: string[];
+  T_object_world: (number[] | null)[][];
+}
+
+export interface KaggleStatus {
+  username: string;
+  kernel: string;
+  attempt: number;
+  dataset: string;
+  commit: string;
+  pushed_utc: string;
+  pulled_utc: string | null;
+  status: string;
+}

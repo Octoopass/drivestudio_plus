@@ -27,12 +27,25 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
-export function post<T>(path: string, body: unknown): Promise<T> {
+export function post<T>(path: string, body: unknown = {}): Promise<T> {
   return api<T>(path, { method: "POST", body: JSON.stringify(body) });
 }
 
-/** Đọc một đường dẫn API; đổi đường dẫn thì đọc lại; null thì không đọc. */
-export function useApi<T>(path: string | null) {
+export function del<T>(path: string): Promise<T> {
+  return api<T>(path, { method: "DELETE" });
+}
+
+/** Đổi lỗi bất kỳ thành ApiError để hiện bằng ErrorBox. */
+export function asApiError(err: unknown): ApiError {
+  return err instanceof ApiError ? err : new ApiError(0, "internal", String(err));
+}
+
+/** Mã hoá một đoạn đường dẫn. */
+export const seg = encodeURIComponent;
+
+/** Đọc một đường dẫn API; đổi đường dẫn thì đọc lại; null thì không đọc. ``pollMs`` thì đọc lại
+ * định kỳ (không hiện trạng thái đang tải khi đọc lại). */
+export function useApi<T>(path: string | null, pollMs?: number) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [loading, setLoading] = useState(false);
@@ -50,6 +63,12 @@ export function useApi<T>(path: string | null) {
       cancelled = true;
     };
   }, [path, version]);
+
+  useEffect(() => {
+    if (!pollMs || path === null) return;
+    const timer = window.setInterval(() => setVersion((v) => v + 1), pollMs);
+    return () => window.clearInterval(timer);
+  }, [path, pollMs]);
 
   const reload = useCallback(() => setVersion((v) => v + 1), []);
   return { data, error, loading, reload };

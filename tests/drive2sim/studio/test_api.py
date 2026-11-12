@@ -345,7 +345,8 @@ def test_frontend_served_at_root(tmp_path: Path) -> None:
     (dist / "index.html").write_text("<!doctype html><title>drive2sim Studio</title>")
     app = create_app(Workdir(tmp_path / "work"), registry=make_registry(), frontend_dir=dist)
     with TestClient(app) as test_client:
-        assert "drive2sim Studio" in test_client.get("/").text
+        root = test_client.get("/")
+        assert "drive2sim Studio" in root.text and root.headers["cache-control"] == "no-cache"
         assert test_client.get("/api/scenes").json() == {"items": [], "total": 0}
 
 
@@ -397,6 +398,7 @@ def test_source_inspect_and_ingest_job(
     assert report["dataset"] == "nuscenes" and report["ingest_supported"]
     missing = client.post("/api/sources/inspect", json={"path": str(tmp_path / "nope")})
     assert missing.status_code == 404
+    assert client.post("/api/sources/inspect", json={"path": ""}).status_code == 400
 
     ambiguous = client.post("/api/sources/ingest", json={"path": str(raw)})
     assert (

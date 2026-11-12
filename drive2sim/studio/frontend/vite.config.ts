@@ -5,7 +5,9 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react()],
-  build: { outDir: "dist", emptyOutDir: true },
+  // Trang xem 3D nạp lười một gói khoảng 3,3 MB (three.js và Spark kèm WASM); các trang khác không
+  // tải gói này, nên nâng ngưỡng cảnh báo thay vì chia nhỏ.
+  build: { outDir: "dist", emptyOutDir: true, chunkSizeWarningLimit: 3500 },
   server: {
     proxy: {
       "/api": "http://127.0.0.1:8000",

@@ -54,7 +54,10 @@ def run_studio(args: argparse.Namespace) -> int:
         ) from None
     workdir = Workdir.from_env(args.workdir)
     # Thử giữ cổng trước khi báo địa chỉ, để không in "Studio ở ..." rồi mới báo cổng bận.
+    # SO_REUSEADDR giống uvicorn: kết nối cũ còn ở TIME_WAIT sau khi tắt Studio không bị tính là
+    # cổng bận; chỉ một chương trình đang nghe mới làm bind lỗi.
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             probe.bind((HOST, args.port))
         except OSError:

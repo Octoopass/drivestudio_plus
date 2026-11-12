@@ -271,7 +271,9 @@ Route, thân, lỗi và sự kiện SSE quy định ở CONTRACTS mục 11; API 
 
 **Nhược điểm.** Phát triển cần Node.js; hai ngôn ngữ nên kiểu dữ liệu phải giữ khớp, ví dụ sinh kiểu TypeScript từ JSON Schema.
 
-**Cách làm đã chọn.** Bản build (`drive2sim/studio/frontend/dist/`, khoảng 750 KB, có font Barlow kèm bộ chữ tiếng Việt) được commit và đóng gói theo package, nên người dùng không cần Node.js. Kiểu TypeScript của các file trong CONTRACTS sinh tự động bằng `npm run types` (gọi `d2s schema export`) vào `src/api/generated/`. Không dùng thư viện router hay biểu đồ: điều hướng bằng hash URL, biểu đồ vẽ bằng SVG; chỉ có `react`, `react-dom` và font.
+**Cách làm đã chọn.** Bản build (`drive2sim/studio/frontend/dist/`, có font Barlow kèm bộ chữ tiếng Việt) được commit và đóng gói theo package, nên người dùng không cần Node.js. Kiểu TypeScript của các file trong CONTRACTS sinh tự động bằng `npm run types` (gọi `d2s schema export`) vào `src/api/generated/`. Không dùng thư viện router hay biểu đồ: điều hướng bằng hash URL, biểu đồ vẽ bằng SVG. Phụ thuộc: `react`, `react-dom`, font, `lucide-react` (icon), và cho trang xem 3D `three` cùng `@sparkjsdev/spark` (mục 2.13). Trang xem 3D nạp lười: gói của nó khoảng 3,3 MB (Spark kèm WASM) chỉ tải khi mở trang đó, các trang khác khoảng 350 KB JS. Server trả `Cache-Control: no-cache` cho `index.html`, nên bản build mới có hiệu lực ngay; file trong `assets/` mang hash nên vẫn được cache.
+
+**Bố cục.** Thanh điều hướng trái; thanh trên có đường dẫn trang, nút Hoạt động (run đang chạy kèm tiến độ trực tiếp, việc nền ingest và Kaggle), tìm nhanh `Ctrl+K` (trang, cảnh, run), đổi sáng/tối và ngôn ngữ. Trạng thái trực tiếp dùng chung một kết nối SSE `/api/events` và đọc định kỳ `/api/jobs` (`src/live.tsx`); run xong hoặc lỗi, việc nền xong hoặc lỗi đều có thông báo nổi. Thao tác xoá luôn qua hộp xác nhận liệt kê những gì bị xoá.
 
 ### 2.12 Viewer 3D chính: viser + nerfview, render ở server
 
@@ -376,7 +378,7 @@ drivestudio_plus/                          branch drive2sim
 │   ├── approaches/                        omnire.yaml, streetgs.yaml
 │   ├── kaggle/                            client.py, bundle.py, executor.py, templates/run.ipynb
 │   ├── sim/                   (khung)     renderer.py (L2), actors.py (L3), server/ (L4; protos/ từ NuRec)
-│   ├── studio/                            api/ (app.py, state.py, events.py, jobs.py, routes/<nhóm>.py); frontend/ (Vite + React: src/pages/, src/components/, src/locales/, src/api/generated/, dist/ đã build); viz/ (khung)
+│   ├── studio/                            api/ (app.py, state.py, events.py, jobs.py, routes/<nhóm>.py); frontend/ (Vite + React: src/pages/, src/components/, src/viewer/ (Spark), src/live.tsx, src/locales/, src/api/generated/, dist/ đã build); viz/ (khung)
 │   ├── external/              (khung)     <codebase>/: worker cho codebase ngoài
 │   ├── scripts/               (khung)     công cụ phát triển chạy một lần
 │   └── cli/                               main.py, output.py; source.py, scene.py, split.py, approach.py, run.py, report.py, export.py, cache.py, kaggle.py, studio.py, schema.py
@@ -604,7 +606,8 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (thư mục DriveStudio
 | Studio API (`studio/api`): cảnh, split, approach (`check` kèm lựa chọn bị khoá), run chạy nền, SSE, log, video, bảng so sánh, `/files/`; lệnh `d2s studio` | Xong; 163 test đạt trên Python 3.9 và 3.12; đã chạy thử server thật | |
 | Studio API: nhận dạng và ingest nền (`/api/sources`, `/api/jobs`), huỷ, xoá, export run, xoá cảnh và split, kiểm tra lại cảnh, cache | Xong; 182 test đạt trên Python 3.9 và 3.12 | |
 | Studio giao diện (`studio/frontend`): nhóm A (tổng quan cảnh, camera, ảnh đồng bộ theo khung, split trên thanh thời gian, báo cáo kiểm tra, tạo split), chạy mới (ô chọn bị khoá kèm lý do, xem trước stage và cache), nhóm B và C (làn đường stage theo SSE, metric, kết quả, video, log, chạy tiếp), nhóm D (bảng xếp hạng, PSNR theo thời gian train và VRAM, CSV, video cạnh nhau); tiếng Việt và tiếng Anh; chế độ sáng, tối; màn hình hẹp | Xong; đã xem bằng trình duyệt trên dữ liệu mẫu (không phải dữ liệu thật) | |
-| Studio còn thiếu: sơ đồ rig nhìn từ trên xuống và quỹ đạo xe trên bản đồ 2D (cần đọc extrinsics, pose theo cách lưu của từng dataset); depth và tách lớp; xuất hình cho báo cáo (mới có CSV); viewer 3D (`studio/viz`); nhóm E | Chưa làm | |
+| Studio giao diện làm lại: tổng quan (việc đang chạy, dẫn đầu theo PSNR, run gần đây), thêm cảnh từ thư mục gốc (ingest nền), xoá cảnh, split, run, kiểm tra lại cảnh, huỷ và chạy tiếp từ danh sách, xuất PLY và gói xem trước, Kaggle (trạng thái, đẩy, tải), lưu trữ (cache, dọn cache có xem trước), xem 3D bằng Spark (gói xem trước có phát lại xe theo khung, `scene.ply`, kéo thả file splat trên máy), tìm nhanh, thông báo nổi | Xong; đã xem bằng trình duyệt trên dữ liệu mẫu và splat tổng hợp (không phải dữ liệu thật) | |
+| Studio còn thiếu: sơ đồ rig nhìn từ trên xuống và quỹ đạo xe trên bản đồ 2D (cần đọc extrinsics, pose theo cách lưu của từng dataset); depth và tách lớp; xuất hình cho báo cáo (mới có CSV); viewer chế độ chính viser (`studio/viz`, mục 2.12); hiện người và vật biến dạng bằng box trong viewer Spark; nhóm E | Chưa làm | |
 | Kaggle (`kaggle/`): upload cảnh, notebook có gói job, đẩy, trạng thái, tải về, chạy tiếp qua output notebook trước; `run start --executor kaggle`; Studio `/api/kaggle` | Xong trong code; test với Kaggle giả; cờ lệnh `kaggle` đã kiểm với Kaggle CLI 2.2.5; **chưa chạy thật** | |
 | `envs/main.yml`, ô cài phụ thuộc trong notebook Kaggle | Chưa chốt; cần trả lời mục 8 câu 1 | |
 | Stage `prep.masks_segformer`, `prep.smpl` (cache, thư mục cảnh ảo); đầu vào tuỳ chọn của stage; approach `omnire`, `streetgs` có stage prep | Xong trong code; có test với script giả; **chưa chạy thật** (cần GPU, `transformers`, `hmr2`) | |

@@ -32,7 +32,7 @@ class InspectBody(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    path: str
+    path: str = Field(min_length=1)
 
 
 class IngestBody(InspectBody):

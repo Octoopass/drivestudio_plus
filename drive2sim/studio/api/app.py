@@ -171,6 +171,17 @@ def create_app(
             raise HTTPException(404, f"không có file {path}")
         return FileResponse(target)
 
+    @app.middleware("http")
+    async def no_cache_index(request: Request, call_next):  # noqa: ANN001, ANN202
+        """Bắt trình duyệt hỏi lại ``index.html`` mỗi lần, để bản build mới có hiệu lực ngay.
+
+        File trong ``assets/`` mang hash trong tên nên vẫn được cache bình thường.
+        """
+        response = await call_next(request)
+        if request.url.path in ("/", "/index.html"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     if frontend_dir is not None and (frontend_dir / "index.html").is_file():
         app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
     return app
