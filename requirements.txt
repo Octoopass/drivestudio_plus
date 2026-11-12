@@ -34,5 +34,8 @@ splines==0.3.3
 lpips==0.1.4
 
 # added in this fork
-plyfile                # tools/export_ply.py
-transformers==4.40.2   # datasets/tools/extract_masks_hf.py (Hugging Face SegFormer)
+plyfile                # drive2sim/recon/tools/export_ply.py
+transformers==4.40.2   # drive2sim/recon/preprocess/masks/segformer_hf.py (Hugging Face SegFormer)
+
+# NCore (dữ liệu chuẩn, ARCHITECTURE.md mục 2.2); cùng phiên bản với submodule third_party/ncore
+nvidia-ncore==19.9.0

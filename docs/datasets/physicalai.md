@@ -58,7 +58,7 @@ intact; the NCore SDK reads them directly.
 Install the NCore SDK in the existing DriveStudio environment:
 
 ```shell
-pip install nvidia-ncore==19.8.0 zarr==2.17.1 numcodecs==0.12.1
+pip install nvidia-ncore==19.9.0 zarr==2.17.1 numcodecs==0.12.1
 ```
 
 Zarr and Numcodecs are pinned to versions compatible with the existing NumPy
