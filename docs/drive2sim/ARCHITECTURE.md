@@ -271,6 +271,8 @@ Route, thân, lỗi và sự kiện SSE quy định ở CONTRACTS mục 11; API 
 
 **Nhược điểm.** Phát triển cần Node.js; hai ngôn ngữ nên kiểu dữ liệu phải giữ khớp, ví dụ sinh kiểu TypeScript từ JSON Schema.
 
+**Cách làm đã chọn.** Bản build (`drive2sim/studio/frontend/dist/`, khoảng 750 KB, có font Barlow kèm bộ chữ tiếng Việt) được commit và đóng gói theo package, nên người dùng không cần Node.js. Kiểu TypeScript của các file trong CONTRACTS sinh tự động bằng `npm run types` (gọi `d2s schema export`) vào `src/api/generated/`. Không dùng thư viện router hay biểu đồ: điều hướng bằng hash URL, biểu đồ vẽ bằng SVG; chỉ có `react`, `react-dom` và font.
+
 ### 2.12 Viewer 3D chính: viser + nerfview, render ở server
 
 **Khái niệm.**
@@ -374,10 +376,10 @@ drivestudio_plus/                          branch drive2sim
 │   ├── approaches/                        omnire.yaml, streetgs.yaml
 │   ├── kaggle/                (khung)     client.py, bundle.py, templates/<tên>.ipynb
 │   ├── sim/                   (khung)     renderer.py (L2), actors.py (L3), server/ (L4; protos/ từ NuRec)
-│   ├── studio/                            api/ (app.py, state.py, events.py, jobs.py, routes/<nhóm>.py) (đã có); viz/, frontend/ (Vite + React, chưa có)
+│   ├── studio/                            api/ (app.py, state.py, events.py, jobs.py, routes/<nhóm>.py); frontend/ (Vite + React: src/pages/, src/components/, src/locales/, src/api/generated/, dist/ đã build); viz/ (khung)
 │   ├── external/              (khung)     <codebase>/: worker cho codebase ngoài
 │   ├── scripts/               (khung)     công cụ phát triển chạy một lần
-│   └── cli/                               main.py, output.py; source.py, scene.py, split.py, approach.py, run.py, studio.py
+│   └── cli/                               main.py, output.py; source.py, scene.py, split.py, approach.py, run.py, studio.py, schema.py
 ├── third_party/                           smplx (pip -e, import smplx); Humans4D (submodule, import hmr2); ncore (submodule, tag v19.9.0: converter NCore)
 ├── envs/                      (khung)     file môi trường: main.yml, <codebase>.yml (mục 2.9)
 └── tests/drive2sim/           (khung)     cùng cây thư mục với drive2sim/; fixtures/
@@ -595,7 +597,8 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (thư mục DriveStudio
 | CLI `d2s`: `scene list/show`, `split create/list/show`, `approach list/show/check`, `run start/resume/status/list` | Xong; 138 test đạt trên Python 3.9 và 3.12 | |
 | CLI còn lại: `scene ingest/validate/delete`, `split delete`, `run cancel/delete`, `kaggle`, `report`, `export`, `cache`, `studio`, `serve` | Chưa làm; làm cùng phần tương ứng | |
 | Studio API (`studio/api`): cảnh, split, approach (`check` kèm lựa chọn bị khoá), run chạy nền, SSE, log, video, bảng so sánh, `/files/`; lệnh `d2s studio` | Xong; 163 test đạt trên Python 3.9 và 3.12; đã chạy thử server thật | |
-| Studio giao diện (`studio/frontend`) và viewer (`studio/viz`) | Chưa làm | |
+| Studio giao diện (`studio/frontend`): nhóm A (tổng quan cảnh, camera, ảnh đồng bộ theo khung, split trên thanh thời gian, báo cáo kiểm tra, tạo split), chạy mới (ô chọn bị khoá kèm lý do, xem trước stage và cache), nhóm B và C (làn đường stage theo SSE, metric, kết quả, video, log, chạy tiếp), nhóm D (bảng xếp hạng, PSNR theo thời gian train và VRAM, CSV, video cạnh nhau); tiếng Việt và tiếng Anh; chế độ sáng, tối; màn hình hẹp | Xong; đã xem bằng trình duyệt trên dữ liệu mẫu (không phải dữ liệu thật) | |
+| Studio còn thiếu: sơ đồ rig nhìn từ trên xuống và quỹ đạo xe trên bản đồ 2D (cần đọc extrinsics, pose theo cách lưu của từng dataset); depth và tách lớp; xuất hình cho báo cáo (mới có CSV); viewer 3D (`studio/viz`); nhóm E | Chưa làm | |
 | Kaggle (`kaggle/`), `envs/main.yml` | Chưa làm; cần teammate trả lời mục 8 câu 1 | |
 | Stage `prep.masks_segformer`, `prep.smpl` (cache, thư mục cảnh ảo); đầu vào tuỳ chọn của stage; approach `omnire`, `streetgs` có stage prep | Xong trong code; có test với script giả; **chưa chạy thật** (cần GPU, `transformers`, `hmr2`) | |
 | Tầng dữ liệu: `source inspect`; `scene ingest` cho nuScenes (gọi script có sẵn, sinh manifest); kiểm tra cấu trúc | Xong trong code; có test với dữ liệu giả; **chưa chạy thật** (cần nuScenes và `nuscenes-devkit`) | |

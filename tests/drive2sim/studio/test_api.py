@@ -301,3 +301,20 @@ def test_broker_replays_missed_events_and_keepalive() -> None:
     assert chunks[1].startswith("event: progress\nid: 3")
     assert chunks[2] == ": keepalive\n\n"
     assert chunks[3].startswith("event: done\nid: 4")
+
+
+def test_frontend_served_at_root(tmp_path: Path) -> None:
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<!doctype html><title>drive2sim Studio</title>")
+    app = create_app(Workdir(tmp_path / "work"), registry=make_registry(), frontend_dir=dist)
+    with TestClient(app) as test_client:
+        assert "drive2sim Studio" in test_client.get("/").text
+        assert test_client.get("/api/scenes").json() == {"items": [], "total": 0}
+
+
+def test_built_frontend_is_committed() -> None:
+    # Người dùng chạy Studio không cần Node.js: bản build phải có sẵn (ARCHITECTURE mục 2.11).
+    from drive2sim.studio.api.app import FRONTEND_DIST
+
+    assert (FRONTEND_DIST / "index.html").is_file()

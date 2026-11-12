@@ -1,0 +1,212 @@
+/* Màu và chữ của Studio. Màu lấy từ đường và biển báo: nền bê tông, chữ nhựa đường, vàng vạch kẻ
+   đường cho hành động chính, xanh lá / xanh dương / đỏ của biển báo cho trạng thái. Chữ Barlow,
+   vốn thiết kế theo chữ trên biển báo đường cao tốc. */
+:root {
+  --concrete: #e9ebe6;
+  --panel: #f7f8f5;
+  --ink: #2b2f33;
+  --ink-soft: #5b6268;
+  --rule: #c9cdc6;
+  --asphalt: #3a3f44;
+  --marking: #f7f8f5;
+  --lane: #f2b705;
+  --go: #2f7d4f;
+  --info: #2e6fb7;
+  --stop: #c23b22;
+  --idle: #8a9095;
+  --font: "Barlow", system-ui, sans-serif;
+  --font-dense: "Barlow Semi Condensed", "Barlow", system-ui, sans-serif;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --concrete: #1f2326;
+    --panel: #272b2f;
+    --ink: #e6e8e3;
+    --ink-soft: #a3a9ad;
+    --rule: #3d4247;
+    --asphalt: #15181a;
+    --marking: #d9dcd6;
+    --go: #4fa66f;
+    --info: #5b95d6;
+    --stop: #e0614a;
+    --idle: #7e858a;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--concrete);
+  color: var(--ink);
+  font: 400 15px/1.5 var(--font);
+}
+
+h1 { font-size: 28px; line-height: 1.2; font-weight: 600; margin: 0 0 4px; }
+h2 { font-size: 19px; line-height: 1.3; font-weight: 600; margin: 32px 0 12px; }
+h3 { font-size: 16px; font-weight: 600; margin: 20px 0 8px; }
+p { margin: 0 0 12px; max-width: 72ch; }
+a { color: var(--info); }
+code { font-size: 13px; background: var(--panel); padding: 1px 5px; border-radius: 3px; }
+
+:focus-visible { outline: 3px solid var(--lane); outline-offset: 2px; }
+
+.app { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+
+.sidebar {
+  background: var(--asphalt);
+  color: var(--marking);
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sidebar .brand { font-size: 20px; font-weight: 600; margin: 0 8px 20px; }
+.sidebar .brand span { color: var(--lane); }
+.sidebar a {
+  color: var(--marking);
+  text-decoration: none;
+  padding: 7px 8px;
+  border-left: 3px solid transparent;
+}
+.sidebar a[aria-current="page"] { border-left-color: var(--lane); font-weight: 600; }
+.sidebar a:hover { background: rgba(255, 255, 255, 0.06); }
+.sidebar .spacer { flex: 1; }
+.sidebar .lang { display: flex; gap: 6px; margin: 0 8px; }
+.sidebar .lang button {
+  background: none; border: 1px solid #6b7177; color: var(--marking);
+  padding: 2px 8px; border-radius: 3px; cursor: pointer; font: inherit; font-size: 13px;
+}
+.sidebar .lang button[aria-pressed="true"] { background: var(--lane); color: #2b2f33; border-color: var(--lane); }
+
+main { padding: 32px 40px 64px; max-width: 1280px; min-width: 0; }
+h1, .error strong, .facts dd { overflow-wrap: anywhere; }
+.lede { color: var(--ink-soft); margin-bottom: 24px; }
+
+.facts { display: flex; flex-wrap: wrap; gap: 8px 32px; margin: 12px 0 0; }
+.facts div { display: flex; flex-direction: column; }
+.facts dt { color: var(--ink-soft); font-size: 13px; }
+.facts dd { margin: 0; font-weight: 600; }
+
+table { border-collapse: collapse; width: 100%; font-family: var(--font-dense); font-size: 14px; }
+th { text-align: left; font-weight: 500; color: var(--ink-soft); border-bottom: 2px solid var(--rule); padding: 6px 10px 6px 0; }
+td { border-bottom: 1px solid var(--rule); padding: 7px 10px 7px 0; vertical-align: top; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tr.link-row { cursor: pointer; }
+tr.link-row:hover td { background: var(--panel); }
+th button { all: unset; cursor: pointer; }
+th button:focus-visible { outline: 3px solid var(--lane); }
+
+.panel { background: var(--panel); border: 1px solid var(--rule); padding: 16px 20px; border-radius: 4px; }
+
+.status { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-dense); }
+.status::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--idle); }
+.status.succeeded::before { background: var(--go); }
+.status.running::before { background: var(--info); }
+.status.failed::before { background: var(--stop); }
+.status.cancelled::before { background: var(--ink-soft); }
+.status.check-error::before { background: var(--stop); }
+.status.check-warning::before { background: var(--lane); }
+.status.check-info::before { background: var(--idle); }
+
+.button {
+  font: inherit; font-weight: 600; cursor: pointer; border-radius: 4px;
+  padding: 8px 18px; border: 1px solid var(--rule); background: var(--panel); color: var(--ink);
+}
+.button.primary { background: var(--lane); border-color: var(--lane); color: #2b2f33; }
+.button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+label.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-soft); }
+select, input[type="number"], input[type="text"] {
+  font: inherit; font-size: 15px; color: var(--ink); background: var(--panel);
+  border: 1px solid var(--rule); border-radius: 4px; padding: 6px 8px; min-width: 180px;
+}
+.form-row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; margin-bottom: 16px; }
+
+.segmented { display: inline-flex; border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; }
+.segmented button {
+  font: inherit; border: none; background: var(--panel); color: var(--ink);
+  padding: 6px 14px; cursor: pointer; border-right: 1px solid var(--rule);
+}
+.segmented button:last-child { border-right: none; }
+.segmented button[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
+.segmented button:disabled { color: var(--idle); text-decoration: line-through; cursor: not-allowed; }
+.option { margin-bottom: 14px; }
+.option .name { font-weight: 600; margin-bottom: 4px; }
+.option .why { color: var(--ink-soft); font-size: 13px; margin-top: 4px; }
+
+.error { border-left: 4px solid var(--stop); background: var(--panel); padding: 10px 14px; margin: 12px 0; }
+.error .detail { color: var(--ink-soft); font-size: 13px; }
+.error ul { margin: 6px 0 0; padding-left: 18px; }
+.empty { color: var(--ink-soft); padding: 24px 0; }
+.muted { color: var(--ink-soft); }
+.small { font-size: 13px; }
+
+/* Làn đường của run: mỗi stage là một đoạn đường, vạch đứt giữa các đoạn; đoạn đang chạy tô
+   vàng như vạch kẻ đường, đoạn xong có mép xanh, đoạn lỗi có mép đỏ. */
+.road { display: flex; background: var(--asphalt); border-radius: 4px; overflow: hidden; margin: 16px 0; }
+.road .segment {
+  flex: 1; min-width: 0; padding: 12px 14px 10px; color: var(--marking);
+  border-left: 3px dashed var(--marking); border-bottom: 5px solid transparent;
+  font-family: var(--font-dense);
+}
+.road .segment:first-child { border-left: none; }
+.road .segment .stage { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.road .segment .note { font-size: 12px; opacity: 0.8; }
+.road .segment.succeeded { border-bottom-color: var(--go); }
+.road .segment.failed { border-bottom-color: var(--stop); }
+.road .segment.cached { border-bottom-color: var(--go); }
+.road .segment.running { background: var(--lane); color: #2b2f33; animation: lane 1.6s ease-in-out infinite; }
+@keyframes lane { 50% { background: #f7cf4a; } }
+@media (prefers-reduced-motion: reduce) { .road .segment.running { animation: none; } }
+
+.frames { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.frames figure { margin: 0; }
+.frames img { width: 100%; display: block; border-radius: 3px; background: var(--asphalt); }
+.frames .missing { aspect-ratio: 16 / 9; background: var(--asphalt); color: var(--marking); display: grid; place-items: center; font-size: 13px; border-radius: 3px; }
+.frames figcaption { font-family: var(--font-dense); font-size: 13px; color: var(--ink-soft); }
+
+.timeline { position: relative; height: 14px; margin: 6px 0 4px; background: var(--rule); border-radius: 2px; }
+.timeline span { position: absolute; top: 0; bottom: 0; }
+.timeline .train { background: var(--ink-soft); }
+.timeline .test { background: var(--lane); }
+.timeline .cursor { width: 2px; background: var(--stop); }
+.legend { display: flex; gap: 16px; font-size: 13px; color: var(--ink-soft); }
+.legend i { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; }
+
+input[type="range"] { width: 100%; accent-color: var(--lane); }
+
+.videos { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; }
+.videos video { width: 100%; background: #000; border-radius: 3px; }
+
+.chart text { fill: var(--ink-soft); font: 12px var(--font-dense); }
+.chart .axis { stroke: var(--rule); }
+.chart .dot { fill: var(--info); }
+.chart .dot.best { fill: var(--lane); stroke: var(--ink); }
+.chart .dot-label { fill: var(--ink); font-size: 12px; }
+.chart polyline { fill: none; stroke: var(--info); stroke-width: 1.5; }
+
+pre.log {
+  background: var(--asphalt); color: var(--marking); padding: 12px; border-radius: 4px;
+  max-height: 360px; overflow: auto; font-size: 12px; line-height: 1.45; white-space: pre-wrap;
+}
+details summary { cursor: pointer; font-weight: 500; margin: 8px 0; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; }
+
+@media (max-width: 760px) {
+  .app { grid-template-columns: 1fr; }
+  table { display: block; overflow-x: auto; white-space: nowrap; }
+  .road { flex-direction: column; }
+  .road .segment { border-left: none; border-top: 3px dashed var(--marking); }
+  .road .segment:first-child { border-top: none; }
+  .videos { grid-template-columns: 1fr; }
+  select, input[type="number"], input[type="text"] { min-width: 0; width: 100%; }
+  .form-row > * { flex: 1 1 100%; }
+  .sidebar { flex-direction: row; flex-wrap: wrap; padding: 12px; }
+  .sidebar .brand { width: 100%; margin-bottom: 8px; }
+  .sidebar .spacer { display: none; }
+  main { padding: 20px 16px 48px; }
+}

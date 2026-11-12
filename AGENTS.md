@@ -176,6 +176,14 @@ def make_cache_key(
 - Kiểm tra Python 3.9: `uv run --python 3.9 --no-project --with "pydantic>=2.5,<3" --with "pyyaml>=6" --with "pytest>=7" --with "fastapi>=0.110" --with "httpx>=0.24" python -m pytest -q`.
 - Thay đổi hành vi ở `drive2sim/recon/` không chạy được trên máy không có GPU: ghi rõ "chưa chạy thật" trong commit và docs, rồi kiểm tra hồi quy trên Kaggle (train lại cùng cảnh, so PSNR) theo `ARCHITECTURE.md` mục 7.3 và 10.
 
+### 5.1 Giao diện Studio
+
+- Mã ở `drive2sim/studio/frontend/` (Vite + React + TypeScript). Cài một lần: `npm install` trong thư mục đó.
+- Sửa schema trong `drive2sim/core/schema.py` thì chạy `npm run types` (cần lệnh `d2s` trên PATH) để sinh lại `src/api/generated/`; không sửa tay các file đó.
+- Sửa mã giao diện thì chạy `npm run build` (kiểm tra kiểu rồi build) và **commit cả `dist/`** trong cùng commit, vì người dùng chạy bản đã build, không cần Node.js.
+- Chuỗi giao diện đặt trong `src/locales/vi.json` và `en.json`, thêm khoá ở cả hai file (CONTRACTS mục 10.6).
+- Xem thử: `d2s studio --workdir <thư mục có dữ liệu>` rồi mở `http://127.0.0.1:8000`; khi sửa giao diện, `npm run dev` cho tự tải lại (chuyển `/api` sang server đang chạy ở cổng 8000).
+
 ## 6. Branch và commit
 
 - Branch chính của nhóm: `drive2sim`. Branch làm việc đặt `<loại>/<việc>` với loại là `feat`, `fix`, `docs`, `refactor`, `exp` (thí nghiệm), ví dụ `feat/engine-registry`, `exp/fastgs-nuscenes`; gộp vào `drive2sim` bằng merge thường, không rebase lịch sử đã đẩy lên.
