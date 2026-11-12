@@ -13,6 +13,8 @@ File này chứa:
 - ``GET /api/runs/{run_id}/events``, ``GET /api/events``: tiến độ qua Server-Sent Events.
 - ``GET /api/runs/{run_id}/log``: log của engine và phần cuối log của từng stage.
 - ``GET /api/runs/{run_id}/videos``: các video MP4 trong thư mục run, kèm đường dẫn để phát.
+- ``GET /api/runs/{run_id}/splats``: file Gaussian xem được trong trình duyệt (gói xem trước,
+  ``scene.ply``), kèm đường dẫn.
 """
 
 from pathlib import Path
@@ -23,7 +25,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
 
 from drive2sim.core import files
-from drive2sim.core.schema import RunRecord
+from drive2sim.core.schema import Preview, RunRecord
 from drive2sim.engine import housekeeping
 from drive2sim.engine.run import (
     D2S_DIR,
@@ -263,3 +265,36 @@ def run_videos(run_id: str, request: Request) -> dict:
             }
         )
     return {"items": items, "total": len(items)}
+
+
+@router.get("/api/runs/{run_id}/splats")
+def run_splats(run_id: str, request: Request) -> dict:
+    """Liệt kê những gì trang xem 3D mở được của một run.
+
+    Returns:
+        ``{"preview": {...} | null, "ply": url | null}``. ``preview`` (khi đã chạy
+        ``export.preview``) gồm nội dung ``preview.json`` cộng ``background_url``,
+        ``actor_urls`` (``track_id`` → url) và ``poses_url``; ``ply`` là ``scene.ply`` của
+        ``export.ply_world``.
+    """
+    run_dir, _ = _load(request, run_id)
+    workdir = state_of(request).workdir
+    stages_dir = run_dir / D2S_DIR / "stages"
+
+    def url(path: Path) -> Optional[str]:
+        return f"/files/{workdir.relative(path)}" if path.is_file() else None
+
+    preview_dir = stages_dir / "export.preview"
+    preview = None
+    if (preview_dir / "preview.json").is_file() and (preview_dir / "done").is_file():
+        data = files.load(preview_dir / "preview.json", Preview).model_dump(mode="json")
+        preview = {
+            **data,
+            "background_url": url(preview_dir / "background.ply"),
+            "actor_urls": {
+                track: url(preview_dir / "actors" / f"{track}.ply")
+                for track in data["rigid_actors"]
+            },
+            "poses_url": url(preview_dir / "actor_poses.json"),
+        }
+    return {"preview": preview, "ply": url(stages_dir / "export.ply_world" / "scene.ply")}

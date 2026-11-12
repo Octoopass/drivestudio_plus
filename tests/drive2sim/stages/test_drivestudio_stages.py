@@ -8,7 +8,8 @@ Máy test không có GPU nên không chạy DriveStudio thật. File này kiểm
 - ``run`` của stage train trả về thư mục model khi có checkpoint cuối, báo lỗi khi thiếu;
 - ``run_logged`` ghi log và báo lỗi kèm phần cuối log khi lệnh thất bại;
 - ``eval.standard`` đọc file metric mới nhất của DriveStudio và ghi ``summary.json`` hợp lệ;
-- ``export.ply_world`` dựng câu lệnh export đúng.
+- ``export.ply_world`` dựng câu lệnh export đúng; ``export.preview`` chạy và kiểm tra
+  ``preview.json``.
 """
 
 import json
@@ -25,6 +26,7 @@ from drive2sim.engine.registry import REGISTRY, load_builtin_stages
 from drive2sim.engine.stage import Scene
 from drive2sim.stages import commands
 from drive2sim.stages.eval.standard import make_summary, read_drivestudio_metrics
+from drive2sim.stages.export import preview as export_preview
 from drive2sim.stages.export.ply_world import ExportPlyWorldParams
 from drive2sim.stages.export.ply_world import build_command as build_export_command
 from drive2sim.stages.train import drivestudio
@@ -46,7 +48,12 @@ def option(command: list[str], key: str) -> str:
 
 def test_builtin_stages_register() -> None:
     load_builtin_stages()
-    for stage_id in ("train.drivestudio", "eval.standard", "export.ply_world"):
+    for stage_id in (
+        "train.drivestudio",
+        "eval.standard",
+        "export.ply_world",
+        "export.preview",
+    ):
         assert stage_id in REGISTRY
 
 
@@ -226,3 +233,27 @@ def test_export_command(tmp_path: Path) -> None:
     command = build_export_command(ExportPlyWorldParams(rigid_frame=0), tmp_path / "m", tmp_path)
     assert command[command.index("--ckpt") + 1] == str(tmp_path / "m" / "checkpoint_final.pth")
     assert command[command.index("--rigid_frame") + 1] == "0"
+
+
+def test_preview_stage_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    output_dir = tmp_path / "runs" / "s" / "omnire" / "r1" / "d2s" / "stages" / "export.preview"
+    output_dir.mkdir(parents=True)
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], log_path: Path, **kwargs: object) -> None:
+        commands.append(command)
+        (output_dir / "background.ply").write_bytes(b"ply")
+        preview = {"schema_version": "d2s-preview/0.1", "source_run": "x", "sh_degree": 3}
+        if len(commands) > 1:
+            del preview["sh_degree"]  # lần hai: preview.json sai schema
+        (output_dir / "preview.json").write_text(json.dumps(preview))
+
+    monkeypatch.setattr(export_preview, "run_logged", fake_run)
+    stage = export_preview.ExportPreviewStage()
+    params = export_preview.ExportPreviewParams()
+    assert stage.run(FakeContext(output_dir), {"model": tmp_path / "m"}, params) == {
+        "preview": output_dir
+    }
+    assert commands[0][commands[0].index("--source_run") + 1] == "runs/s/omnire/r1"
+    with pytest.raises(ValueError):
+        stage.run(FakeContext(output_dir), {"model": tmp_path / "m"}, params)

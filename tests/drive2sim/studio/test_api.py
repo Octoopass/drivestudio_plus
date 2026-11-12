@@ -257,6 +257,26 @@ def test_run_lifecycle(client: TestClient) -> None:
     assert client.get("/api/runs", params={"status": "failed"}).json()["total"] == 0
     log = client.get(f"/api/runs/{run_id}/log").json()
     assert log["stages"]["train.toy"] == "train log\n"
+    assert client.get(f"/api/runs/{run_id}/splats").json() == {"preview": None, "ply": None}
+    preview_dir = (
+        Path(client.app.state.studio.workdir.find_run(run_id)) / "d2s/stages/export.preview"
+    )
+    (preview_dir / "actors").mkdir(parents=True)
+    for name in ("background.ply", "actors/rigid_0000.ply", "actor_poses.json", "done"):
+        (preview_dir / name).write_text("x")
+    (preview_dir / "preview.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "d2s-preview/0.1",
+                "source_run": "x",
+                "sh_degree": 3,
+                "rigid_actors": ["rigid_0000"],
+            }
+        )
+    )
+    splats = client.get(f"/api/runs/{run_id}/splats").json()["preview"]
+    assert splats["background_url"].endswith("export.preview/background.ply")
+    assert client.get(splats["actor_urls"]["rigid_0000"]).status_code == 200
     videos = client.get(f"/api/runs/{run_id}/videos").json()["items"]
     assert videos[0]["stage_id"] == "train.toy" and videos[0]["name"] == "videos/test_set.mp4"
     assert client.get(videos[0]["url"]).content == b"mp4"

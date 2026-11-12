@@ -337,9 +337,11 @@ def test_housekeeping_commands(
     assert not (workdir / "data" / SCENE).exists()
 
 
-def test_export_unknown_stage_is_reported(
+def test_export_preview_appends_stage(
     workdir: Path, split_id: str, capsys: pytest.CaptureFixture
 ) -> None:
     code, data = run_json(capsys, "run", "start", "toy", "--scene", SCENE, "--split", split_id)
     code, data = run_json(capsys, "export", "preview", data["run_id"])
-    assert code == 1 and "export.preview" in data["error"]["message"]
+    # Stage được thêm vào run; ở đây không có checkpoint thật nên stage lỗi.
+    assert code == 1 and data["stages"][-1]["stage_id"] == "export.preview"
+    assert data["stages"][-1]["status"] == "failed"

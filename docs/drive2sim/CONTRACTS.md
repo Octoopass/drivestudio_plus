@@ -424,11 +424,13 @@ runs/.../<run_id>/d2s/stages/export.preview/
 ├── preview.json
 ├── background.ply               # Gaussian của nền tĩnh, hệ world
 ├── actors/<track_id>.ply        # Gaussian của từng xe (actor rigid), hệ của box
-└── actor_poses.npz
+└── actor_poses.json
 ```
 
 - File `.ply` theo định dạng PLY của 3DGS gốc: `x, y, z`, `f_dc_*`, `f_rest_*`, `opacity`, `scale_*`, `rot_*`.
-- `actor_poses.npz`: `timestamps_us` `int64[F]`; `track_ids` `str[K]`; `T_object_world` `float64[F,K,4,4]` (đưa điểm từ hệ của box sang `world`); `visible` `bool[F,K]`.
+- `actor_poses.json`: `{"track_ids": [K tên], "T_object_world": [F khung][K xe]}`; mỗi phần tử là ma trận 4x4 viết thành 16 số theo hàng (đưa điểm từ hệ của xe sang `world`), hoặc `null` khi xe không có mặt ở khung đó. Khung đánh số theo thứ tự khung của DriveStudio (checkpoint không lưu mốc thời gian). Dùng JSON thay `.npz` để trình duyệt đọc thẳng, không cần numpy ở Studio; 200 khung × 30 xe khoảng 1 MB.
+- `track_id` của xe là `rigid_<chỉ số>`, của người và vật biến dạng là `smpl_<chỉ số>`, `deformable_<chỉ số>`, theo thứ tự instance trong checkpoint.
+- Do stage `export.preview` ghi (`drive2sim/recon/tools/export_preview.py`); không nằm trong approach mặc định, thêm bằng `d2s export preview <run_id>`. `GET /api/runs/{run_id}/splats` trả đường dẫn các file này và `scene.ply`.
 
 ```json
 {
@@ -441,7 +443,7 @@ runs/.../<run_id>/d2s/stages/export.preview/
 }
 ```
 
-- `box_only_actors`: actor không rigid, chỉ hiện bằng box lấy từ cuboid của dữ liệu chuẩn.
+- `box_only_actors`: actor không rigid; chưa hiện trong viewer (sau này hiện bằng box lấy từ cuboid của dữ liệu chuẩn).
 - `omitted`: những phần của model không có trong gói.
 
 ## 8. Interface theo mức năng lực
@@ -710,6 +712,7 @@ Route đã có (`drive2sim/studio/api/routes/`):
 | `GET /api/runs/{run_id}/events`, `GET /api/events` | Sự kiện SSE (mục 11.4) | |
 | `GET /api/runs/{run_id}/log` | `{"engine": <d2s/log.txt>, "stages": {stage_id: <200 dòng cuối log.txt>}}` | |
 | `GET /api/runs/{run_id}/videos` | Video MP4 trong thư mục run: `{"name", "stage_id", "url"}` | |
+| `GET /api/runs/{run_id}/splats` | `{"preview", "ply"}`: gói xem trước (`preview.json` cộng `background_url`, `actor_urls`, `poses_url`) nếu đã chạy `export.preview`, và url của `scene.ply` | |
 | `GET /api/report` | Bảng so sánh (lọc `scene_id`, `split_id`, `run_id` lặp lại được); `?format=csv` để xuất | `report` |
 | `POST /api/sources/inspect` | Thân `{"path"}`; kết quả nhận dạng như `source inspect --json`; `404` nếu không có thư mục | `source inspect` |
 | `POST /api/sources/ingest` | Thân `path`, `source_type`, `version`, `sequence`, `scene_id`, `interpolate_n`; chọn chuỗi ngay (`400` kèm các lựa chọn nếu thiếu), rồi ingest nền; trả `202` kèm việc | `scene ingest` |
