@@ -601,7 +601,6 @@ Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiề
 | Config chép nguyên file: `streetgs_nocampose.yaml` khác `streetgs.yaml` 9 dòng trên 148; các bản `_ut`, `_geer`, `_fastgs` khác 10–19 dòng | `drive2sim/configs/methods/*.yaml` | Một config gốc cho mỗi method; biến thể chỉ ghi phần khác, ứng với các ô chọn |
 | Render nằm lẫn trong viewer và trainer | `drive2sim/recon/tools/viewer.py` (2523 dòng), `drive2sim/recon/trainers/base.py` (1125 dòng) | Tách hàm render dùng riêng cho `sim/` |
 | Export không có sky, SMPL, vật biến dạng; SH của xe không xoay theo xe | `drive2sim/recon/tools/export_ply.py` | Ghi rõ giới hạn; mở rộng cho `export.preview` |
-| Thông báo lỗi trong `drive2sim/core/` (`ValueError` của identifiers, schema, files) còn tiếng Anh, viết trước khi chốt CONTRACTS mục 10.6 | `drive2sim/core/identifiers.py`, `schema.py`, `files.py` | Chuyển sang tiếng Việt trong một commit riêng, sửa test đang so chuỗi nếu có |
 | Chưa có test cho `drive2sim/recon/` (`core/` đã có 60 test) | `drive2sim/recon/` | `tests/drive2sim/recon/`, bắt đầu bằng kiểm tra hồi quy của loader |
 | Phiên bản PyTorch chưa khớp: `requirements.txt` ghi `torch==2.0.0+cu117`, gsplat-geer ghi đã chạy với 2.4.1 | `requirements.txt` | Hỏi teammate; chốt một môi trường |
 

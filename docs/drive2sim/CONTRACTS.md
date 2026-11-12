@@ -613,7 +613,8 @@ Quy tắc chung:
 
 ### 10.6 Ngôn ngữ
 
-- **Tiếng Việt** cho mọi thứ người đọc: docstring, comment trong code và trong YAML mới, thông báo của CLI và của worker (`error.message`, `log`), thông báo lỗi của schema (`ValueError`), tài liệu trong `docs/`, giao diện Studio mặc định.
+- **Tiếng Việt** cho mọi thứ người đọc: docstring, comment trong code và trong YAML mới, thông báo của CLI và của worker (`error.message`, `log`), tài liệu trong `docs/`, giao diện Studio mặc định.
+- Ngoại lệ: thông báo của `ValueError` trong `drive2sim/core/` (identifiers, schema, files) là thông báo kỹ thuật cho lập trình viên, giữ tiếng Anh. CLI và API bắt các lỗi này và bọc thành `error.message` tiếng Việt kèm tên file và trường sai; không in thẳng `ValueError` cho người dùng.
 - **Tiếng Anh** cho mọi thứ máy đọc hoặc chia sẻ với mã nguồn mở: tên biến, hàm, lớp, module, khoá YAML/JSON, `error.code`, tên sự kiện, tên lệnh và tuỳ chọn CLI, commit message, README gốc của DriveStudio và hướng dẫn dataset kế thừa từ upstream.
 - File kế thừa từ DriveStudio (`drive2sim/recon/`, config method cũ, `docs/datasets/`) giữ comment tiếng Anh cho tới khi được sửa tới; phần sửa mới viết tiếng Việt.
 - Studio có hai ngôn ngữ, mặc định tiếng Việt, chuyển sang tiếng Anh bằng nút trên giao diện; lựa chọn lưu trong trình duyệt. Chuỗi giao diện đặt trong `drive2sim/studio/frontend/src/locales/vi.json` và `en.json`, khoá dạng `<màn hình>.<thành phần>.<tên>` (`runs.table.status`); không viết chuỗi cứng trong component. Thông báo từ API (`error.message`) đi thẳng ra giao diện và chỉ có tiếng Việt; `error.code` là khoá để giao diện tra bản dịch khi đang ở tiếng Anh.

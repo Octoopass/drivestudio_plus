@@ -116,7 +116,7 @@ def make_cache_key(
 
 - Docstring theo quy ước Google (`Args:`, `Returns:`, `Raises:`), ruff kiểm tra định dạng.
 - Hàm test đặt tên mô tả rõ hành vi nên không bắt buộc docstring; module test vẫn có docstring.
-- Ngôn ngữ theo `CONTRACTS.md` mục 10.6: tên biến, hàm, lớp, khoá, mã lỗi bằng tiếng Anh; docstring, comment và **mọi thông báo cho người dùng** (kể cả `ValueError` của schema, thông báo CLI, `error.message`) bằng tiếng Việt, viết rõ việc gì hỏng và làm gì tiếp.
+- Ngôn ngữ theo `CONTRACTS.md` mục 10.6: tên biến, hàm, lớp, khoá, mã lỗi bằng tiếng Anh; docstring, comment và **mọi thông báo cho người dùng** (thông báo CLI, `error.message` của worker và API) bằng tiếng Việt, viết rõ việc gì hỏng và làm gì tiếp. `ValueError` trong `drive2sim/core/` là thông báo kỹ thuật, giữ tiếng Anh; CLI và API bọc lại thành tiếng Việt.
 
 ### 4.5 Comment
 
