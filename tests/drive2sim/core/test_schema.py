@@ -88,18 +88,13 @@ def test_approach_rejects(change: Callable[[dict], None]) -> None:
 
 
 MANIFEST = {
-    "schema_version": "d2s-manifest/0.1",
+    "schema_version": "d2s-manifest/1.0",
     "scene_id": "nuscenes_scene-0061",
     "source": {
         "dataset": "nuscenes",
         "sequence_id": "scene-0061",
-        "converter": "ncore.nuscenes",
-        "converter_version": "19.9.0",
-    },
-    "ncore": {
-        "version": "v4",
-        "sequence_id": "scene-0061",
-        "timestamp_interval_us": {"start": 1, "stop": 2},
+        "converter": "drivestudio.nuscenes",
+        "converter_version": "0.1.0+test",
     },
     "track": "pinhole",
     "cameras": [
@@ -130,7 +125,6 @@ def test_manifest_ok() -> None:
         ),  # prefix differs from source.dataset
         lambda data: data["cameras"].append(dict(data["cameras"][0])),  # duplicate camera_id
         lambda data: data["cameras"][0].update(model="fisheye"),
-        lambda data: data["ncore"]["timestamp_interval_us"].update(start=5),
     ],
 )
 def test_manifest_rejects(change: Callable[[dict], None]) -> None:

@@ -47,7 +47,6 @@ presets:
   fastgs: {fastgs: true}
 
 stages:
-  - {stage: prep.to_drivestudio}
   - stage: train.drivestudio
     params:
       method: omnire

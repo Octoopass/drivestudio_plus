@@ -10,7 +10,7 @@ Trạng thái: bản nháp, ngày 12/11/2026.
 
 ## 1. Quy ước chung
 
-Dữ liệu chuẩn là NCore V4, nên tool **theo quy ước của NCore** (`docs/data/conventions.rst` trong repo NCore). Codebase nào dùng quy ước khác thì tự đổi ở biên của nó.
+Mọi file và interface **của tool** (manifest, run, preview, interface L2–L4) theo **quy ước của NCore** (`docs/data/conventions.rst` trong repo NCore), vì quy ước này trùng proto `SensorsimService` và NCore là định dạng xuất khi nối NuRec hoặc CARLA. Dữ liệu chuẩn trong `data/<scene_id>/` thì giữ quy ước của script tiền xử lý từng dataset (mục 2.1); loader của dataset đó đổi về quy ước DriveStudio khi đọc. Codebase nào dùng quy ước khác thì tự đổi ở biên của nó.
 
 | Mục | Quy ước |
 |---|---|
@@ -21,7 +21,7 @@ Dữ liệu chuẩn là NCore V4, nên tool **theo quy ước của NCore** (`do
 | Hệ camera | Theo OpenCV: x sang phải, y xuống dưới, z nhìn tới trước. |
 | Toạ độ ảnh | u sang phải, v xuống dưới, gốc ở góc trên trái; pixel đầu tiên phủ khoảng `[0, 1]` trên cả hai trục, nên tâm của nó là `(0.5, 0.5)`. |
 | Phép biến đổi | Ma trận 4×4 SE(3). **`T_a_b` đưa điểm từ hệ `a` sang hệ `b`**: `p_b = T_a_b · p_a`; ghép chuỗi: `T_a_c = T_b_c · T_a_b`. Ví dụ: extrinsic camera là `T_camera_rig`; quỹ đạo xe là `T_rig_world`. |
-| Lưu phép biến đổi | Trong NCore: theo NCore. Trong YAML/JSON của tool: `{translation: [x, y, z], rotation_wxyz: [w, x, y, z]}`. |
+| Lưu phép biến đổi | Trong dữ liệu chuẩn: theo script tiền xử lý của dataset. Trong YAML/JSON của tool: `{translation: [x, y, z], rotation_wxyz: [w, x, y, z]}`. |
 | Chỉ số khung | Số nguyên từ 0, theo dòng thời gian tham chiếu của cảnh (mục 2.2). |
 
 Đổi sang quy ước của DriveStudio: DriveStudio lưu pose camera dạng `camtoworlds` (ma trận đưa điểm từ camera sang world), tức `T_camera_world` theo cách viết của NCore. Mọi chuyển đổi đi qua hàm trong `drive2sim/core`.
@@ -30,7 +30,7 @@ Dữ liệu chuẩn là NCore V4, nên tool **theo quy ước của NCore** (`do
 
 | Quy ước | Lý do | Đánh đổi |
 |---|---|---|
-| Theo hẳn quy ước NCore | Dữ liệu chuẩn là NCore; giữ một quy ước thì không phải đổi qua lại trong tool | Ngược chiều với nhiều tài liệu khác về `T_a_b`; phải đọc kỹ tên biến |
+| File của tool theo quy ước NCore | Trùng proto `SensorsimService` và định dạng xuất NCore; giữ một quy ước cho mọi file của tool | Ngược chiều với nhiều tài liệu khác về `T_a_b`; phải đọc kỹ tên biến |
 | Thời gian là số nguyên micro giây | So sánh bằng nhau chính xác; NCore và proto `SensorsimService` (`frame_start_us`, `frame_end_us`) cùng dùng micro giây | Nguồn ghi nano giây (ví dụ Argoverse 2) bị làm tròn |
 | Gốc `world` ở pose đầu của xe | Toạ độ nhỏ, giữ độ chính xác khi train bằng số thực 32 bit | Phải dùng `T_world_world_global` nếu cần vị trí toàn cầu |
 | Hệ `rig` x trước, y trái, z lên | Trùng NCore, Waymo, REP 103 của ROS | CARLA dùng hệ tay trái (y sang phải); converter CARLA và server phải đổi dấu trục y |
@@ -40,31 +40,37 @@ Dữ liệu chuẩn là NCore V4, nên tool **theo quy ước của NCore** (`do
 
 ### 2.1 Cấu trúc thư mục
 
+Dữ liệu chuẩn là **thư mục cảnh của DriveStudio**, đúng như script tiền xử lý có sẵn của từng dataset ghi ra (`drive2sim/recon/preprocess/<dataset>/`, hướng dẫn ở `docs/datasets/<dataset>.md`), cộng thêm các file của tool (`ARCHITECTURE.md` mục 2.2):
+
 ```
 data/<scene_id>/
-├── ncore/                       # kho NCore V4 do converter ghi ra (các component group, .zarr hoặc .zarr.itar)
-├── manifest.yaml
+├── images/<khung>_<camera>.jpg  # ghi bởi script tiền xử lý của dataset
+├── intrinsics/<camera>.txt
+├── extrinsics/  ego_pose/  lidar_pose/   # tuỳ dataset, xem bên dưới
+├── lidar/<khung>.bin
+├── instances/frame_instances.json, instances_info.json
+├── dynamic_masks/<khung>_<camera>.png    # nếu script sinh từ box
+├── manifest.yaml                # tool ghi khi ingest
 ├── splits/<split_id>.json
 └── reports/validation.json
 ```
 
-Thư mục cảnh chỉ chứa những gì có sẵn từ nguồn. Mask, depth, SMPL do tool sinh ra là artifact (mục 5), không ghi vào đây.
+- `<khung>` là chỉ số 3 chữ số (`000`), `<camera>` là chỉ số camera của DriveStudio cho dataset đó.
+- Cách lưu pose khác nhau giữa các dataset và **được giữ nguyên**, vì mỗi dataset đọc bằng loader riêng của nó (`drive2sim/recon/data/loaders/<dataset>.py`): Waymo, Argoverse, KITTI, nuPlan lưu `ego_pose/<khung>.txt` và `extrinsics/<camera>.txt`; PandaSet lưu `ego_pose/` và `extrinsics/<khung>_<camera>.txt`; nuScenes lưu `extrinsics/<khung>_<camera>.txt` và `lidar_pose/`. Bảng đầy đủ ở `ARCHITECTURE.md` mục 2.2.
+- Nguồn mới không có loader riêng: converter ghi theo đúng khung thư mục của một dataset có sẵn rồi dùng loader của dataset đó (`ARCHITECTURE.md` mục 2.4).
+- Thư mục cảnh chỉ chứa những gì có từ nguồn. Mask bầu trời và SMPL do stage `prep.*` sinh ra là artifact trong `cache/` (mục 5), không ghi vào đây.
 
 ### 2.2 `manifest.yaml`
 
 ```yaml
-schema_version: d2s-manifest/0.1
+schema_version: d2s-manifest/1.0
 scene_id: nuscenes_scene-0061
 source:
   dataset: nuscenes               # waymo | nuscenes | nuplan | argoverse2 | pandaset | kitti | physicalai | carla | colmap | custom
   sequence_id: scene-0061
-  converter: ncore.nuscenes       # converter đã dùng
-  converter_version: "19.9.0"
+  converter: drivestudio.nuscenes # converter đã dùng: script tiền xử lý DriveStudio cho nuScenes
+  converter_version: "0.1.0+96876ad"   # <phiên bản drive2sim>+<commit> lúc ingest
   data_license: "CC BY-NC-SA 4.0"
-ncore:
-  version: v4
-  sequence_id: scene-0061
-  timestamp_interval_us: {start: 1532402927647951, stop: 1532402947147951}
 track: pinhole                    # pinhole | fisheye
 cameras:
   - camera_id: CAM_FRONT
@@ -84,7 +90,10 @@ available:
 
 - `timeline`: khung thứ `i` là khung thứ `i` của `reference_sensor`. Ảnh của camera khác được ghép với khung gần nhất về thời gian.
 - `available` là cơ sở để khoá approach (mục 4.2).
-- `cameras[].model` ghi đúng mô hình trong nguồn, nên có thể là `ideal_pinhole` của NCore; approach chỉ khai báo nhận ba mô hình chuẩn (mục 10.3), và `ideal_pinhole` được coi là `opencv_pinhole` với hệ số méo bằng 0.
+- `cameras` xếp đúng thứ tự chỉ số camera của DriveStudio cho dataset đó, vì `images/<khung>_<camera>.jpg` và config dataset dùng chỉ số này; stage train đổi `camera_id` của split sang chỉ số theo thứ tự đó.
+- `source.dataset` chọn loader và config dataset có sẵn của DriveStudio khi train.
+- Thay đổi từ `0.1`: bỏ phần `ncore` (dữ liệu chuẩn không còn là NCore); file `0.x` không đọc được nữa.
+- `cameras[].model` ghi đúng mô hình trong nguồn, nên có thể là `ideal_pinhole` (với nguồn NCore); approach chỉ khai báo nhận ba mô hình chuẩn (mục 10.3), và `ideal_pinhole` được coi là `opencv_pinhole` với hệ số méo bằng 0.
 - Các giá trị trong ví dụ chỉ minh hoạ định dạng.
 
 ## 3. Split và báo cáo kiểm tra
@@ -177,7 +186,6 @@ stages:                            # chạy lần lượt; ${...} được thay 
   - {stage: prep.select, params: {downscale: 2}}
   - {stage: prep.masks_segformer, params: {dynamic: true}}
   - {stage: prep.smpl}
-  - {stage: prep.to_drivestudio}
   - {stage: "${options.init}"}
   - stage: train.drivestudio
     params:
@@ -236,7 +244,7 @@ class Stage(ABC):                      # lớp gốc; lớp con khai báo thuộ
 
 class StageContext(Protocol):
     output_dir: Path
-    scene: Scene                       # đọc dữ liệu chuẩn (NCore + manifest)
+    scene: Scene                       # thư mục dữ liệu chuẩn + manifest
     split: Split
     def progress(self, fraction: float, message: str = "") -> None: ...
     def log_metric(self, name: str, value: float, step: int) -> None: ...
@@ -270,7 +278,7 @@ Riêng `train.*`: chạy tiếp bằng `checkpoint_resume.pth` (model, optimizer
   "params": {"dynamic": true},
   "inputs": ["scene:nuscenes_scene-0061"],
   "created_utc": "2026-11-12T08:10:00Z",
-  "files": ["ncore4-masks_segformer.zarr.itar"],
+  "files": ["sky_masks"],
   "meta": {"model": "nvidia/segformer-b5-finetuned-cityscapes-1024-1024"}
 }
 ```
@@ -280,11 +288,10 @@ Riêng `train.*`: chạy tiếp bằng `checkpoint_resume.pth` (model, optimizer
 | `artifact_type` | Nội dung |
 |---|---|
 | `scene_subset` | Kết quả của `prep.select`: danh sách camera, đoạn khung, độ phân giải đã chọn |
-| `masks` | Mask bầu trời, mask vật động (người, xe), lưu thành một component group NCore loại nhãn theo ảnh (`CameraLabelsComponent`) |
+| `masks` | Mask bầu trời, mask vật động (người, xe): PNG theo khung và camera, cùng tên file như DriveStudio (`sky_masks/<khung>_<camera>.png`) |
 | `smpl` | Tư thế người theo khung, định dạng của `drive2sim/recon/preprocess/smpl/run.py` |
-| `depth_prior` | Depth metric theo camera và khung, lưu như `masks`; kèm tên model |
+| `depth_prior` | Depth metric theo camera và khung, mỗi ảnh một file `.npy` `float32`, mét; kèm tên model trong `artifact.json` |
 | `points_init` | `points_init.npz`: `points` `float32[M,3]` trong hệ `world`, `colors` `uint8[M,3]`, `track_ids` (tuỳ chọn) |
-| `drivestudio_scene` | Một `data_root` theo định dạng tiền xử lý của DriveStudio, chứa đúng một cảnh ở `000/`; camera đánh số theo thứ tự trong `cameras` của manifest. Do `prep.to_drivestudio` ghi |
 | `model` | Thư mục log của codebase; với DriveStudio có `checkpoint_final.pth`, `config.yaml`, `metrics/`, `videos/` (mục 6.1) |
 | `eval_report` | Thư mục chứa `summary.json` (mục 6.3) và metric gốc của codebase |
 | `videos` | Video MP4 H.264 |
@@ -433,7 +440,7 @@ runs/.../<run_id>/d2s/stages/export.preview/
 
 ```python
 @dataclass
-class CameraSpec:                  # cùng trường với một camera trong manifest + intrinsics từ NCore
+class CameraSpec:                  # cùng trường với một camera trong manifest + intrinsics
     model: str                     # opencv_pinhole | opencv_fisheye | ftheta
     width: int
     height: int
@@ -562,7 +569,7 @@ Notebook chạy `d2s run start --bundle bundle/`, ghi kết quả ra `/kaggle/wo
 | `stage_id` | `<nhóm>.<tên>`; nhóm là một trong `prep`, `init`, `train`, `eval`, `render`, `export`; tên là `snake_case` | `prep.masks_segformer`, `init.depth`, `export.ply_world` |
 | `run_id` | `<YYYYMMDD-HHMMSS>-<approach_id>-<4 ký tự hex>` | `20261112-081000-omnire-a1b2` |
 | `cache_key` | `<scene_id>/<stage_id>@<version>-<hash8>` | `nuscenes_scene-0061/init.depth@0.1.0-9b03c2d1` |
-| Id camera, LiDAR | Giữ nguyên id của nguồn trong NCore, không đổi tên | `CAM_FRONT`, `camera_front_wide_120fov` |
+| Id camera, LiDAR | Giữ nguyên id của nguồn, không đổi tên | `CAM_FRONT`, `camera_front_wide_120fov` |
 | `schema_version` | `d2s-<loại>/<major>.<minor>` | `d2s-run/0.1` |
 
 ### 10.2 File và thư mục
@@ -576,7 +583,7 @@ Notebook chạy `d2s run start --bundle bundle/`, ghi kết quả ra `/kaggle/wo
 - Config method (`drive2sim/configs/methods/`): `<method>.yaml` là config gốc; biến thể là `<method>_<biến thể>[_<biến thể>].yaml`, các biến thể xếp theo thứ tự cố định **renderer → densify → campose** (`geer`, `ut`; `fastgs`; `nocampose`), ví dụ `streetgs_geer_fastgs.yaml`. Biến thể kế thừa từ config gốc (mục 10.5). Config cũ chép nguyên file được giữ tới khi chuyển sang kế thừa (`ARCHITECTURE.md` mục 7.4 bước 5).
 - Config dataset (`drive2sim/configs/datasets/<dataset>/`): `<k>cams.yaml`; biến thể `<k>cams_<biến thể>.yaml`, ví dụ `7cams_native.yaml` (giữ mô hình camera gốc, không khử méo).
 - Mask thân xe: `drive2sim/assets/ego_masks/<dataset>/<chỉ số camera>.png`, chỉ số là vị trí camera trong danh sách `cameras` của manifest (bắt đầu từ 0). Mỗi dataset có một bảng chỉ số ↔ `camera_id` trong `drive2sim/recon/data/dataset_meta.py`; code mới dùng `camera_id`, chỉ đổi sang chỉ số ở biên với mã DriveStudio.
-- File bên trong một artifact (mục 5.4): `videos/<camera_id>_<loại>.mp4` với loại `gt`, `render`, `diff`, `side_by_side`; `eval_report` gồm `summary.json` và metric gốc của codebase (`drivestudio_metrics.json` với DriveStudio); `masks` và `depth_prior` là một component group NCore tên `ncore4-<stage tên>.zarr.itar`; `smpl/<track_id>.npz`.
+- File bên trong một artifact (mục 5.4): `videos/<camera_id>_<loại>.mp4` với loại `gt`, `render`, `diff`, `side_by_side`; `eval_report` gồm `summary.json` và metric gốc của codebase (`drivestudio_metrics.json` với DriveStudio); `masks` là PNG như DriveStudio, `depth_prior` là `.npy`; `smpl/<track_id>.npz`.
 - Log: `d2s/log.txt` trong thư mục run là log của engine cho cả run, gồm traceback của stage lỗi. Stage chạy qua worker (mục 9.1) có thêm `log.txt` trong thư mục kết quả của stage, ghi stdout và stderr của worker.
 
 ### 10.3 Tên trường và tham số
@@ -598,7 +605,8 @@ Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dà
 
 | Lệnh | Việc |
 |---|---|
-| `d2s scene ingest <nguồn> --source-type <dataset> [--scene <scene_id>]` | Chuyển nguồn sang dữ liệu chuẩn, ghi manifest, kiểm tra |
+| `d2s source inspect <thư mục>` | Xem trước thư mục dữ liệu gốc: nhận ra dataset, báo có gì, gợi ý lệnh ingest; không ghi gì |
+| `d2s scene ingest <nguồn> [--source-type <dataset>] [--scene <scene_id>]` | Chuyển nguồn sang dữ liệu chuẩn, ghi manifest, kiểm tra; bỏ `--source-type` thì tự nhận dạng như `source inspect` |
 | `d2s scene validate <scene_id>` | Kiểm tra lại, ghi `validation.json` |
 | `d2s scene list` / `d2s scene show <scene_id>` | Liệt kê cảnh; xem manifest và báo cáo |
 | `d2s scene delete <scene_id>` | Xoá dữ liệu chuẩn, split, cache và run của cảnh; hỏi xác nhận |

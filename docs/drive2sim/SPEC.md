@@ -51,8 +51,8 @@ Nối CARLA, chỉnh actor, chỉnh quỹ đạo actor và chạy thử AD stack
 
 ## 5. Luồng sử dụng
 
-1. **Input:** chọn thư mục dữ liệu. Tool nhận dạng loại nguồn (dataset nào, CARLA hay dữ liệu riêng).
-2. **Ingest và kiểm tra:** chuyển toàn bộ dữ liệu sang dữ liệu chuẩn, không bỏ bớt thứ gì; kiểm tra đồng bộ thời gian, calib, mô hình ống kính, FOV, ảnh hỏng hoặc thiếu; ghi manifest và báo cáo kiểm tra. Bước này không phụ thuộc approach và chỉ chạy một lần cho mỗi cảnh.
+1. **Input:** chọn thư mục dữ liệu. Tool nhận dạng loại nguồn (dataset nào, CARLA hay dữ liệu riêng) và báo thư mục có gì (`d2s source inspect`).
+2. **Ingest và kiểm tra:** chuyển dữ liệu sang dữ liệu chuẩn (mọi camera, LiDAR, box và pose mà script tiền xử lý của dataset đó giữ lại; ví dụ radar không được giữ); kiểm tra đồng bộ thời gian, calib, mô hình ống kính, FOV, ảnh hỏng hoặc thiếu; ghi manifest và báo cáo kiểm tra. Bước này không phụ thuộc approach và chỉ chạy một lần cho mỗi cảnh.
 3. **Chọn đoạn và split:** chọn đoạn khung cần dựng, tạo split train/test.
 4. **Chọn approach:** chọn approach, rồi chọn preset hoặc chỉnh từng ô chọn. Approach hoặc lựa chọn không chạy được với dữ liệu đang có (ví dụ `init.lidar` khi cảnh không có LiDAR), hoặc tổ hợp không hợp lệ (ví dụ 3DGEER với CamPose bật), bị làm mờ kèm lý do. Màn hình hiện trước danh sách stage sẽ chạy và stage nào dùng lại kết quả cũ.
 5. **Chạy và theo dõi:** chọn nơi chạy (mục 7) rồi theo dõi từng stage. Các stage chuẩn bị riêng (mục 6.3) chạy trước; kết quả của chúng được lưu lại để approach khác dùng chung.
@@ -83,7 +83,7 @@ Mọi nguồn được chuyển sang **một** định dạng chung trước khi
 - **Tuỳ chọn:** LiDAR, box 3D theo thời gian, mask.
 - **Manifest** ghi những gì có và thiếu; bước 4 của luồng sử dụng dựa vào đây để khoá approach.
 
-Thiết kế chọn **NCore V4** của NVIDIA làm định dạng chuẩn (lý do ở `ARCHITECTURE.md` mục 2.2).
+Thiết kế chọn **thư mục cảnh của DriveStudio** (như script tiền xử lý có sẵn ghi ra) cộng `manifest.yaml` làm định dạng chuẩn. NCore V4 của NVIDIA là một nguồn vào và là định dạng xuất khi nối NuRec hoặc CARLA (lý do ở `ARCHITECTURE.md` mục 2.2).
 
 ### 6.3 Chuẩn bị riêng cho approach
 

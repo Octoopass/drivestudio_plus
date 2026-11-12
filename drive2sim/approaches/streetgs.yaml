@@ -49,7 +49,6 @@ presets:
   geer_fastgs: {renderer: 3dgeer, fastgs: true}
 
 stages:
-  - {stage: prep.to_drivestudio}
   - stage: train.drivestudio
     params:
       method: streetgs

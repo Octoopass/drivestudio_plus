@@ -37,7 +37,7 @@ class Scene:
 
     Engine tạo đối tượng này một lần cho mỗi run (qua ``Workdir.load_scene``) rồi đưa cho mọi
     stage qua ``ctx.scene``. Stage dùng nó để biết cảnh có những camera nào, có LiDAR không, và
-    tìm tới kho NCore để đọc dữ liệu (CONTRACTS mục 2).
+    tìm tới thư mục dữ liệu chuẩn để đọc (CONTRACTS mục 2).
 
     Attributes:
         scene_id: Định danh cảnh, ví dụ ``nuscenes_scene-0061``.
@@ -48,11 +48,6 @@ class Scene:
     scene_id: str
     root: Path
     manifest: Manifest
-
-    @property
-    def ncore_dir(self) -> Path:
-        """Trả về thư mục kho NCore V4 của cảnh, ``data/<scene_id>/ncore/``."""
-        return self.root / "ncore"
 
 
 class StageContext(Protocol):

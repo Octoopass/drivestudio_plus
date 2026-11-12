@@ -54,6 +54,16 @@ CONFIG_FILES: dict[tuple[str, str, bool, bool], str] = {
     ("pvg", "3dgs", True, False): "pvg.yaml",
     ("deformablegs", "3dgs", True, False): "deformablegs.yaml",
 }
+# Dataset gốc trong manifest → thư mục config của DriveStudio trong drive2sim/configs/datasets/.
+DATASET_CONFIG_DIRS: dict[str, str] = {
+    "nuscenes": "nuscenes",
+    "waymo": "waymo",
+    "argoverse2": "argoverse",
+    "pandaset": "pandaset",
+    "kitti": "kitti",
+    "nuplan": "nuplan",
+    "physicalai": "physicalai",
+}
 RESUME_CHECKPOINT = "checkpoint_resume.pth"
 FINAL_CHECKPOINT = "checkpoint_final.pth"
 
@@ -66,8 +76,9 @@ class TrainDrivestudioParams(BaseModel):
         renderer: ``3dgs``, ``3dgut`` hoặc ``3dgeer``.
         campose: Có tối ưu pose camera (node ``CamPose``) không.
         fastgs: Có dùng luật densify kiểu FastGS không.
-        dataset: Config dataset của DriveStudio, dạng ``<thư mục>/<k>cams``. Bỏ trống thì dùng
-            ``ncore/<k>cams`` với ``k`` là số camera của split, ứng với loader NCore chung.
+        dataset: Config dataset của DriveStudio, dạng ``<thư mục>/<k>cams``, ví dụ
+            ``nuscenes/3cams``. Bỏ trống thì chọn theo dataset gốc trong manifest và số camera
+            ``k`` của split (``dataset_config_for``).
         num_iters: Số iteration; bỏ trống thì theo file config (thường 30000).
         seed: Seed ngẫu nhiên.
         overrides: Tham số DriveStudio khác cần đè, dạng ``{"khoá.con": giá trị}``, ví dụ
@@ -131,11 +142,45 @@ def _format_value(value: object) -> str:
     return str(value)
 
 
+def dataset_config_for(dataset: str, num_cameras: int) -> str:
+    """Chọn config dataset có sẵn của DriveStudio cho một cảnh.
+
+    Mỗi dataset có các config ``<k>cams.yaml`` trong ``drive2sim/configs/datasets/<thư mục>/``
+    (ví dụ nuScenes có 1, 3, 6 camera). Hàm chọn config có đúng số camera của split; danh sách
+    camera cụ thể vẫn được đặt lại theo split trong ``build_command``.
+
+    Args:
+        dataset: Dataset gốc trong manifest, ví dụ ``"nuscenes"``.
+        num_cameras: Số camera của split.
+
+    Returns:
+        Tên config, ví dụ ``"nuscenes/3cams"``.
+
+    Raises:
+        ValueError: Nếu dataset chưa có loader DriveStudio, hoặc không có config đúng số camera;
+            thông báo liệt kê các config có sẵn để người dùng đặt tham số ``dataset``.
+    """
+    if dataset not in DATASET_CONFIG_DIRS:
+        raise ValueError(f"dataset {dataset} chưa có loader DriveStudio")
+    folder = DATASET_CONFIG_DIRS[dataset]
+    name = f"{folder}/{num_cameras}cams"
+    if not (paths.CONFIGS_DIR / "datasets" / f"{name}.yaml").is_file():
+        available = sorted(
+            f"{folder}/{path.stem}"
+            for path in (paths.CONFIGS_DIR / "datasets" / folder).glob("*.yaml")
+        )
+        raise ValueError(
+            f"không có config {name}.yaml; các config có: {', '.join(available)}. "
+            "Đặt tham số dataset của train.drivestudio để chọn một config"
+        )
+    return name
+
+
 def build_command(
     params: TrainDrivestudioParams,
     split: Split,
     manifest: Manifest,
-    data_root: Path,
+    scene_dir: Path,
     output_dir: Path,
 ) -> list[str]:
     """Dựng câu lệnh train của DriveStudio cho một run.
@@ -143,13 +188,15 @@ def build_command(
     Dịch split của tool sang tham số của DriveStudio: chiến lược ``every_nth_frame:N`` thành
     ``test_image_stride=N``; ``frame_range`` thành ``start_timestep`` và ``end_timestep``; danh
     sách camera thành chỉ số camera theo thứ tự trong manifest (CONTRACTS mục 5.4, loại
-    ``drivestudio_scene``). Thư mục log của DriveStudio được đặt đúng bằng ``output_dir``.
+    ``scene``). Thư mục log của DriveStudio được đặt đúng bằng ``output_dir``. Dữ liệu đọc thẳng
+    từ thư mục cảnh: DriveStudio nhận ``data.scene_idx`` dạng chuỗi và đọc
+    ``<data_root>/<scene_idx>`` (``drive2sim/recon/data/driving_dataset.py``).
 
     Args:
         params: Tham số đã kiểm tra.
         split: Split của run.
         manifest: Manifest của cảnh, để đổi ``camera_id`` sang chỉ số.
-        data_root: Thư mục ``drivestudio_scene``; cảnh nằm ở ``<data_root>/000/``.
+        scene_dir: Thư mục ``data/<scene_id>/`` của cảnh.
         output_dir: Thư mục kết quả của stage.
 
     Returns:
@@ -165,7 +212,7 @@ def build_command(
         )
     camera_ids = [camera.camera_id for camera in manifest.cameras]
     camera_indices = [camera_ids.index(camera_id) for camera_id in split.cameras]
-    dataset = params.dataset or f"ncore/{len(split.cameras)}cams"
+    dataset = params.dataset or dataset_config_for(manifest.source.dataset, len(split.cameras))
     first, last = split.frame_range
 
     command = [
@@ -188,8 +235,8 @@ def build_command(
     options = {
         "dataset": dataset,
         "seed": params.seed,
-        "data.data_root": str(data_root),
-        "data.scene_idx": 0,
+        "data.data_root": str(scene_dir.parent),
+        "data.scene_idx": scene_dir.name,
         "data.start_timestep": first,
         # end_timestep trong config tính cả khung cuối; DriveStudio tự cộng 1
         # (driving_dataset.py, dòng ``self.end_timestep = end_timestep + 1``).
@@ -208,14 +255,14 @@ def build_command(
 class TrainDrivestudioStage(Stage):
     """Train một cảnh bằng trainer DriveStudio, qua một tiến trình con.
 
-    Đầu vào là thư mục ``drivestudio_scene`` (do ``prep.to_drivestudio`` tạo) và split của run;
-    đầu ra là thư mục log của DriveStudio, chứa ``checkpoint_final.pth``.
+    Đầu vào là cảnh (thư mục ``data/<scene_id>/``, định dạng chuẩn ở CONTRACTS mục 2.1) và split
+    của run; đầu ra là thư mục log của DriveStudio, chứa ``checkpoint_final.pth``.
     """
 
     version: ClassVar[str] = "0.1.0"
     cacheable: ClassVar[bool] = False
     uses_lidar: ClassVar[bool] = False
-    inputs: ClassVar[dict[str, str]] = {"data": "drivestudio_scene", "split": "split"}
+    inputs: ClassVar[dict[str, str]] = {"scene": "scene", "split": "split"}
     outputs: ClassVar[dict[str, str]] = {"model": "model"}
     Params: ClassVar[type[BaseModel]] = TrainDrivestudioParams
 
@@ -226,7 +273,7 @@ class TrainDrivestudioStage(Stage):
 
         Args:
             ctx: Ngữ cảnh do engine tạo.
-            inputs: ``{"data": <thư mục drivestudio_scene>}``.
+            inputs: Không có đầu vào artifact; cảnh và split lấy từ ``ctx``.
             params: ``TrainDrivestudioParams`` đã kiểm tra.
 
         Returns:
@@ -238,7 +285,7 @@ class TrainDrivestudioStage(Stage):
         """
         assert isinstance(params, TrainDrivestudioParams)
         command = build_command(
-            params, ctx.split, ctx.scene.manifest, inputs["data"], ctx.output_dir
+            params, ctx.split, ctx.scene.manifest, ctx.scene.root, ctx.output_dir
         )
         ctx.progress(0.0, f"train {params.method} bằng {params.config_file.name}")
         run_logged(command, ctx.output_dir / LOG_FILE)

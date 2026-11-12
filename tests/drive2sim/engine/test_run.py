@@ -145,7 +145,7 @@ def test_run_succeeds_and_writes_contracts_files(workdir: Workdir) -> None:
     artifact = files.load(init_dir / "artifact.json", ArtifactRecord)
     assert artifact.artifact_type == "points_init"
     assert artifact.files == ["points_init.npz"]
-    assert artifact.inputs == [f"scene:{MANIFEST['scene_id']}@19.9.0"]
+    assert artifact.inputs == [f"scene:{MANIFEST['scene_id']}@0.1.0+test"]
 
     train_dir = run_dir / "d2s" / "stages" / "train.toy"
     assert (train_dir / "done").is_file()

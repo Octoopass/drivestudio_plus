@@ -33,6 +33,7 @@ from drive2sim.stages.train.drivestudio import (
     TrainDrivestudioParams,
     TrainDrivestudioStage,
     build_command,
+    dataset_config_for,
 )
 from tests.drive2sim.samples import MANIFEST, SPLIT
 
@@ -77,8 +78,9 @@ def test_build_command_translates_split(tmp_path: Path) -> None:
         }
     )
     output_dir = tmp_path / "run" / "d2s" / "stages" / "train.drivestudio"
+    scene_dir = tmp_path / "data" / "nuscenes_scene-0061"
     params = TrainDrivestudioParams(method="omnire", num_iters=100, overrides={"a.b": True})
-    command = build_command(params, split, manifest, tmp_path / "data", output_dir)
+    command = build_command(params, split, manifest, scene_dir, output_dir)
 
     assert command[:3] == [sys.executable, "-m", "drive2sim.recon.tools.train"]
     assert command[command.index("--config_file") + 1].endswith("omnire_nocampose.yaml")
@@ -87,7 +89,9 @@ def test_build_command_translates_split(tmp_path: Path) -> None:
     run_name = command[command.index("--run_name") + 1]
     assert root / project / run_name == output_dir
     assert "--resume_from" not in command
-    assert option(command, "dataset") == "ncore/1cams"
+    assert option(command, "dataset") == "nuscenes/1cams"
+    assert option(command, "data.data_root") == str(tmp_path / "data")
+    assert option(command, "data.scene_idx") == "nuscenes_scene-0061"
     assert option(command, "data.start_timestep") == "2"
     assert option(command, "data.end_timestep") == "9"
     assert option(command, "data.pixel_source.cameras") == "[0]"
@@ -104,6 +108,15 @@ def test_build_command_camera_index_follows_manifest(tmp_path: Path) -> None:
     command = build_command(params, split, Manifest.model_validate(MANIFEST), tmp_path, tmp_path)
     assert option(command, "data.pixel_source.cameras") == "[1]"
     assert option(command, "dataset") == "nuscenes/1cams"
+
+
+def test_dataset_config_for() -> None:
+    assert dataset_config_for("nuscenes", 3) == "nuscenes/3cams"
+    assert dataset_config_for("argoverse2", 7) == "argoverse/7cams"
+    with pytest.raises(ValueError, match="nuscenes/1cams"):
+        dataset_config_for("nuscenes", 2)
+    with pytest.raises(ValueError, match="chưa có loader"):
+        dataset_config_for("colmap", 1)
 
 
 def test_build_command_resumes(tmp_path: Path) -> None:
@@ -145,7 +158,7 @@ def test_train_stage_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(drivestudio, "run_logged", fake_run)
     ctx = FakeContext(tmp_path)
     params = TrainDrivestudioParams(method="omnire")
-    assert TrainDrivestudioStage().run(ctx, {"data": tmp_path}, params) == {"model": tmp_path}
+    assert TrainDrivestudioStage().run(ctx, {}, params) == {"model": tmp_path}
     assert len(calls) == 1
     assert ctx.events[-1][0] == 1.0
 
@@ -156,7 +169,7 @@ def test_train_stage_requires_final_checkpoint(
     monkeypatch.setattr(drivestudio, "run_logged", lambda command, log_path: None)
     with pytest.raises(RuntimeError, match="checkpoint_final.pth"):
         TrainDrivestudioStage().run(
-            FakeContext(tmp_path), {"data": tmp_path}, TrainDrivestudioParams(method="omnire")
+            FakeContext(tmp_path), {}, TrainDrivestudioParams(method="omnire")
         )
 
 

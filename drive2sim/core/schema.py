@@ -66,7 +66,6 @@ ArtifactType = Literal[
     "smpl",
     "depth_prior",
     "points_init",
-    "drivestudio_scene",
     "model",
     "eval_report",
     "videos",
@@ -93,7 +92,7 @@ Executor = Literal["local", "kaggle"]
 
 # Phiên bản schema hiện tại của từng loại file.
 SCHEMA_VERSIONS: dict[str, str] = {
-    "manifest": "d2s-manifest/0.1",
+    "manifest": "d2s-manifest/1.0",
     "split": "d2s-split/0.1",
     "report": "d2s-report/0.1",
     "approach": "d2s-approach/0.1",
@@ -248,8 +247,11 @@ class ManifestSource(StrictModel):
     Attributes:
         dataset: Tên nguồn, ví dụ ``nuscenes``; cũng là tiền tố của ``scene_id``.
         sequence_id: Id của chuỗi trong nguồn, ví dụ ``scene-0061``.
-        converter: Converter đã dùng để chuyển sang NCore, ví dụ ``ncore.nuscenes``.
-        converter_version: Phiên bản converter; nằm trong khoá cache của mọi stage nhận cảnh.
+        converter: Converter đã dùng để tạo thư mục chuẩn, ví dụ ``drivestudio.nuscenes`` (script
+            tiền xử lý của DriveStudio cho nuScenes).
+        converter_version: Phiên bản converter, dạng ``<phiên bản drive2sim>+<commit>``; nằm
+            trong khoá cache của mọi stage nhận cảnh, nên ingest lại bằng code khác thì cache cũ
+            không bị dùng nhầm.
         data_license: License của dữ liệu nguồn, nếu biết.
     """
 
@@ -258,43 +260,6 @@ class ManifestSource(StrictModel):
     converter: str
     converter_version: str
     data_license: Optional[str] = None
-
-
-class TimestampInterval(StrictModel):
-    """Khoảng thời gian của bản ghi NCore.
-
-    Attributes:
-        start: Thời điểm đầu, micro giây.
-        stop: Thời điểm cuối, micro giây; không được trước ``start``.
-    """
-
-    start: int = Field(ge=0)
-    stop: int = Field(ge=0)
-
-    @model_validator(mode="after")
-    def _validate_order(self) -> "TimestampInterval":
-        """Kiểm tra ``stop`` không trước ``start``.
-
-        Raises:
-            ValueError: Nếu ``stop < start``.
-        """
-        if self.stop < self.start:
-            raise ValueError("timestamp_interval_us.stop must not be before start")
-        return self
-
-
-class ManifestNCore(StrictModel):
-    """Thông tin của kho NCore V4 chứa dữ liệu chuẩn của cảnh.
-
-    Attributes:
-        version: Phiên bản định dạng NCore; hiện chỉ nhận ``v4``.
-        sequence_id: Id của chuỗi trong kho NCore.
-        timestamp_interval_us: Khoảng thời gian của bản ghi.
-    """
-
-    version: Literal["v4"]
-    sequence_id: str
-    timestamp_interval_us: TimestampInterval
 
 
 class ManifestCamera(StrictModel):
@@ -370,7 +335,6 @@ class Manifest(VersionedFile):
     Attributes:
         scene_id: Định danh cảnh, ``<dataset>_<sequence_id>``.
         source: Nguồn gốc của cảnh.
-        ncore: Thông tin kho NCore.
         track: ``pinhole`` hoặc ``fisheye``.
         cameras: Các camera, ít nhất một, ``camera_id`` không trùng.
         lidars: Id các LiDAR; rỗng nếu cảnh không có LiDAR.
@@ -381,7 +345,6 @@ class Manifest(VersionedFile):
     FILE_KIND: ClassVar[str] = "manifest"
     scene_id: SceneId
     source: ManifestSource
-    ncore: ManifestNCore
     track: Track
     cameras: list[ManifestCamera] = Field(min_length=1)
     lidars: list[str] = []

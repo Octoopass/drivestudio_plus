@@ -7,7 +7,8 @@ File này dựng một thư mục làm việc tạm có một cảnh mẫu, mộ
   chối tên trùng và camera không có;
 - ``approach check`` in danh sách stage và stage nào dùng lại cache;
 - ``run start/status/list/resume`` chạy trọn một run giả; ``--set`` đổi được ô và tham số stage;
-- mã thoát và lỗi dạng JSON: ``2`` khi sai giá trị hoặc thiếu stage, ``3`` khi bị khoá, ``1``
+- ``approach check omnire`` chạy được trên cảnh mẫu với ba stage bọc DriveStudio;
+- mã thoát và lỗi dạng JSON: ``2`` khi sai giá trị, ``3`` khi bị khoá, ``1``
   khi không tìm thấy cảnh hoặc chọn Kaggle;
 - ``parse_value`` và ``parse_set`` đọc ``--set`` đúng CONTRACTS mục 10.3.
 """
@@ -241,7 +242,12 @@ def test_exit_codes(workdir: Path, split_id: str, capsys: pytest.CaptureFixture)
     code, data = run_json(capsys, "run", "start", "toy", *base, "--set", "init=bogus")
     assert code == 2 and data["error"]["code"] == "invalid_request"
     code, data = run_json(capsys, "approach", "check", "omnire", *base)
-    assert code == 2 and "prep.to_drivestudio" in data["error"]["message"]
+    assert code == 0
+    assert [s["stage_id"] for s in data["stages"]] == [
+        "train.drivestudio",
+        "eval.standard",
+        "export.ply_world",
+    ]
     code, data = run_json(capsys, "run", "start", "toy", *base, "--executor", "kaggle")
     assert code == 1
     code, data = run_json(capsys, "scene", "show", "nuscenes_scene-9999")

@@ -7,18 +7,13 @@ manifest, để khi schema đổi chỉ phải sửa một chỗ.
 """
 
 MANIFEST = {
-    "schema_version": "d2s-manifest/0.1",
+    "schema_version": "d2s-manifest/1.0",
     "scene_id": "nuscenes_scene-0061",
     "source": {
         "dataset": "nuscenes",
         "sequence_id": "scene-0061",
-        "converter": "ncore.nuscenes",
-        "converter_version": "19.9.0",
-    },
-    "ncore": {
-        "version": "v4",
-        "sequence_id": "scene-0061",
-        "timestamp_interval_us": {"start": 0, "stop": 1000},
+        "converter": "drivestudio.nuscenes",
+        "converter_version": "0.1.0+test",
     },
     "track": "pinhole",
     "cameras": [
