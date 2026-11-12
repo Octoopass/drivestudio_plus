@@ -104,7 +104,7 @@ available:
 Mỗi phần tử là cặp `[frame_index, camera_id]`. Một cặp không được nằm ở cả `train` và `test`.
 
 `strategy` lấy một trong:
-- `every_nth_frame:N`: các khung N, 2N, 3N… (tính từ khung đầu của `frame_range`) làm test cho mọi camera trong `cameras`; các khung còn lại, kể cả khung đầu, làm train. Trùng với `test_image_stride` của DriveStudio (`split_train_test` trong `datasets/driving_dataset.py`).
+- `every_nth_frame:N`: các khung N, 2N, 3N… (tính từ khung đầu của `frame_range`) làm test cho mọi camera trong `cameras`; các khung còn lại, kể cả khung đầu, làm train. Trùng với `test_image_stride` của DriveStudio (`split_train_test` trong `drive2sim/recon/data/driving_dataset.py`).
 - `custom`: danh sách `train` và `test` bất kỳ.
 
 Approach khai báo các `strategy` mà codebase của nó hỗ trợ (`requires.split_strategies`, mục 4.1). Approach dòng DriveStudio hiện chỉ hỗ trợ `every_nth_frame`.
@@ -268,7 +268,7 @@ Riêng `train.*`: checkpoint đầy đủ (model và trạng thái optimizer) đ
 |---|---|
 | `scene_subset` | Kết quả của `prep.select`: danh sách camera, đoạn khung, độ phân giải đã chọn |
 | `masks` | Mask bầu trời, mask vật động (người, xe), lưu thành một component group NCore loại nhãn theo ảnh (`CameraLabelsComponent`) |
-| `smpl` | Tư thế người theo khung, định dạng của `datasets/tools/humanpose_process.py` |
+| `smpl` | Tư thế người theo khung, định dạng của `drive2sim/recon/data/tools/humanpose_process.py` |
 | `depth_prior` | Depth metric theo camera và khung, lưu như `masks`; kèm tên model |
 | `points_init` | `points_init.npz`: `points` `float32[M,3]` trong hệ `world`, `colors` `uint8[M,3]`, `track_ids` (tuỳ chọn) |
 | `drivestudio_scene` | Thư mục cảnh theo định dạng tiền xử lý của DriveStudio, do `prep.to_drivestudio` ghi |
@@ -282,7 +282,7 @@ Riêng `train.*`: checkpoint đầy đủ (model và trạng thái optimizer) đ
 
 ### 6.1 Cấu trúc
 
-Thư mục run chính là thư mục log của DriveStudio: `tools/train.py` ghi vào `os.path.join(output_root, project, run_name)`. Engine đặt `output_root = runs/<scene_id>`, `project = <approach_id>`, `run_name = <run_id>`.
+Thư mục run chính là thư mục log của DriveStudio: `drive2sim/recon/tools/train.py` ghi vào `os.path.join(output_root, project, run_name)`. Engine đặt `output_root = runs/<scene_id>`, `project = <approach_id>`, `run_name = <run_id>`.
 
 ```
 runs/<scene_id>/<approach_id>/<run_id>/

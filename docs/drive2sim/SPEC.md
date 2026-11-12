@@ -172,7 +172,7 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 - Mọi run ghi kết quả theo cùng một định dạng, kèm cấu hình đầy đủ, phiên bản mã nguồn và thông tin phần cứng để chạy lại được.
 - Thêm approach mới chỉ cần khai báo và thêm stage còn thiếu; không sửa engine, Studio hay server.
 - Tên file, định danh, tham số và lệnh CLI theo một bộ quy tắc chung (`CONTRACTS.md` mục 10); code mới đặt đúng chỗ theo `ARCHITECTURE.md` mục 3.1.
-- Hạn chế sửa vào mã tái dựng dùng chung với teammate (`models/`); thay đổi bắt buộc ở đó làm nhỏ và gửi lên repo gốc.
+- Toàn bộ mã, kể cả mã tái dựng lấy từ DriveStudio, nằm trong một package `drive2sim` (`ARCHITECTURE.md` mục 3). Mỗi thay đổi hành vi ở phần tái dựng phải qua kiểm tra hồi quy trên cùng cảnh.
 
 ## 12. Ngoài phạm vi
 
