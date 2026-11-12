@@ -12,6 +12,7 @@ File này chứa:
   trước; stage không cache thì ghi vào ``d2s/stages/<stage_id>/`` và đánh dấu xong bằng file
   ``done``. Mỗi khi một stage đổi trạng thái, ``run.json`` được ghi lại và một sự kiện được phát
   ra cho CLI hoặc Studio.
+- ``list_runs``, ``load_summary``, ``summary_path``: đọc các run đã có và kết quả đánh giá.
 - ``EventSink``: kiểu của hàm nhận sự kiện tiến độ (cùng dạng với sự kiện SSE, CONTRACTS mục
   11.4).
 
@@ -44,6 +45,7 @@ from drive2sim.core.schema import (
     RunRecord,
     Split,
     StageRecord,
+    Summary,
 )
 from drive2sim.engine.cache import (
     ARTIFACT_FILE,
@@ -655,3 +657,39 @@ def execute_run(
     """
     record = files.load(Path(run_dir) / D2S_DIR / RUN_FILE, RunRecord)
     return _Runner(Path(run_dir), record, workdir, registry, sink).execute()
+
+
+def list_runs(workdir: Workdir, scene_id: Optional[str] = None) -> list[RunRecord]:
+    """Đọc ``run.json`` của mọi run trong thư mục làm việc, mới nhất trước.
+
+    Args:
+        workdir: Thư mục làm việc.
+        scene_id: Chỉ lấy run của cảnh này; mặc định lấy mọi cảnh.
+
+    Returns:
+        Các run, sắp theo ``run_id`` giảm dần (``run_id`` bắt đầu bằng thời điểm tạo).
+    """
+    pattern = f"{scene_id or '*'}/*/*/{D2S_DIR}/{RUN_FILE}"
+    records = [files.load(path, RunRecord) for path in workdir.runs_dir.glob(pattern)]
+    return sorted(records, key=lambda record: record.run_id, reverse=True)
+
+
+def summary_path(run_dir: Path) -> Path:
+    """Trả về đường dẫn ``summary.json`` của một run (CONTRACTS mục 6.3).
+
+    ``eval.standard`` ghi file này vào thư mục của nó: ``d2s/stages/eval.standard/summary.json``.
+    """
+    return Path(run_dir) / D2S_DIR / "stages" / "eval.standard" / "summary.json"
+
+
+def load_summary(run_dir: Path) -> Optional[Summary]:
+    """Đọc ``summary.json`` của một run nếu đã có.
+
+    Args:
+        run_dir: Thư mục run.
+
+    Returns:
+        Kết quả đánh giá, hoặc ``None`` nếu run chưa tới bước đánh giá.
+    """
+    path = summary_path(run_dir)
+    return files.load(path, Summary) if path.is_file() else None

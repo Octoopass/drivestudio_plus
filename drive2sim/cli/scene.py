@@ -17,6 +17,7 @@ from pathlib import Path
 from drive2sim.cli.output import CommandError, UsageError, emit, format_table, info
 from drive2sim.core import files
 from drive2sim.core.schema import Manifest
+from drive2sim.engine import scenes
 from drive2sim.engine.workdir import Workdir
 from drive2sim.ingest.detect import inspect_source
 from drive2sim.ingest.nuscenes import IngestError, ingest_nuscenes
@@ -69,10 +70,7 @@ def list_scenes(args: argparse.Namespace) -> int:
     Raises:
         ValueError: Nếu một manifest sai schema.
     """
-    workdir = Workdir.from_env(args.workdir)
-    manifests = [
-        files.load(path, Manifest) for path in sorted(workdir.data_dir.glob("*/manifest.yaml"))
-    ]
+    manifests = scenes.list_scenes(Workdir.from_env(args.workdir))
     rows = [
         [m.scene_id, m.track, len(m.cameras), m.timeline.num_frames, m.available.lidar]
         for m in manifests

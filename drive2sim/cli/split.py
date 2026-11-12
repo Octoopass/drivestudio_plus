@@ -5,16 +5,16 @@ File này chứa:
 - ``create_split``: tạo split ``every_nth_frame:N``, ghi vào
   ``data/<scene_id>/splits/<split_id>.json``.
 - ``list_splits``, ``show_split``: liệt kê và xem split.
-- ``default_split_id``: đặt tên split theo CONTRACTS mục 10.1.
+
+Phần kiểm tra và ghi file nằm ở ``drive2sim/engine/scenes.py``, dùng chung với API của Studio;
+file này chỉ đọc tham số dòng lệnh và in kết quả.
 """
 
 import argparse
 from typing import Optional
 
 from drive2sim.cli.output import UsageError, emit, format_table, info
-from drive2sim.core import files
-from drive2sim.core.schema import Manifest, Split, parse_strategy
-from drive2sim.core.split import make_split
+from drive2sim.engine import scenes
 from drive2sim.engine.workdir import Workdir
 
 
@@ -49,32 +49,14 @@ def register(
     show.set_defaults(handler=show_split)
 
 
-def default_split_id(strategy: str, cameras: list[str], manifest: Manifest) -> str:
-    """Đặt tên split theo CONTRACTS mục 10.1.
-
-    Args:
-        strategy: Chuỗi chiến lược, ví dụ ``every_nth_frame:8``.
-        cameras: Camera dùng trong split.
-        manifest: Manifest của cảnh.
-
-    Returns:
-        ``every<N>_allcams`` khi dùng mọi camera của cảnh, ngược lại ``every<N>_<k>cams``, ví dụ
-        ``every8_3cams``.
-    """
-    _, n = parse_strategy(strategy)
-    all_cameras = [camera.camera_id for camera in manifest.cameras]
-    group = "allcams" if sorted(cameras) == sorted(all_cameras) else f"{len(cameras)}cams"
-    return f"every{n}_{group}"
-
-
-def _parse_frame_range(raw: Optional[str], num_frames: int) -> tuple[int, int]:
-    """Đọc ``--frame-range a,b``; mặc định là cả cảnh ``0,num_frames-1``.
+def _parse_frame_range(raw: Optional[str]) -> Optional[tuple[int, int]]:
+    """Đọc ``--frame-range a,b``; không có thì trả ``None`` (cả cảnh).
 
     Raises:
         UsageError: Nếu không đúng dạng hai số nguyên.
     """
     if raw is None:
-        return (0, num_frames - 1)
+        return None
     parts = raw.split(",")
     if len(parts) != 2 or not all(part.strip().lstrip("-").isdigit() for part in parts):
         raise UsageError(f"--frame-range {raw!r}: cần dạng <khung đầu>,<khung cuối>")
@@ -96,30 +78,18 @@ def create_split(args: argparse.Namespace) -> int:
         WorkdirError: Nếu cảnh chưa ingest.
     """
     workdir = Workdir.from_env(args.workdir)
-    scene = workdir.load_scene(args.scene_id)
-    all_cameras = [camera.camera_id for camera in scene.manifest.cameras]
-    cameras = args.cameras.split(",") if args.cameras else all_cameras
-    unknown = [camera for camera in cameras if camera not in all_cameras]
-    if unknown:
-        raise UsageError(
-            f"camera không có trong cảnh: {', '.join(unknown)}; cảnh có: {', '.join(all_cameras)}"
-        )
-    frame_range = _parse_frame_range(args.frame_range, scene.manifest.timeline.num_frames)
-    if not 0 <= frame_range[0] <= frame_range[1] < scene.manifest.timeline.num_frames:
-        raise UsageError(
-            f"--frame-range {frame_range[0]},{frame_range[1]} nằm ngoài cảnh "
-            f"(0 tới {scene.manifest.timeline.num_frames - 1})"
-        )
     try:
-        split_id = args.split_id or default_split_id(args.strategy, cameras, scene.manifest)
-        split = make_split(args.scene_id, cameras, frame_range, args.strategy, split_id)
-    except ValueError as error:
-        raise UsageError(f"không tạo được split: {error}") from None
-    path = workdir.split_path(args.scene_id, split.split_id)
-    if path.exists():
-        raise UsageError(f"split {split.split_id} đã có; đặt tên khác bằng --split")
-    files.dump(split, path)
-    info(args, f"đã ghi {workdir.relative(path)}")
+        split = scenes.create_split(
+            workdir,
+            args.scene_id,
+            args.strategy,
+            cameras=args.cameras.split(",") if args.cameras else None,
+            frame_range=_parse_frame_range(args.frame_range),
+            split_id=args.split_id,
+        )
+    except scenes.SplitError as error:
+        raise UsageError(str(error)) from None
+    info(args, f"đã ghi {workdir.relative(workdir.split_path(args.scene_id, split.split_id))}")
     emit(
         args,
         split.model_dump(mode="json"),
@@ -137,12 +107,7 @@ def list_splits(args: argparse.Namespace) -> int:
     Returns:
         Mã thoát ``0``.
     """
-    workdir = Workdir.from_env(args.workdir)
-    workdir.load_scene(args.scene_id)
-    splits = [
-        files.load(path, Split)
-        for path in sorted((workdir.scene_dir(args.scene_id) / "splits").glob("*.json"))
-    ]
+    splits = scenes.list_splits(Workdir.from_env(args.workdir), args.scene_id)
     rows = [[s.split_id, s.strategy, len(s.cameras), len(s.train), len(s.test)] for s in splits]
     emit(
         args,

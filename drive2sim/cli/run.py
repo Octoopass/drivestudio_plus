@@ -24,6 +24,7 @@ from drive2sim.cli.output import (
 from drive2sim.core import files
 from drive2sim.core.schema import RunRecord
 from drive2sim.engine.run import D2S_DIR, RUN_FILE, create_run, execute_run
+from drive2sim.engine.run import list_runs as read_runs
 from drive2sim.engine.workdir import Workdir
 
 
@@ -149,10 +150,7 @@ def list_runs(args: argparse.Namespace) -> int:
     Returns:
         Mã thoát ``0``.
     """
-    workdir = Workdir.from_env(args.workdir)
-    pattern = f"{args.scene_id or '*'}/*/*/{D2S_DIR}/{RUN_FILE}"
-    records = [files.load(path, RunRecord) for path in workdir.runs_dir.glob(pattern)]
-    records.sort(key=lambda record: record.run_id, reverse=True)
+    records = read_runs(Workdir.from_env(args.workdir), args.scene_id)
     rows = [[r.run_id, r.scene_id, r.split_id, r.approach.approach_id, r.status] for r in records]
     emit(
         args,
