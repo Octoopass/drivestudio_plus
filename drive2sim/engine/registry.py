@@ -57,8 +57,9 @@ def _check_declaration(stage_id: str, cls: type) -> None:
 
     Kiểm tra lần lượt: lớp là con của ``Stage``; ``stage_id`` đúng dạng; tên lớp đúng quy ước;
     ``version`` đúng dạng ``MAJOR.MINOR.PATCH``; ``cacheable`` khớp quy tắc của nhóm; tên và loại
-    của đầu vào, đầu ra hợp lệ; có đúng một đầu ra; ``Params`` là lớp Pydantic. Thông báo lỗi
-    viết tiếng Anh vì dành cho người viết stage, không phải người dùng tool (CONTRACTS mục 10.6).
+    của đầu vào, đầu ra hợp lệ; đầu vào tuỳ chọn nằm trong ``inputs``; có đúng một đầu ra;
+    ``Params`` là lớp Pydantic. Thông báo lỗi viết tiếng Anh vì dành cho người viết stage, không
+    phải người dùng tool (CONTRACTS mục 10.6).
 
     Args:
         stage_id: ``stage_id`` sẽ gán cho lớp.
@@ -86,6 +87,11 @@ def _check_declaration(stage_id: str, cls: type) -> None:
             raise ValueError(f"stage {stage_id}: invalid input name {name!r}")
         if kind not in ARTIFACT_TYPES and kind not in (SCENE_INPUT, SPLIT_INPUT):
             raise ValueError(f"stage {stage_id}: input {name!r} has unknown type {kind!r}")
+    unknown_optional = set(cls.optional_inputs) - set(cls.inputs)
+    if unknown_optional:
+        raise ValueError(
+            f"stage {stage_id}: optional_inputs {sorted(unknown_optional)} are not in inputs"
+        )
     # Mỗi stage đúng một đầu ra: thư mục kết quả của stage là một artifact, ``artifact.json``
     # có một ``artifact_type`` (CONTRACTS mục 5.1, 5.3).
     if len(cls.outputs) != 1:

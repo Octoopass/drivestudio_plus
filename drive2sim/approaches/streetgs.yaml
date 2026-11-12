@@ -49,6 +49,7 @@ presets:
   geer_fastgs: {renderer: 3dgeer, fastgs: true}
 
 stages:
+  - {stage: prep.masks_segformer, params: {dynamic: true}}
   - stage: train.drivestudio
     params:
       method: streetgs

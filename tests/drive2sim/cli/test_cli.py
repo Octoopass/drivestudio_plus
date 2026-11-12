@@ -244,6 +244,8 @@ def test_exit_codes(workdir: Path, split_id: str, capsys: pytest.CaptureFixture)
     code, data = run_json(capsys, "approach", "check", "omnire", *base)
     assert code == 0
     assert [s["stage_id"] for s in data["stages"]] == [
+        "prep.masks_segformer",
+        "prep.smpl",
         "train.drivestudio",
         "eval.standard",
         "export.ply_world",

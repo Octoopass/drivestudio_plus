@@ -236,6 +236,7 @@ class Stage(ABC):                      # lớp gốc; lớp con khai báo thuộ
     cacheable: bool                    # True: kết quả vào cache/ dùng chung; False: vào thư mục run
     uses_lidar: bool
     inputs: dict[str, str]             # tên đầu vào → loại artifact, hoặc "scene" / "split"
+    optional_inputs: frozenset[str]    # tên trong inputs có thể thiếu (mặc định rỗng)
     outputs: dict[str, str]            # tên đầu ra → loại artifact
     Params: type[pydantic.BaseModel]
 
@@ -255,6 +256,7 @@ Stage đăng ký bằng `@register_stage("<stage_id>")`. Engine lo cache, file `
 - `inputs` của `run` chỉ chứa artifact: tên đầu vào → thư mục của artifact. Cảnh và split đọc từ `ctx`. Khai báo `"scene"` hoặc `"split"` trong `inputs` của lớp nghĩa là kết quả phụ thuộc cảnh hoặc split, nên `scene_id` hoặc `split_id` vào khoá cache.
 - Decorator kiểm tra khai báo ngay lúc import và từ chối: tên lớp sai mẫu `<Nhóm><Tên>Stage`; `version` sai dạng `MAJOR.MINOR.PATCH`; `cacheable` khác quy tắc của nhóm (`true` với `prep`, `init`; `false` với nhóm khác, mục 5.2); loại artifact không có trong bảng mục 5.4; không có **đúng một** đầu ra (thư mục kết quả của stage là một artifact, `artifact.json` có một `artifact_type`); `Params` không phải lớp Pydantic; `stage_id` đã được lớp khác đăng ký.
 - Cài trong `drive2sim/engine/stage.py` (interface) và `drive2sim/engine/registry.py` (đăng ký, nạp mọi stage trong `drive2sim/stages/`).
+- `optional_inputs`: đầu vào artifact có thể thiếu. Nếu không stage nào phía trước tạo ra loại artifact đó, engine bỏ qua thay vì báo lỗi, và `inputs` của `run` không có tên đó. Ví dụ `train.drivestudio` nhận `masks` và `smpl` khi approach có `prep.masks_segformer`, `prep.smpl`; thiếu thì tắt `load_sky_mask`, `load_smpl` của DriveStudio.
 
 ### 5.2 Nơi ghi kết quả
 
@@ -288,8 +290,8 @@ Riêng `train.*`: chạy tiếp bằng `checkpoint_resume.pth` (model, optimizer
 | `artifact_type` | Nội dung |
 |---|---|
 | `scene_subset` | Kết quả của `prep.select`: danh sách camera, đoạn khung, độ phân giải đã chọn |
-| `masks` | Mask bầu trời, mask vật động (người, xe): PNG theo khung và camera, cùng tên file như DriveStudio (`sky_masks/<khung>_<camera>.png`) |
-| `smpl` | Tư thế người theo khung, định dạng của `drive2sim/recon/preprocess/smpl/run.py` |
+| `masks` | Thư mục có `sky_masks/<khung>_<camera>.png` và (khi `dynamic` bật) `fine_dynamic_masks/{all,human,vehicle}/<khung>_<camera>.png`, đúng tên DriveStudio. Do `prep.masks_segformer` ghi |
+| `smpl` | Thư mục có `humanpose/smpl.pkl` (định dạng của `drive2sim/recon/preprocess/smpl/run.py`) cùng file trung gian trong `humanpose/temp/`, `humanpose/postprocess/`. Do `prep.smpl` ghi |
 | `depth_prior` | Depth metric theo camera và khung, mỗi ảnh một file `.npy` `float32`, mét; kèm tên model trong `artifact.json` |
 | `points_init` | `points_init.npz`: `points` `float32[M,3]` trong hệ `world`, `colors` `uint8[M,3]`, `track_ids` (tuỳ chọn) |
 | `model` | Thư mục log của codebase; với DriveStudio có `checkpoint_final.pth`, `config.yaml`, `metrics/`, `videos/` (mục 6.1) |
@@ -312,6 +314,7 @@ runs/<scene_id>/<approach_id>/<run_id>/
     ├── log.txt                          # log của engine, traceback của stage lỗi
     └── stages/
         ├── train.drivestudio/           # thư mục log của DriveStudio
+        │   ├── scene_view/000/          # cảnh ảo bằng symlink: thư mục cảnh + mask, SMPL từ cache
         │   ├── config.yaml              # config đầy đủ sau khi gộp
         │   ├── metrics.json             # metric trong lúc train
         │   ├── metrics/images_test_*.json
@@ -635,7 +638,7 @@ Quy tắc chung:
 - Kết quả có cấu trúc (bảng khi không có `--json`, JSON khi có) đi ra **stdout**; log, tiến độ và cảnh báo đi ra **stderr**. Nhờ vậy `d2s run list --json | jq` luôn nhận JSON sạch. `--json` in một đối tượng hoặc một mảng JSON, trường `snake_case`, cùng tên với file trong CONTRACTS.
 - Thông báo lỗi bằng tiếng Việt (mục 10.6), một dòng đầu nói việc gì hỏng, các dòng sau nói vì sao và làm gì tiếp; kèm `error.code` như API (mục 11.3) khi có `--json`.
 - Mã thoát: `0` thành công; `1` lỗi khi chạy; `2` sai cú pháp hoặc sai kiểu giá trị; `3` bị khoá vì không thoả điều kiện hoặc ràng buộc; `130` bị ngắt bằng Ctrl-C.
-- Biến môi trường: `D2S_WORKDIR` (thư mục chứa `data/`, `cache/`, `runs/`; mặc định là thư mục hiện tại). Không có biến môi trường nào khác; mọi cấu hình đi qua tuỳ chọn hoặc file.
+- Biến môi trường: `D2S_WORKDIR` (thư mục chứa `data/`, `cache/`, `runs/`; mặc định là thư mục hiện tại) và `D2S_DEVICE` (thiết bị chạy model trong stage, ví dụ `cuda:0`, `cpu`; mặc định `cuda:0`). `D2S_DEVICE` không phải tham số stage vì không được nằm trong khoá cache: mask sinh trên GPU hay CPU là như nhau. Không có biến môi trường nào khác; mọi cấu hình khác đi qua tuỳ chọn hoặc file.
 
 ### 10.5 Config và kế thừa
 

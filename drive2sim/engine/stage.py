@@ -130,6 +130,9 @@ class Stage(ABC):
         inputs: Tên đầu vào → loại artifact (bảng CONTRACTS mục 5.4), hoặc ``"scene"`` /
             ``"split"`` khi kết quả phụ thuộc cảnh hoặc split; khai báo hai tên này để khoá
             cache đổi khi cảnh hoặc split đổi.
+        optional_inputs: Tên các đầu vào trong ``inputs`` có thể thiếu: nếu không stage nào phía
+            trước tạo ra artifact đó thì engine bỏ qua thay vì báo lỗi, và ``inputs`` của ``run``
+            không có tên đó. Ví dụ stage train nhận SMPL khi approach có ``prep.smpl``.
         outputs: Tên đầu ra → loại artifact; đúng một mục.
         Params: Lớp Pydantic mô tả tham số; nên đặt ``extra="forbid"`` như ``NoParams``.
     """
@@ -139,6 +142,7 @@ class Stage(ABC):
     cacheable: ClassVar[bool] = False
     uses_lidar: ClassVar[bool] = False
     inputs: ClassVar[dict[str, str]] = {}
+    optional_inputs: ClassVar[frozenset[str]] = frozenset()
     outputs: ClassVar[dict[str, str]] = {}
     Params: ClassVar[type[BaseModel]] = NoParams
 
@@ -155,6 +159,7 @@ class Stage(ABC):
             ctx: Ngữ cảnh do engine tạo; cảnh và split đọc từ ``ctx.scene``, ``ctx.split``.
             inputs: Tên đầu vào artifact → thư mục chứa artifact đó (thư mục kết quả của stage
                 phía trước). Không có ``"scene"`` và ``"split"``; hai thứ này đọc từ ``ctx``.
+                Đầu vào tuỳ chọn không có stage nào tạo ra thì không có trong dict.
             params: Tham số đã gộp và đã kiểm tra theo ``Params``.
 
         Returns:

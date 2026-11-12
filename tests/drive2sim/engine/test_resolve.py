@@ -18,7 +18,14 @@ from pydantic import BaseModel, ConfigDict
 
 from drive2sim.core.schema import Approach, Manifest, Split
 from drive2sim.engine.registry import StageRegistry
-from drive2sim.engine.resolve import BlockedError, Plan, ResolveError, blocked_choices, resolve
+from drive2sim.engine.resolve import (
+    BlockedError,
+    Plan,
+    ResolveError,
+    blocked_choices,
+    resolve,
+    wire_inputs,
+)
 from drive2sim.engine.stage import Stage, StageContext
 from tests.drive2sim.samples import MANIFEST, SPLIT
 
@@ -214,3 +221,17 @@ def test_blocked_choices_for_studio() -> None:
     )
     assert list(result) == ["init"]
     assert result["init"][0].choice == "init.lidar"
+
+
+def test_optional_input_skipped_when_not_produced() -> None:
+    registry = make_registry()
+    body = {
+        "version": "0.1.0",
+        "inputs": {"split": "split", "masks": "masks"},
+        "optional_inputs": frozenset({"masks"}),
+        "outputs": {"model": "model"},
+        "run": _noop,
+    }
+    registry.register("train.opt")(type("TrainOptStage", (Stage,), body))
+    wiring = wire_inputs(["train.opt"], registry)
+    assert wiring == [{"split": "split"}]

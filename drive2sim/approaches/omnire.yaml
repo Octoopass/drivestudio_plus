@@ -47,6 +47,8 @@ presets:
   fastgs: {fastgs: true}
 
 stages:
+  - {stage: prep.masks_segformer, params: {dynamic: true}}
+  - {stage: prep.smpl}
   - stage: train.drivestudio
     params:
       method: omnire

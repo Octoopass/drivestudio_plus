@@ -96,3 +96,9 @@ def test_load_builtin_stages_imports_package() -> None:
     # drive2sim.stages hiện chỉ có các package khung rỗng; hàm phải chạy không lỗi.
     loaded = load_builtin_stages()
     assert "drive2sim.stages.init" in loaded
+
+
+def test_optional_inputs_must_be_declared_inputs() -> None:
+    cls = make_stage("InitDepthStage", cacheable=True, optional_inputs=frozenset({"masks"}))
+    with pytest.raises(ValueError, match="optional_inputs"):
+        StageRegistry().register("init.depth")(cls)

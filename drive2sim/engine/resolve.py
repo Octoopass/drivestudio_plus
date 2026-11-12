@@ -385,7 +385,8 @@ def wire_inputs(
 
     Mỗi đầu vào kiểu artifact nhận artifact cùng loại do stage **gần nhất phía trước** tạo ra
     (CONTRACTS mục 4.1). Ví dụ ``train.drivestudio`` cần ``points_init`` thì nhận kết quả của
-    stage ``init.*`` đứng trước nó. Đầu vào ``"scene"`` và ``"split"`` giữ nguyên tên.
+    stage ``init.*`` đứng trước nó. Đầu vào ``"scene"`` và ``"split"`` giữ nguyên tên. Đầu vào
+    tuỳ chọn (``Stage.optional_inputs``) không có stage nào tạo ra thì không có trong kết quả.
 
     Gọi khi tạo run (trong ``resolve``) và khi chạy tiếp một run (trong ``run.py``), để hai lần
     nối luôn cho cùng kết quả.
@@ -399,7 +400,7 @@ def wire_inputs(
         nguồn, hoặc ``"scene"`` / ``"split"``. Ví dụ ``[{"scene": "scene"}, {"points": 0}]``.
 
     Raises:
-        ResolveError: Nếu một đầu vào không có stage nào phía trước tạo ra.
+        ResolveError: Nếu một đầu vào bắt buộc không có stage nào phía trước tạo ra.
     """
     wiring: list[dict[str, object]] = []
     producers: dict[str, int] = {}  # loại artifact → vị trí stage gần nhất tạo ra nó
@@ -411,6 +412,8 @@ def wire_inputs(
                 sources[input_name] = kind
             elif kind in producers:
                 sources[input_name] = producers[kind]
+            elif input_name in cls.optional_inputs:
+                continue  # đầu vào tuỳ chọn không có stage nào tạo ra: bỏ qua
             else:
                 raise ResolveError(
                     f"stage {stage_id} cần artifact {kind} (đầu vào {input_name!r}) nhưng không "

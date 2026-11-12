@@ -78,9 +78,9 @@ def test_build_command_translates_split(tmp_path: Path) -> None:
         }
     )
     output_dir = tmp_path / "run" / "d2s" / "stages" / "train.drivestudio"
-    scene_dir = tmp_path / "data" / "nuscenes_scene-0061"
+    view_root = output_dir / "scene_view"
     params = TrainDrivestudioParams(method="omnire", num_iters=100, overrides={"a.b": True})
-    command = build_command(params, split, manifest, scene_dir, output_dir)
+    command = build_command(params, split, manifest, view_root, output_dir, has_smpl=False)
 
     assert command[:3] == [sys.executable, "-m", "drive2sim.recon.tools.train"]
     assert command[command.index("--config_file") + 1].endswith("omnire_nocampose.yaml")
@@ -90,8 +90,10 @@ def test_build_command_translates_split(tmp_path: Path) -> None:
     assert root / project / run_name == output_dir
     assert "--resume_from" not in command
     assert option(command, "dataset") == "nuscenes/1cams"
-    assert option(command, "data.data_root") == str(tmp_path / "data")
-    assert option(command, "data.scene_idx") == "nuscenes_scene-0061"
+    assert option(command, "data.data_root") == str(view_root)
+    assert option(command, "data.scene_idx") == "000"
+    assert option(command, "data.pixel_source.load_smpl") == "false"
+    assert not any(part.startswith("data.pixel_source.load_sky_mask=") for part in command)
     assert option(command, "data.start_timestep") == "2"
     assert option(command, "data.end_timestep") == "9"
     assert option(command, "data.pixel_source.cameras") == "[0]"

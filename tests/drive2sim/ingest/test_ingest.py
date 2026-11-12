@@ -246,4 +246,8 @@ def test_cli_end_to_end(
     )
     data = json.loads(capsys.readouterr().out)
     assert code == 0
-    assert data["stages"][0]["stage_id"] == "train.drivestudio"
+    assert [s["stage_id"] for s in data["stages"]][:3] == [
+        "prep.masks_segformer",
+        "prep.smpl",
+        "train.drivestudio",
+    ]

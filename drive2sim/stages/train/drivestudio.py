@@ -34,6 +34,7 @@ from drive2sim.core.schema import Manifest, Split, parse_strategy
 from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import Stage, StageContext
 from drive2sim.stages.commands import LOG_FILE, run_logged
+from drive2sim.stages.scene_view import DRIVESTUDIO_DATASETS, VIEW_SCENE, build_view
 
 Method = Literal["omnire", "streetgs", "pvg", "deformablegs"]
 Renderer = Literal["3dgs", "3dgut", "3dgeer"]
@@ -54,17 +55,11 @@ CONFIG_FILES: dict[tuple[str, str, bool, bool], str] = {
     ("pvg", "3dgs", True, False): "pvg.yaml",
     ("deformablegs", "3dgs", True, False): "deformablegs.yaml",
 }
-# Dataset gốc trong manifest → thư mục config của DriveStudio trong drive2sim/configs/datasets/.
-DATASET_CONFIG_DIRS: dict[str, str] = {
-    "nuscenes": "nuscenes",
-    "waymo": "waymo",
-    "argoverse2": "argoverse",
-    "pandaset": "pandaset",
-    "kitti": "kitti",
-    "nuplan": "nuplan",
-    "physicalai": "physicalai",
-}
 RESUME_CHECKPOINT = "checkpoint_resume.pth"
+VIEW_DIR = "scene_view"
+# Mục lấy từ artifact của prep.masks_segformer và prep.smpl, đè lên mục cùng tên của cảnh.
+MASK_ENTRIES = ("sky_masks", "fine_dynamic_masks")
+SMPL_ENTRY = "humanpose"
 FINAL_CHECKPOINT = "checkpoint_final.pth"
 
 
@@ -160,9 +155,9 @@ def dataset_config_for(dataset: str, num_cameras: int) -> str:
         ValueError: Nếu dataset chưa có loader DriveStudio, hoặc không có config đúng số camera;
             thông báo liệt kê các config có sẵn để người dùng đặt tham số ``dataset``.
     """
-    if dataset not in DATASET_CONFIG_DIRS:
+    if dataset not in DRIVESTUDIO_DATASETS:
         raise ValueError(f"dataset {dataset} chưa có loader DriveStudio")
-    folder = DATASET_CONFIG_DIRS[dataset]
+    folder = DRIVESTUDIO_DATASETS[dataset]
     name = f"{folder}/{num_cameras}cams"
     if not (paths.CONFIGS_DIR / "datasets" / f"{name}.yaml").is_file():
         available = sorted(
@@ -180,24 +175,29 @@ def build_command(
     params: TrainDrivestudioParams,
     split: Split,
     manifest: Manifest,
-    scene_dir: Path,
+    view_root: Path,
     output_dir: Path,
+    has_sky_masks: bool = True,
+    has_smpl: bool = True,
 ) -> list[str]:
     """Dựng câu lệnh train của DriveStudio cho một run.
 
     Dịch split của tool sang tham số của DriveStudio: chiến lược ``every_nth_frame:N`` thành
     ``test_image_stride=N``; ``frame_range`` thành ``start_timestep`` và ``end_timestep``; danh
     sách camera thành chỉ số camera theo thứ tự trong manifest (CONTRACTS mục 5.4, loại
-    ``scene``). Thư mục log của DriveStudio được đặt đúng bằng ``output_dir``. Dữ liệu đọc thẳng
-    từ thư mục cảnh: DriveStudio nhận ``data.scene_idx`` dạng chuỗi và đọc
-    ``<data_root>/<scene_idx>`` (``drive2sim/recon/data/driving_dataset.py``).
+    ``scene``). Thư mục log của DriveStudio được đặt đúng bằng ``output_dir``. Dữ liệu đọc từ
+    thư mục cảnh ảo ``<view_root>/000/`` (``build_view``), gồm thư mục cảnh cộng mask và SMPL
+    từ cache. Thiếu mask hoặc SMPL thì tắt ``load_sky_mask`` hoặc ``load_smpl`` để DriveStudio
+    không đi tìm file không có.
 
     Args:
         params: Tham số đã kiểm tra.
         split: Split của run.
         manifest: Manifest của cảnh, để đổi ``camera_id`` sang chỉ số.
-        scene_dir: Thư mục ``data/<scene_id>/`` của cảnh.
+        view_root: Thư mục chứa cảnh ảo, truyền làm ``data.data_root``.
         output_dir: Thư mục kết quả của stage.
+        has_sky_masks: Cảnh ảo có ``sky_masks/`` không.
+        has_smpl: Cảnh ảo có ``humanpose/smpl.pkl`` không.
 
     Returns:
         Câu lệnh dạng danh sách, dùng được cho ``subprocess.run``.
@@ -235,8 +235,8 @@ def build_command(
     options = {
         "dataset": dataset,
         "seed": params.seed,
-        "data.data_root": str(scene_dir.parent),
-        "data.scene_idx": scene_dir.name,
+        "data.data_root": str(view_root),
+        "data.scene_idx": VIEW_SCENE,
         "data.start_timestep": first,
         # end_timestep trong config tính cả khung cuối; DriveStudio tự cộng 1
         # (driving_dataset.py, dòng ``self.end_timestep = end_timestep + 1``).
@@ -244,6 +244,10 @@ def build_command(
         "data.pixel_source.cameras": camera_indices,
         "data.pixel_source.test_image_stride": stride,
     }
+    if not has_sky_masks:
+        options["data.pixel_source.load_sky_mask"] = False
+    if not has_smpl:
+        options["data.pixel_source.load_smpl"] = False
     if params.num_iters is not None:
         options["trainer.optim.num_iters"] = params.num_iters
     options.update(params.overrides)
@@ -255,14 +259,21 @@ def build_command(
 class TrainDrivestudioStage(Stage):
     """Train một cảnh bằng trainer DriveStudio, qua một tiến trình con.
 
-    Đầu vào là cảnh (thư mục ``data/<scene_id>/``, định dạng chuẩn ở CONTRACTS mục 2.1) và split
-    của run; đầu ra là thư mục log của DriveStudio, chứa ``checkpoint_final.pth``.
+    Đầu vào là cảnh (thư mục ``data/<scene_id>/``, định dạng chuẩn ở CONTRACTS mục 2.1), split
+    của run, và tuỳ chọn mask (``prep.masks_segformer``) và SMPL (``prep.smpl``); đầu ra là
+    thư mục log của DriveStudio, chứa ``checkpoint_final.pth``.
     """
 
     version: ClassVar[str] = "0.1.0"
     cacheable: ClassVar[bool] = False
     uses_lidar: ClassVar[bool] = False
-    inputs: ClassVar[dict[str, str]] = {"scene": "scene", "split": "split"}
+    inputs: ClassVar[dict[str, str]] = {
+        "scene": "scene",
+        "split": "split",
+        "masks": "masks",
+        "smpl": "smpl",
+    }
+    optional_inputs: ClassVar[frozenset[str]] = frozenset({"masks", "smpl"})
     outputs: ClassVar[dict[str, str]] = {"model": "model"}
     Params: ClassVar[type[BaseModel]] = TrainDrivestudioParams
 
@@ -273,7 +284,8 @@ class TrainDrivestudioStage(Stage):
 
         Args:
             ctx: Ngữ cảnh do engine tạo.
-            inputs: Không có đầu vào artifact; cảnh và split lấy từ ``ctx``.
+            inputs: ``masks`` và ``smpl`` nếu approach có stage tạo ra chúng; cảnh và split lấy
+                từ ``ctx``.
             params: ``TrainDrivestudioParams`` đã kiểm tra.
 
         Returns:
@@ -284,8 +296,27 @@ class TrainDrivestudioStage(Stage):
                 thông báo kèm vài dòng cuối của log.
         """
         assert isinstance(params, TrainDrivestudioParams)
+        extra = {}
+        if "masks" in inputs:
+            extra.update(
+                {
+                    name: inputs["masks"] / name
+                    for name in MASK_ENTRIES
+                    if (inputs["masks"] / name).exists()
+                }
+            )
+        if "smpl" in inputs:
+            extra[SMPL_ENTRY] = inputs["smpl"] / SMPL_ENTRY
+        view_root = ctx.output_dir / VIEW_DIR
+        build_view(ctx.scene.root, view_root, exclude=(*MASK_ENTRIES, SMPL_ENTRY), extra=extra)
         command = build_command(
-            params, ctx.split, ctx.scene.manifest, ctx.scene.root, ctx.output_dir
+            params,
+            ctx.split,
+            ctx.scene.manifest,
+            view_root,
+            ctx.output_dir,
+            has_sky_masks="sky_masks" in extra,
+            has_smpl=SMPL_ENTRY in extra,
         )
         ctx.progress(0.0, f"train {params.method} bằng {params.config_file.name}")
         run_logged(command, ctx.output_dir / LOG_FILE)
