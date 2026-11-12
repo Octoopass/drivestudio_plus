@@ -2,7 +2,9 @@
 
 Tài liệu này quy định định dạng của dữ liệu đi qua tool, interface mà approach và stage phải theo, cùng quy tắc đặt tên và lệnh CLI (mục 10). Người thêm approach mới chỉ cần đọc tài liệu này cùng `ARCHITECTURE.md` mục 4.
 
-Đây là thiết kế đích (`ARCHITECTURE.md` mục 7). Mọi file do tool ghi đều có trường `schema_version`; thay đổi làm vỡ tương thích thì tăng số đầu của phiên bản.
+Đây là thiết kế đích (`ARCHITECTURE.md` mục 7). Mọi file do tool ghi đều có trường `schema_version`; thay đổi làm vỡ tương thích thì tăng số đầu của phiên bản. Khi đọc, tool chấp nhận file cùng loại và cùng số đầu; khoá lạ bị báo lỗi để bắt lỗi gõ sai trong file viết tay.
+
+Các schema ở đây được cài trong `drive2sim/core/schema.py` (định danh ở `drive2sim/core/ids.py`, đọc ghi ở `drive2sim/core/io.py`). Test `tests/drive2sim/core/test_contracts_examples.py` đọc mọi ví dụ JSON và YAML có `schema_version` trong tài liệu này và kiểm tra chúng theo schema, nên tài liệu và code phải sửa cùng nhau.
 
 Trạng thái: bản nháp, ngày 12/11/2026.
 
@@ -65,7 +67,7 @@ ncore:
   timestamp_interval_us: {start: 1532402927647951, stop: 1532402947147951}
 track: pinhole                    # pinhole | fisheye
 cameras:
-  - id: CAM_FRONT
+  - camera_id: CAM_FRONT
     model: opencv_pinhole         # opencv_pinhole | opencv_fisheye | ftheta | ideal_pinhole
     resolution: [1600, 900]
     shutter: GLOBAL
@@ -118,7 +120,7 @@ Approach khai báo các `strategy` mà codebase của nó hỗ trợ (`requires.
   "created_utc": "2026-11-12T08:00:00Z",
   "summary": {"errors": 0, "warnings": 1},
   "checks": [
-    {"id": "timestamps.camera_sync", "severity": "warning",
+    {"check_id": "timestamps.camera_sync", "severity": "warning",
      "message": "Lệch thời gian giữa camera lớn hơn 5 ms", "camera_id": "CAM_BACK", "frame_index": 12,
      "details": {"max_offset_us": 6200}}
   ]
@@ -351,7 +353,21 @@ Các con số trong ví dụ chỉ minh hoạ định dạng. Metric vùng ngư�
 
 ### 6.4 `d2s/env.json`
 
-Commit của repo, phiên bản Python, PyTorch, CUDA, gsplat, tên GPU, seed, tên executor.
+```json
+{
+  "schema_version": "d2s-env/0.1",
+  "code_commit": "7851701",
+  "python": "3.9.19",
+  "pytorch": "2.4.1",
+  "cuda": "12.1",
+  "gsplat": "1.5.3",
+  "gpu": "Tesla T4",
+  "seed": 0,
+  "executor": "kaggle"
+}
+```
+
+Các giá trị trong ví dụ chỉ minh hoạ định dạng. Trường nào không xác định được thì bỏ trống.
 
 ## 7. Gói xem trước
 
