@@ -366,7 +366,7 @@ drivestudio_plus/                          branch drive2sim
 │   ├── core/                              identifiers.py, schema.py, files.py, split.py (đã có); transforms.py, camera.py, ncore_io.py (chưa có)
 │   ├── ingest/                (khung)     <dataset>.py: converter → NCore V4; validate.py
 │   ├── stages/                (khung)     prep/, init/, train/, eval/, render/, export/: mỗi stage một file
-│   ├── engine/                (khung)     registry.py, resolve.py, run.py, cache.py
+│   ├── engine/                            stage.py, registry.py (đã có); resolve.py, run.py, cache.py (chưa có)
 │   ├── approaches/            (khung)     <approach_id>.yaml
 │   ├── kaggle/                (khung)     client.py, bundle.py, templates/<tên>.ipynb
 │   ├── sim/                   (khung)     renderer.py (L2), actors.py (L3), server/ (L4; protos/ từ NuRec)
@@ -580,7 +580,8 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (NCore V4 + manifest.ya
 | Khung thư mục của tool, submodule NCore (pin `v19.9.0`, mục 2.2) | Xong; các thư mục còn trống | `ceacb2c` |
 | `core`: định danh, schema mọi file trong CONTRACTS (kể cả `job.json`, `result.json`), đọc ghi, split | Xong; 66 test đạt trên Python 3.9 và 3.12; test đọc mọi ví dụ trong CONTRACTS; qua `ruff check` | `9bb7bbc`, `96876ad` |
 | `core`: phép biến đổi toạ độ, mô hình camera, đọc NCore | Chưa làm | |
-| `engine`, `stages`, `approaches`, `cli` | Chưa làm | |
+| `engine`: interface stage và registry | Xong; kiểm tra khai báo stage lúc đăng ký; 81 test đạt trên Python 3.9 và 3.12 | |
+| `engine`: resolve, cache, chạy run; `stages`, `approaches`, `cli` | Chưa làm | |
 | Studio (`studio/api`, `studio/frontend`, `studio/viz`) | Chưa làm | |
 | Kaggle (`kaggle/`), `envs/main.yml` | Chưa làm; cần teammate trả lời mục 8 câu 1 | |
 | Tầng dữ liệu NCore (`ingest/`, loader `ncore.py`) | Chưa làm | |

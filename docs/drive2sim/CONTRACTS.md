@@ -216,7 +216,7 @@ Mỗi stage khai báo `uses_lidar`. Engine ghi danh sách stage dùng LiDAR vào
 ### 5.1 Interface của stage
 
 ```python
-class Stage(Protocol):
+class Stage(ABC):                      # lớp gốc; lớp con khai báo thuộc tính và cài run
     stage_id: str                      # "<nhóm>.<tên>", ví dụ "init.depth" (mục 10.2)
     version: str                       # tăng khi đổi hành vi
     cacheable: bool                    # True: kết quả vào cache/ dùng chung; False: vào thư mục run
@@ -225,7 +225,7 @@ class Stage(Protocol):
     outputs: dict[str, str]            # tên đầu ra → loại artifact
     Params: type[pydantic.BaseModel]
 
-    def run(self, ctx: StageContext, inputs: dict[str, Any], params: BaseModel) -> dict[str, Path]:
+    def run(self, ctx: StageContext, inputs: dict[str, Path], params: BaseModel) -> dict[str, Path]:
         """Ghi đầu ra vào ctx.output_dir và trả về đường dẫn của từng đầu ra."""
 
 class StageContext(Protocol):
@@ -237,6 +237,10 @@ class StageContext(Protocol):
 ```
 
 Stage đăng ký bằng `@register_stage("<stage_id>")`. Engine lo cache, file `done`, thư mục `.partial` và `artifact.json`; stage chỉ ghi file vào `output_dir`.
+
+- `inputs` của `run` chỉ chứa artifact: tên đầu vào → thư mục của artifact. Cảnh và split đọc từ `ctx`. Khai báo `"scene"` hoặc `"split"` trong `inputs` của lớp nghĩa là kết quả phụ thuộc cảnh hoặc split, nên `scene_id` hoặc `split_id` vào khoá cache.
+- Decorator kiểm tra khai báo ngay lúc import và từ chối: tên lớp sai mẫu `<Nhóm><Tên>Stage`; `version` sai dạng `MAJOR.MINOR.PATCH`; `cacheable` khác quy tắc của nhóm (`true` với `prep`, `init`; `false` với nhóm khác, mục 5.2); loại artifact không có trong bảng mục 5.4; không có đầu ra nào; `Params` không phải lớp Pydantic; `stage_id` đã được lớp khác đăng ký.
+- Cài trong `drive2sim/engine/stage.py` (interface) và `drive2sim/engine/registry.py` (đăng ký, nạp mọi stage trong `drive2sim/stages/`).
 
 ### 5.2 Nơi ghi kết quả
 
