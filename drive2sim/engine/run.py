@@ -81,7 +81,7 @@ def _now_utc() -> datetime:
 
 
 @functools.lru_cache(maxsize=1)
-def _code_commit() -> str:
+def code_commit() -> str:
     """Đọc commit hiện tại của repo chứa package, để ghi vào ``env.json`` và ``artifact.json``.
 
     Ghi commit giúp biết kết quả được tạo bằng phiên bản code nào, để chạy lại được. Kết quả được
@@ -136,7 +136,7 @@ def _env_record(executor: str) -> EnvRecord:
     torch = sys.modules.get("torch")
     return EnvRecord(
         schema_version=SCHEMA_VERSIONS["env"],
-        code_commit=_code_commit(),
+        code_commit=code_commit(),
         python=platform.python_version(),
         pytorch=getattr(torch, "__version__", None),
         cuda=getattr(getattr(torch, "version", None), "cuda", None),
@@ -421,7 +421,7 @@ class _Runner:
             schema_version=SCHEMA_VERSIONS["artifact"],
             artifact_type=next(iter(cls.outputs.values())),
             cache_key=stage_record.cache_key,
-            producer=Producer(stage_id=stage_id, version=cls.version, code_commit=_code_commit()),
+            producer=Producer(stage_id=stage_id, version=cls.version, code_commit=code_commit()),
             params=stage_record.params,
             inputs=sorted(input_keys),
             created_utc=_now_utc(),

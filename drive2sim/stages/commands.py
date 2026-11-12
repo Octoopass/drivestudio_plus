@@ -8,12 +8,13 @@ File này chứa ``run_logged``, hàm chung cho việc đó: chạy lệnh, nố
 
 import subprocess
 from pathlib import Path
+from typing import Optional
 
 LOG_FILE = "log.txt"
 TAIL_LINES = 20
 
 
-def run_logged(command: list[str], log_path: Path) -> None:
+def run_logged(command: list[str], log_path: Path, cwd: Optional[Path] = None) -> None:
     """Chạy một câu lệnh, nối stdout và stderr vào ``log_path``.
 
     Ghi nối thay vì ghi đè, nên khi chạy tiếp một run bị ngắt, log của các lần trước vẫn còn.
@@ -22,6 +23,7 @@ def run_logged(command: list[str], log_path: Path) -> None:
     Args:
         command: Câu lệnh dạng danh sách, ví dụ ``[sys.executable, "-m", "..."]``.
         log_path: File log của stage.
+        cwd: Thư mục chạy lệnh; mặc định là thư mục hiện tại.
 
     Raises:
         RuntimeError: Nếu lệnh thoát với mã khác 0; thông báo kèm 20 dòng cuối của log, để
@@ -31,7 +33,9 @@ def run_logged(command: list[str], log_path: Path) -> None:
     with log_path.open("a", encoding="utf-8") as log_file:
         log_file.write("$ " + " ".join(command) + "\n")
         log_file.flush()
-        returncode = subprocess.run(command, stdout=log_file, stderr=subprocess.STDOUT).returncode
+        returncode = subprocess.run(
+            command, stdout=log_file, stderr=subprocess.STDOUT, cwd=cwd
+        ).returncode
     if returncode != 0:
         lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines(True)
         tail = "".join(lines[-TAIL_LINES:])

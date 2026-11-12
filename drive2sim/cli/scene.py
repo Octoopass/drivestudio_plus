@@ -4,17 +4,22 @@ File này chứa:
 - ``register``: thêm các lệnh ``scene list`` và ``scene show`` vào parser.
 - ``list_scenes``: liệt kê các cảnh có ``manifest.yaml`` trong ``data/``.
 - ``show_scene``: in manifest và tóm tắt báo cáo kiểm tra của một cảnh.
+- ``ingest_scene``: chuyển một cảnh của dữ liệu gốc thành ``data/<scene_id>/`` (hiện hỗ trợ
+  nuScenes), ghi manifest và báo cáo kiểm tra.
 
-Lệnh ``scene ingest`` và ``scene validate`` (CONTRACTS mục 10.4) có khi làm tầng dữ liệu.
+Lệnh ``scene validate`` và ``scene delete`` (CONTRACTS mục 10.4) chưa có.
 """
 
 import argparse
 import json
+from pathlib import Path
 
-from drive2sim.cli.output import emit, format_table
+from drive2sim.cli.output import CommandError, UsageError, emit, format_table, info
 from drive2sim.core import files
 from drive2sim.core.schema import Manifest
 from drive2sim.engine.workdir import Workdir
+from drive2sim.ingest.detect import inspect_source
+from drive2sim.ingest.nuscenes import IngestError, ingest_nuscenes
 
 
 def register(
@@ -34,6 +39,22 @@ def register(
     show_parser = actions.add_parser("show", parents=[common], help="xem manifest của một cảnh")
     show_parser.add_argument("scene_id")
     show_parser.set_defaults(handler=show_scene)
+    ingest = actions.add_parser(
+        "ingest", parents=[common], help="chuyển một cảnh của dữ liệu gốc sang dữ liệu chuẩn"
+    )
+    ingest.add_argument("path", type=Path, help="thư mục dữ liệu gốc")
+    ingest.add_argument("--source-type", help="dataset gốc; bỏ trống thì tự nhận dạng")
+    ingest.add_argument("--version", help="phiên bản dataset, ví dụ v1.0-mini (nuScenes)")
+    ingest.add_argument("--sequence", help="chuỗi (cảnh gốc) cần ingest, ví dụ scene-0061")
+    ingest.add_argument("--scene", dest="scene_id", help="scene_id trong tool; mặc định tự đặt")
+    ingest.add_argument(
+        "--interpolate-n",
+        type=int,
+        default=4,
+        help="nuScenes: số khung nội suy giữa hai keyframe; 4 cho 10 Hz (mặc định), 0 cho 2 Hz",
+    )
+    ingest.add_argument("--workers", type=int, default=4, help="số tiến trình của script")
+    ingest.set_defaults(handler=ingest_scene)
 
 
 def list_scenes(args: argparse.Namespace) -> int:
@@ -102,3 +123,64 @@ def show_scene(args: argparse.Namespace) -> int:
         text.append(f"kiểm tra {summary['errors']} lỗi, {summary['warnings']} cảnh báo")
     emit(args, data_out, "\n".join(text))
     return 0
+
+
+def ingest_scene(args: argparse.Namespace) -> int:
+    """Chuyển một cảnh của dữ liệu gốc sang ``data/<scene_id>/``.
+
+    Bỏ ``--source-type`` thì nhận dạng như ``source inspect``. Với nuScenes: ``--version`` được
+    chọn tự động khi thư mục chỉ có một phiên bản; ``--sequence`` bắt buộc khi có nhiều cảnh.
+
+    Args:
+        args: Tham số dòng lệnh: ``path``, ``source_type``, ``version``, ``sequence``,
+            ``scene_id``, ``interpolate_n``, ``workers``.
+
+    Returns:
+        ``0`` nếu ingest xong và báo cáo kiểm tra không có lỗi; ``1`` nếu báo cáo có lỗi.
+
+    Raises:
+        UsageError: Nếu thiếu hoặc sai ``--version``, ``--sequence``.
+        CommandError: Nếu nguồn chưa được hỗ trợ, hoặc ingest lỗi.
+    """
+    workdir = Workdir.from_env(args.workdir)
+    report = inspect_source(args.path)
+    dataset = args.source_type or report.dataset
+    if dataset is None:
+        raise CommandError(
+            "không nhận ra dataset; chạy d2s source inspect để xem thư mục có gì", "not_found"
+        )
+    if dataset != "nuscenes":
+        raise CommandError(f"scene ingest chưa hỗ trợ {dataset}; hiện chỉ có nuscenes")
+    versions = report.versions
+    version = args.version or (next(iter(versions)) if len(versions) == 1 else None)
+    if version is None or version not in versions:
+        raise UsageError(f"chọn --version trong: {', '.join(versions) or '(không có)'}")
+    sequences = versions[version]
+    sequence = args.sequence or (sequences[0] if len(sequences) == 1 else None)
+    if sequence is None:
+        shown = ", ".join(sequences[:10]) + (", ..." if len(sequences) > 10 else "")
+        raise UsageError(f"chọn một cảnh bằng --sequence; {version} có: {shown}")
+    try:
+        scene_dir = ingest_nuscenes(
+            args.path,
+            workdir,
+            scene_name=sequence,
+            version=version,
+            scene_id=args.scene_id,
+            interpolate_n=args.interpolate_n,
+            workers=args.workers,
+        )
+    except IngestError as error:
+        raise CommandError(str(error)) from None
+    info(args, f"đã ghi {workdir.relative(scene_dir)}")
+    manifest = files.load(scene_dir / "manifest.yaml", Manifest)
+    report_data = json.loads((scene_dir / "reports" / "validation.json").read_text("utf-8"))
+    summary = report_data["summary"]
+    emit(
+        args,
+        {"manifest": manifest.model_dump(mode="json"), "validation": report_data},
+        f"cảnh {manifest.scene_id}: {manifest.timeline.num_frames} khung, "
+        f"{len(manifest.cameras)} camera; kiểm tra {summary['errors']} lỗi, "
+        f"{summary['warnings']} cảnh báo",
+    )
+    return 0 if summary["errors"] == 0 else 1

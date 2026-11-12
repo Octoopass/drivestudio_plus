@@ -368,7 +368,7 @@ drivestudio_plus/                          branch drive2sim
 │   │   ├── utils/                         camera, geometry, logging, misc, visualization, backup
 │   │   └── tools/                         train.py, eval.py, viewer.py, export_ply.py, gather_results.py (thay dần bằng stage và CLI)
 │   ├── core/                              identifiers.py, schema.py, files.py, split.py (đã có); transforms.py, camera.py (chưa có)
-│   ├── ingest/                (khung)     <dataset>.py: converter; detect.py (source inspect); manifest.py; validate.py
+│   ├── ingest/                            detect.py (source inspect), images.py, manifest.py, validate.py, nuscenes.py (đã có); <dataset>.py khác (chưa có)
 │   ├── stages/                            commands.py; train/drivestudio.py, eval/standard.py, export/ply_world.py (đã có); prep/, init/, render/ (khung)
 │   ├── engine/                            stage.py, registry.py, resolve.py, approaches.py, workdir.py, cache.py, run.py
 │   ├── approaches/                        omnire.yaml, streetgs.yaml
@@ -377,7 +377,7 @@ drivestudio_plus/                          branch drive2sim
 │   ├── studio/                (khung)     api/ (app.py, routes/<nhóm>.py), viz/, frontend/ (Vite + React)
 │   ├── external/              (khung)     <codebase>/: worker cho codebase ngoài
 │   ├── scripts/               (khung)     công cụ phát triển chạy một lần
-│   └── cli/                               main.py, output.py; scene.py, split.py, approach.py, run.py
+│   └── cli/                               main.py, output.py; source.py, scene.py, split.py, approach.py, run.py
 ├── third_party/                           smplx (pip -e, import smplx); Humans4D (submodule, import hmr2); ncore (submodule, tag v19.9.0: converter NCore)
 ├── envs/                      (khung)     file môi trường: main.yml, <codebase>.yml (mục 2.9)
 └── tests/drive2sim/           (khung)     cùng cây thư mục với drive2sim/; fixtures/
@@ -594,7 +594,9 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (thư mục DriveStudio
 | CLI còn lại: `scene ingest/validate/delete`, `split delete`, `run cancel/delete`, `kaggle`, `report`, `export`, `cache`, `studio`, `serve` | Chưa làm; làm cùng phần tương ứng | |
 | Studio (`studio/api`, `studio/frontend`, `studio/viz`) | Chưa làm | |
 | Kaggle (`kaggle/`), `envs/main.yml` | Chưa làm; cần teammate trả lời mục 8 câu 1 | |
-| Tầng dữ liệu: `source inspect`, `scene ingest` (gọi script có sẵn, sinh manifest), bộ kiểm tra | Chưa làm | |
+| Tầng dữ liệu: `source inspect`; `scene ingest` cho nuScenes (gọi script có sẵn, sinh manifest); kiểm tra cấu trúc | Xong trong code; có test với dữ liệu giả; **chưa chạy thật** (cần nuScenes và `nuscenes-devkit`) | |
+| Bộ kiểm tra: chiếu LiDAR lên ảnh | Chưa làm; báo cáo ghi mục `projection.not_run` | |
+| `scene ingest` cho Waymo, Argoverse 2, KITTI, nuPlan, PandaSet, PhysicalAI | Chưa làm | |
 | `sim/` (L2–L4) | Chưa làm | |
 
 Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiền xử lý (mask, SMPL); OmniRe, Street GS, PVG, Deformable-GS; renderer 3DGS / 3DGUT / 3DGEER; rolling shutter ở `ut`/`geer`; FastGS; `tools/eval.py`; video; `tools/viewer.py`; `tools/export_ply.py`; đọc NCore V4 cho PhysicalAI.
