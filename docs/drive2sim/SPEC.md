@@ -27,8 +27,11 @@ Trạng thái: bản nháp, ngày 12/11/2026.
 |---|---|
 | Dữ liệu chuẩn | Một định dạng dữ liệu duy nhất mà mọi approach đọc. Mọi nguồn dữ liệu đều được chuyển về định dạng này trước (mục 6.2). |
 | Manifest | File đi kèm dữ liệu chuẩn, ghi cảnh có gì và thiếu gì (LiDAR, box, mô hình camera, mask...). |
-| Approach | Một cách dựng cảnh hoàn chỉnh: phương pháp, renderer, tham số, mức năng lực và điều kiện về dữ liệu. |
-| Chuẩn bị riêng | Bước lấy bớt, sinh thêm hoặc đổi dạng dữ liệu chuẩn cho vừa một approach (mục 6.3). |
+| Stage | Một bước xử lý có đầu vào và đầu ra rõ ràng, ví dụ sinh mask, khởi tạo điểm, train, đánh giá, export. |
+| Approach | Một cách dựng cảnh: danh sách stage chạy lần lượt, kèm mức năng lực và điều kiện về dữ liệu. |
+| Ô chọn | Khâu trong approach có nhiều lựa chọn thay thế được cho nhau, ví dụ khởi tạo (LiDAR hay depth), renderer (3DGS, 3DGUT, 3DGEER). Chọn trước khi chạy. |
+| Preset | Tổ hợp ô chọn đặt sẵn, ví dụ `paper`, `no_lidar`. |
+| Chuẩn bị riêng | Các stage lấy bớt, sinh thêm hoặc đổi dạng dữ liệu chuẩn cho vừa một approach (mục 6.3). |
 | Codebase | Mã nguồn tái dựng mà approach chạy trên đó. Lõi là DriveStudio trong repo này; approach từ codebase khác (NuRec, feed-forward...) được bọc lại và chạy trong môi trường riêng. |
 | Track | Loại rig camera: **pinhole** (4–6 camera) hoặc **fisheye** (4–6 camera). Hai track xử lý riêng, không trộn camera pinhole và fisheye trong một lần dựng. |
 | Run | Một lần chạy một approach trên một cảnh, với một split và một bộ tham số. |
@@ -51,13 +54,14 @@ Nối CARLA, chỉnh actor, chỉnh quỹ đạo actor và chạy thử AD stack
 1. **Input:** chọn thư mục dữ liệu. Tool nhận dạng loại nguồn (dataset nào, CARLA hay dữ liệu riêng).
 2. **Ingest và kiểm tra:** chuyển toàn bộ dữ liệu sang dữ liệu chuẩn, không bỏ bớt thứ gì; kiểm tra đồng bộ thời gian, calib, mô hình ống kính, FOV, ảnh hỏng hoặc thiếu; ghi manifest và báo cáo kiểm tra. Bước này không phụ thuộc approach và chỉ chạy một lần cho mỗi cảnh.
 3. **Chọn đoạn và split:** chọn đoạn khung cần dựng, tạo split train/test.
-4. **Chọn approach:** chọn track, approach và preset. Approach nào không chạy được với dữ liệu đang có (ví dụ cần LiDAR mà cảnh không có) thì bị khoá, kèm lý do lấy từ manifest.
-5. **Chuẩn bị riêng cho approach:** lấy bớt, sinh thêm hoặc đổi dạng dữ liệu cho vừa approach (mục 6.3). Kết quả được lưu lại để approach khác dùng chung.
-6. **Chạy và theo dõi:** chọn nơi chạy (mục 7), cho chỉnh tham số trong giới hạn của preset, rồi theo dõi từng bước.
-7. **Studio:** xem và so sánh kết quả (mục 8).
-8. **Xuất và phục vụ:** đóng gói kết quả; với approach đạt L4, bật server gRPC để nối CARLA.
+4. **Chọn approach:** chọn approach, rồi chọn preset hoặc chỉnh từng ô chọn. Approach hoặc lựa chọn không chạy được với dữ liệu đang có (ví dụ `init.lidar` khi cảnh không có LiDAR), hoặc tổ hợp không hợp lệ (ví dụ 3DGEER với CamPose bật), bị làm mờ kèm lý do. Màn hình hiện trước danh sách stage sẽ chạy và stage nào dùng lại kết quả cũ.
+5. **Chạy và theo dõi:** chọn nơi chạy (mục 7) rồi theo dõi từng stage. Các stage chuẩn bị riêng (mục 6.3) chạy trước; kết quả của chúng được lưu lại để approach khác dùng chung.
+6. **Studio:** xem và so sánh kết quả (mục 8).
+7. **Xuất và phục vụ:** đóng gói kết quả; với approach đạt L4, bật server gRPC để nối CARLA.
 
-Trên giao diện có thể cho chọn approach sớm để người dùng biết trước, nhưng việc xử lý dữ liệu luôn đi theo thứ tự trên. Mọi bước đều làm được bằng CLI, không bắt buộc qua Studio.
+Muốn thử lựa chọn khác thì quay lại bước 4, đổi ô chọn hoặc tham số rồi chạy lại; stage nào không đổi đầu vào thì dùng lại kết quả cũ.
+
+Trên giao diện có thể cho chọn approach sớm để người dùng biết trước, nhưng việc xử lý dữ liệu luôn đi theo thứ tự trên. Mọi bước đều làm được bằng CLI (`d2s <nhóm> <hành động>`, `CONTRACTS.md` mục 10.4), không bắt buộc qua Studio; Studio và CLI dùng chung một bước kiểm tra điều kiện và ràng buộc.
 
 ## 6. Dữ liệu
 
@@ -83,13 +87,13 @@ Thiết kế chọn **NCore V4** của NVIDIA làm định dạng chuẩn (lý d
 
 ### 6.3 Chuẩn bị riêng cho approach
 
-Mỗi approach khai báo nó cần gì. Từ dữ liệu chuẩn, bước chuẩn bị:
+Mỗi approach khai báo nó cần gì. Từ dữ liệu chuẩn, các stage chuẩn bị:
 
 - **lấy bớt:** chọn camera, cắt đoạn khung, giảm độ phân giải, khử méo về pinhole;
 - **sinh thêm** dữ liệu thiếu: mask bầu trời, mask vật động, tư thế người (SMPL), depth prior, box từ detector;
 - **đổi dạng** sang thứ codebase của approach đọc được.
 
-Dữ liệu sinh thêm được lưu lại theo khoá băm, dùng chung giữa các approach.
+Dữ liệu sinh thêm được lưu lại theo cảnh, stage, phiên bản và tham số, dùng chung giữa các approach.
 
 ### 6.4 Split
 
@@ -123,7 +127,7 @@ Studio là giao diện web chạy trên máy đang dùng. Nhóm A–D chỉ cầ
 - Split train/test hiện trên thanh thời gian.
 
 **B. Tiến trình**
-- Các bước của run với trạng thái (chờ, đang chạy, xong, lỗi, dùng lại kết quả cũ); ghi rõ bước nào dùng LiDAR.
+- Các stage của run với trạng thái (chờ, đang chạy, xong, lỗi, dùng lại kết quả cũ); ghi rõ stage nào dùng LiDAR.
 - Thời gian, VRAM, log và loss.
 - Trạng thái job khi chạy trên Kaggle.
 
@@ -152,7 +156,8 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 - PSNR, SSIM, LPIPS; ghi rõ backbone và phiên bản của LPIPS.
 - PSNR trong vùng vật động, vùng người, vùng xe khi cảnh có box.
 - Thời gian train, VRAM cao nhất, số Gaussian.
-- Với mỗi approach, ghi rõ LiDAR được dùng ở bước nào, hoặc không dùng.
+- Với mỗi run, ghi rõ LiDAR được dùng ở stage nào, hoặc không dùng.
+- Ghi rõ các ô chọn đã dùng, để so sánh theo từng khâu.
 
 ## 10. Kết nối mô phỏng
 
@@ -165,7 +170,8 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 - Nhẹ: một tiến trình phục vụ cả API lẫn giao diện; trạng thái lưu trong thư mục, không cần cơ sở dữ liệu.
 - Approach từ codebase khác chạy trong môi trường riêng; các approach dòng DriveStudio dùng chung môi trường của repo.
 - Mọi run ghi kết quả theo cùng một định dạng, kèm cấu hình đầy đủ, phiên bản mã nguồn và thông tin phần cứng để chạy lại được.
-- Thêm approach mới chỉ cần khai báo và thêm phần xử lý còn thiếu; không sửa Studio hay server.
+- Thêm approach mới chỉ cần khai báo và thêm stage còn thiếu; không sửa engine, Studio hay server.
+- Tên file, định danh, tham số và lệnh CLI theo một bộ quy tắc chung (`CONTRACTS.md` mục 10); code mới đặt đúng chỗ theo `ARCHITECTURE.md` mục 3.1.
 - Hạn chế sửa vào mã tái dựng dùng chung với teammate (`models/`); thay đổi bắt buộc ở đó làm nhỏ và gửi lên repo gốc.
 
 ## 12. Ngoài phạm vi
@@ -178,13 +184,13 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 
 **Nghiệm thu tầng dữ liệu (sau refactor):**
 1. nuScenes mini đi qua ingest sang dữ liệu chuẩn, có manifest và báo cáo kiểm tra.
-2. Approach `omnire` train trên cùng một cảnh bằng đường dữ liệu chuẩn và bằng loader cũ của DriveStudio cho PSNR test chênh không quá một ngưỡng chốt trước.
+2. Approach `omnire` (preset `paper`) train trên cùng một cảnh bằng đường dữ liệu chuẩn và bằng loader cũ của DriveStudio cho PSNR test chênh không quá một ngưỡng chốt trước.
 
 **Nghiệm thu bộ khung:**
 1. Một approach chạy trọn luồng mục 5 ở chế độ Local và chế độ Kaggle; khi phiên Kaggle bị ngắt, lần sau chạy tiếp từ chỗ dở.
 2. Kết quả ghi đúng định dạng chuẩn.
 3. Studio hiện đủ nhóm A–D và ẩn nhóm E với approach chỉ đạt L1.
-4. Thêm một approach thứ hai mà không sửa mã của Studio hay server.
+4. Thêm một approach thứ hai, và thêm một lựa chọn mới cho một ô, mà không sửa mã của engine, Studio hay server.
 
 ## 14. Câu hỏi mở
 

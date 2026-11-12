@@ -1,6 +1,6 @@
 # drive2sim: hợp đồng dữ liệu và giao diện
 
-Tài liệu này quy định định dạng của dữ liệu đi qua tool và interface mà approach, bước chuẩn bị, runner phải theo. Người thêm approach mới chỉ cần đọc tài liệu này cùng `ARCHITECTURE.md` mục 4.
+Tài liệu này quy định định dạng của dữ liệu đi qua tool, interface mà approach và stage phải theo, cùng quy tắc đặt tên và lệnh CLI (mục 10). Người thêm approach mới chỉ cần đọc tài liệu này cùng `ARCHITECTURE.md` mục 4.
 
 Đây là thiết kế đích (`ARCHITECTURE.md` mục 7). Mọi file do tool ghi đều có trường `schema_version`; thay đổi làm vỡ tương thích thì tăng số đầu của phiên bản.
 
@@ -52,7 +52,7 @@ Thư mục cảnh chỉ chứa những gì có sẵn từ nguồn. Mask, depth, 
 
 ```yaml
 schema_version: d2s-manifest/0.1
-scene_id: nuscenes_mini_scene-0061
+scene_id: nuscenes_scene-0061
 source:
   dataset: nuscenes               # waymo | nuscenes | nuplan | argoverse2 | pandaset | kitti | physicalai | carla | colmap | custom
   sequence_id: scene-0061
@@ -92,7 +92,7 @@ available:
 {
   "schema_version": "d2s-split/0.1",
   "split_id": "every8_allcams",
-  "scene_id": "nuscenes_mini_scene-0061",
+  "scene_id": "nuscenes_scene-0061",
   "strategy": "every_nth_frame:8",
   "frame_range": [0, 38],
   "cameras": ["CAM_FRONT", "CAM_FRONT_LEFT", "CAM_FRONT_RIGHT"],
@@ -107,14 +107,14 @@ Mỗi phần tử là cặp `[frame_index, camera_id]`. Một cặp không đư�
 - `every_nth_frame:N`: các khung N, 2N, 3N… (tính từ khung đầu của `frame_range`) làm test cho mọi camera trong `cameras`; các khung còn lại, kể cả khung đầu, làm train. Trùng với `test_image_stride` của DriveStudio (`split_train_test` trong `datasets/driving_dataset.py`).
 - `custom`: danh sách `train` và `test` bất kỳ.
 
-Approach khai báo các `strategy` mà codebase của nó hỗ trợ (mục 4). Approach dòng DriveStudio hiện chỉ hỗ trợ `every_nth_frame`.
+Approach khai báo các `strategy` mà codebase của nó hỗ trợ (`requires.split_strategies`, mục 4.1). Approach dòng DriveStudio hiện chỉ hỗ trợ `every_nth_frame`.
 
 ### 3.2 `reports/validation.json`
 
 ```json
 {
   "schema_version": "d2s-report/0.1",
-  "scene_id": "nuscenes_mini_scene-0061",
+  "scene_id": "nuscenes_scene-0061",
   "created_utc": "2026-11-12T08:00:00Z",
   "summary": {"errors": 0, "warnings": 1},
   "checks": [
@@ -131,109 +131,171 @@ Approach khai báo các `strategy` mà codebase của nó hỗ trợ (mục 4). 
 
 ### 4.1 File khai báo
 
-`drive2sim/approaches/<approach_id>.yaml`:
+`drive2sim/approaches/<approach_id>.yaml`. Approach là danh sách stage chạy lần lượt; các khâu thay thế được cho nhau là *ô chọn*, quyết định trước khi chạy (`ARCHITECTURE.md` mục 2.5).
 
 ```yaml
 schema_version: d2s-approach/0.1
-id: omnire
-name: "OmniRe (3DGS, khởi tạo từ LiDAR, không tinh chỉnh pose camera)"
+approach_id: omnire
+name: "OmniRe"
 version: 0.1.0
-codebase: drivestudio             # drivestudio | external:<tên>
-track: pinhole                    # pinhole | fisheye
-level: L1                         # L1 | L2 | L3 | L4
+codebase: drivestudio              # drivestudio | external:<tên>
+track: pinhole                     # pinhole | fisheye
+level: L1                          # L1 | L2 | L3 | L4
 requires:
   camera_models: [opencv_pinhole]
-  lidar: required                 # required | optional | none
-  cuboids: required
+  cuboids: required                # required | optional | none
   split_strategies: [every_nth_frame]
-prep:                             # các bước chuẩn bị riêng, chạy theo thứ tự
-  - {step: select, params: {downscale: 2}}
-  - {step: masks.segformer_hf, params: {dynamic: true}}
-  - {step: smpl}
-  - {step: to_drivestudio}
-train:
-  config: configs/omnire_nocampose.yaml
-  overrides: {trainer.render.render_mode: default}
-presets:
-  default: {}
-  fast: {train: {overrides: {trainer.optim.num_iters: 10000}}}
+
+options:                           # ô chọn
+  init:
+    choices: [init.lidar, init.depth]
+    default: auto                  # auto: có LiDAR → init.lidar, không có → init.depth
+  renderer:
+    choices: [3dgs, 3dgut, 3dgeer]
+    default: 3dgs
+  campose:
+    choices: [false, true]
+    default: false
+  fastgs:
+    choices: [false, true]
+    default: false
+
+constraints:                       # tổ hợp không hợp lệ
+  - when: {renderer: 3dgeer}
+    forbid: {campose: true}
+    reason: "3DGEER không tối ưu được pose camera"
+
+presets:                           # tổ hợp đặt sẵn; chỉ ghi các ô khác giá trị mặc định
+  paper: {init: init.lidar}
+  no_lidar: {init: init.depth}
+  fisheye: {renderer: 3dgeer}
+
+stages:                            # chạy lần lượt; ${...} được thay trước khi chạy
+  - {stage: prep.select, params: {downscale: 2}}
+  - {stage: prep.masks_segformer, params: {dynamic: true}}
+  - {stage: prep.smpl}
+  - {stage: prep.to_drivestudio}
+  - {stage: "${options.init}"}
+  - stage: train.drivestudio
+    params:
+      method: omnire
+      renderer: "${options.renderer}"
+      campose: "${options.campose}"
+      fastgs: "${options.fastgs}"
+  - {stage: eval.standard}
+  - {stage: render.videos}
+  - {stage: export.ply_world}
 ```
 
-- `train.overrides` là tham số ghi đè kiểu OmegaConf, giống cách truyền trên dòng lệnh của `tools/train.py`.
-- Tham số cuối cùng được gộp theo thứ tự: config gốc → `overrides` → preset đã chọn → tham số người dùng chỉnh trên Studio.
-- Tên khoá trong `overrides` và `presets` ở ví dụ chỉ minh hoạ; tên thật lấy theo config của DriveStudio.
+- Một stage dùng được artifact của bất kỳ stage nào đứng trước. Engine nối theo kiểu artifact: stage cần `points_init` nhận artifact `points_init` gần nhất phía trước.
+- `${options.<tên ô>}` được thay bằng lựa chọn cụ thể trước khi chạy. Sau khi thay, danh sách stage là cố định; không có điều kiện, nhánh song song hay vòng lặp lúc đang chạy.
+- Tham số cuối cùng của một stage được gộp theo thứ tự: mặc định của stage → `params` trong file → preset → lựa chọn của người dùng (Studio hoặc `--set` của CLI).
+- `train.drivestudio` đổi `method`, `renderer`, `campose`, `fastgs` sang config và tham số của DriveStudio (ví dụ `renderer: 3dgeer` → `trainer.render.render_mode: geer`, kèm `densify_grad_thresh: 0.01` và `refine_interval: 300` như các config 3DGEER của teammate).
 
 ### 4.2 Điều kiện chạy
 
-Runner so `requires` với manifest và split. Approach bị khoá, kèm lý do, khi:
-- `lidar: required` mà `available.lidar` là `false`;
+Engine kiểm tra trước khi chạy. Approach hoặc một lựa chọn bị khoá, kèm lý do, khi:
+- lựa chọn cần LiDAR (ví dụ `init.lidar`) mà `available.lidar` là `false`;
 - `cuboids: required` mà `available.cuboids` là `none`;
-- mô hình camera của các camera trong split không nằm trong `camera_models`, và `prep` không có bước `undistort`;
+- mô hình camera trong split không nằm trong `camera_models`, và danh sách stage không có `prep.undistort`;
 - `strategy` của split không nằm trong `split_strategies`;
-- `track` của approach khác `track` của cảnh.
+- `track` của approach khác `track` của cảnh;
+- tổ hợp lựa chọn vi phạm một mục trong `constraints`.
+
+Studio và CLI dùng chung bước kiểm tra này.
 
 ### 4.3 Khai báo dùng LiDAR
 
-Mỗi bước chuẩn bị và mỗi codebase khai báo có dùng LiDAR hay không. Runner ghi danh sách bước dùng LiDAR vào `run.json`; Studio đọc để hiện "LiDAR dùng ở khâu nào".
+Mỗi stage khai báo `uses_lidar`. Engine ghi danh sách stage dùng LiDAR vào `run.json`; Studio đọc để hiện "LiDAR dùng ở khâu nào".
 
-## 5. Artifact và cache
+## 5. Stage, artifact và cache
 
-### 5.1 Cấu trúc
+### 5.1 Interface của stage
 
+```python
+class Stage(Protocol):
+    stage_id: str                      # "<nhóm>.<tên>", ví dụ "init.depth" (mục 10.2)
+    version: str                       # tăng khi đổi hành vi
+    cacheable: bool                    # True: kết quả vào cache/ dùng chung; False: vào thư mục run
+    uses_lidar: bool
+    inputs: dict[str, str]             # tên đầu vào → loại artifact, hoặc "scene" / "split"
+    outputs: dict[str, str]            # tên đầu ra → loại artifact
+    Params: type[pydantic.BaseModel]
+
+    def run(self, ctx: StageContext, inputs: dict[str, Any], params: BaseModel) -> dict[str, Path]:
+        """Ghi đầu ra vào ctx.output_dir và trả về đường dẫn của từng đầu ra."""
+
+class StageContext(Protocol):
+    output_dir: Path
+    scene: Scene                       # đọc dữ liệu chuẩn (NCore + manifest)
+    split: Split
+    def progress(self, fraction: float, message: str = "") -> None: ...
+    def log_metric(self, name: str, value: float, step: int) -> None: ...
 ```
-cache/<artifact_id>/
-├── artifact.json
-└── ...                          # file của artifact
-```
+
+Stage đăng ký bằng `@register_stage("<stage_id>")`. Engine lo cache, file `done`, thư mục `.partial` và `artifact.json`; stage chỉ ghi file vào `output_dir`.
+
+### 5.2 Nơi ghi kết quả
+
+| Loại stage | Nơi ghi | Dùng lại khi |
+|---|---|---|
+| `cacheable: true` (`prep.*`, `init.*`) | `cache/<scene_id>/<stage_id>@<version>-<hash8>/` | Đã có thư mục cùng tên |
+| `cacheable: false` (`train.*`, `eval.*`, `render.*`, `export.*`) | `runs/.../<run_id>/d2s/stages/<stage_id>/` | Có file `done` trong thư mục đó |
+
+`<hash8>` là 8 ký tự hex đầu của sha256 trên JSON chuẩn hoá của {tham số đã gộp, khoá cache của các artifact đầu vào}. Không băm nội dung dữ liệu: dữ liệu chuẩn sau ingest không đổi, `scene_id` cùng `source.converter_version` trong manifest là đủ để nhận diện. Thư mục đang ghi mang hậu tố `.partial`, chỉ đổi tên khi ghi xong.
+
+Riêng `train.*`: checkpoint đầy đủ (model và trạng thái optimizer) để chạy tiếp; file `done` chỉ ghi khi train xong.
+
+### 5.3 `artifact.json`
 
 ```json
 {
   "schema_version": "d2s-artifact/0.1",
-  "artifact_id": "sha256:4f1c...",
-  "type": "masks",
-  "producer": {"step": "masks.segformer_hf", "step_version": "0.1.0", "params_hash": "sha256:9a0e...",
-               "code_commit": "be54147"},
-  "inputs": ["scene:nuscenes_mini_scene-0061@sha256:77ab..."],
+  "artifact_type": "masks",
+  "cache_key": "nuscenes_scene-0061/prep.masks_segformer@0.1.0-4f1c9a0e",
+  "producer": {"stage_id": "prep.masks_segformer", "version": "0.1.0", "code_commit": "286ad9b"},
+  "params": {"dynamic": true},
+  "inputs": ["scene:nuscenes_scene-0061"],
   "created_utc": "2026-11-12T08:10:00Z",
   "files": ["ncore4-masks_segformer.zarr.itar"],
   "meta": {"model": "nvidia/segformer-b5-finetuned-cityscapes-1024-1024"}
 }
 ```
 
-### 5.2 Loại artifact
+### 5.4 Loại artifact
 
-| `type` | Nội dung |
+| `artifact_type` | Nội dung |
 |---|---|
+| `scene_subset` | Kết quả của `prep.select`: danh sách camera, đoạn khung, độ phân giải đã chọn |
 | `masks` | Mask bầu trời, mask vật động (người, xe), lưu thành một component group NCore loại nhãn theo ảnh (`CameraLabelsComponent`) |
 | `smpl` | Tư thế người theo khung, định dạng của `datasets/tools/humanpose_process.py` |
 | `depth_prior` | Depth metric theo camera và khung, lưu như `masks`; kèm tên model |
-| `points_init` | Point cloud khởi tạo: `points` `float32[M,3]` trong hệ `world`, `colors` `uint8[M,3]`, `track_id` (tuỳ chọn) |
-| `drivestudio_scene` | Thư mục cảnh theo định dạng tiền xử lý của DriveStudio, do bước `to_drivestudio` ghi |
+| `points_init` | `points_init.npz`: `points` `float32[M,3]` trong hệ `world`, `colors` `uint8[M,3]`, `track_ids` (tuỳ chọn) |
+| `drivestudio_scene` | Thư mục cảnh theo định dạng tiền xử lý của DriveStudio, do `prep.to_drivestudio` ghi |
 | `model` | Checkpoint ở định dạng gốc của codebase |
-| `export` | PLY 3DGS trong hệ `world` |
+| `eval_report` | Kết quả đánh giá theo protocol, nguồn của `d2s/summary.json` |
+| `videos` | Video MP4 H.264 |
+| `export_ply` | PLY 3DGS trong hệ `world` |
 | `preview` | Gói xem trước cho Spark (mục 7) |
-
-### 5.3 Khoá cache
-
-`artifact_id = sha256(JSON chuẩn hoá của {step, step_version, params, danh sách id của đầu vào})`. Mã băm của cảnh tính từ nội dung thư mục `ncore/` và `manifest.yaml`. Artifact đang ghi nằm trong thư mục có hậu tố `.partial`, chỉ đổi sang tên chính thức khi ghi xong.
 
 ## 6. Run
 
 ### 6.1 Cấu trúc
 
-Thư mục run chính là thư mục log của DriveStudio: `tools/train.py` ghi vào `os.path.join(output_root, project, run_name)`. Runner đặt `output_root = runs/<scene_id>`, `project = <approach_id>`, `run_name = <run_id>`.
+Thư mục run chính là thư mục log của DriveStudio: `tools/train.py` ghi vào `os.path.join(output_root, project, run_name)`. Engine đặt `output_root = runs/<scene_id>`, `project = <approach_id>`, `run_name = <run_id>`.
 
 ```
 runs/<scene_id>/<approach_id>/<run_id>/
 ├── config.yaml                  # DriveStudio ghi: config đầy đủ sau khi gộp
 ├── metrics.json                 # DriveStudio ghi: log metric trong lúc train
-├── metrics/images_test_*.json   # DriveStudio ghi: kết quả của tools/eval.py
+├── metrics/images_test_*.json   # DriveStudio ghi: kết quả đánh giá
 ├── videos/ images/ configs_bk/ backup/
 ├── checkpoint_*.pth
 └── d2s/                         # tool ghi
     ├── run.json
     ├── summary.json
-    └── env.json
+    ├── env.json
+    └── stages/<stage_id>/       # kết quả stage không cache, có file done
 ```
 
 File của tool nằm trong `d2s/` để không trùng tên với file của DriveStudio (DriveStudio đã dùng `metrics.json`).
@@ -244,27 +306,29 @@ File của tool nằm trong `d2s/` để không trùng tên với file của Dri
 {
   "schema_version": "d2s-run/0.1",
   "run_id": "20261112-081000-omnire-a1b2",
-  "scene_id": "nuscenes_mini_scene-0061",
+  "scene_id": "nuscenes_scene-0061",
   "split_id": "every8_allcams",
-  "approach": {"id": "omnire", "version": "0.1.0", "preset": "default"},
+  "approach": {"approach_id": "omnire", "version": "0.1.0", "preset": "no_lidar",
+               "options": {"init": "init.depth", "renderer": "3dgs", "campose": false, "fastgs": false}},
   "level": "L1",
   "executor": "kaggle",
   "status": "succeeded",
-  "lidar_usage": ["train"],
-  "steps": [
-    {"id": "masks.segformer_hf", "status": "succeeded", "cache_hit": true, "artifact": "sha256:4f1c...",
-     "duration_s": 0, "peak_vram_mb": 0},
-    {"id": "train", "status": "succeeded", "cache_hit": false, "artifact": null,
+  "lidar_usage": [],
+  "stages": [
+    {"stage_id": "prep.masks_segformer", "status": "succeeded", "cache_hit": true,
+     "cache_key": "nuscenes_scene-0061/prep.masks_segformer@0.1.0-4f1c9a0e", "duration_s": 0, "peak_vram_mb": 0},
+    {"stage_id": "train.drivestudio", "status": "succeeded", "cache_hit": false, "cache_key": null,
      "duration_s": 4380, "peak_vram_mb": 7400}
   ]
 }
 ```
 
-`status` lấy một trong: `pending`, `running`, `succeeded`, `failed`, `cancelled`.
+- `status` lấy một trong: `pending`, `running`, `succeeded`, `failed`, `cancelled`.
+- `approach.options` ghi lựa chọn đã quyết định cho mọi ô, kể cả ô để `auto`. Studio lọc và so sánh run theo trường này.
 
 ### 6.3 `d2s/summary.json`
 
-Tóm tắt metric theo protocol của SPEC mục 9, lấy từ `metrics/images_test_*.json` của DriveStudio.
+Tóm tắt metric theo protocol của SPEC mục 9, do `eval.standard` ghi.
 
 ```json
 {
@@ -292,7 +356,7 @@ Commit của repo, phiên bản Python, PyTorch, CUDA, gsplat, tên GPU, seed, t
 Gói xem trước cho phép xem cảnh trong trình duyệt mà không cần GPU CUDA (`ARCHITECTURE.md` mục 2.13). Không bắt buộc.
 
 ```
-cache/<artifact_id>/
+runs/.../<run_id>/d2s/stages/export.preview/
 ├── artifact.json
 ├── preview.json
 ├── background.ply               # Gaussian của nền tĩnh, hệ world
@@ -306,7 +370,7 @@ cache/<artifact_id>/
 ```json
 {
   "schema_version": "d2s-preview/0.1",
-  "source_model": "runs/nuscenes_mini_scene-0061/omnire/20261112-081000-omnire-a1b2",
+  "source_run": "runs/nuscenes_scene-0061/omnire/20261112-081000-omnire-a1b2",
   "sh_degree": 3,
   "rigid_actors": ["veh_0007", "veh_0012"],
   "box_only_actors": ["ped_0003"],
@@ -375,7 +439,7 @@ Dùng cho codebase ngoài (môi trường riêng) và cho tiến trình render c
 d2s-worker --job job.json --result result.json
 ```
 
-- `job.json`: `schema_version`, loại việc, tham số đã gộp, đường dẫn đầu vào, `output_dir`.
+- `job.json`: `schema_version`, `stage_id` hoặc loại việc, tham số đã gộp, đường dẫn đầu vào, `output_dir`.
 - `result.json`: trạng thái, đường dẫn đầu ra, `peak_vram_mb`, thông báo lỗi nếu có.
 - Trong lúc chạy, worker in ra stdout mỗi dòng một JSON: `{"event": "progress", "fraction": 0.42, "message": "..."}` hoặc `{"event": "metric", "name": "loss", "value": 0.031, "step": 4200}`.
 - Mã thoát khác 0 nghĩa là thất bại.
@@ -384,11 +448,73 @@ d2s-worker --job job.json --result result.json
 
 ```
 bundle/
-├── job.json                     # run_id, approach, preset, tham số đã gộp, commit của repo
+├── job.json                     # run_id, approach_id, preset, options, commit của repo
 ├── approach.yaml
-├── cache_refs.json              # artifact đã có, nhận diện bằng mã băm
+├── cache_refs.json              # cache_key của các artifact đã có
 ├── resume.json                  # checkpoint để chạy tiếp, nếu có
-└── scene_ref.json               # slug của Kaggle dataset chứa cảnh, cùng mã băm của cảnh
+└── scene_ref.json               # slug của Kaggle dataset chứa cảnh, scene_id, converter_version
 ```
 
-Notebook chạy `d2s run --bundle bundle/`, ghi kết quả ra `/kaggle/working/runs/` và `/kaggle/working/cache/` theo đúng cấu trúc mục 5 và 6. Checkpoint giữa chừng phải đủ để chạy tiếp (model và trạng thái optimizer). Lệnh `d2s pull` tải hai thư mục này về và ghép vào thư mục làm việc trên máy.
+Notebook chạy `d2s run start --bundle bundle/`, ghi kết quả ra `/kaggle/working/runs/` và `/kaggle/working/cache/` theo đúng cấu trúc mục 5 và 6. Checkpoint giữa chừng phải đủ để chạy tiếp (model và trạng thái optimizer). Lệnh `d2s kaggle pull` tải hai thư mục này về và ghép vào thư mục làm việc trên máy.
+
+## 10. Quy tắc đặt tên và CLI
+
+### 10.1 Định danh
+
+| Định danh | Mẫu | Ví dụ |
+|---|---|---|
+| `scene_id` | `<dataset>_<sequence_id>`; chỉ gồm `a-z 0-9 _ -`, chữ thường | `nuscenes_scene-0061`, `waymo_10017090168044687777` |
+| `split_id` | `<chiến lược><N>_<nhóm camera>` | `every8_allcams`, `every10_front3` |
+| `approach_id` | `snake_case`, tên method, không chứa lựa chọn của ô | `omnire`, `streetgs` |
+| Tên ô chọn | `snake_case`, danh từ ngắn | `init`, `renderer`, `campose`, `fastgs` |
+| Tên preset | `snake_case`, mô tả mục đích | `paper`, `no_lidar`, `fisheye` |
+| `stage_id` | `<nhóm>.<tên>`; nhóm là một trong `prep`, `init`, `train`, `eval`, `render`, `export`; tên là `snake_case` | `prep.masks_segformer`, `init.depth`, `export.ply_world` |
+| `run_id` | `<YYYYMMDD-HHMMSS>-<approach_id>-<4 ký tự hex>` | `20261112-081000-omnire-a1b2` |
+| `cache_key` | `<scene_id>/<stage_id>@<version>-<hash8>` | `nuscenes_scene-0061/init.depth@0.1.0-9b03c2d1` |
+| Id camera, LiDAR | Giữ nguyên id của nguồn trong NCore, không đổi tên | `CAM_FRONT`, `camera_front_wide_120fov` |
+| `schema_version` | `d2s-<loại>/<major>.<minor>` | `d2s-run/0.1` |
+
+### 10.2 File và thư mục
+
+- File người viết tay hoặc sửa tay dùng YAML: `manifest.yaml`, `<approach_id>.yaml`. File tool ghi ra dùng JSON: `run.json`, `summary.json`, `env.json`, `artifact.json`, `validation.json`, file split.
+- Mảng số dùng NPZ; mask PNG; video MP4 H.264; Gaussian PLY.
+- Tên file và thư mục: `snake_case`, chữ thường. Thư mục của một stage đặt đúng theo `stage_id`.
+- Mã Python: module `snake_case`; lớp `PascalCase`; lớp stage đặt theo `<Nhóm><Tên>Stage`, ví dụ `PrepMasksSegformerStage` cho `prep.masks_segformer`.
+
+### 10.3 Tên trường và tham số
+
+- `snake_case` cho mọi khoá trong YAML, JSON và tham số stage.
+- Hậu tố đơn vị bắt buộc khi trường có đơn vị: `_us` (micro giây), `_s` (giây), `_m` (mét), `_mb` (megabyte), `_px` (pixel). Góc lưu bằng radian, không hậu tố; độ chỉ dùng trong giao diện, hậu tố `_deg`.
+- Phép biến đổi: `T_<a>_<b>` theo quy ước NCore (mục 1), ví dụ `T_camera_world`, `T_object_world`.
+- Boolean: tính từ hoặc dạng `uses_`, `has_`: `cacheable`, `uses_lidar`, `has_cuboids`. Ô chọn bật/tắt dùng `true` / `false`.
+- Giá trị liệt kê: chữ thường `snake_case`; mô hình camera: `opencv_pinhole`, `opencv_fisheye`, `ftheta`; renderer: `3dgs`, `3dgut`, `3dgeer` (engine đổi sang `render_mode` của DriveStudio: `default`, `ut`, `geer`).
+- Định danh trong tham chiếu: `scene_id`, `split_id`, `approach_id`, `stage_id`, `run_id`, `cache_key`; không dùng `id` trơn trong file có nhiều loại định danh.
+
+### 10.4 CLI
+
+Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dài viết `kebab-case`; giá trị khớp với khoá `snake_case` tương ứng.
+
+| Lệnh | Việc |
+|---|---|
+| `d2s scene ingest <nguồn> --source-type <dataset> [--scene <scene_id>]` | Chuyển nguồn sang dữ liệu chuẩn, ghi manifest, kiểm tra |
+| `d2s scene validate <scene_id>` | Kiểm tra lại, ghi `validation.json` |
+| `d2s scene list` / `d2s scene show <scene_id>` | Liệt kê cảnh; xem manifest và báo cáo |
+| `d2s split create <scene_id> --strategy every_nth_frame:8 --cameras <id,...> [--split <split_id>]` | Tạo split |
+| `d2s approach list` / `d2s approach show <approach_id>` | Liệt kê approach; xem ô chọn, preset, ràng buộc |
+| `d2s approach check <approach_id> --scene <scene_id> --split <split_id> [--preset <tên>] [--set <ô>=<giá trị>]...` | Kiểm tra điều kiện và in danh sách stage sẽ chạy, stage nào dùng lại cache |
+| `d2s run start <approach_id> --scene <scene_id> --split <split_id> [--preset <tên>] [--set <ô>=<giá trị>]... [--executor local\|kaggle]` | Chạy |
+| `d2s run resume <run_id>` | Chạy tiếp từ stage dở |
+| `d2s run status <run_id>` / `d2s run list [--scene <scene_id>]` / `d2s run cancel <run_id>` | Theo dõi, liệt kê, huỷ |
+| `d2s kaggle push <run_id>` / `d2s kaggle status <run_id>` / `d2s kaggle pull <run_id>` | Làm việc với Kaggle (thường do `run start --executor kaggle` tự gọi) |
+| `d2s report <run_id>...` | Bảng so sánh nhiều run |
+| `d2s export ply <run_id>` / `d2s export preview <run_id>` | Chạy lại stage export cho một run |
+| `d2s cache list [--scene <scene_id>]` / `d2s cache gc [--scene <scene_id>]` | Xem, dọn cache |
+| `d2s studio [--port <số>]` | Bật Studio |
+| `d2s serve <run_id> [--port <số>]` | Bật server gRPC cho một run (L4) |
+
+Quy tắc chung:
+- Đối tượng chính đi theo vị trí (`<run_id>`, `<scene_id>`); các định danh khác đi theo tuỳ chọn (`--scene`, `--split`).
+- `--set <ô>=<giá trị>` lặp lại được, dùng cho cả ô chọn và tham số stage (`--set train.drivestudio.num_iters=10000`).
+- `--json` cho mọi lệnh liệt kê và xem, để script đọc được.
+- Mã thoát: `0` thành công; `1` lỗi khi chạy; `2` sai cú pháp; `3` bị khoá vì không thoả điều kiện hoặc ràng buộc.
+- Biến môi trường: `D2S_WORKDIR` (thư mục chứa `data/`, `cache/`, `runs/`; mặc định là thư mục hiện tại).
