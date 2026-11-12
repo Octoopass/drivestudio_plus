@@ -681,11 +681,31 @@ FastAPI phục vụ REST và Server-Sent Events, chỉ nghe trên `127.0.0.1` (`
 - Tham số lọc của `GET` đi theo query string, tên `snake_case` trùng tên trường (`?scene_id=`, `?status=`).
 - Frontend tĩnh phục vụ ở `/`; viser nhúng ở `/viz/`.
 
+Route đã có (`drive2sim/studio/api/routes/`):
+
+| Route | Việc | Tương ứng CLI |
+|---|---|---|
+| `GET /api/scenes`, `GET /api/scenes/{scene_id}` | Liệt kê cảnh; manifest, `validation` (báo cáo kiểm tra hoặc `null`), `splits` (danh sách `split_id`) | `scene list`, `scene show` |
+| `GET /api/scenes/{scene_id}/frames/{frame_index}` | `{"frame_index", "images": [{"camera_id", "url"}]}` cho lưới ảnh đồng bộ; `url` là `null` khi thiếu ảnh | |
+| `GET`, `POST /api/scenes/{scene_id}/splits`, `GET .../splits/{split_id}` | Liệt kê, tạo, xem split; thân của `POST`: `strategy`, `cameras`, `frame_range`, `split_id` | `split list`, `split create`, `split show` |
+| `GET /api/approaches`, `GET /api/approaches/{approach_id}` | Đọc file approach | `approach list`, `approach show` |
+| `POST /api/approaches/{approach_id}/check` | Thân: `scene_id`, `split_id`, `preset`, `options`, `stage_params`. Trả `options` đã quyết định, `lidar_usage`, `stages` (kèm `cache_hit`) và `blocked_choices` (ô → lựa chọn bị khoá kèm lý do) để giao diện làm mờ | `approach check` |
+| `POST /api/runs` | Thân như `check` cộng `approach_id`, `executor`; tạo run, xếp vào hàng đợi chạy nền | `run start` |
+| `GET /api/runs`, `GET /api/runs/{run_id}` | Liệt kê (lọc `scene_id`, `status`); `run.json` cộng `summary` và `run_dir` | `run list`, `run status` |
+| `POST /api/runs/{run_id}/resume` | Chạy tiếp; `409` nếu run đang chạy | `run resume` |
+| `GET /api/runs/{run_id}/events`, `GET /api/events` | Sự kiện SSE (mục 11.4) | |
+| `GET /api/runs/{run_id}/log` | `{"engine": <d2s/log.txt>, "stages": {stage_id: <200 dòng cuối log.txt>}}` | |
+| `GET /api/runs/{run_id}/videos` | Video MP4 trong thư mục run: `{"name", "stage_id", "url"}` | |
+| `GET /api/report` | Bảng so sánh (lọc `scene_id`, `split_id`, `run_id` lặp lại được); `?format=csv` để xuất | `report` |
+| `GET /files/<đường dẫn>` | File trong `D2S_WORKDIR`; đường dẫn ra ngoài thư mục làm việc trả `404` | |
+
+Chưa có: `cancel`, `DELETE`, nhóm `cache`, `kaggle`. Run chạy nền **lần lượt từng run** trong một luồng (`drive2sim/studio/api/jobs.py`): một người, một máy, hai run train cùng lúc sẽ tranh GPU.
+
 ### 11.2 Thân và kết quả
 
-- JSON, trường `snake_case`, **cùng tên và cùng kiểu với file trong CONTRACTS**: `GET /api/runs/{run_id}` trả đúng nội dung `run.json` cộng thêm `summary` (nội dung `summary.json`, nếu có). Frontend không đổi sang `camelCase`; kiểu TypeScript sinh từ JSON Schema của `drive2sim/core/schema.py` (`d2s schema export`), nên không có bảng ánh xạ tên nào phải giữ tay.
+- JSON, trường `snake_case`, **cùng tên và cùng kiểu với file trong CONTRACTS**: `GET /api/runs/{run_id}` trả đúng nội dung `run.json` cộng thêm `summary` (nội dung `summary.json`, nếu có) và `run_dir` (tương đối với `D2S_WORKDIR`). Frontend không đổi sang `camelCase`; kiểu TypeScript sinh từ JSON Schema của `drive2sim/core/schema.py` (`d2s schema export`), nên không có bảng ánh xạ tên nào phải giữ tay.
 - Danh sách trả về `{"items": [...], "total": <n>}`; không phân trang trong bản đầu (một người dùng, vài trăm run).
-- Tạo và hành động trả `202` kèm đối tượng vừa tạo hoặc vừa đổi trạng thái (`run.json`); việc thật chạy nền, theo dõi qua SSE.
+- Tạo run và hành động trên run trả `202` kèm `run.json`; việc thật chạy nền, theo dõi qua SSE. Tạo split trả `201` vì xong ngay.
 - Frontend bỏ qua trường lạ trong kết quả (thêm trường ở server không làm hỏng giao diện cũ); server từ chối trường lạ trong thân yêu cầu (bắt lỗi gõ sai), cùng quy tắc với file (phần đầu tài liệu).
 
 ### 11.3 Lỗi

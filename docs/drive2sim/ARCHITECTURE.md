@@ -370,14 +370,14 @@ drivestudio_plus/                          branch drive2sim
 │   ├── core/                              identifiers.py, schema.py, files.py, split.py (đã có); transforms.py, camera.py (chưa có)
 │   ├── ingest/                            detect.py (source inspect), images.py, manifest.py, validate.py, nuscenes.py (đã có); <dataset>.py khác (chưa có)
 │   ├── stages/                            commands.py, scene_view.py; prep/masks_segformer.py, prep/smpl.py, train/drivestudio.py, eval/standard.py, export/ply_world.py (đã có); init/, render/ (khung)
-│   ├── engine/                            stage.py, registry.py, resolve.py, approaches.py, workdir.py, cache.py, run.py
+│   ├── engine/                            stage.py, registry.py, resolve.py, approaches.py, workdir.py, scenes.py, cache.py, run.py, report.py
 │   ├── approaches/                        omnire.yaml, streetgs.yaml
 │   ├── kaggle/                (khung)     client.py, bundle.py, templates/<tên>.ipynb
 │   ├── sim/                   (khung)     renderer.py (L2), actors.py (L3), server/ (L4; protos/ từ NuRec)
-│   ├── studio/                (khung)     api/ (app.py, routes/<nhóm>.py), viz/, frontend/ (Vite + React)
+│   ├── studio/                            api/ (app.py, state.py, events.py, jobs.py, routes/<nhóm>.py) (đã có); viz/, frontend/ (Vite + React, chưa có)
 │   ├── external/              (khung)     <codebase>/: worker cho codebase ngoài
 │   ├── scripts/               (khung)     công cụ phát triển chạy một lần
-│   └── cli/                               main.py, output.py; source.py, scene.py, split.py, approach.py, run.py
+│   └── cli/                               main.py, output.py; source.py, scene.py, split.py, approach.py, run.py, studio.py
 ├── third_party/                           smplx (pip -e, import smplx); Humans4D (submodule, import hmr2); ncore (submodule, tag v19.9.0: converter NCore)
 ├── envs/                      (khung)     file môi trường: main.yml, <codebase>.yml (mục 2.9)
 └── tests/drive2sim/           (khung)     cùng cây thư mục với drive2sim/; fixtures/
@@ -594,7 +594,8 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (thư mục DriveStudio
 | Stage bọc DriveStudio: `train.drivestudio`, `eval.standard`, `export.ply_world`; approach `omnire`, `streetgs` | Xong trong code; dựng lệnh có test; **chưa chạy thật** (cần GPU); approach chưa chạy được tới khi có `prep.to_drivestudio` | |
 | CLI `d2s`: `scene list/show`, `split create/list/show`, `approach list/show/check`, `run start/resume/status/list` | Xong; 138 test đạt trên Python 3.9 và 3.12 | |
 | CLI còn lại: `scene ingest/validate/delete`, `split delete`, `run cancel/delete`, `kaggle`, `report`, `export`, `cache`, `studio`, `serve` | Chưa làm; làm cùng phần tương ứng | |
-| Studio (`studio/api`, `studio/frontend`, `studio/viz`) | Chưa làm | |
+| Studio API (`studio/api`): cảnh, split, approach (`check` kèm lựa chọn bị khoá), run chạy nền, SSE, log, video, bảng so sánh, `/files/`; lệnh `d2s studio` | Xong; 163 test đạt trên Python 3.9 và 3.12; đã chạy thử server thật | |
+| Studio giao diện (`studio/frontend`) và viewer (`studio/viz`) | Chưa làm | |
 | Kaggle (`kaggle/`), `envs/main.yml` | Chưa làm; cần teammate trả lời mục 8 câu 1 | |
 | Stage `prep.masks_segformer`, `prep.smpl` (cache, thư mục cảnh ảo); đầu vào tuỳ chọn của stage; approach `omnire`, `streetgs` có stage prep | Xong trong code; có test với script giả; **chưa chạy thật** (cần GPU, `transformers`, `hmr2`) | |
 | Tầng dữ liệu: `source inspect`; `scene ingest` cho nuScenes (gọi script có sẵn, sinh manifest); kiểm tra cấu trúc | Xong trong code; có test với dữ liệu giả; **chưa chạy thật** (cần nuScenes và `nuscenes-devkit`) | |

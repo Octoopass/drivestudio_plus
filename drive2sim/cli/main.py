@@ -2,7 +2,7 @@
 
 Lệnh có dạng ``d2s <nhóm> <hành động> [tuỳ chọn]`` (CONTRACTS mục 10.4). File này chứa:
 - ``build_parser``: dựng parser với các nhóm ``source``, ``scene``, ``split``, ``approach``,
-  ``run`` và tuỳ chọn chung ``--workdir``, ``--json``, ``--verbose``, ``--quiet``.
+  ``run``, ``studio`` và tuỳ chọn chung ``--workdir``, ``--json``, ``--verbose``, ``--quiet``.
 - ``main``: phân tích dòng lệnh, nạp mọi stage, gọi lệnh, và đổi lỗi thành mã thoát:
   ``0`` thành công; ``1`` lỗi khi chạy; ``2`` sai cú pháp hoặc sai giá trị; ``3`` bị khoá vì
   không thoả điều kiện hoặc ràng buộc; ``130`` bị ngắt bằng Ctrl-C.
@@ -22,7 +22,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Optional
 
-from drive2sim.cli import approach, run, scene, source, split
+from drive2sim.cli import approach, run, scene, source, split, studio
 from drive2sim.cli.output import CommandError, UsageError
 from drive2sim.engine.cache import CacheBusyError
 from drive2sim.engine.registry import load_builtin_stages
@@ -70,7 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"d2s {_version()}")
     groups = parser.add_subparsers(dest="group", required=True)
-    for module in (source, scene, split, approach, run):
+    for module in (source, scene, split, approach, run, studio):
         module.register(groups, common)
     return parser
 

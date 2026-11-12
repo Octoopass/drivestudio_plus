@@ -171,9 +171,9 @@ def make_cache_key(
 
 - Test đặt ở `tests/drive2sim/<cùng đường dẫn với code>/test_<module>.py`, dùng `pytest`.
 - Code mới có test đi kèm; sửa lỗi thì thêm test tái hiện lỗi đó.
-- Chạy test: `.venv/bin/python -m pytest` (môi trường nhẹ ở local, cài bằng `pip install -e ".[dev]"`).
+- Chạy test: `.venv/bin/python -m pytest` (môi trường nhẹ ở local, cài bằng `pip install -e ".[dev,studio]"`).
 - Trước khi commit: `uvx ruff format drive2sim tests`, `uvx ruff check drive2sim tests`, rồi chạy test.
-- Kiểm tra Python 3.9: `uv run --python 3.9 --no-project --with "pydantic>=2.5,<3" --with "pyyaml>=6" --with "pytest>=7" python -m pytest -q`.
+- Kiểm tra Python 3.9: `uv run --python 3.9 --no-project --with "pydantic>=2.5,<3" --with "pyyaml>=6" --with "pytest>=7" --with "fastapi>=0.110" --with "httpx>=0.24" python -m pytest -q`.
 - Thay đổi hành vi ở `drive2sim/recon/` không chạy được trên máy không có GPU: ghi rõ "chưa chạy thật" trong commit và docs, rồi kiểm tra hồi quy trên Kaggle (train lại cùng cảnh, so PSNR) theo `ARCHITECTURE.md` mục 7.3 và 10.
 
 ## 6. Branch và commit

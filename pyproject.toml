@@ -14,7 +14,9 @@ dependencies = ["pydantic>=2.5,<3", "pyyaml>=6"]
 d2s = "drive2sim.cli.main:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=7"]
+dev = ["pytest>=7", "httpx>=0.24"]
+# Studio: API (CONTRACTS mục 11) và lệnh d2s studio.
+studio = ["fastapi>=0.110", "uvicorn>=0.29"]
 # Heavy dependencies (PyTorch, gsplat-geer, ...) are installed from requirements.txt.
 
 [tool.setuptools.packages.find]
