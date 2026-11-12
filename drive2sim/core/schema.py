@@ -68,6 +68,7 @@ ERROR_CODES: tuple[str, ...] = (
     "env_missing",
     "worker_crashed",
     "cancelled",
+    "stage_failed",
 )
 Executor = Literal["local", "kaggle"]
 
@@ -78,7 +79,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "report": "d2s-report/0.1",
     "approach": "d2s-approach/0.1",
     "artifact": "d2s-artifact/0.1",
-    "run": "d2s-run/0.1",
+    "run": "d2s-run/0.2",
     "summary": "d2s-summary/0.1",
     "env": "d2s-env/0.1",
     "preview": "d2s-preview/0.1",
@@ -138,6 +139,28 @@ class Transform(StrictModel):
         norm = math.sqrt(sum(component * component for component in value))
         if abs(norm - 1.0) > 1e-3:
             raise ValueError(f"rotation_wxyz must be a unit quaternion, norm is {norm:.4f}")
+        return value
+
+
+class ErrorInfo(StrictModel):
+    """Lỗi do worker hoặc API báo về (CONTRACTS mục 9.1 và 11.3).
+
+    Attributes:
+        code: Mã lỗi ``snake_case`` trong ``ERROR_CODES``, để máy phân loại.
+        message: Thông báo tiếng Việt cho người dùng.
+        details: Thông tin thêm tuỳ loại lỗi.
+    """
+
+    code: str
+    message: str
+    details: dict[str, Any] = {}
+
+    @field_validator("code")
+    @classmethod
+    def _validate_code(cls, value: str) -> str:
+        """Mã lỗi phải nằm trong bảng ``ERROR_CODES``."""
+        if value not in ERROR_CODES:
+            raise ValueError(f"mã lỗi không có trong bảng: {value} (xem CONTRACTS mục 11.3)")
         return value
 
 
@@ -627,6 +650,9 @@ class StageRecord(StrictModel):
     cache_key: Optional[CacheKey] = None
     duration_s: float = Field(default=0, ge=0)
     peak_vram_mb: int = Field(default=0, ge=0)
+    # Tham số đã gộp, để chạy tiếp đúng như lúc tạo run (d2s-run/0.2).
+    params: dict[str, Any] = {}
+    error: Optional[ErrorInfo] = None
 
 
 class RunRecord(VersionedFile):
@@ -640,6 +666,7 @@ class RunRecord(VersionedFile):
     level: Level
     executor: Executor
     status: RunStatus
+    created_utc: Optional[datetime] = None
     lidar_usage: list[str] = []
     stages: list[StageRecord] = []
 
@@ -733,28 +760,6 @@ class Preview(VersionedFile):
 
 
 # ---------------------------------------------------------------- worker (CONTRACTS 9.1)
-
-
-class ErrorInfo(StrictModel):
-    """Lỗi do worker hoặc API báo về (CONTRACTS mục 9.1 và 11.3).
-
-    Attributes:
-        code: Mã lỗi ``snake_case`` trong ``ERROR_CODES``, để máy phân loại.
-        message: Thông báo tiếng Việt cho người dùng.
-        details: Thông tin thêm tuỳ loại lỗi.
-    """
-
-    code: str
-    message: str
-    details: dict[str, Any] = {}
-
-    @field_validator("code")
-    @classmethod
-    def _validate_code(cls, value: str) -> str:
-        """Mã lỗi phải nằm trong bảng ``ERROR_CODES``."""
-        if value not in ERROR_CODES:
-            raise ValueError(f"mã lỗi không có trong bảng: {value} (xem CONTRACTS mục 11.3)")
-        return value
 
 
 class JobSpec(VersionedFile):

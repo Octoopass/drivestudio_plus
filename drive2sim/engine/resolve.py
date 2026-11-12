@@ -1,12 +1,24 @@
-"""Biến một approach cùng lựa chọn của người dùng thành danh sách stage cố định.
+"""Biến một approach cùng lựa chọn của người dùng thành danh sách stage cố định để chạy.
 
-Đây là bước 1–2 của engine (ARCHITECTURE mục 4.5): gộp preset và lựa chọn vào các ô, chọn giá
-trị ``auto`` theo manifest, kiểm tra điều kiện dữ liệu và ràng buộc (CONTRACTS mục 4.2), thay
-``${options.<ô>}`` rồi nối đầu vào của từng stage với stage tạo ra nó. Studio và CLI cùng gọi
-module này, nên chạy từ đâu cũng ra cùng một danh sách stage và cùng lý do bị khoá.
+File approach có các *ô chọn* (ví dụ ô ``init`` chọn giữa ``init.lidar`` và ``init.depth``),
+*preset* và *ràng buộc* (CONTRACTS mục 4.1). Trước khi chạy, engine phải quyết định giá trị cụ
+thể của mọi ô, kiểm tra dữ liệu của cảnh có cho phép chạy không, rồi mới có danh sách stage cố
+định. File này làm đúng việc đó (bước 1–2 của engine, ARCHITECTURE mục 4.5).
 
-Thông báo trong ``ResolveError`` và ``BlockedError`` hiện thẳng cho người dùng nên viết tiếng Việt
-(CONTRACTS mục 10.6).
+File này chứa:
+- ``resolve``: hàm chính. Nhận approach, manifest, split và lựa chọn của người dùng; trả về
+  ``Plan`` (danh sách stage sẽ chạy kèm tham số), hoặc ném lỗi kèm lý do.
+- ``blocked_choices``: liệt kê lựa chọn nào của từng ô bị khoá vì dữ liệu, để Studio làm mờ.
+- ``wire_inputs``: nối đầu vào của từng stage với stage phía trước tạo ra nó.
+- ``validate_params``: kiểm tra tham số của một stage theo khai báo ``Params`` của nó.
+- ``Plan``, ``PlannedStage``: kết quả của ``resolve``.
+- ``ResolveError``, ``BlockedError``, ``BlockReason``: hai loại lỗi và lý do bị khoá.
+
+Studio, CLI (``d2s approach check``, ``d2s run start``) và ``run.py`` cùng gọi file này, nên
+chạy từ đâu cũng ra cùng danh sách stage và cùng lý do bị khoá (CONTRACTS mục 4.2).
+
+Thông báo trong ``ResolveError`` và ``BlockedError`` hiện thẳng cho người dùng nên viết tiếng
+Việt (CONTRACTS mục 10.6).
 """
 
 from dataclasses import dataclass, field
@@ -33,7 +45,11 @@ CAMERA_MODEL_ALIASES: dict[str, str] = {"ideal_pinhole": "opencv_pinhole"}
 
 
 class ResolveError(ValueError):
-    """Yêu cầu không hợp lệ: preset, ô, giá trị hoặc tham số không tồn tại; approach sai.
+    """Lỗi do yêu cầu hoặc file approach sai, không phải do dữ liệu của cảnh.
+
+    Ví dụ: preset không tồn tại, ô không tồn tại, giá trị không phải lựa chọn của ô, tham số
+    stage sai tên hoặc sai kiểu, stage chưa đăng ký, hoặc một stage cần đầu vào mà không stage
+    nào phía trước tạo ra. Người dùng sửa lệnh hoặc sửa file approach là hết lỗi.
 
     Ứng với mã lỗi ``invalid_request`` và mã thoát CLI ``2`` (CONTRACTS mục 10.4, 11.3).
     """
@@ -43,10 +59,14 @@ class ResolveError(ValueError):
 class BlockReason:
     """Một lý do khiến approach hoặc một lựa chọn không chạy được trên cảnh này.
 
+    Studio hiện ``message`` cạnh lựa chọn bị làm mờ; CLI in ``message`` khi lệnh bị khoá.
+
     Attributes:
-        message: Lý do bằng tiếng Việt, hiện cho người dùng.
-        option: Tên ô liên quan, nếu lý do gắn với một ô.
-        choice: Lựa chọn bị khoá, nếu có.
+        message: Lý do bằng tiếng Việt, ví dụ ``"init.lidar cần LiDAR nhưng cảnh ... không có
+            LiDAR"``.
+        option: Tên ô liên quan nếu lý do gắn với một ô, ví dụ ``"init"``; ``None`` nếu lý do
+            thuộc cả approach (ví dụ sai track).
+        choice: Lựa chọn bị khoá nếu có, ví dụ ``"init.lidar"``.
     """
 
     message: str
@@ -55,12 +75,16 @@ class BlockReason:
 
 
 class BlockedError(Exception):
-    """Approach không chạy được với dữ liệu hoặc tổ hợp lựa chọn này.
+    """Lỗi do dữ liệu của cảnh hoặc tổ hợp lựa chọn không cho phép chạy approach.
+
+    Ví dụ: chọn ``init.lidar`` mà cảnh không có LiDAR, approach cần box 3D mà cảnh không có, hay
+    tổ hợp ``renderer=3dgeer`` với ``campose=true`` bị ràng buộc cấm. Lỗi chứa **mọi** lý do tìm
+    được, không chỉ lý do đầu tiên, để người dùng sửa một lần.
 
     Ứng với mã lỗi ``blocked`` và mã thoát CLI ``3`` (CONTRACTS mục 10.4, 11.3).
 
     Attributes:
-        reasons: Mọi lý do tìm được, không chỉ lý do đầu tiên, để người dùng sửa một lần.
+        reasons: Danh sách lý do bị khoá.
     """
 
     def __init__(self, reasons: list[BlockReason]) -> None:
@@ -70,14 +94,15 @@ class BlockedError(Exception):
 
 @dataclass
 class PlannedStage:
-    """Một stage trong danh sách đã quyết định.
+    """Một stage trong danh sách đã quyết định, kèm mọi thứ cần để chạy nó.
 
     Attributes:
-        stage_id: Stage sẽ chạy.
-        params: Tham số đã gộp và đã kiểm tra theo ``Params`` của stage.
-        input_sources: Tên đầu vào → vị trí (chỉ số) của stage phía trước tạo ra artifact đó,
-            hoặc ``"scene"`` / ``"split"``.
-        cacheable: Kết quả vào ``cache/`` hay vào thư mục run.
+        stage_id: Stage sẽ chạy, ví dụ ``"init.lidar"``.
+        params: Tham số đã gộp, đã kiểm tra và đã điền giá trị mặc định, dạng JSON.
+        input_sources: Tên đầu vào → nguồn của nó: một số nguyên là vị trí (chỉ số trong danh
+            sách) của stage phía trước tạo ra artifact đó, hoặc ``"scene"`` / ``"split"``.
+            Ví dụ ``{"points": 0, "split": "split"}``.
+        cacheable: ``True`` nếu kết quả vào ``cache/``, ``False`` nếu vào thư mục run.
         uses_lidar: Stage có dùng LiDAR không.
     """
 
@@ -90,34 +115,53 @@ class PlannedStage:
 
 @dataclass
 class Plan:
-    """Kết quả của ``resolve``: đủ để ghi ``run.json`` và chạy từng stage.
+    """Kết quả của ``resolve``: đủ thông tin để ghi ``run.json`` và chạy từng stage.
+
+    ``run.py`` nhận đối tượng này để tạo thư mục run (``create_run``); ``d2s approach check`` in
+    nó ra để người dùng xem trước những gì sẽ chạy.
 
     Attributes:
-        approach_id: Approach được chạy.
+        approach_id: Approach được chạy, ví dụ ``"omnire"``.
         approach_version: Phiên bản của file approach.
-        preset: Preset đã dùng, nếu có.
-        options: Lựa chọn đã quyết định cho mọi ô, kể cả ô để ``auto``.
+        level: Mức năng lực của approach, ``L1`` tới ``L4``.
+        preset: Preset người dùng đã chọn, hoặc ``None``.
+        options: Giá trị cụ thể đã quyết định cho mọi ô, kể cả ô để ``auto``, ví dụ
+            ``{"init": "init.depth", "renderer": "3dgs"}``.
         stages: Các stage theo thứ tự chạy.
     """
 
     approach_id: str
     approach_version: str
+    level: str
     preset: Optional[str]
     options: dict[str, OptionValue]
     stages: list[PlannedStage] = field(default_factory=list)
 
     @property
     def lidar_usage(self) -> list[str]:
-        """Các ``stage_id`` dùng LiDAR, ghi vào ``run.json`` (CONTRACTS mục 4.3)."""
+        """Liệt kê các stage dùng LiDAR, để ghi vào ``run.json`` (CONTRACTS mục 4.3).
+
+        Returns:
+            Danh sách ``stage_id`` theo thứ tự chạy; rỗng nếu run không dùng LiDAR.
+        """
         return [stage.stage_id for stage in self.stages if stage.uses_lidar]
 
 
 def _choice_block(
     choice: OptionValue, manifest: Manifest, registry: StageRegistry
 ) -> Optional[str]:
-    """Lý do một lựa chọn không dùng được với dữ liệu của cảnh, hoặc ``None`` nếu dùng được.
+    """Kiểm tra một lựa chọn có dùng được với dữ liệu của cảnh không.
 
-    Hiện chỉ có một điều kiện: lựa chọn là một stage cần LiDAR mà cảnh không có LiDAR.
+    Hiện chỉ có một điều kiện: lựa chọn là tên một stage có ``uses_lidar = True`` mà cảnh không
+    có LiDAR. Lựa chọn không phải tên stage (ví dụ ``"3dgs"``, ``true``) luôn dùng được.
+
+    Args:
+        choice: Một lựa chọn của ô.
+        manifest: Manifest của cảnh.
+        registry: Bảng stage, để biết stage có cần LiDAR không.
+
+    Returns:
+        Lý do bằng tiếng Việt nếu lựa chọn bị khoá, ``None`` nếu dùng được.
     """
     if isinstance(choice, str) and choice in registry:
         if registry.get(choice).uses_lidar and not manifest.available.lidar:
@@ -128,15 +172,20 @@ def _choice_block(
 def blocked_choices(
     approach: Approach, manifest: Manifest, registry: StageRegistry = REGISTRY
 ) -> dict[str, list[BlockReason]]:
-    """Các lựa chọn bị khoá vì dữ liệu, theo từng ô; Studio dùng để làm mờ lựa chọn.
+    """Liệt kê các lựa chọn bị khoá vì dữ liệu của cảnh, theo từng ô.
+
+    Studio gọi hàm này khi người dùng mở màn hình chọn approach, để làm mờ lựa chọn không chạy
+    được và hiện lý do ngay bên cạnh, trước khi người dùng bấm chạy (SPEC mục 5 bước 4).
 
     Args:
-        approach: File approach đã kiểm tra.
-        manifest: Manifest của cảnh.
-        registry: Bảng stage.
+        approach: File approach đã kiểm tra theo schema.
+        manifest: Manifest của cảnh đang chọn.
+        registry: Bảng stage; mặc định là bảng chung.
 
     Returns:
-        Tên ô → danh sách lựa chọn bị khoá kèm lý do; ô không có lựa chọn bị khoá thì không có.
+        Tên ô → danh sách lựa chọn bị khoá kèm lý do. Ô không có lựa chọn nào bị khoá thì không
+        xuất hiện. Ví dụ với cảnh không có LiDAR:
+        ``{"init": [BlockReason("init.lidar cần LiDAR ...", "init", "init.lidar")]}``.
     """
     result: dict[str, list[BlockReason]] = {}
     for option_name, spec in approach.options.items():
@@ -150,10 +199,16 @@ def blocked_choices(
 
 
 def _check_assignment(approach: Approach, values: dict[str, OptionValue], where: str) -> None:
-    """Kiểm tra mỗi cặp ô–giá trị do người dùng đưa trỏ tới ô và lựa chọn có thật.
+    """Kiểm tra mỗi cặp ô–giá trị do người dùng đưa vào đều trỏ tới ô và lựa chọn có thật.
+
+    Args:
+        approach: File approach.
+        values: Tên ô → giá trị người dùng chọn.
+        where: Mô tả nguồn của ``values``, đưa vào thông báo lỗi để người dùng biết sửa ở đâu.
 
     Raises:
-        ResolveError: Nếu ô hoặc giá trị không có trong approach.
+        ResolveError: Nếu ô không có trong approach, hoặc giá trị không phải lựa chọn của ô;
+            thông báo liệt kê các ô hoặc lựa chọn hợp lệ.
     """
     for option_name, value in values.items():
         spec = approach.options.get(option_name)
@@ -178,13 +233,24 @@ def _decide_options(
     option_values: dict[str, OptionValue],
     registry: StageRegistry,
 ) -> tuple[dict[str, OptionValue], list[BlockReason]]:
-    """Quyết định giá trị của mọi ô: mặc định → preset → lựa chọn của người dùng → ``auto``.
+    """Quyết định giá trị cụ thể cho mọi ô chọn.
 
-    ``auto`` lấy lựa chọn **đầu tiên** trong ``choices`` không bị khoá vì dữ liệu, nên thứ tự
-    ``choices`` trong file approach là thứ tự ưu tiên (ví dụ ``[init.lidar, init.depth]``).
+    Giá trị được gộp theo thứ tự, cái sau đè cái trước: ``default`` của ô → preset → lựa chọn
+    của người dùng. Ô nào còn giá trị ``auto`` thì lấy lựa chọn **đầu tiên** trong ``choices``
+    không bị khoá vì dữ liệu. Vì vậy thứ tự ``choices`` trong file approach chính là thứ tự ưu
+    tiên: với ``[init.lidar, init.depth]``, cảnh có LiDAR được ``init.lidar``, không có thì được
+    ``init.depth``.
+
+    Args:
+        approach: File approach.
+        manifest: Manifest của cảnh, để biết lựa chọn nào bị khoá.
+        preset: Tên preset người dùng chọn, hoặc ``None``.
+        option_values: Tên ô → giá trị người dùng chọn.
+        registry: Bảng stage.
 
     Returns:
-        Bộ ``(giá trị của mọi ô, lý do bị khoá của các lựa chọn đã quyết định)``.
+        Bộ hai phần: giá trị đã quyết định của mọi ô, và danh sách lý do bị khoá của các giá
+        trị đó (rỗng nếu mọi giá trị dùng được).
 
     Raises:
         ResolveError: Nếu preset, ô hoặc giá trị không tồn tại.
@@ -225,10 +291,19 @@ def _decide_options(
 
 
 def _constraint_reasons(approach: Approach, chosen: dict[str, OptionValue]) -> list[BlockReason]:
-    """Các ràng buộc bị vi phạm.
+    """Tìm các ràng buộc trong file approach bị tổ hợp lựa chọn hiện tại vi phạm.
 
-    Một ràng buộc bị vi phạm khi **mọi** cặp trong ``when`` và **mọi** cặp trong ``forbid``
-    đều khớp với lựa chọn (so sánh cả kiểu, như ``contains_value``).
+    Một ràng buộc bị vi phạm khi **mọi** cặp trong ``when`` và **mọi** cặp trong ``forbid`` đều
+    khớp với lựa chọn. So sánh cả kiểu dữ liệu, nên giá trị ``1`` không khớp ``true``. Ví dụ ràng
+    buộc ``when: {renderer: 3dgeer}, forbid: {campose: true}`` chỉ bị vi phạm khi đồng thời
+    ``renderer`` là ``3dgeer`` và ``campose`` là ``true``.
+
+    Args:
+        approach: File approach.
+        chosen: Giá trị đã quyết định của mọi ô.
+
+    Returns:
+        Lý do cho từng ràng buộc bị vi phạm, kèm ``reason`` ghi trong file approach.
     """
     reasons = []
     for constraint in approach.constraints:
@@ -242,7 +317,22 @@ def _constraint_reasons(approach: Approach, chosen: dict[str, OptionValue]) -> l
 def _data_reasons(
     approach: Approach, manifest: Manifest, split: Split, stage_ids: list[str]
 ) -> list[BlockReason]:
-    """Các điều kiện dữ liệu ở cấp approach không thoả (CONTRACTS mục 4.2)."""
+    """Kiểm tra các điều kiện dữ liệu ở cấp approach (CONTRACTS mục 4.2).
+
+    Gồm bốn điều kiện: track của approach khớp track của cảnh; approach cần box 3D thì cảnh phải
+    có box; chiến lược của split nằm trong danh sách approach hỗ trợ; mô hình của mọi camera
+    trong split nằm trong danh sách approach nhận, trừ khi danh sách stage có ``prep.undistort``
+    để khử méo về pinhole trước.
+
+    Args:
+        approach: File approach.
+        manifest: Manifest của cảnh.
+        split: Split của run.
+        stage_ids: Danh sách stage sau khi thay ô chọn, để biết có ``prep.undistort`` không.
+
+    Returns:
+        Lý do cho từng điều kiện không thoả; rỗng nếu thoả hết.
+    """
     reasons = []
     if approach.track != manifest.track:
         reasons.append(
@@ -274,43 +364,47 @@ def _data_reasons(
 
 
 def _substitute(value: object, chosen: dict[str, OptionValue]) -> object:
-    """Thay ``${options.<ô>}`` bằng giá trị đã quyết định; giá trị khác giữ nguyên."""
+    """Thay chỗ giữ chỗ ``${options.<ô>}`` bằng giá trị đã quyết định của ô đó.
+
+    Args:
+        value: Một giá trị trong file approach, ví dụ ``"${options.renderer}"`` hoặc ``2``.
+        chosen: Giá trị đã quyết định của mọi ô.
+
+    Returns:
+        Giá trị của ô nếu ``value`` là chỗ giữ chỗ, ví dụ ``"3dgs"``; nếu không thì trả lại
+        nguyên ``value``.
+    """
     option_name = option_reference(value)
     return chosen[option_name] if option_name is not None else value
 
 
-def _build_stages(
-    approach: Approach,
-    chosen: dict[str, OptionValue],
-    stage_params: dict[str, dict[str, object]],
-    registry: StageRegistry,
-) -> list[PlannedStage]:
-    """Thay chỗ giữ chỗ, gộp tham số, kiểm tra theo ``Params`` và nối đầu vào.
+def wire_inputs(
+    stage_ids: list[str], registry: StageRegistry = REGISTRY
+) -> list[dict[str, object]]:
+    """Nối đầu vào của từng stage với stage phía trước tạo ra nó.
 
-    Thứ tự gộp tham số: mặc định của stage → ``params`` trong file → ``stage_params`` của người
-    dùng (CONTRACTS mục 4.1). Mỗi đầu vào artifact nhận artifact cùng loại gần nhất phía trước.
+    Mỗi đầu vào kiểu artifact nhận artifact cùng loại do stage **gần nhất phía trước** tạo ra
+    (CONTRACTS mục 4.1). Ví dụ ``train.drivestudio`` cần ``points_init`` thì nhận kết quả của
+    stage ``init.*`` đứng trước nó. Đầu vào ``"scene"`` và ``"split"`` giữ nguyên tên.
+
+    Gọi khi tạo run (trong ``resolve``) và khi chạy tiếp một run (trong ``run.py``), để hai lần
+    nối luôn cho cùng kết quả.
+
+    Args:
+        stage_ids: Các stage theo thứ tự chạy; mọi stage phải đã đăng ký.
+        registry: Bảng stage, để biết mỗi stage cần và tạo ra loại artifact nào.
+
+    Returns:
+        Một dict cho mỗi stage, cùng thứ tự với ``stage_ids``: tên đầu vào → vị trí của stage
+        nguồn, hoặc ``"scene"`` / ``"split"``. Ví dụ ``[{"scene": "scene"}, {"points": 0}]``.
 
     Raises:
-        ResolveError: Nếu stage chưa có, tham số sai, ``stage_params`` trỏ tới stage không có
-            trong danh sách, hoặc thiếu stage tạo ra một đầu vào.
+        ResolveError: Nếu một đầu vào không có stage nào phía trước tạo ra.
     """
-    planned: list[PlannedStage] = []
+    wiring: list[dict[str, object]] = []
     producers: dict[str, int] = {}  # loại artifact → vị trí stage gần nhất tạo ra nó
-    for index, entry in enumerate(approach.stages):
-        stage_id = str(_substitute(entry.stage, chosen))
-        if stage_id not in registry:
-            raise ResolveError(
-                f"approach {approach.approach_id}, stages[{index}]: stage {stage_id} chưa có; "
-                f"các stage hiện có: {', '.join(registry.stage_ids()) or '(chưa có stage nào)'}"
-            )
+    for index, stage_id in enumerate(stage_ids):
         cls = registry.get(stage_id)
-        raw_params = {name: _substitute(value, chosen) for name, value in entry.params.items()}
-        raw_params.update(stage_params.get(stage_id, {}))
-        try:
-            params = cls.Params.model_validate(raw_params).model_dump(mode="json")
-        except ValidationError as error:
-            raise ResolveError(f"tham số của stage {stage_id} không hợp lệ:\n{error}") from None
-
         sources: dict[str, object] = {}
         for input_name, kind in cls.inputs.items():
             if kind in (SCENE_INPUT, SPLIT_INPUT):
@@ -324,14 +418,93 @@ def _build_stages(
                 )
         for kind in cls.outputs.values():
             producers[kind] = index
-        planned.append(PlannedStage(stage_id, params, sources, cls.cacheable, cls.uses_lidar))
+        wiring.append(sources)
+    return wiring
 
-    unknown = set(stage_params) - {stage.stage_id for stage in planned}
+
+def _build_stages(
+    approach: Approach,
+    chosen: dict[str, OptionValue],
+    stage_params: dict[str, dict[str, object]],
+    registry: StageRegistry,
+) -> list[PlannedStage]:
+    """Dựng danh sách stage cố định từ file approach và giá trị đã quyết định của các ô.
+
+    Với từng bước trong ``stages`` của file approach: thay chỗ giữ chỗ trong tên stage và tham
+    số, gộp tham số theo thứ tự mặc định của stage → ``params`` trong file → ``stage_params`` của
+    người dùng (CONTRACTS mục 4.1), rồi kiểm tra theo ``Params`` của stage. Cuối cùng nối đầu vào
+    bằng ``wire_inputs``.
+
+    Args:
+        approach: File approach.
+        chosen: Giá trị đã quyết định của mọi ô.
+        stage_params: ``stage_id`` → tham số người dùng đặt riêng cho stage đó.
+        registry: Bảng stage.
+
+    Returns:
+        Các stage theo thứ tự chạy.
+
+    Raises:
+        ResolveError: Nếu stage chưa đăng ký, tham số sai, ``stage_params`` đặt cho stage không
+            có trong danh sách, hoặc một đầu vào không có stage nào tạo ra.
+    """
+    stage_ids: list[str] = []
+    all_params: list[dict[str, object]] = []
+    for index, entry in enumerate(approach.stages):
+        stage_id = str(_substitute(entry.stage, chosen))
+        if stage_id not in registry:
+            raise ResolveError(
+                f"approach {approach.approach_id}, stages[{index}]: stage {stage_id} chưa có; "
+                f"các stage hiện có: {', '.join(registry.stage_ids()) or '(chưa có stage nào)'}"
+            )
+        raw_params = {name: _substitute(value, chosen) for name, value in entry.params.items()}
+        raw_params.update(stage_params.get(stage_id, {}))
+        stage_ids.append(stage_id)
+        all_params.append(validate_params(stage_id, raw_params, registry))
+
+    unknown = set(stage_params) - set(stage_ids)
     if unknown:
         raise ResolveError(
             f"đặt tham số cho stage không có trong danh sách: {', '.join(sorted(unknown))}"
         )
-    return planned
+    wiring = wire_inputs(stage_ids, registry)
+    return [
+        PlannedStage(
+            stage_id,
+            params,
+            sources,
+            registry.get(stage_id).cacheable,
+            registry.get(stage_id).uses_lidar,
+        )
+        for stage_id, params, sources in zip(stage_ids, all_params, wiring)
+    ]
+
+
+def validate_params(
+    stage_id: str, raw_params: dict[str, object], registry: StageRegistry = REGISTRY
+) -> dict[str, object]:
+    """Kiểm tra tham số của một stage theo lớp ``Params`` và điền giá trị mặc định.
+
+    Gọi khi dựng danh sách stage, và gọi lại trước khi chạy từng stage trong ``run.py``, vì
+    code của stage có thể đã đổi từ lúc tạo run.
+
+    Args:
+        stage_id: Stage đã đăng ký.
+        raw_params: Tham số đã gộp, chưa kiểm tra, ví dụ ``{"num_iters": 1000}``.
+        registry: Bảng stage.
+
+    Returns:
+        Tham số đầy đủ dạng JSON, gồm cả các tham số lấy giá trị mặc định, ví dụ
+        ``{"num_iters": 1000, "renderer": "3dgs"}``.
+
+    Raises:
+        ResolveError: Nếu tham số sai tên hoặc sai kiểu; thông báo kèm chi tiết của Pydantic.
+    """
+    try:
+        model = registry.get(stage_id).Params.model_validate(raw_params)
+    except ValidationError as error:
+        raise ResolveError(f"tham số của stage {stage_id} không hợp lệ:\n{error}") from None
+    return model.model_dump(mode="json")
 
 
 def resolve(
@@ -343,25 +516,31 @@ def resolve(
     stage_params: Optional[dict[str, dict[str, object]]] = None,
     registry: StageRegistry = REGISTRY,
 ) -> Plan:
-    """Quyết định danh sách stage sẽ chạy, hoặc báo vì sao không chạy được.
+    """Quyết định danh sách stage sẽ chạy, hoặc báo rõ vì sao không chạy được.
+
+    Các bước: kiểm tra split thuộc đúng cảnh; quyết định giá trị mọi ô (``_decide_options``);
+    gom mọi lý do bị khoá từ lựa chọn, ràng buộc và dữ liệu rồi báo một lần; cuối cùng dựng danh
+    sách stage cố định (``_build_stages``).
 
     Args:
-        approach: File approach đã kiểm tra.
+        approach: File approach đã kiểm tra theo schema.
         manifest: Manifest của cảnh.
-        split: Split sẽ dùng; phải thuộc cùng cảnh.
-        preset: Tên preset, nếu có.
-        option_values: Lựa chọn của người dùng cho từng ô (Studio, hoặc ``--set <ô>=...``).
-        stage_params: ``stage_id`` → tham số người dùng đặt cho stage đó
-            (``--set <stage_id>.<tham số>=...``).
-        registry: Bảng stage.
+        split: Split sẽ dùng; phải thuộc cùng cảnh với ``manifest``.
+        preset: Tên preset, ví dụ ``"no_lidar"``, hoặc ``None``.
+        option_values: Lựa chọn của người dùng cho từng ô, lấy từ Studio hoặc từ
+            ``--set <ô>=<giá trị>``, ví dụ ``{"renderer": "3dgeer"}``.
+        stage_params: ``stage_id`` → tham số người dùng đặt cho stage đó, lấy từ
+            ``--set <stage_id>.<tham số>=<giá trị>``, ví dụ
+            ``{"train.drivestudio": {"num_iters": 10000}}``.
+        registry: Bảng stage; mặc định là bảng chung.
 
     Returns:
-        Danh sách stage cố định cùng lựa chọn đã quyết định.
+        ``Plan`` gồm giá trị của mọi ô và danh sách stage cố định.
 
     Raises:
         ResolveError: Nếu yêu cầu hoặc file approach sai (mã thoát ``2``).
-        BlockedError: Nếu dữ liệu hoặc tổ hợp lựa chọn không cho phép chạy (mã thoát ``3``); chứa
-            mọi lý do tìm được.
+        BlockedError: Nếu dữ liệu hoặc tổ hợp lựa chọn không cho phép chạy (mã thoát ``3``);
+            chứa mọi lý do tìm được.
     """
     if split.scene_id != manifest.scene_id:
         raise ResolveError(
@@ -385,4 +564,4 @@ def resolve(
     if reasons:
         raise BlockedError(reasons)
     stages = _build_stages(approach, chosen, stage_params or {}, registry)
-    return Plan(approach.approach_id, approach.version, preset, chosen, stages)
+    return Plan(approach.approach_id, approach.version, approach.level, preset, chosen, stages)

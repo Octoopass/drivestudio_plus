@@ -245,7 +245,7 @@ class StageContext(Protocol):
 Stage đăng ký bằng `@register_stage("<stage_id>")`. Engine lo cache, file `done`, thư mục `.partial` và `artifact.json`; stage chỉ ghi file vào `output_dir`.
 
 - `inputs` của `run` chỉ chứa artifact: tên đầu vào → thư mục của artifact. Cảnh và split đọc từ `ctx`. Khai báo `"scene"` hoặc `"split"` trong `inputs` của lớp nghĩa là kết quả phụ thuộc cảnh hoặc split, nên `scene_id` hoặc `split_id` vào khoá cache.
-- Decorator kiểm tra khai báo ngay lúc import và từ chối: tên lớp sai mẫu `<Nhóm><Tên>Stage`; `version` sai dạng `MAJOR.MINOR.PATCH`; `cacheable` khác quy tắc của nhóm (`true` với `prep`, `init`; `false` với nhóm khác, mục 5.2); loại artifact không có trong bảng mục 5.4; không có đầu ra nào; `Params` không phải lớp Pydantic; `stage_id` đã được lớp khác đăng ký.
+- Decorator kiểm tra khai báo ngay lúc import và từ chối: tên lớp sai mẫu `<Nhóm><Tên>Stage`; `version` sai dạng `MAJOR.MINOR.PATCH`; `cacheable` khác quy tắc của nhóm (`true` với `prep`, `init`; `false` với nhóm khác, mục 5.2); loại artifact không có trong bảng mục 5.4; không có **đúng một** đầu ra (thư mục kết quả của stage là một artifact, `artifact.json` có một `artifact_type`); `Params` không phải lớp Pydantic; `stage_id` đã được lớp khác đăng ký.
 - Cài trong `drive2sim/engine/stage.py` (interface) và `drive2sim/engine/registry.py` (đăng ký, nạp mọi stage trong `drive2sim/stages/`).
 
 ### 5.2 Nơi ghi kết quả
@@ -319,7 +319,7 @@ File của tool nằm trong `d2s/` để không trùng tên với file của Dri
 
 ```json
 {
-  "schema_version": "d2s-run/0.1",
+  "schema_version": "d2s-run/0.2",
   "run_id": "20261112-081000-omnire-a1b2",
   "scene_id": "nuscenes_scene-0061",
   "split_id": "every8_allcams",
@@ -327,19 +327,28 @@ File của tool nằm trong `d2s/` để không trùng tên với file của Dri
                "options": {"init": "init.depth", "renderer": "3dgs", "campose": false, "fastgs": false}},
   "level": "L1",
   "executor": "kaggle",
-  "status": "succeeded",
+  "status": "failed",
+  "created_utc": "2026-11-12T08:10:00Z",
   "lidar_usage": [],
   "stages": [
     {"stage_id": "prep.masks_segformer", "status": "succeeded", "cache_hit": true,
-     "cache_key": "nuscenes_scene-0061/prep.masks_segformer@0.1.0-4f1c9a0e", "duration_s": 0, "peak_vram_mb": 0},
-    {"stage_id": "train.drivestudio", "status": "succeeded", "cache_hit": false, "cache_key": null,
-     "duration_s": 4380, "peak_vram_mb": 7400}
+     "cache_key": "nuscenes_scene-0061/prep.masks_segformer@0.1.0-4f1c9a0e", "duration_s": 0, "peak_vram_mb": 0,
+     "params": {"dynamic": true}},
+    {"stage_id": "train.drivestudio", "status": "failed", "cache_hit": false, "cache_key": null,
+     "duration_s": 4380, "peak_vram_mb": 7400,
+     "params": {"method": "omnire", "renderer": "3dgs", "campose": false, "fastgs": false},
+     "error": {"code": "stage_failed", "message": "stage train.drivestudio lỗi: RuntimeError: CUDA out of memory",
+               "details": {"log": "d2s/log.txt"}}}
   ]
 }
 ```
 
 - `status` lấy một trong: `pending`, `running`, `succeeded`, `failed`, `cancelled`.
 - `approach.options` ghi lựa chọn đã quyết định cho mọi ô, kể cả ô để `auto`. Studio lọc và so sánh run theo trường này.
+- `stages[].params` ghi tham số đã gộp và đã điền mặc định của từng stage. `d2s run resume` chạy tiếp theo đúng các tham số này, không đọc lại file approach (file có thể đã bị sửa).
+- `stages[].error` chỉ có khi stage `failed`, cùng hình dạng lỗi với API (mục 11.3). Traceback đầy đủ nằm trong `d2s/log.txt`.
+- Stage dùng lại kết quả cũ (cache hoặc file `done`) có `duration_s` và `peak_vram_mb` bằng 0. Khi chạy tiếp, stage đã `succeeded` từ lần trước giữ nguyên số đo cũ.
+- Thay đổi từ `0.1`: thêm `created_utc`, `stages[].params`, `stages[].error`; file `0.1` vẫn đọc được.
 
 ### 6.3 `d2s/summary.json`
 
@@ -558,7 +567,7 @@ Notebook chạy `d2s run start --bundle bundle/`, ghi kết quả ra `/kaggle/wo
 - Config dataset (`drive2sim/configs/datasets/<dataset>/`): `<k>cams.yaml`; biến thể `<k>cams_<biến thể>.yaml`, ví dụ `7cams_native.yaml` (giữ mô hình camera gốc, không khử méo).
 - Mask thân xe: `drive2sim/assets/ego_masks/<dataset>/<chỉ số camera>.png`, chỉ số là vị trí camera trong danh sách `cameras` của manifest (bắt đầu từ 0). Mỗi dataset có một bảng chỉ số ↔ `camera_id` trong `drive2sim/recon/data/dataset_meta.py`; code mới dùng `camera_id`, chỉ đổi sang chỉ số ở biên với mã DriveStudio.
 - File bên trong một artifact (mục 5.4): `videos/<camera_id>_<loại>.mp4` với loại `gt`, `render`, `diff`, `side_by_side`; `eval_report/report.json` (nguồn của `summary.json`) và `eval_report/per_image.json`; `masks` và `depth_prior` là một component group NCore tên `ncore4-<stage tên>.zarr.itar`; `smpl/<track_id>.npz`.
-- Log của stage: `log.txt` trong thư mục kết quả của stage (mục 5.2), ghi cả stdout và stderr của worker nếu có. Log của engine cho cả run: `d2s/log.txt`.
+- Log: `d2s/log.txt` trong thư mục run là log của engine cho cả run, gồm traceback của stage lỗi. Stage chạy qua worker (mục 9.1) có thêm `log.txt` trong thư mục kết quả của stage, ghi stdout và stderr của worker.
 
 ### 10.3 Tên trường và tham số
 
@@ -675,7 +684,7 @@ Mọi lỗi trả về cùng một hình dạng, HTTP status theo loại:
 | 500 | `internal` | Lỗi không lường trước; `message` không lộ traceback, traceback vào log | 1 |
 | 503 | `worker_unavailable` | Worker render chưa sẵn sàng hoặc đã chết | 1 |
 
-Mã lỗi của worker (mục 9.1) dùng cùng bảng, thêm `env_missing`, `worker_crashed`, `cancelled`. `code` là `snake_case`, thêm mã mới thì ghi vào bảng này. `message` tiếng Việt, viết cho người dùng, không phải cho lập trình viên.
+Mã lỗi của worker (mục 9.1) và của run (mục 6.2) dùng cùng bảng, thêm `env_missing`, `worker_crashed`, `cancelled`, và `stage_failed` (một stage ném lỗi khi chạy; ghi trong `run.json`, mã thoát CLI `1`). `code` là `snake_case`, thêm mã mới thì ghi vào bảng này. `message` tiếng Việt, viết cho người dùng, không phải cho lập trình viên.
 
 ### 11.4 Server-Sent Events
 

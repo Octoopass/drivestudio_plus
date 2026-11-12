@@ -1,4 +1,13 @@
-"""Test bước quyết định danh sách stage: ô chọn, preset, auto, điều kiện dữ liệu, ràng buộc."""
+"""Kiểm tra bước quyết định danh sách stage trong ``drive2sim/engine/resolve.py``.
+
+File này kiểm tra, trên một approach giả có ô ``init``, ``renderer``, ``campose``:
+- giá trị của ô gộp đúng thứ tự mặc định → preset → lựa chọn của người dùng;
+- ``auto`` chọn ``init.lidar`` khi cảnh có LiDAR và ``init.depth`` khi không có;
+- tham số stage được gộp, kiểm tra, và đầu vào được nối với đúng stage phía trước;
+- các trường hợp bị khoá (thiếu LiDAR, vi phạm ràng buộc, sai track, sai chiến lược split, mô
+  hình camera không hỗ trợ) báo ``BlockedError`` kèm đủ mọi lý do;
+- các yêu cầu sai (preset, ô, giá trị, tham số, stage không tồn tại) báo ``ResolveError``.
+"""
 
 import copy
 from pathlib import Path
@@ -11,51 +20,7 @@ from drive2sim.core.schema import Approach, Manifest, Split
 from drive2sim.engine.registry import StageRegistry
 from drive2sim.engine.resolve import BlockedError, Plan, ResolveError, blocked_choices, resolve
 from drive2sim.engine.stage import Stage, StageContext
-
-MANIFEST = {
-    "schema_version": "d2s-manifest/0.1",
-    "scene_id": "nuscenes_scene-0061",
-    "source": {
-        "dataset": "nuscenes",
-        "sequence_id": "scene-0061",
-        "converter": "ncore.nuscenes",
-        "converter_version": "19.9.0",
-    },
-    "ncore": {
-        "version": "v4",
-        "sequence_id": "scene-0061",
-        "timestamp_interval_us": {"start": 0, "stop": 1000},
-    },
-    "track": "pinhole",
-    "cameras": [
-        {
-            "camera_id": "CAM_FRONT",
-            "model": "opencv_pinhole",
-            "resolution": [1600, 900],
-            "shutter": "GLOBAL",
-        },
-        {
-            "camera_id": "CAM_FISH",
-            "model": "opencv_fisheye",
-            "resolution": [1600, 900],
-            "shutter": "GLOBAL",
-        },
-    ],
-    "lidars": ["LIDAR_TOP"],
-    "timeline": {"reference_sensor": "CAM_FRONT", "num_frames": 10},
-    "available": {"lidar": True, "cuboids": "gt"},
-}
-
-SPLIT = {
-    "schema_version": "d2s-split/0.1",
-    "split_id": "every8_front1",
-    "scene_id": "nuscenes_scene-0061",
-    "strategy": "every_nth_frame:8",
-    "frame_range": [0, 9],
-    "cameras": ["CAM_FRONT"],
-    "train": [[0, "CAM_FRONT"]],
-    "test": [[8, "CAM_FRONT"]],
-}
+from tests.drive2sim.samples import MANIFEST, SPLIT
 
 APPROACH = {
     "schema_version": "d2s-approach/0.1",

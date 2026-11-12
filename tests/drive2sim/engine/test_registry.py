@@ -1,4 +1,11 @@
-"""Test đăng ký stage: khai báo đúng được nhận, khai báo sai bị từ chối ngay lúc đăng ký."""
+"""Kiểm tra việc đăng ký và tra cứu stage trong ``drive2sim/engine/registry.py``.
+
+File này kiểm tra:
+- stage khai báo đúng thì đăng ký được, tra lại được theo ``stage_id``;
+- mỗi loại khai báo sai (tên lớp, ``cacheable``, phiên bản, loại đầu vào, số đầu ra, ``Params``,
+  ``stage_id`` trùng) bị từ chối ngay lúc đăng ký, kèm thông báo chỉ ra chỗ sai;
+- ``load_builtin_stages`` import được mọi package trong ``drive2sim/stages/``.
+"""
 
 from pathlib import Path
 
@@ -58,7 +65,13 @@ def test_duplicate_stage_id_rejected() -> None:
         ("train.x", "TrainXStage", {"cacheable": True}, "cacheable must be False"),
         ("init.depth", "InitDepthStage", {"cacheable": True, "version": "1"}, "version"),
         ("init.depth", "InitDepthStage", {"cacheable": True, "inputs": {"m": "mask"}}, "type"),
-        ("init.depth", "InitDepthStage", {"cacheable": True, "outputs": {}}, "at least one"),
+        ("init.depth", "InitDepthStage", {"cacheable": True, "outputs": {}}, "exactly one"),
+        (
+            "init.depth",
+            "InitDepthStage",
+            {"cacheable": True, "outputs": {"a": "points_init", "b": "masks"}},
+            "exactly one",
+        ),
         ("init.depth", "InitDepthStage", {"cacheable": True, "outputs": {"o": "split"}}, "type"),
         ("bad.depth", "BadDepthStage", {}, "stage_id"),
     ],
