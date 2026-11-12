@@ -70,7 +70,7 @@ Mỗi quyết định gồm: giải thích công cụ hoặc khái niệm, lý d
 **Khái niệm.** `drivestudio_plus` ([Octoopass/drivestudio_plus](https://github.com/Octoopass/drivestudio_plus)) là fork DriveStudio của một thành viên trong nhóm. Repo gồm:
 - DriveStudio ở commit `e59bda4` (MIT): OmniRe, Street Gaussians, PVG, Deformable-GS, loader của 6 dataset, script tiền xử lý, `tools/eval.py`.
 - Patch 3DGEER/3DGUT của Bosch (AGPL-3.0), áp nguyên vẹn từ nhánh `gsplat-geer`, commit `f15cee2`. Patch này thêm: renderer chọn bằng `trainer.render.render_mode: default | ut | geer`, camera fisheye/F-theta gốc, rolling shutter, loader PhysicalAI (đọc NCore V4) và `tools/viewer.py` (viser 1.0.30 + nerfview 0.1.2).
-- Phần teammate thêm: densify và prune kiểu FastGS (`configs/fastgs.md`), `tools/export_ply.py`, `datasets/tools/extract_masks_hf.py`, các config `*_nocampose`.
+- Phần teammate thêm: densify và prune kiểu FastGS (`drive2sim/configs/fastgs.md`), `tools/export_ply.py`, `datasets/tools/extract_masks_hf.py`, các config `*_nocampose`.
 
 Tool được làm trên branch `drive2sim`. Trên branch này, mã DriveStudio được **chuyển hẳn vào package `drive2sim/recon/`** (mục 3), cùng một `pyproject.toml`, thay vì để các thư mục `datasets/`, `models/`, `utils/`, `tools/` ở gốc repo. Branch `drive2sim` được dùng làm dòng chính của nhóm từ đây.
 
@@ -325,17 +325,17 @@ Thiết kế đích: một đường duy nhất `NCore → thư mục DriveStudi
 drivestudio_plus/                          branch drive2sim
 ├── pyproject.toml                         package drive2sim; pip install -e .
 ├── requirements.txt                       thư viện nặng (PyTorch, gsplat-geer, ...)
-├── configs/
-│   ├── methods/                           config method: <method>[_<biến thể>].yaml; paper_legacy/
-│   └── datasets/                          <dataset>/<số camera>cams.yaml; ncore/ (mới)
 ├── docs/
 │   ├── datasets/                          hướng dẫn tải và tiền xử lý: <dataset>.md, human_pose.md
 │   ├── methods/                           ghi chú phương pháp: 3dgeer.md, fastgs.md
 │   ├── media/                             hình cho README
 │   └── drive2sim/                         SPEC.md, ARCHITECTURE.md, CONTRACTS.md
 ├── drive2sim/
-│   ├── paths.py                           đường dẫn tới assets/ trong package
+│   ├── paths.py                           đường dẫn tới assets/ và drive2sim/configs/ trong package
 │   ├── assets/                            ego_masks/<dataset>/<camera>.png, scene_lists/<dataset>_*.txt
+│   ├── drive2sim/configs/
+│   │   ├── methods/                       config method: <method>[_<biến thể>].yaml; paper_legacy/
+│   │   └── datasets/                      <dataset>/<số camera>cams.yaml; ncore/ (mới)
 │   ├── recon/                             mã tái dựng (từ DriveStudio)
 │   │   ├── data/                          đọc dữ liệu đã tiền xử lý để train
 │   │   │   ├── base/                      pixel_source, lidar_source, scene_dataset, split_wrapper
@@ -369,11 +369,13 @@ drivestudio_plus/                          branch drive2sim
 └── tests/drive2sim/           (mới)       cùng cây thư mục với drive2sim/
 ```
 
+Ở gốc repo chỉ còn những thứ không phải code của package: `docs/`, `tests/`, `third_party/`, `envs/`, `pyproject.toml`, `requirements.txt`. Config method, config dataset, file approach và assets đều nằm trong package, nên cài bằng `pip install` là có đủ; code tìm chúng qua `drive2sim/paths.py`, không phụ thuộc thư mục đang đứng.
+
 Phân chia trong `drive2sim/recon/`:
 - `preprocess/` chỉ chạy một lần trên dữ liệu gốc, ghi ra thư mục DriveStudio; `data/` chỉ đọc thư mục đó khi train. Loader không import gì từ `preprocess/`.
 - Trong một nhóm, file đặt theo vai trò (`process.py`, `human.py`, `preview.py`), không lặp tên dataset trong tên file vì thư mục đã mang tên dataset.
 
-Chạy script bằng `python -m`, ví dụ `python -m drive2sim.recon.tools.train`, `python -m drive2sim.recon.preprocess.run`. Chuỗi import trong config theo đường dẫn mới, ví dụ `drive2sim.recon.models.nodes.RigidNodes`, `drive2sim.recon.data.loaders.nuscenes.NuScenesPixelSource`.
+Chạy script bằng `python -m`, ví dụ `python -m drive2sim.recon.tools.train --config_file drive2sim/configs/methods/omnire.yaml`, `python -m drive2sim.recon.preprocess.run`. Chuỗi import trong config theo đường dẫn mới, ví dụ `drive2sim.recon.models.nodes.RigidNodes`, `drive2sim.recon.data.loaders.nuscenes.NuScenesPixelSource`.
 
 ### 3.1 Code mới đặt ở đâu
 
@@ -384,14 +386,14 @@ Chạy script bằng `python -m`, ví dụ `python -m drive2sim.recon.tools.trai
 | Loại artifact mới | `drive2sim/core/schema.py` | giá trị mới của `artifact_type` | Bảng CONTRACTS mục 5.4 |
 | Approach mới | `drive2sim/approaches/` | `<approach_id>.yaml` | Tự nạp khi engine khởi động |
 | Lựa chọn mới cho một ô (ví dụ `init.slam`) | Stage mới như trên | | Thêm vào `options.<ô>.choices` của approach |
-| Method, node, loại Gaussian mới | `drive2sim/recon/models/nodes/` hoặc `drive2sim/recon/models/gaussians/` | `<tên>.py`; lớp theo quy ước sẵn có (`<Tên>Nodes`, `<Tên>Gaussians`) | Config method trong `configs/methods/`; giá trị mới cho tham số `method` của `train.drivestudio` |
-| Loader dữ liệu | `drive2sim/recon/data/loaders/` | `ncore.py`: chỉ một loader NCore; không thêm loader riêng cho dataset mới, dataset mới đi qua `ingest/` | Chuỗi `data.pixel_source.type` trong `configs/datasets/ncore/` |
+| Method, node, loại Gaussian mới | `drive2sim/recon/models/nodes/` hoặc `drive2sim/recon/models/gaussians/` | `<tên>.py`; lớp theo quy ước sẵn có (`<Tên>Nodes`, `<Tên>Gaussians`) | Config method trong `drive2sim/configs/methods/`; giá trị mới cho tham số `method` của `train.drivestudio` |
+| Loader dữ liệu | `drive2sim/recon/data/loaders/` | `ncore.py`: chỉ một loader NCore; không thêm loader riêng cho dataset mới, dataset mới đi qua `ingest/` | Chuỗi `data.pixel_source.type` trong `drive2sim/configs/datasets/ncore/` |
 | Tiện ích dùng chung của phần tái dựng | `drive2sim/recon/utils/` | `<chủ_đề>.py` | |
-| Config method | `configs/methods/` | `<method>.yaml`; biến thể `<method>_<biến thể>.yaml` kế thừa từ config gốc, chỉ ghi phần khác | |
+| Config method | `drive2sim/configs/methods/` | `<method>.yaml`; biến thể `<method>_<biến thể>.yaml` kế thừa từ config gốc, chỉ ghi phần khác | |
 | Bước tiền xử lý dữ liệu gốc cho DriveStudio (tạm, cho tới khi có `ingest/`) | `drive2sim/recon/preprocess/<dataset>/` hoặc `drive2sim/recon/preprocess/<loại>/` | `process.py`, `human.py`, `preview.py`; loại chung: `masks/`, `smpl/` | Nhánh `--dataset` trong `drive2sim/recon/preprocess/run.py` |
 | Hàm render, video | `drive2sim/recon/rendering/` | `<chủ_đề>.py` | |
 | Hướng dẫn dataset, ghi chú phương pháp | `docs/datasets/`, `docs/methods/` | `<tên>.md` chữ thường | |
-| Config dataset cho loader NCore | `configs/datasets/ncore/` | `<số camera>cams.yaml` | |
+| Config dataset cho loader NCore | `drive2sim/configs/datasets/ncore/` | `<số camera>cams.yaml` | |
 | File đi kèm package (mask thân xe, danh sách cảnh) | `drive2sim/assets/<loại>/` | | Truy cập qua `drive2sim/paths.py`, không dùng đường dẫn tương đối theo thư mục đang chạy |
 | Codebase ngoài | `drive2sim/external/<codebase>/` | `worker.py`; môi trường ở `envs/<codebase>.yml` | Stage `train.external` với tham số `codebase: <tên>` |
 | Lệnh CLI mới | `drive2sim/cli/<nhóm>.py` | hàm `<hành_động>` | Theo CONTRACTS mục 10.4 |
@@ -453,7 +455,7 @@ Trong `train.drivestudio`, tổ hợp scene graph, renderer và luật densify v
 
 ### 4.4 Tầng tái dựng (DriveStudio)
 
-Stage `train.drivestudio` train bằng trainer trong `drive2sim/recon/trainers/` với config method và config dataset `configs/datasets/ncore/`. Sau refactor: trainer nhận `points_init` từ stage `init.*`; đánh giá do `eval.standard` gọi, không còn chạy ở cuối `drive2sim/recon/tools/train.py`.
+Stage `train.drivestudio` train bằng trainer trong `drive2sim/recon/trainers/` với config method và config dataset `drive2sim/configs/datasets/ncore/`. Sau refactor: trainer nhận `points_init` từ stage `init.*`; đánh giá do `eval.standard` gọi, không còn chạy ở cuối `drive2sim/recon/tools/train.py`.
 
 ### 4.5 engine và approaches
 
@@ -568,7 +570,7 @@ Loader 7 dataset; tiền xử lý (mask, SMPL); OmniRe, Street GS, PVG, Deformab
 | Đánh giá chạy ở cuối `drive2sim/recon/tools/train.py` | `do_evaluation` trong `drive2sim/recon/tools/train.py`, `drive2sim/recon/tools/eval.py` | Tách thành stage `eval.standard` |
 | Chỉ một kiểu split: test là các khung N, 2N, 3N... với mọi camera; 19 trên 21 config dataset đặt `test_image_stride: 0`, tức không có khung test | `split_train_test` trong `drive2sim/recon/data/driving_dataset.py` | Trước mắt chỉ dùng kiểu `every_nth_frame` (CONTRACTS mục 3.1); sau mới nhận split tuỳ ý |
 | ~~Chạy tiếp hỏng~~ **Đã sửa, chưa chạy thử:** trước đây khi có `--resume_from` thì không lưu checkpoint nữa; checkpoint chỉ có model; nạp optimizer báo `NotImplementedError`; chạy tiếp lặp lại bước đã lưu. Nay mỗi lần lưu ghi thêm `checkpoint_resume.pth` (model, optimizer, grad scaler; ghi đè, ghi qua file tạm rồi đổi tên), chạy tiếp nạp lại optimizer và bắt đầu từ bước sau bước đã lưu; khi train xong thì xoá file này | `drive2sim/recon/tools/train.py`, `drive2sim/recon/trainers/base.py` (`state_dict`, `load_state_dict`, `initialize_optimizer`, `save_checkpoint`) | Chạy thử trên Kaggle: ngắt giữa chừng, chạy tiếp, so với run không ngắt. Số liệu tích luỹ cho densify giữa hai lần refine và trạng thái ngẫu nhiên của bộ lấy mẫu ảnh chưa được lưu |
-| Config chép nguyên file: `streetgs_nocampose.yaml` khác `streetgs.yaml` 9 dòng trên 148; các bản `_ut`, `_geer`, `_fastgs` khác 10–19 dòng | `configs/*.yaml` | Một config gốc cho mỗi method; biến thể chỉ ghi phần khác, ứng với các ô chọn |
+| Config chép nguyên file: `streetgs_nocampose.yaml` khác `streetgs.yaml` 9 dòng trên 148; các bản `_ut`, `_geer`, `_fastgs` khác 10–19 dòng | `drive2sim/configs/*.yaml` | Một config gốc cho mỗi method; biến thể chỉ ghi phần khác, ứng với các ô chọn |
 | Render nằm lẫn trong viewer và trainer | `drive2sim/recon/tools/viewer.py` (2523 dòng), `drive2sim/recon/trainers/base.py` (1125 dòng) | Tách hàm render dùng riêng cho `sim/` |
 | Export không có sky, SMPL, vật biến dạng; SH của xe không xoay theo xe | `drive2sim/recon/tools/export_ply.py` | Ghi rõ giới hạn; mở rộng cho `export.preview` |
 | Không có test | | `tests/drive2sim/`, bắt đầu bằng kiểm tra hồi quy của loader |
@@ -583,7 +585,7 @@ Loader 7 dataset; tiền xử lý (mask, SMPL); OmniRe, Street GS, PVG, Deformab
 
 ### 7.4 Thứ tự làm
 
-0. **Di chuyển mã DriveStudio vào `drive2sim/recon/`** (đã làm, hai lượt): đổi chỗ file, sửa import trong mã và chuỗi import trong config, thêm `pyproject.toml`, `drive2sim/paths.py` cho `assets/`; lượt hai tách `preprocess/` khỏi `data/loaders/`, chuyển import tương đối sang tuyệt đối, gom config method vào `configs/methods/`, docs vào `docs/datasets/` và `docs/methods/`. Đã kiểm tra tĩnh (mọi import `drive2sim...` và mọi chuỗi import trong config trỏ tới lớp có thật); **chưa chạy thật**.
+0. **Di chuyển mã DriveStudio vào `drive2sim/recon/`** (đã làm, hai lượt): đổi chỗ file, sửa import trong mã và chuỗi import trong config, thêm `pyproject.toml`, `drive2sim/paths.py` cho `assets/`; lượt hai tách `preprocess/` khỏi `data/loaders/`, chuyển import tương đối sang tuyệt đối, gom config method vào `configs/methods/`, docs vào `docs/datasets/` và `docs/methods/`; lượt ba chuyển `configs/` vào `drive2sim/configs/`. Đã kiểm tra tĩnh (mọi import `drive2sim...` và mọi chuỗi import trong config trỏ tới lớp có thật); **chưa chạy thật**.
 1. **Kaggle chạy tiếp được:** sửa chạy tiếp (mục 7.2; đã sửa trong code, chưa chạy thử) và làm `drive2sim/kaggle/`. Chạy được OmniRe trên cảnh nuScenes mini mà teammate đã dùng; đây cũng là lần kiểm tra hành vi của bước 0.
 2. **Engine và stage bọc mã hiện có:** registry, file approach có ô chọn, `train.drivestudio`, `eval.standard`, `render.videos`, `export.ply_world`, `run.json`, CLI `d2s`. Đạt L1 theo thiết kế; Studio nhóm A–D làm song song.
 3. **Tầng dữ liệu:** nuScenes mini → NCore bằng converter có sẵn (thử chạy không cần Bazel, trên Kaggle) → `prep.to_drivestudio` → loader NCore → kiểm tra hồi quy với loader cũ.
