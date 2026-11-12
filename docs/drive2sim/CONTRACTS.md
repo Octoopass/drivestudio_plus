@@ -602,7 +602,7 @@ Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dà
 | `d2s scene validate <scene_id>` | Kiểm tra lại, ghi `validation.json` |
 | `d2s scene list` / `d2s scene show <scene_id>` | Liệt kê cảnh; xem manifest và báo cáo |
 | `d2s scene delete <scene_id>` | Xoá dữ liệu chuẩn, split, cache và run của cảnh; hỏi xác nhận |
-| `d2s split create <scene_id> --strategy every_nth_frame:8 --cameras <id,...> [--split <split_id>]` | Tạo split |
+| `d2s split create <scene_id> --strategy every_nth_frame:8 [--cameras <id,...>] [--frame-range <đầu>,<cuối>] [--split <split_id>]` | Tạo split; mặc định mọi camera và cả cảnh, tên theo mục 10.1 |
 | `d2s split list <scene_id>` / `d2s split show <scene_id> <split_id>` / `d2s split delete <scene_id> <split_id>` | Liệt kê, xem, xoá split |
 | `d2s approach list` / `d2s approach show <approach_id>` | Liệt kê approach; xem ô chọn, preset, ràng buộc |
 | `d2s approach check <approach_id> --scene <scene_id> --split <split_id> [--preset <tên>] [--set <ô>=<giá trị>]...` | Kiểm tra điều kiện và in danh sách stage sẽ chạy, stage nào dùng lại cache |
@@ -619,7 +619,7 @@ Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dà
 Quy tắc chung:
 - Mẫu lệnh là `d2s <nhóm> <hành động>`. Nhóm chỉ có một hành động thì là lệnh đơn (`report`, `studio`, `serve`); khi nhóm đó có hành động thứ hai thì tách thành `<nhóm> <hành động>` và giữ lệnh đơn cũ làm bí danh một phiên bản. `d2s-worker` là entrypoint riêng vì chạy trong môi trường khác (mục 9.1).
 - Đối tượng chính đi theo vị trí (`<run_id>`, `<scene_id>`); các định danh khác đi theo tuỳ chọn (`--scene`, `--split`). Lệnh về split nhận `<scene_id> <split_id>` theo thứ tự cha trước con.
-- Tuỳ chọn chung cho mọi lệnh: `--workdir <thư mục>` (ưu tiên hơn `D2S_WORKDIR`), `--json`, `--verbose` / `--quiet`, `--yes` (bỏ hỏi xác nhận), `--help`; `d2s --version` in phiên bản tool và `schema_version` hiện tại của từng loại file.
+- Tuỳ chọn chung cho mọi lệnh: `--workdir <thư mục>` (ưu tiên hơn `D2S_WORKDIR`), `--json`, `--verbose` / `--quiet`, `--yes` (bỏ hỏi xác nhận), `--help`; viết **sau** tên lệnh (`d2s run list --json`). `d2s --version` in phiên bản tool.
 - **Không dùng cờ ngắn** (`-s`, `-v`), trừ `-h` cho `--help`. Tuỳ chọn dài đọc là hiểu, không phải tra bảng; thêm cờ ngắn sau này không phá gì vì chỉ là bí danh.
 - Tham số danh sách: một chuỗi cách nhau bằng dấu phẩy, không có khoảng trắng (`--cameras CAM_FRONT,CAM_BACK`). Chỉ `--set` lặp lại tuỳ chọn, vì mỗi lần là một cặp khoá và giá trị.
 - `--set <ô>=<giá trị>` lặp lại được, dùng cho cả ô chọn và tham số stage (`--set train.drivestudio.num_iters=10000`). Kiểu giá trị theo mục 10.3.

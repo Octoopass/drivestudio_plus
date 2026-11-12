@@ -202,6 +202,55 @@ def create_run(
     return run_dir
 
 
+def preview_reuse(
+    plan: Plan, scene: Scene, split: Split, workdir: Workdir, registry: StageRegistry = REGISTRY
+) -> list[bool]:
+    """Đoán trước stage nào của một run mới sẽ dùng lại kết quả có sẵn trong cache.
+
+    Dùng cho ``d2s approach check`` và màn hình chọn approach của Studio, để người dùng biết
+    trước phần nào chạy lại, phần nào không. Khoá cache được tính giống hệt lúc chạy thật
+    (``identifiers.make_cache_key`` trên tham số và khoá đầu vào). Stage không cache luôn chạy
+    trong run mới; stage có cache nhận đầu vào từ một stage không cache thì khoá phụ thuộc
+    ``run_id`` chưa có, nên cũng tính là sẽ chạy.
+
+    Args:
+        plan: Kết quả của ``resolve``.
+        scene: Cảnh của run.
+        split: Split của run.
+        workdir: Thư mục làm việc, để tìm trong ``cache/``.
+        registry: Bảng stage.
+
+    Returns:
+        Mỗi stage một giá trị, cùng thứ tự với ``plan.stages``: ``True`` nếu sẽ dùng lại cache.
+    """
+    cache = CacheStore(workdir.cache_dir)
+    keys: list[Optional[str]] = []
+    reused: list[bool] = []
+    for stage in plan.stages:
+        input_keys: list[Optional[str]] = []
+        for source in stage.input_sources.values():
+            if source == SCENE_INPUT:
+                input_keys.append(
+                    input_key_for_scene(scene.scene_id, scene.manifest.source.converter_version)
+                )
+            elif isinstance(source, int):
+                input_keys.append(keys[source])
+            else:
+                input_keys.append(input_key_for_split(split.split_id))
+        key = None
+        if stage.cacheable and None not in input_keys:
+            key = identifiers.make_cache_key(
+                scene.scene_id,
+                stage.stage_id,
+                registry.get(stage.stage_id).version,
+                stage.params,
+                [k for k in input_keys if k is not None],
+            )
+        keys.append(key)
+        reused.append(key is not None and cache.lookup(key) is not None)
+    return reused
+
+
 @dataclass
 class _StageContext:
     """Ngữ cảnh engine đưa cho một stage đang chạy (cài interface ``StageContext``).

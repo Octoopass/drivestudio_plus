@@ -71,7 +71,9 @@ def make_split(
         cameras: Danh sách ``camera_id`` dùng trong split.
         frame_range: Khung đầu và khung cuối của đoạn, tính cả hai đầu.
         strategy: Chuỗi chiến lược, ví dụ ``"every_nth_frame:8"``.
-        split_id: Tên split; mặc định là ``every<N>_cams<số camera>``.
+        split_id: Tên split; mặc định là ``every<N>_<k>cams`` với ``k`` là số camera
+            (CONTRACTS mục 10.1). Người gọi biết split dùng mọi camera của cảnh thì nên truyền
+            ``every<N>_allcams``.
 
     Returns:
         Split đã kiểm tra theo schema.
@@ -87,7 +89,7 @@ def make_split(
     train, test = every_nth_frame_pairs(frame_range, cameras, n)
     return Split(
         schema_version=SCHEMA_VERSIONS["split"],
-        split_id=split_id or f"every{n}_cams{len(cameras)}",
+        split_id=split_id or f"every{n}_{len(cameras)}cams",
         scene_id=scene_id,
         strategy=strategy,
         frame_range=frame_range,
