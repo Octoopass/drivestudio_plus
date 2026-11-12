@@ -193,7 +193,7 @@ stages:                            # chạy lần lượt; ${...} được thay 
 - Một stage dùng được artifact của bất kỳ stage nào đứng trước. Engine nối theo kiểu artifact: stage cần `points_init` nhận artifact `points_init` gần nhất phía trước.
 - `${options.<tên ô>}` được thay bằng lựa chọn cụ thể trước khi chạy. Sau khi thay, danh sách stage là cố định; không có điều kiện, nhánh song song hay vòng lặp lúc đang chạy.
 - Tham số cuối cùng của một stage được gộp theo thứ tự: mặc định của stage → `params` trong file → preset → lựa chọn của người dùng (Studio hoặc `--set` của CLI).
-- `train.drivestudio` đổi `method`, `renderer`, `campose`, `fastgs` sang config và tham số của DriveStudio (ví dụ `renderer: 3dgeer` → `trainer.render.render_mode: geer`, kèm `densify_grad_thresh: 0.01` và `refine_interval: 300` như các config 3DGEER của teammate).
+- `train.drivestudio` chọn **một file config có sẵn** trong `drive2sim/configs/methods/` theo bốn tham số `method`, `renderer`, `campose`, `fastgs` (bảng `CONFIG_FILES` trong `drive2sim/stages/train/drivestudio.py`), không tự sửa tham số train. Ví dụ `streetgs` + `3dgeer` + `fastgs: true` dùng `streetgs_geer_fastgs.yaml`. Tổ hợp chưa có file config bị từ chối khi kiểm tra tham số, và file approach khai báo `constraints` để Studio, CLI khoá sẵn các tổ hợp đó.
 
 ### 4.2 Điều kiện chạy
 
@@ -284,9 +284,9 @@ Riêng `train.*`: chạy tiếp bằng `checkpoint_resume.pth` (model, optimizer
 | `smpl` | Tư thế người theo khung, định dạng của `drive2sim/recon/preprocess/smpl/run.py` |
 | `depth_prior` | Depth metric theo camera và khung, lưu như `masks`; kèm tên model |
 | `points_init` | `points_init.npz`: `points` `float32[M,3]` trong hệ `world`, `colors` `uint8[M,3]`, `track_ids` (tuỳ chọn) |
-| `drivestudio_scene` | Thư mục cảnh theo định dạng tiền xử lý của DriveStudio, do `prep.to_drivestudio` ghi |
-| `model` | Checkpoint ở định dạng gốc của codebase |
-| `eval_report` | Kết quả đánh giá theo protocol, nguồn của `d2s/summary.json` |
+| `drivestudio_scene` | Một `data_root` theo định dạng tiền xử lý của DriveStudio, chứa đúng một cảnh ở `000/`; camera đánh số theo thứ tự trong `cameras` của manifest. Do `prep.to_drivestudio` ghi |
+| `model` | Thư mục log của codebase; với DriveStudio có `checkpoint_final.pth`, `config.yaml`, `metrics/`, `videos/` (mục 6.1) |
+| `eval_report` | Thư mục chứa `summary.json` (mục 6.3) và metric gốc của codebase |
 | `videos` | Video MP4 H.264 |
 | `export_ply` | PLY 3DGS trong hệ `world` |
 | `preview` | Gói xem trước cho Spark (mục 7) |
@@ -295,25 +295,31 @@ Riêng `train.*`: chạy tiếp bằng `checkpoint_resume.pth` (model, optimizer
 
 ### 6.1 Cấu trúc
 
-Thư mục run chính là thư mục log của DriveStudio: `drive2sim/recon/tools/train.py` ghi vào `os.path.join(output_root, project, run_name)`. Engine đặt `output_root = runs/<scene_id>`, `project = <approach_id>`, `run_name = <run_id>`.
+Mỗi stage chỉ ghi vào thư mục của nó (mục 5.1). Thư mục log của DriveStudio vì vậy là thư mục của stage `train.drivestudio`: stage đặt `output_root`, `project`, `run_name` của `train.py` sao cho `os.path.join(output_root, project, run_name)` trùng thư mục đó.
 
 ```
 runs/<scene_id>/<approach_id>/<run_id>/
-├── config.yaml                  # DriveStudio ghi: config đầy đủ sau khi gộp
-├── metrics.json                 # DriveStudio ghi: log metric trong lúc train
-├── metrics/images_test_*.json   # DriveStudio ghi: kết quả đánh giá
-├── videos/ images/ configs_bk/ backup/
-├── checkpoint_<bước>.pth         # chỉ model, sau mỗi lần lưu
-├── checkpoint_resume.pth        # model + optimizer + grad scaler, ghi đè mỗi lần lưu; xoá khi train xong
-├── checkpoint_final.pth         # chỉ model
-└── d2s/                         # tool ghi
+└── d2s/
     ├── run.json
-    ├── summary.json
     ├── env.json
-    └── stages/<stage_id>/       # kết quả stage không cache, có file done
+    ├── log.txt                          # log của engine, traceback của stage lỗi
+    └── stages/
+        ├── train.drivestudio/           # thư mục log của DriveStudio
+        │   ├── config.yaml              # config đầy đủ sau khi gộp
+        │   ├── metrics.json             # metric trong lúc train
+        │   ├── metrics/images_test_*.json
+        │   ├── videos/ images/ configs_bk/ backup/
+        │   ├── checkpoint_<bước>.pth     # chỉ model, sau mỗi lần lưu
+        │   ├── checkpoint_resume.pth    # model + optimizer + grad scaler; xoá khi train xong
+        │   ├── checkpoint_final.pth
+        │   ├── log.txt                  # stdout và stderr của train.py
+        │   ├── artifact.json
+        │   └── done
+        ├── eval.standard/               # summary.json, artifact.json, done
+        └── export.ply_world/            # scene.ply, scene.json, artifact.json, done
 ```
 
-File của tool nằm trong `d2s/` để không trùng tên với file của DriveStudio (DriveStudio đã dùng `metrics.json`).
+Gốc thư mục run chỉ có `d2s/`, nên file của tool không trùng tên với file của codebase.
 
 ### 6.2 `d2s/run.json`
 
@@ -350,15 +356,15 @@ File của tool nằm trong `d2s/` để không trùng tên với file của Dri
 - Stage dùng lại kết quả cũ (cache hoặc file `done`) có `duration_s` và `peak_vram_mb` bằng 0. Khi chạy tiếp, stage đã `succeeded` từ lần trước giữ nguyên số đo cũ.
 - Thay đổi từ `0.1`: thêm `created_utc`, `stages[].params`, `stages[].error`; file `0.1` vẫn đọc được.
 
-### 6.3 `d2s/summary.json`
+### 6.3 `summary.json`
 
-Tóm tắt metric theo protocol của SPEC mục 9, do `eval.standard` ghi.
+Tóm tắt metric theo protocol của SPEC mục 9, do `eval.standard` ghi vào thư mục của nó: `d2s/stages/eval.standard/summary.json`.
 
 ```json
 {
-  "schema_version": "d2s-summary/0.1",
-  "protocol": {"version": "0.1", "image_dtype": "uint8", "resolution": "native",
-               "lpips": {"net": "alex", "package": "lpips", "package_version": "0.1.4"}},
+  "schema_version": "d2s-summary/0.2",
+  "protocol": {"version": "0.1", "image_dtype": "uint8", "resolution": "downscale_when_loading=[2, 2, 2], downscale=1",
+               "lpips": {"net": "alex", "package": "torchmetrics", "package_version": "0.10.3"}},
   "split_id": "every8_allcams",
   "overall": {"psnr": 27.1, "ssim": 0.83, "lpips": 0.21,
               "human_psnr": 23.4, "vehicle_psnr": 24.0, "occupied_psnr": 26.2},
@@ -370,6 +376,10 @@ Tóm tắt metric theo protocol của SPEC mục 9, do `eval.standard` ghi.
 ```
 
 Các con số trong ví dụ chỉ minh hoạ định dạng. Metric vùng người, vùng xe chỉ có khi cảnh có box.
+
+- `train_time_s`, `peak_vram_mb`, `num_gaussians` để trống (`null`) khi stage đánh giá không biết. Với `train.drivestudio`, thời gian và VRAM của từng stage luôn có trong `run.json`; số Gaussian chưa đọc được khi không nạp checkpoint.
+- `per_camera` để trống với DriveStudio, vì `train.py` không tách metric theo camera.
+- Thay đổi từ `0.1`: ba trường trên thành tuỳ chọn.
 
 ### 6.4 `d2s/env.json`
 
@@ -566,7 +576,7 @@ Notebook chạy `d2s run start --bundle bundle/`, ghi kết quả ra `/kaggle/wo
 - Config method (`drive2sim/configs/methods/`): `<method>.yaml` là config gốc; biến thể là `<method>_<biến thể>[_<biến thể>].yaml`, các biến thể xếp theo thứ tự cố định **renderer → densify → campose** (`geer`, `ut`; `fastgs`; `nocampose`), ví dụ `streetgs_geer_fastgs.yaml`. Biến thể kế thừa từ config gốc (mục 10.5). Config cũ chép nguyên file được giữ tới khi chuyển sang kế thừa (`ARCHITECTURE.md` mục 7.4 bước 5).
 - Config dataset (`drive2sim/configs/datasets/<dataset>/`): `<k>cams.yaml`; biến thể `<k>cams_<biến thể>.yaml`, ví dụ `7cams_native.yaml` (giữ mô hình camera gốc, không khử méo).
 - Mask thân xe: `drive2sim/assets/ego_masks/<dataset>/<chỉ số camera>.png`, chỉ số là vị trí camera trong danh sách `cameras` của manifest (bắt đầu từ 0). Mỗi dataset có một bảng chỉ số ↔ `camera_id` trong `drive2sim/recon/data/dataset_meta.py`; code mới dùng `camera_id`, chỉ đổi sang chỉ số ở biên với mã DriveStudio.
-- File bên trong một artifact (mục 5.4): `videos/<camera_id>_<loại>.mp4` với loại `gt`, `render`, `diff`, `side_by_side`; `eval_report/report.json` (nguồn của `summary.json`) và `eval_report/per_image.json`; `masks` và `depth_prior` là một component group NCore tên `ncore4-<stage tên>.zarr.itar`; `smpl/<track_id>.npz`.
+- File bên trong một artifact (mục 5.4): `videos/<camera_id>_<loại>.mp4` với loại `gt`, `render`, `diff`, `side_by_side`; `eval_report` gồm `summary.json` và metric gốc của codebase (`drivestudio_metrics.json` với DriveStudio); `masks` và `depth_prior` là một component group NCore tên `ncore4-<stage tên>.zarr.itar`; `smpl/<track_id>.npz`.
 - Log: `d2s/log.txt` trong thư mục run là log của engine cho cả run, gồm traceback của stage lỗi. Stage chạy qua worker (mục 9.1) có thêm `log.txt` trong thư mục kết quả của stage, ghi stdout và stderr của worker.
 
 ### 10.3 Tên trường và tham số

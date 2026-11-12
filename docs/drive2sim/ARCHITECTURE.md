@@ -365,9 +365,9 @@ drivestudio_plus/                          branch drive2sim
 │   │   └── tools/                         train.py, eval.py, viewer.py, export_ply.py, gather_results.py (thay dần bằng stage và CLI)
 │   ├── core/                              identifiers.py, schema.py, files.py, split.py (đã có); transforms.py, camera.py, ncore_io.py (chưa có)
 │   ├── ingest/                (khung)     <dataset>.py: converter → NCore V4; validate.py
-│   ├── stages/                (khung)     prep/, init/, train/, eval/, render/, export/: mỗi stage một file
+│   ├── stages/                            commands.py; train/drivestudio.py, eval/standard.py, export/ply_world.py (đã có); prep/, init/, render/ (khung)
 │   ├── engine/                            stage.py, registry.py, resolve.py, workdir.py, cache.py, run.py
-│   ├── approaches/            (khung)     <approach_id>.yaml
+│   ├── approaches/                        omnire.yaml, streetgs.yaml
 │   ├── kaggle/                (khung)     client.py, bundle.py, templates/<tên>.ipynb
 │   ├── sim/                   (khung)     renderer.py (L2), actors.py (L3), server/ (L4; protos/ từ NuRec)
 │   ├── studio/                (khung)     api/ (app.py, routes/<nhóm>.py), viz/, frontend/ (Vite + React)
@@ -583,7 +583,8 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (NCore V4 + manifest.ya
 | `engine`: interface stage và registry | Xong; kiểm tra khai báo stage lúc đăng ký | `35bc590` |
 | `engine`: resolve (ô chọn, preset, `auto`, điều kiện dữ liệu, ràng buộc, nối đầu vào) | Xong | `37d5159` |
 | `engine`: thư mục làm việc, cache, tạo và chạy run (chạy tiếp, huỷ, ghi lỗi) | Xong; chạy với stage giả; 108 test đạt trên Python 3.9 và 3.12 | |
-| `stages` thật, `approaches`, `cli` | Chưa làm | |
+| Stage bọc DriveStudio: `train.drivestudio`, `eval.standard`, `export.ply_world`; approach `omnire`, `streetgs` | Xong trong code; dựng lệnh có test; **chưa chạy thật** (cần GPU); approach chưa chạy được tới khi có `prep.to_drivestudio` | |
+| `cli` | Chưa làm | |
 | Studio (`studio/api`, `studio/frontend`, `studio/viz`) | Chưa làm | |
 | Kaggle (`kaggle/`), `envs/main.yml` | Chưa làm; cần teammate trả lời mục 8 câu 1 | |
 | Tầng dữ liệu NCore (`ingest/`, loader `ncore.py`) | Chưa làm | |

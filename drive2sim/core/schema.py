@@ -99,7 +99,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "approach": "d2s-approach/0.1",
     "artifact": "d2s-artifact/0.1",
     "run": "d2s-run/0.2",
-    "summary": "d2s-summary/0.1",
+    "summary": "d2s-summary/0.2",
     "env": "d2s-env/0.1",
     "preview": "d2s-preview/0.1",
     "job": "d2s-job/0.1",
@@ -1052,19 +1052,20 @@ class Metrics(StrictModel):
 
 
 class Summary(VersionedFile):
-    """Schema của file ``d2s/summary.json``: tóm tắt kết quả đánh giá của một run.
+    """Schema của file ``summary.json``: tóm tắt kết quả đánh giá của một run.
 
-    Stage ``eval.standard`` ghi file này; Studio và ``d2s report`` đọc nó để lập bảng xếp hạng
-    (CONTRACTS mục 6.3).
+    Stage ``eval.standard`` ghi file này vào thư mục của nó; Studio và ``d2s report`` đọc nó để
+    lập bảng xếp hạng (CONTRACTS mục 6.3).
 
     Attributes:
         protocol: Protocol đánh giá.
         split_id: Split đã đánh giá.
         overall: Metric trên mọi camera.
         per_camera: ``camera_id`` → metric của camera đó.
-        train_time_s: Thời gian train, giây.
-        peak_vram_mb: VRAM cao nhất khi train, megabyte.
-        num_gaussians: Số Gaussian của model cuối.
+        train_time_s: Thời gian train, giây; để trống nếu stage đánh giá không biết (thời gian
+            của từng stage luôn có trong ``run.json``).
+        peak_vram_mb: VRAM cao nhất khi train, megabyte; để trống nếu không biết.
+        num_gaussians: Số Gaussian của model cuối; để trống nếu không đọc được.
     """
 
     FILE_KIND: ClassVar[str] = "summary"
@@ -1072,9 +1073,9 @@ class Summary(VersionedFile):
     split_id: str
     overall: Metrics
     per_camera: dict[str, Metrics] = {}
-    train_time_s: float = Field(ge=0)
-    peak_vram_mb: int = Field(ge=0)
-    num_gaussians: int = Field(ge=0)
+    train_time_s: Optional[float] = Field(default=None, ge=0)
+    peak_vram_mb: Optional[int] = Field(default=None, ge=0)
+    num_gaussians: Optional[int] = Field(default=None, ge=0)
 
 
 class EnvRecord(VersionedFile):

@@ -1,0 +1,60 @@
+# Approach Street Gaussians: dựng cảnh bằng trainer DriveStudio với method Street Gaussians (nền
+# và xe, không có người SMPL). Định dạng file: CONTRACTS mục 4.1.
+#
+# Mỗi tổ hợp ô chọn được phép ứng với một file config có sẵn trong drive2sim/configs/methods/
+# (bảng CONFIG_FILES trong drive2sim/stages/train/drivestudio.py); các ràng buộc bên dưới chặn
+# những tổ hợp chưa có file config.
+schema_version: d2s-approach/0.1
+approach_id: streetgs
+name: "Street Gaussians"
+version: 0.1.0
+codebase: drivestudio
+track: pinhole
+level: L1
+requires:
+  camera_models: [opencv_pinhole]
+  cuboids: required
+  split_strategies: [every_nth_frame]
+
+options:
+  renderer:
+    choices: [3dgs, 3dgut, 3dgeer]
+    default: 3dgs
+  campose:
+    choices: [false, true]
+    default: false
+  fastgs:
+    choices: [false, true]
+    default: false
+
+constraints:
+  - when: {renderer: 3dgut}
+    forbid: {campose: true}
+    reason: "3DGUT không tối ưu được pose camera"
+  - when: {renderer: 3dgeer}
+    forbid: {campose: true}
+    reason: "3DGEER không tối ưu được pose camera"
+  - when: {renderer: 3dgut}
+    forbid: {fastgs: true}
+    reason: "chưa có config Street Gaussians cho 3DGUT kèm FastGS"
+  - when: {fastgs: true}
+    forbid: {campose: true}
+    reason: "config FastGS của Street Gaussians tắt CamPose"
+
+presets:
+  paper: {campose: true}       # streetgs.yaml gốc của DriveStudio
+  ut: {renderer: 3dgut}
+  geer: {renderer: 3dgeer}
+  fastgs: {fastgs: true}
+  geer_fastgs: {renderer: 3dgeer, fastgs: true}
+
+stages:
+  - {stage: prep.to_drivestudio}
+  - stage: train.drivestudio
+    params:
+      method: streetgs
+      renderer: "${options.renderer}"
+      campose: "${options.campose}"
+      fastgs: "${options.fastgs}"
+  - {stage: eval.standard}
+  - {stage: export.ply_world}

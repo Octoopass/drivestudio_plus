@@ -1,0 +1,58 @@
+# Approach OmniRe: dựng cảnh bằng trainer DriveStudio với method OmniRe (nền, xe, người SMPL,
+# vật biến dạng). Định dạng file: CONTRACTS mục 4.1.
+#
+# Mỗi tổ hợp ô chọn được phép ứng với một file config có sẵn trong drive2sim/configs/methods/
+# (bảng CONFIG_FILES trong drive2sim/stages/train/drivestudio.py); các ràng buộc bên dưới chặn
+# những tổ hợp chưa có file config.
+#
+# Chưa có ô "init" (LiDAR hay depth): DriveStudio vẫn tự khởi tạo từ LiDAR bên trong trainer,
+# cho tới khi tách thành stage init.* (ARCHITECTURE mục 7.4 bước 4).
+schema_version: d2s-approach/0.1
+approach_id: omnire
+name: "OmniRe"
+version: 0.1.0
+codebase: drivestudio
+track: pinhole
+level: L1
+requires:
+  camera_models: [opencv_pinhole]
+  cuboids: required
+  split_strategies: [every_nth_frame]
+
+options:
+  renderer:
+    choices: [3dgs, 3dgeer]
+    default: 3dgs
+  campose:
+    choices: [false, true]
+    default: false
+  fastgs:
+    choices: [false, true]
+    default: false
+
+constraints:
+  - when: {renderer: 3dgeer}
+    forbid: {campose: true}
+    reason: "3DGEER không tối ưu được pose camera"
+  - when: {renderer: 3dgeer}
+    forbid: {fastgs: true}
+    reason: "chưa có config OmniRe cho 3DGEER kèm FastGS"
+  - when: {fastgs: true}
+    forbid: {campose: true}
+    reason: "config FastGS của OmniRe tắt CamPose"
+
+presets:
+  paper: {campose: true}       # omnire.yaml gốc của DriveStudio
+  geer: {renderer: 3dgeer}
+  fastgs: {fastgs: true}
+
+stages:
+  - {stage: prep.to_drivestudio}
+  - stage: train.drivestudio
+    params:
+      method: omnire
+      renderer: "${options.renderer}"
+      campose: "${options.campose}"
+      fastgs: "${options.fastgs}"
+  - {stage: eval.standard}
+  - {stage: export.ply_world}

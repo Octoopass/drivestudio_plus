@@ -14,3 +14,5 @@ EGO_MASKS_DIR = ASSETS_DIR / "ego_masks"
 SCENE_LISTS_DIR = ASSETS_DIR / "scene_lists"
 # Config method và config dataset của DriveStudio.
 CONFIGS_DIR = PACKAGE_DIR / "configs"
+# File khai báo approach: <approach_id>.yaml (CONTRACTS mục 4.1).
+APPROACHES_DIR = PACKAGE_DIR / "approaches"
