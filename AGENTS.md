@@ -86,37 +86,71 @@ Quy tắc thêm:
 
 ### 4.4 Docstring bằng tiếng Việt
 
-- Mọi module, lớp, hàm và phương thức công khai có docstring **bằng tiếng Việt**, theo quy ước PEP 257: dòng đầu là một câu tóm tắt, rồi một dòng trống, rồi phần giải thích.
-- Viết dễ hiểu: hàm làm gì, vì sao cần, dùng khi nào; nhắc tới mục docs liên quan nếu có (ví dụ `CONTRACTS mục 5.2`).
-- Giải thích từng tham số, giá trị trả về và lỗi có thể ném ra theo mẫu:
+**Mục tiêu:** người chưa đọc code, chỉ đọc docstring, vẫn hiểu được file, lớp, hàm đó làm gì, để làm gì, nhận gì, trả về gì và khi nào lỗi. Viết tiếng Việt đầy đủ câu, rõ ràng; không viết kiểu ghi chú cụt.
+
+Tiêu đề mục `Args:`, `Returns:`, `Raises:`, `Attributes:`, `Example:` giữ nguyên tiếng Anh vì `ruff` kiểm tra định dạng Google theo các tên này; nội dung bên dưới viết tiếng Việt.
+
+**Docstring của file (module)**, đặt ở đầu mọi file `.py`, gồm:
+1. Câu đầu: file này chứa gì.
+2. Danh sách các chức năng chính: mỗi lớp, hàm công khai quan trọng làm việc gì.
+3. File được dùng ở đâu, ở bước nào trong luồng của tool (ai gọi nó, gọi khi nào).
+4. Mục docs liên quan.
+
+```python
+"""Quản lý cache cho kết quả của các stage dùng chung giữa các approach.
+
+File này chứa:
+- ``CacheStore``: tìm thư mục cache đã có, tạo thư mục tạm ``.partial`` để ghi, và đổi tên
+  thành thư mục chính thức khi ghi xong.
+- ``input_key_for_scene``, ``input_key_for_split``: tạo khoá đại diện cho cảnh và split, để
+  khoá cache đổi theo khi cảnh hoặc split đổi.
+
+Engine (``drive2sim/engine/run.py``) dùng file này khi chạy một stage có ``cacheable = True``:
+nếu kết quả đã có trong cache thì dùng lại, không chạy lại stage. Xem ARCHITECTURE mục 2.7,
+CONTRACTS mục 5.2.
+"""
+```
+
+**Docstring của lớp**, gồm: lớp đại diện cho cái gì; dùng để làm gì; ai tạo và ai dùng nó; mục `Attributes:` giải thích từng thuộc tính.
+
+**Docstring của hàm và phương thức**, kể cả hàm nội bộ `_tên` khi hàm dài hơn vài dòng hoặc có logic không hiển nhiên, gồm:
+1. Câu đầu: hàm làm gì, bắt đầu bằng động từ.
+2. Đoạn giải thích: để làm gì, vì sao cần; cách làm nếu không hiển nhiên; gọi khi nào; ví dụ ngắn nếu giúp hiểu.
+3. `Args:` từng tham số: ý nghĩa, dạng giá trị, đơn vị, giá trị mặc định nghĩa là gì.
+4. `Returns:` trả về gì, ở dạng nào, kèm ví dụ khi dạng không hiển nhiên.
+5. `Raises:` lỗi nào, trong trường hợp nào.
 
 ```python
 def make_cache_key(
     scene_id: str, stage_id: str, version: str, params: dict, input_keys: Iterable[str]
 ) -> str:
-    """Tạo khoá cache cho kết quả của một stage có cache (CONTRACTS mục 5.2).
+    """Tạo khoá cache cho kết quả của một stage có cache.
 
-    Khoá chỉ băm tham số và khoá của các artifact đầu vào, không băm nội dung dữ liệu,
-    vì dữ liệu chuẩn không đổi sau khi ingest.
+    Khoá dùng để đặt tên thư mục trong ``cache/`` và để nhận ra một kết quả đã có sẵn: hai lần
+    chạy cùng stage, cùng phiên bản, cùng tham số và cùng đầu vào cho ra cùng khoá, nên lần sau
+    dùng lại kết quả của lần trước. Khoá chỉ băm tham số và khoá của đầu vào, không băm nội dung
+    dữ liệu, vì dữ liệu chuẩn không đổi sau khi ingest (CONTRACTS mục 5.2).
 
     Args:
-        scene_id: Định danh cảnh, dạng ``<dataset>_<sequence_id>``.
-        stage_id: Định danh stage, dạng ``<nhóm>.<tên>``.
+        scene_id: Định danh cảnh, dạng ``<dataset>_<sequence_id>``, ví dụ ``nuscenes_scene-0061``.
+        stage_id: Định danh stage, dạng ``<nhóm>.<tên>``, ví dụ ``init.depth``.
         version: Phiên bản của stage, dạng ``MAJOR.MINOR.PATCH``.
         params: Tham số đã gộp của stage.
-        input_keys: Khoá cache của các artifact đầu vào; thứ tự không quan trọng.
+        input_keys: Khoá của các đầu vào; thứ tự không ảnh hưởng tới kết quả.
 
     Returns:
-        Khoá dạng ``<scene_id>/<stage_id>@<version>-<hash8>``.
+        Khoá dạng ``<scene_id>/<stage_id>@<version>-<hash8>``, ví dụ
+        ``nuscenes_scene-0061/init.depth@0.1.0-9b03c2d1``.
 
     Raises:
-        ValueError: Nếu một định danh sai định dạng.
+        ValueError: Nếu ``scene_id``, ``stage_id`` hoặc ``version`` sai định dạng.
     """
 ```
 
-- Docstring theo quy ước Google (`Args:`, `Returns:`, `Raises:`), ruff kiểm tra định dạng.
-- Hàm test đặt tên mô tả rõ hành vi nên không bắt buộc docstring; module test vẫn có docstring.
-- Ngôn ngữ theo `CONTRACTS.md` mục 10.6: tên biến, hàm, lớp, khoá, mã lỗi bằng tiếng Anh; docstring, comment và **mọi thông báo cho người dùng** (thông báo CLI, `error.message` của worker và API) bằng tiếng Việt, viết rõ việc gì hỏng và làm gì tiếp. `ValueError` trong `drive2sim/core/` là thông báo kỹ thuật, giữ tiếng Anh; CLI và API bọc lại thành tiếng Việt.
+**Khác:**
+- Hàm test đặt tên mô tả rõ hành vi nên không bắt buộc docstring; file test vẫn có docstring nói file kiểm tra những gì.
+- Tên biến, hàm, lớp giữ tiếng Anh; docstring và comment tiếng Việt; ngôn ngữ của thông báo lỗi theo `CONTRACTS.md` mục 10.6.
+- Khi sửa một hàm có sẵn mà docstring chưa đạt chuẩn này, viết lại docstring trong cùng commit.
 
 ### 4.5 Comment
 
