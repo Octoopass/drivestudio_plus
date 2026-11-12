@@ -1,4 +1,16 @@
-"""Tạo split train/test (CONTRACTS mục 3.1)."""
+"""Tạo split train/test cho một cảnh.
+
+Split ghi ảnh nào (cặp chỉ số khung và camera) dùng để train và ảnh nào dùng để test; mọi
+approach đánh giá trên cùng split nên so sánh được với nhau (SPEC mục 6.4, CONTRACTS mục 3.1).
+
+File này chứa:
+- ``every_nth_frame_pairs``: tính các cặp train và test theo chiến lược ``every_nth_frame:N``,
+  khớp với cách DriveStudio chọn khung test bằng ``test_image_stride``.
+- ``make_split``: tạo đối tượng ``Split`` hoàn chỉnh từ chiến lược, đoạn khung và danh sách camera.
+- ``matches_strategy``: kiểm tra một split có đúng với chiến lược ghi trong nó không.
+
+Lệnh ``d2s split create`` sẽ gọi file này; file split được ghi bằng ``files.dump``.
+"""
 
 from collections.abc import Sequence
 from typing import Optional

@@ -1,7 +1,21 @@
-"""Định dạng các định danh của tool và hàm tạo định danh.
+"""Kiểm tra định dạng và tạo các định danh của tool (``scene_id``, ``stage_id``, ``run_id``...).
 
-Quy tắc định dạng lấy từ CONTRACTS mục 10.1. Mỗi hàm ``check_*`` trả lại chính giá trị nếu đúng
-định dạng và ném ``ValueError`` nếu sai, để dùng được trực tiếp trong validator của Pydantic.
+Mọi định danh theo một quy tắc chung ở CONTRACTS mục 10.1, để tên thư mục, tên file và khoá
+trong JSON đọc là hiểu và không trùng nhau.
+
+File này chứa:
+- Hằng ``DATASETS``, ``STAGE_GROUPS`` và các biểu thức chính quy của từng loại định danh.
+- Các hàm ``check_*`` (``check_scene_id``, ``check_stage_id``, ``check_run_id``,
+  ``check_cache_key``, ``check_version``, ``check_snake_case``): kiểm tra một giá trị đúng định
+  dạng. Mỗi hàm trả lại chính giá trị nếu đúng và ném ``ValueError`` nếu sai, để dùng trực tiếp
+  trong validator của Pydantic (``schema.py``).
+- ``make_cache_key``, ``make_run_id``: tạo khoá cache và ``run_id`` mới.
+- ``canonical_json``, ``short_hash``: chuẩn hoá dữ liệu thành JSON ổn định rồi băm, dùng cho
+  khoá cache.
+- ``parse_schema_version``: tách ``d2s-<loại>/<major>.<minor>``.
+
+Thông báo lỗi viết tiếng Anh vì là thông báo kỹ thuật; CLI và API bọc lại thành tiếng Việt
+(CONTRACTS mục 10.6).
 """
 
 import hashlib

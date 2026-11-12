@@ -1,7 +1,16 @@
-"""Đọc và ghi các file YAML/JSON của tool qua schema.
+"""Đọc và ghi các file YAML/JSON của tool, luôn kiểm tra theo schema.
 
-File người viết tay dùng YAML, file tool ghi ra dùng JSON (CONTRACTS mục 10.2). Mọi lần ghi đi
-qua một file tạm rồi đổi tên, nên tiến trình bị ngắt giữa chừng không để lại file hỏng.
+File người viết tay (manifest, approach) dùng YAML; file tool ghi ra (run, artifact, split...)
+dùng JSON (CONTRACTS mục 10.2). Mọi code đọc ghi các file này đi qua đây, để nội dung luôn được
+kiểm tra và lỗi luôn kèm tên file.
+
+File này chứa:
+- ``load``: đọc một file và kiểm tra theo một lớp schema cho trước.
+- ``load_any``: đọc một file, tự chọn lớp schema theo trường ``schema_version``.
+- ``dump``: ghi một đối tượng schema ra JSON hoặc YAML theo đuôi file.
+
+``dump`` ghi vào file tạm rồi đổi tên, nên tiến trình bị ngắt giữa chừng không để lại file hỏng:
+file đích luôn là bản cũ đầy đủ hoặc bản mới đầy đủ.
 """
 
 import json

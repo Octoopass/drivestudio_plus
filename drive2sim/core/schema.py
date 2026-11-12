@@ -1,8 +1,27 @@
-"""Schema của mọi file tool đọc và ghi (CONTRACTS mục 2–7).
+"""Định nghĩa schema (cấu trúc và luật kiểm tra) của mọi file JSON/YAML mà tool đọc và ghi.
 
-Mỗi lớp ứng với một loại file. Mọi schema từ chối khoá lạ, để lỗi gõ sai trong file YAML viết
-tay được báo ngay thay vì bị bỏ qua. Code viết cho Python 3.9 nên dùng ``Optional``, ``Union``,
-``List``, ``Dict`` thay cho cú pháp ``X | Y``.
+Mỗi loại file trong CONTRACTS có một lớp Pydantic ở đây; đọc file bằng lớp đó thì nội dung được
+kiểm tra ngay: thiếu trường, sai kiểu, sai định dạng định danh hoặc các trường mâu thuẫn nhau đều
+bị báo lỗi kèm vị trí. Mọi schema từ chối khoá lạ, để lỗi gõ sai trong file YAML viết tay được
+báo ngay thay vì bị bỏ qua.
+
+File này chứa, theo thứ tự:
+- Kiểu dùng chung: mô hình camera, track, mức năng lực, loại artifact, trạng thái run, bảng mã
+  lỗi ``ERROR_CODES``, phiên bản schema hiện tại ``SCHEMA_VERSIONS``.
+- Lớp gốc: ``StrictModel`` (từ chối khoá lạ), ``VersionedFile`` (kiểm tra ``schema_version``),
+  ``Transform``, ``ErrorInfo``.
+- Schema theo loại file: ``Manifest`` (CONTRACTS 2.2), ``Split`` (3.1), ``ValidationReport``
+  (3.2), ``Approach`` (4.1), ``ArtifactRecord`` (5.3), ``RunRecord`` (6.2), ``Summary`` (6.3),
+  ``EnvRecord`` (6.4), ``Preview`` (7), ``JobSpec`` và ``JobResult`` (9.1).
+- Hàm hỗ trợ: ``parse_strategy``, ``contains_value``, ``option_reference``.
+- ``MODELS_BY_KIND``: tra lớp schema theo loại file, dùng bởi ``files.load_any``.
+
+Đọc và ghi file đi qua ``drive2sim/core/files.py``. Thông báo lỗi trong file này viết tiếng Anh vì
+là thông báo kỹ thuật; CLI và API bọc lại thành tiếng Việt (CONTRACTS mục 10.6). Test
+``tests/drive2sim/core/test_contracts_examples.py`` kiểm tra mọi ví dụ trong CONTRACTS theo các
+schema ở đây, nên sửa schema thì sửa cả ví dụ trong CONTRACTS.
+
+Code viết cho Python 3.9 nên dùng ``Optional``, ``Union`` thay cho cú pháp ``X | Y``.
 """
 
 import math
@@ -92,16 +111,26 @@ EVERY_NTH_FRAME_RE = re.compile(r"^every_nth_frame:(\d+)$")
 
 
 class StrictModel(BaseModel):
-    """Lớp gốc của mọi schema: từ chối khoá không khai báo."""
+    """Lớp gốc của mọi schema trong file này.
+
+    Đặt ``extra="forbid"`` để từ chối khoá không khai báo: gõ sai ``camera_modles`` trong file
+    approach sẽ bị báo lỗi thay vì bị bỏ qua lặng lẽ.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
 
 class VersionedFile(StrictModel):
-    """Lớp gốc của một file có trường ``schema_version``.
+    """Lớp gốc của mọi schema ứng với một file có trường ``schema_version``.
 
-    Chấp nhận file cùng loại và cùng số major với ``SCHEMA_VERSIONS[FILE_KIND]``; số minor có thể
-    khác, vì đổi minor không làm vỡ tương thích (CONTRACTS, phần đầu).
+    Lớp con đặt ``FILE_KIND`` (ví dụ ``"run"``). Khi đọc, file được chấp nhận nếu cùng loại và
+    cùng số major với ``SCHEMA_VERSIONS[FILE_KIND]``; số minor có thể khác, vì đổi minor chỉ thêm
+    trường tuỳ chọn, không làm vỡ tương thích (CONTRACTS, phần đầu). Ví dụ khi phiên bản hiện tại
+    là ``d2s-run/0.2`` thì file ``d2s-run/0.1`` vẫn đọc được, file ``d2s-run/1.0`` thì không.
+
+    Attributes:
+        FILE_KIND: Loại file, khoá trong ``SCHEMA_VERSIONS``.
+        schema_version: Chuỗi dạng ``d2s-<loại>/<major>.<minor>``.
     """
 
     FILE_KIND: ClassVar[str] = ""
@@ -110,7 +139,17 @@ class VersionedFile(StrictModel):
     @field_validator("schema_version")
     @classmethod
     def _validate_schema_version(cls, value: str) -> str:
-        """Kiểm tra loại file và số major trong ``schema_version``."""
+        """Kiểm tra ``schema_version`` đúng loại file và cùng số major với phiên bản hiện tại.
+
+        Args:
+            value: Giá trị ``schema_version`` trong file.
+
+        Returns:
+            Chính ``value`` nếu hợp lệ.
+
+        Raises:
+            ValueError: Nếu sai định dạng, khác loại file hoặc khác số major.
+        """
         kind, major, _ = identifiers.parse_schema_version(value)
         expected = SCHEMA_VERSIONS[cls.FILE_KIND]
         expected_kind, expected_major, _ = identifiers.parse_schema_version(expected)
@@ -120,7 +159,10 @@ class VersionedFile(StrictModel):
 
 
 class Transform(StrictModel):
-    """Phép biến đổi cứng ghi trong YAML/JSON (CONTRACTS mục 1).
+    """Một phép biến đổi cứng (xoay và dịch) ghi trong file YAML/JSON của tool.
+
+    Dùng cho các trường ``T_<a>_<b>``, theo quy ước NCore: ``T_a_b`` đưa điểm từ hệ ``a`` sang hệ
+    ``b`` (CONTRACTS mục 1).
 
     Attributes:
         translation: Dịch chuyển ``[x, y, z]``, đơn vị mét.
@@ -135,7 +177,20 @@ class Transform(StrictModel):
     def _validate_unit_quaternion(
         cls, value: tuple[float, float, float, float]
     ) -> tuple[float, float, float, float]:
-        """Kiểm tra quaternion có độ dài 1 (sai số cho phép 1e-3)."""
+        """Kiểm tra quaternion có độ dài 1, sai số cho phép 1e-3.
+
+        Quaternion không có độ dài 1 không biểu diễn một phép xoay; thường là do chép nhầm thứ
+        tự ``x, y, z, w`` của scipy.
+
+        Args:
+            value: Quaternion ``[w, x, y, z]``.
+
+        Returns:
+            Chính ``value`` nếu hợp lệ.
+
+        Raises:
+            ValueError: Nếu độ dài khác 1 quá sai số.
+        """
         norm = math.sqrt(sum(component * component for component in value))
         if abs(norm - 1.0) > 1e-3:
             raise ValueError(f"rotation_wxyz must be a unit quaternion, norm is {norm:.4f}")
@@ -143,7 +198,10 @@ class Transform(StrictModel):
 
 
 class ErrorInfo(StrictModel):
-    """Lỗi do worker hoặc API báo về (CONTRACTS mục 9.1 và 11.3).
+    """Một lỗi theo hình dạng chung của tool, dùng trong ``run.json``, ``result.json`` và API.
+
+    Cùng một hình dạng ở mọi nơi để CLI, Studio và worker xử lý lỗi theo một cách (CONTRACTS mục
+    9.1, 11.3).
 
     Attributes:
         code: Mã lỗi ``snake_case`` trong ``ERROR_CODES``, để máy phân loại.
@@ -158,7 +216,17 @@ class ErrorInfo(StrictModel):
     @field_validator("code")
     @classmethod
     def _validate_code(cls, value: str) -> str:
-        """Mã lỗi phải nằm trong bảng ``ERROR_CODES``."""
+        """Kiểm tra mã lỗi nằm trong bảng ``ERROR_CODES``, để không ai tự đặt mã mới ngoài bảng.
+
+        Args:
+            value: Mã lỗi.
+
+        Returns:
+            Chính ``value`` nếu hợp lệ.
+
+        Raises:
+            ValueError: Nếu mã không có trong bảng.
+        """
         if value not in ERROR_CODES:
             raise ValueError(f"mã lỗi không có trong bảng: {value} (xem CONTRACTS mục 11.3)")
         return value
@@ -175,7 +243,15 @@ Version = Annotated[str, AfterValidator(identifiers.check_version)]
 
 
 class ManifestSource(StrictModel):
-    """Nguồn gốc của cảnh: dataset, chuỗi gốc, converter đã dùng."""
+    """Nguồn gốc của một cảnh: lấy từ dataset nào, chuỗi nào, chuyển bằng converter nào.
+
+    Attributes:
+        dataset: Tên nguồn, ví dụ ``nuscenes``; cũng là tiền tố của ``scene_id``.
+        sequence_id: Id của chuỗi trong nguồn, ví dụ ``scene-0061``.
+        converter: Converter đã dùng để chuyển sang NCore, ví dụ ``ncore.nuscenes``.
+        converter_version: Phiên bản converter; nằm trong khoá cache của mọi stage nhận cảnh.
+        data_license: License của dữ liệu nguồn, nếu biết.
+    """
 
     dataset: Dataset
     sequence_id: str
@@ -185,21 +261,36 @@ class ManifestSource(StrictModel):
 
 
 class TimestampInterval(StrictModel):
-    """Khoảng thời gian của bản ghi, đơn vị micro giây."""
+    """Khoảng thời gian của bản ghi NCore.
+
+    Attributes:
+        start: Thời điểm đầu, micro giây.
+        stop: Thời điểm cuối, micro giây; không được trước ``start``.
+    """
 
     start: int = Field(ge=0)
     stop: int = Field(ge=0)
 
     @model_validator(mode="after")
     def _validate_order(self) -> "TimestampInterval":
-        """Kiểm tra ``stop`` không trước ``start``."""
+        """Kiểm tra ``stop`` không trước ``start``.
+
+        Raises:
+            ValueError: Nếu ``stop < start``.
+        """
         if self.stop < self.start:
             raise ValueError("timestamp_interval_us.stop must not be before start")
         return self
 
 
 class ManifestNCore(StrictModel):
-    """Thông tin của kho NCore V4 chứa dữ liệu chuẩn."""
+    """Thông tin của kho NCore V4 chứa dữ liệu chuẩn của cảnh.
+
+    Attributes:
+        version: Phiên bản định dạng NCore; hiện chỉ nhận ``v4``.
+        sequence_id: Id của chuỗi trong kho NCore.
+        timestamp_interval_us: Khoảng thời gian của bản ghi.
+    """
 
     version: Literal["v4"]
     sequence_id: str
@@ -207,13 +298,17 @@ class ManifestNCore(StrictModel):
 
 
 class ManifestCamera(StrictModel):
-    """Một camera trong cảnh.
+    """Một camera trong cảnh, như ghi trong manifest.
+
+    Thông số chi tiết (intrinsics, hệ số méo, extrinsic) nằm trong kho NCore; manifest chỉ ghi
+    những gì engine cần để khoá approach và Studio cần để hiện tổng quan.
 
     Attributes:
-        camera_id: Id của camera, giữ nguyên như trong nguồn.
-        model: Mô hình ống kính.
+        camera_id: Id của camera, giữ nguyên như trong nguồn, ví dụ ``CAM_FRONT``.
+        model: Mô hình ống kính: ``opencv_pinhole``, ``opencv_fisheye``, ``ftheta`` hoặc
+            ``ideal_pinhole``.
         resolution: ``[width, height]`` tính bằng pixel.
-        shutter: Loại shutter, giống NCore.
+        shutter: Loại shutter theo tên của NCore, ví dụ ``GLOBAL``.
     """
 
     camera_id: str
@@ -224,7 +319,11 @@ class ManifestCamera(StrictModel):
     @field_validator("resolution")
     @classmethod
     def _validate_resolution(cls, value: tuple[int, int]) -> tuple[int, int]:
-        """Kiểm tra chiều rộng và chiều cao đều dương."""
+        """Kiểm tra chiều rộng và chiều cao đều dương.
+
+        Raises:
+            ValueError: Nếu một trong hai không dương.
+        """
         width, height = value
         if width <= 0 or height <= 0:
             raise ValueError("resolution must be positive [width, height]")
@@ -232,14 +331,29 @@ class ManifestCamera(StrictModel):
 
 
 class Timeline(StrictModel):
-    """Dòng thời gian tham chiếu: khung thứ i là khung thứ i của ``reference_sensor``."""
+    """Dòng thời gian tham chiếu của cảnh, dùng để đánh chỉ số khung.
+
+    Khung thứ ``i`` của cảnh là khung thứ ``i`` của ``reference_sensor``; ảnh của camera khác được
+    ghép với khung gần nhất về thời gian (CONTRACTS mục 2.2).
+
+    Attributes:
+        reference_sensor: Id của camera hoặc LiDAR làm mốc.
+        num_frames: Số khung của cảnh, lớn hơn 0.
+    """
 
     reference_sensor: str
     num_frames: int = Field(gt=0)
 
 
 class Available(StrictModel):
-    """Những gì cảnh có sẵn; engine dựa vào đây để khoá approach (CONTRACTS mục 4.2)."""
+    """Những gì cảnh có sẵn từ nguồn; engine dựa vào đây để khoá approach (CONTRACTS mục 4.2).
+
+    Attributes:
+        lidar: Cảnh có LiDAR không; phải khớp với danh sách ``lidars`` của manifest.
+        cuboids: Nguồn của box 3D: ``gt`` (nhãn gốc), ``autolabel`` (sinh tự động) hoặc ``none``.
+        camera_labels: Nhãn theo ảnh có sẵn trong nguồn, ví dụ ``["depth", "segmentation"]``.
+        egocar_mask: Nguồn có mask thân xe không.
+    """
 
     lidar: bool
     cuboids: Literal["gt", "autolabel", "none"]
@@ -248,7 +362,21 @@ class Available(StrictModel):
 
 
 class Manifest(VersionedFile):
-    """File ``manifest.yaml`` đi kèm dữ liệu chuẩn của một cảnh (CONTRACTS mục 2.2)."""
+    """Schema của file ``manifest.yaml`` đi kèm dữ liệu chuẩn của một cảnh (CONTRACTS mục 2.2).
+
+    Manifest ghi cảnh có gì và thiếu gì. Converter ghi file này lúc ingest; engine đọc nó để quyết
+    định approach và lựa chọn nào chạy được; Studio đọc nó để hiện tổng quan cảnh.
+
+    Attributes:
+        scene_id: Định danh cảnh, ``<dataset>_<sequence_id>``.
+        source: Nguồn gốc của cảnh.
+        ncore: Thông tin kho NCore.
+        track: ``pinhole`` hoặc ``fisheye``.
+        cameras: Các camera, ít nhất một, ``camera_id`` không trùng.
+        lidars: Id các LiDAR; rỗng nếu cảnh không có LiDAR.
+        timeline: Dòng thời gian tham chiếu.
+        available: Những gì cảnh có sẵn.
+    """
 
     FILE_KIND: ClassVar[str] = "manifest"
     scene_id: SceneId
@@ -262,7 +390,15 @@ class Manifest(VersionedFile):
 
     @model_validator(mode="after")
     def _validate_consistency(self) -> "Manifest":
-        """Kiểm tra các trường khớp nhau: id camera, cảm biến tham chiếu, cờ LiDAR, tiền tố."""
+        """Kiểm tra các trường của manifest không mâu thuẫn nhau.
+
+        Gồm: ``camera_id`` không trùng; ``reference_sensor`` là một camera hoặc LiDAR có thật;
+        ``available.lidar`` đúng khi và chỉ khi ``lidars`` không rỗng; ``scene_id`` bắt đầu bằng
+        tên dataset.
+
+        Raises:
+            ValueError: Nếu một điều kiện không thoả.
+        """
         camera_ids = [camera.camera_id for camera in self.cameras]
         if len(set(camera_ids)) != len(camera_ids):
             raise ValueError("camera_id values must be unique")
@@ -278,10 +414,10 @@ class Manifest(VersionedFile):
         return self
 
     def camera(self, camera_id: str) -> ManifestCamera:
-        """Lấy camera theo id.
+        """Lấy thông tin một camera của cảnh theo id.
 
         Args:
-            camera_id: Id của camera.
+            camera_id: Id của camera, ví dụ ``CAM_FRONT``.
 
         Returns:
             Camera tương ứng.
@@ -299,7 +435,10 @@ class Manifest(VersionedFile):
 
 
 def parse_strategy(strategy: str) -> tuple[str, Optional[int]]:
-    """Tách chuỗi chiến lược split.
+    """Tách chuỗi chiến lược split thành tên chiến lược và tham số ``N``.
+
+    Dùng khi kiểm tra file split và khi engine so chiến lược của split với danh sách chiến lược
+    approach hỗ trợ (CONTRACTS mục 3.1, 4.2).
 
     Args:
         strategy: ``"every_nth_frame:N"`` với ``N >= 1``, hoặc ``"custom"``.
@@ -322,9 +461,19 @@ def parse_strategy(strategy: str) -> tuple[str, Optional[int]]:
 
 
 class Split(VersionedFile):
-    """File split train/test của một cảnh (CONTRACTS mục 3.1).
+    """Schema của file split ``data/<scene_id>/splits/<split_id>.json`` (CONTRACTS mục 3.1).
 
-    Mỗi phần tử của ``train`` và ``test`` là cặp ``(chỉ số khung, camera_id)``.
+    Split ghi ảnh nào dùng để train, ảnh nào dùng để test. Mọi approach đánh giá trên cùng split
+    nên so sánh được với nhau. Tạo bằng ``drive2sim/core/split.py``.
+
+    Attributes:
+        split_id: Định danh split, ``snake_case``, ví dụ ``every8_allcams``.
+        scene_id: Cảnh của split.
+        strategy: Chiến lược, ``every_nth_frame:N`` hoặc ``custom``.
+        frame_range: Khung đầu và khung cuối của đoạn dùng, tính cả hai đầu.
+        cameras: Các camera dùng trong split, không trùng.
+        train: Các cặp ``[chỉ số khung, camera_id]`` để train.
+        test: Các cặp ``[chỉ số khung, camera_id]`` để test; không cặp nào nằm ở cả hai phần.
     """
 
     FILE_KIND: ClassVar[str] = "split"
@@ -339,19 +488,35 @@ class Split(VersionedFile):
     @field_validator("split_id")
     @classmethod
     def _validate_split_id(cls, value: str) -> str:
-        """Kiểm tra ``split_id`` dạng ``snake_case``."""
+        """Kiểm tra ``split_id`` dạng ``snake_case``.
+
+        Raises:
+            ValueError: Nếu sai định dạng.
+        """
         return identifiers.check_snake_case(value, "split_id")
 
     @field_validator("strategy")
     @classmethod
     def _validate_strategy(cls, value: str) -> str:
-        """Kiểm tra chuỗi chiến lược đọc được."""
+        """Kiểm tra chuỗi chiến lược đọc được bằng ``parse_strategy``.
+
+        Raises:
+            ValueError: Nếu sai định dạng.
+        """
         parse_strategy(value)
         return value
 
     @model_validator(mode="after")
     def _validate_pairs(self) -> "Split":
-        """Kiểm tra các cặp nằm trong đoạn khung, dùng camera đã khai báo, không trùng nhau."""
+        """Kiểm tra các cặp train/test hợp lệ với nhau và với đoạn khung.
+
+        Gồm: ``frame_range`` đúng thứ tự và không âm; ``cameras`` không trùng; mỗi phần không có
+        cặp trùng; mỗi cặp nằm trong ``frame_range`` và dùng camera có trong ``cameras``; không
+        cặp nào vừa ở ``train`` vừa ở ``test`` (không đánh giá trên ảnh đã train, SPEC mục 6.4).
+
+        Raises:
+            ValueError: Nếu một điều kiện không thoả; thông báo nêu cặp sai.
+        """
         first, last = self.frame_range
         if first < 0 or last < first:
             raise ValueError("frame_range must be [first, last] with 0 <= first <= last")
@@ -378,7 +543,7 @@ class Split(VersionedFile):
 
     @property
     def strategy_name(self) -> str:
-        """Tên chiến lược, bỏ phần ``:N``; ví dụ ``every_nth_frame``."""
+        """Trả về tên chiến lược, bỏ phần ``:N``, ví dụ ``"every_nth_frame"``."""
         return parse_strategy(self.strategy)[0]
 
 
@@ -386,7 +551,16 @@ class Split(VersionedFile):
 
 
 class Check(StrictModel):
-    """Một mục kiểm tra trong báo cáo."""
+    """Một mục trong báo cáo kiểm tra dữ liệu của cảnh.
+
+    Attributes:
+        check_id: Tên phép kiểm tra, dạng ``<nhóm>.<tên>``, ví dụ ``timestamps.camera_sync``.
+        severity: ``error`` (không chạy được), ``warning`` hoặc ``info``.
+        message: Mô tả vấn đề bằng tiếng Việt.
+        camera_id: Camera liên quan, nếu có.
+        frame_index: Khung liên quan, nếu có.
+        details: Số liệu thêm, ví dụ ``{"max_offset_us": 6200}``.
+    """
 
     check_id: str
     severity: Literal["error", "warning", "info"]
@@ -397,14 +571,29 @@ class Check(StrictModel):
 
 
 class ReportSummary(StrictModel):
-    """Số lỗi và cảnh báo trong báo cáo."""
+    """Tóm tắt của báo cáo kiểm tra.
+
+    Attributes:
+        errors: Số mục ``error``.
+        warnings: Số mục ``warning``.
+    """
 
     errors: int = Field(ge=0)
     warnings: int = Field(ge=0)
 
 
 class ValidationReport(VersionedFile):
-    """File ``reports/validation.json`` của một cảnh (CONTRACTS mục 3.2)."""
+    """Schema của báo cáo kiểm tra dữ liệu ``data/<scene_id>/reports/validation.json``.
+
+    Ingest ghi báo cáo này sau khi kiểm tra đồng bộ thời gian, calib, mô hình ống kính, ảnh hỏng
+    hoặc thiếu (SPEC mục 5 bước 2, CONTRACTS mục 3.2); Studio hiện nó ở nhóm A.
+
+    Attributes:
+        scene_id: Cảnh được kiểm tra.
+        created_utc: Thời điểm tạo báo cáo.
+        summary: Số lỗi và cảnh báo; phải khớp với ``checks``.
+        checks: Các mục kiểm tra.
+    """
 
     FILE_KIND: ClassVar[str] = "report"
     scene_id: SceneId
@@ -414,7 +603,11 @@ class ValidationReport(VersionedFile):
 
     @model_validator(mode="after")
     def _validate_counts(self) -> "ValidationReport":
-        """Kiểm tra phần tóm tắt khớp với số mục ``error`` và ``warning`` trong ``checks``."""
+        """Kiểm tra phần tóm tắt khớp với số mục ``error`` và ``warning`` trong ``checks``.
+
+        Raises:
+            ValueError: Nếu số đếm không khớp.
+        """
         errors = sum(check.severity == "error" for check in self.checks)
         warnings = sum(check.severity == "warning" for check in self.checks)
         if (errors, warnings) != (self.summary.errors, self.summary.warnings):
@@ -429,7 +622,13 @@ class ValidationReport(VersionedFile):
 
 
 class Requires(StrictModel):
-    """Điều kiện dữ liệu của một approach (CONTRACTS mục 4.2)."""
+    """Điều kiện dữ liệu mà một approach cần để chạy được (CONTRACTS mục 4.2).
+
+    Attributes:
+        camera_models: Các mô hình camera approach nhận trực tiếp, không cần khử méo.
+        cuboids: Approach cần box 3D không: ``required``, ``optional`` hoặc ``none``.
+        split_strategies: Các chiến lược split codebase của approach hỗ trợ.
+    """
 
     camera_models: list[CameraModel] = Field(min_length=1)
     cuboids: Literal["required", "optional", "none"]
@@ -469,9 +668,14 @@ def option_reference(value: object) -> Optional[str]:
 
 
 class OptionSpec(StrictModel):
-    """Một ô chọn: danh sách lựa chọn và giá trị mặc định.
+    """Một ô chọn của approach: các lựa chọn thay thế được cho nhau và giá trị mặc định.
 
-    ``default`` có thể là ``"auto"``: engine chọn theo manifest (ARCHITECTURE mục 4.5).
+    Ví dụ ô ``renderer`` có ``choices: [3dgs, 3dgut, 3dgeer]``. ``default`` có thể là ``"auto"``:
+    engine lấy lựa chọn đầu tiên không bị khoá theo dữ liệu (CONTRACTS mục 4.2).
+
+    Attributes:
+        choices: Các lựa chọn, ít nhất một, không trùng; thứ tự là thứ tự ưu tiên của ``auto``.
+        default: Giá trị mặc định: một lựa chọn trong ``choices``, hoặc ``"auto"``.
     """
 
     choices: list[OptionValue] = Field(min_length=1)
@@ -479,7 +683,11 @@ class OptionSpec(StrictModel):
 
     @model_validator(mode="after")
     def _validate_default(self) -> "OptionSpec":
-        """Kiểm tra lựa chọn không trùng và giá trị mặc định nằm trong danh sách hoặc là auto."""
+        """Kiểm tra lựa chọn không trùng và ``default`` nằm trong ``choices`` hoặc là ``auto``.
+
+        Raises:
+            ValueError: Nếu có lựa chọn trùng hoặc ``default`` không hợp lệ.
+        """
         if len({repr(choice) for choice in self.choices}) != len(self.choices):
             raise ValueError("choices must be unique")
         if self.default != "auto" and not contains_value(self.choices, self.default):
@@ -488,7 +696,16 @@ class OptionSpec(StrictModel):
 
 
 class Constraint(StrictModel):
-    """Tổ hợp lựa chọn không hợp lệ: khi các ô có giá trị ``when`` thì cấm ``forbid``."""
+    """Một tổ hợp lựa chọn không hợp lệ trong approach.
+
+    Khi mọi ô trong ``when`` có đúng giá trị đó thì cấm mọi giá trị trong ``forbid``. Ví dụ
+    ``when: {renderer: 3dgeer}, forbid: {campose: true}`` vì 3DGEER không tối ưu được pose camera.
+
+    Attributes:
+        when: Ô → giá trị làm ràng buộc có hiệu lực.
+        forbid: Ô → giá trị bị cấm khi ``when`` khớp.
+        reason: Lý do bằng tiếng Việt, hiện cho người dùng khi tổ hợp bị khoá.
+    """
 
     when: dict[str, OptionValue] = Field(min_length=1)
     forbid: dict[str, OptionValue] = Field(min_length=1)
@@ -496,10 +713,12 @@ class Constraint(StrictModel):
 
 
 class StageEntry(StrictModel):
-    """Một bước trong danh sách stage của approach.
+    """Một bước trong danh sách ``stages`` của approach.
 
-    ``stage`` là ``stage_id`` hoặc chỗ giữ chỗ ``${options.<tên>}``; giá trị trong ``params``
-    cũng có thể là chỗ giữ chỗ.
+    Attributes:
+        stage: ``stage_id`` (ví dụ ``prep.select``) hoặc chỗ giữ chỗ ``${options.<ô>}``; chỗ giữ
+            chỗ được thay bằng lựa chọn của ô trước khi chạy.
+        params: Tham số cho stage; giá trị cũng có thể là chỗ giữ chỗ.
     """
 
     stage: str
@@ -507,7 +726,25 @@ class StageEntry(StrictModel):
 
 
 class Approach(VersionedFile):
-    """File khai báo approach ``drive2sim/approaches/<approach_id>.yaml`` (CONTRACTS mục 4.1)."""
+    """Schema của file khai báo approach ``drive2sim/approaches/<approach_id>.yaml``.
+
+    Approach là một cách dựng cảnh: danh sách stage chạy lần lượt, có ô chọn, ràng buộc và
+    preset (CONTRACTS mục 4.1). Schema kiểm tra cả sự nhất quán bên trong file: preset và ràng
+    buộc chỉ dùng ô và lựa chọn có thật, chỗ giữ chỗ trỏ tới ô có thật.
+
+    Attributes:
+        approach_id: Định danh ``snake_case``, ví dụ ``omnire``.
+        name: Tên hiển thị.
+        version: Phiên bản của file approach.
+        codebase: ``drivestudio`` hoặc ``external:<tên>``.
+        track: ``pinhole`` hoặc ``fisheye``.
+        level: Mức năng lực cao nhất đạt được, ``L1``–``L4``.
+        requires: Điều kiện dữ liệu.
+        options: Tên ô → ô chọn.
+        constraints: Các tổ hợp không hợp lệ.
+        presets: Tên preset → giá trị của các ô khác mặc định.
+        stages: Các bước theo thứ tự chạy, ít nhất một.
+    """
 
     FILE_KIND: ClassVar[str] = "approach"
     approach_id: str
@@ -525,13 +762,21 @@ class Approach(VersionedFile):
     @field_validator("approach_id")
     @classmethod
     def _validate_approach_id(cls, value: str) -> str:
-        """Kiểm tra ``approach_id`` dạng ``snake_case``."""
+        """Kiểm tra ``approach_id`` dạng ``snake_case``.
+
+        Raises:
+            ValueError: Nếu sai định dạng.
+        """
         return identifiers.check_snake_case(value, "approach_id")
 
     @field_validator("codebase")
     @classmethod
     def _validate_codebase(cls, value: str) -> str:
-        """Kiểm tra codebase là ``drivestudio`` hoặc ``external:<tên>``."""
+        """Kiểm tra codebase là ``drivestudio`` hoặc ``external:<tên>``.
+
+        Raises:
+            ValueError: Nếu không theo một trong hai dạng.
+        """
         if value != "drivestudio" and not re.match(r"^external:[a-z][a-z0-9_]*$", value):
             raise ValueError("codebase must be 'drivestudio' or 'external:<name>'")
         return value
@@ -586,7 +831,14 @@ class Approach(VersionedFile):
 
     @model_validator(mode="after")
     def _validate_consistency(self) -> "Approach":
-        """Kiểm tra tên ô, preset, ràng buộc và danh sách stage khớp với nhau."""
+        """Kiểm tra các phần của file approach nhất quán với nhau.
+
+        Gồm: tên ô và tên preset dạng ``snake_case``; ràng buộc và preset chỉ dùng ô và lựa chọn
+        có thật; mỗi bước trong ``stages`` hợp lệ (``_check_stage_entry``).
+
+        Raises:
+            ValueError: Nếu một phần không hợp lệ; thông báo nêu vị trí trong file.
+        """
         for option_name in self.options:
             identifiers.check_snake_case(option_name, "option name")
         for preset_name in self.presets:
@@ -605,7 +857,13 @@ class Approach(VersionedFile):
 
 
 class Producer(StrictModel):
-    """Stage đã sinh ra artifact."""
+    """Stage đã tạo ra một artifact, ghi trong ``artifact.json``.
+
+    Attributes:
+        stage_id: Stage đã tạo artifact.
+        version: Phiên bản của stage lúc tạo.
+        code_commit: Commit của code lúc tạo, nếu đọc được.
+    """
 
     stage_id: StageId
     version: Version
@@ -613,9 +871,20 @@ class Producer(StrictModel):
 
 
 class ArtifactRecord(VersionedFile):
-    """File ``artifact.json`` mô tả một kết quả của stage (CONTRACTS mục 5.3).
+    """Schema của file ``artifact.json`` mô tả kết quả của một stage (CONTRACTS mục 5.3).
 
-    ``cache_key`` bỏ trống với kết quả nằm trong thư mục run (stage không cache).
+    Engine ghi file này vào thư mục kết quả của mỗi stage sau khi stage chạy xong. Thư mục cache
+    có ``artifact.json`` nghĩa là kết quả đầy đủ, dùng lại được.
+
+    Attributes:
+        artifact_type: Loại artifact, theo bảng CONTRACTS mục 5.4.
+        cache_key: Khoá cache; bỏ trống với kết quả nằm trong thư mục run (stage không cache).
+        producer: Stage đã tạo artifact.
+        params: Tham số đã gộp của stage.
+        inputs: Khoá của các đầu vào, ví dụ ``["scene:nuscenes_scene-0061@19.9.0"]``.
+        created_utc: Thời điểm tạo.
+        files: Các file trong thư mục, đường dẫn tương đối với thư mục đó.
+        meta: Thông tin thêm tuỳ stage, ví dụ tên model đã dùng.
     """
 
     FILE_KIND: ClassVar[str] = "artifact"
@@ -633,7 +902,15 @@ class ArtifactRecord(VersionedFile):
 
 
 class RunApproach(StrictModel):
-    """Approach của một run và các lựa chọn đã quyết định cho mọi ô."""
+    """Approach của một run cùng các lựa chọn đã quyết định, ghi trong ``run.json``.
+
+    Attributes:
+        approach_id: Approach đã chạy.
+        version: Phiên bản file approach lúc tạo run.
+        preset: Preset đã chọn, nếu có.
+        options: Giá trị cụ thể của mọi ô, kể cả ô để ``auto``; Studio lọc và so sánh run theo
+            trường này.
+    """
 
     approach_id: str
     version: Version
@@ -642,7 +919,18 @@ class RunApproach(StrictModel):
 
 
 class StageRecord(StrictModel):
-    """Trạng thái của một stage trong run."""
+    """Trạng thái và kết quả của một stage trong ``run.json``.
+
+    Attributes:
+        stage_id: Stage.
+        status: ``pending``, ``running``, ``succeeded``, ``failed`` hoặc ``cancelled``.
+        cache_hit: ``True`` nếu dùng lại kết quả có sẵn trong cache.
+        cache_key: Khoá cache với stage có cache; ``None`` với stage khác.
+        duration_s: Thời gian chạy, giây; ``0`` khi dùng lại kết quả cũ.
+        peak_vram_mb: VRAM cao nhất, megabyte; ``0`` khi dùng lại kết quả cũ hoặc không đo được.
+        params: Tham số đã gộp, để chạy tiếp đúng như lúc tạo run (thêm từ ``d2s-run/0.2``).
+        error: Lỗi nếu stage ``failed``.
+    """
 
     stage_id: StageId
     status: RunStatus
@@ -650,13 +938,28 @@ class StageRecord(StrictModel):
     cache_key: Optional[CacheKey] = None
     duration_s: float = Field(default=0, ge=0)
     peak_vram_mb: int = Field(default=0, ge=0)
-    # Tham số đã gộp, để chạy tiếp đúng như lúc tạo run (d2s-run/0.2).
     params: dict[str, Any] = {}
     error: Optional[ErrorInfo] = None
 
 
 class RunRecord(VersionedFile):
-    """File ``d2s/run.json`` trong thư mục run (CONTRACTS mục 6.2)."""
+    """Schema của file ``d2s/run.json`` trong thư mục run (CONTRACTS mục 6.2).
+
+    Engine tạo file này khi tạo run và ghi lại sau mỗi lần một stage đổi trạng thái; Studio và
+    ``d2s run status`` đọc nó để hiện tiến độ.
+
+    Attributes:
+        run_id: Định danh run, ``YYYYMMDD-HHMMSS-<approach_id>-<4 hex>``.
+        scene_id: Cảnh của run.
+        split_id: Split của run.
+        approach: Approach và lựa chọn đã quyết định.
+        level: Mức năng lực của approach.
+        executor: Nơi chạy, ``local`` hoặc ``kaggle``.
+        status: Trạng thái của cả run.
+        created_utc: Thời điểm tạo run.
+        lidar_usage: Các stage dùng LiDAR; rỗng nếu run không dùng LiDAR.
+        stages: Trạng thái của từng stage theo thứ tự chạy.
+    """
 
     FILE_KIND: ClassVar[str] = "run"
     run_id: str
@@ -673,12 +976,20 @@ class RunRecord(VersionedFile):
     @field_validator("run_id")
     @classmethod
     def _validate_run_id(cls, value: str) -> str:
-        """Kiểm tra định dạng ``run_id``."""
+        """Kiểm tra định dạng ``run_id``.
+
+        Raises:
+            ValueError: Nếu sai định dạng.
+        """
         return identifiers.check_run_id(value)
 
     @model_validator(mode="after")
     def _validate_consistency(self) -> "RunRecord":
-        """Kiểm tra ``run_id`` chứa ``approach_id`` và ``lidar_usage`` chỉ gồm stage của run."""
+        """Kiểm tra ``run_id`` chứa đúng ``approach_id`` và ``lidar_usage`` chỉ gồm stage của run.
+
+        Raises:
+            ValueError: Nếu một điều kiện không thoả.
+        """
         # run_id = YYYYMMDD-HHMMSS-<approach_id>-<hex>; approach_id không chứa dấu "-".
         if self.run_id.split("-")[2] != self.approach.approach_id:
             raise ValueError("run_id must contain approach.approach_id")
@@ -691,7 +1002,13 @@ class RunRecord(VersionedFile):
 
 
 class LpipsSetting(StrictModel):
-    """Cấu hình LPIPS dùng khi đánh giá."""
+    """Cấu hình LPIPS đã dùng khi đánh giá; ghi rõ để so sánh được giữa các run (SPEC mục 9).
+
+    Attributes:
+        net: Backbone, ví dụ ``alex``.
+        package: Gói Python đã dùng, ví dụ ``lpips``.
+        package_version: Phiên bản gói.
+    """
 
     net: str
     package: str
@@ -699,7 +1016,14 @@ class LpipsSetting(StrictModel):
 
 
 class EvalProtocol(StrictModel):
-    """Protocol đánh giá (SPEC mục 9)."""
+    """Protocol đánh giá đã dùng cho một run (SPEC mục 9).
+
+    Attributes:
+        version: Phiên bản protocol.
+        image_dtype: Kiểu ảnh khi đo; hiện chỉ ``uint8`` (ảnh 8 bit).
+        resolution: Độ phân giải khi đo, ví dụ ``native``.
+        lpips: Cấu hình LPIPS.
+    """
 
     version: str
     image_dtype: Literal["uint8"]
@@ -708,7 +1032,16 @@ class EvalProtocol(StrictModel):
 
 
 class Metrics(StrictModel):
-    """Metric ảnh; các metric theo vùng chỉ có khi cảnh có box."""
+    """Các metric chất lượng ảnh trên tập test.
+
+    Attributes:
+        psnr: PSNR trên toàn ảnh, dB.
+        ssim: SSIM.
+        lpips: LPIPS.
+        human_psnr: PSNR trong vùng người; chỉ có khi cảnh có box.
+        vehicle_psnr: PSNR trong vùng xe; chỉ có khi cảnh có box.
+        occupied_psnr: PSNR trong vùng vật động; chỉ có khi cảnh có box.
+    """
 
     psnr: float
     ssim: float
@@ -719,7 +1052,20 @@ class Metrics(StrictModel):
 
 
 class Summary(VersionedFile):
-    """File ``d2s/summary.json``: tóm tắt metric của một run (CONTRACTS mục 6.3)."""
+    """Schema của file ``d2s/summary.json``: tóm tắt kết quả đánh giá của một run.
+
+    Stage ``eval.standard`` ghi file này; Studio và ``d2s report`` đọc nó để lập bảng xếp hạng
+    (CONTRACTS mục 6.3).
+
+    Attributes:
+        protocol: Protocol đánh giá.
+        split_id: Split đã đánh giá.
+        overall: Metric trên mọi camera.
+        per_camera: ``camera_id`` → metric của camera đó.
+        train_time_s: Thời gian train, giây.
+        peak_vram_mb: VRAM cao nhất khi train, megabyte.
+        num_gaussians: Số Gaussian của model cuối.
+    """
 
     FILE_KIND: ClassVar[str] = "summary"
     protocol: EvalProtocol
@@ -732,7 +1078,20 @@ class Summary(VersionedFile):
 
 
 class EnvRecord(VersionedFile):
-    """File ``d2s/env.json``: môi trường đã chạy run (CONTRACTS mục 6.4)."""
+    """Schema của file ``d2s/env.json``: môi trường đã chạy run, để chạy lại được (SPEC mục 11).
+
+    Trường nào không xác định được thì bỏ trống (CONTRACTS mục 6.4).
+
+    Attributes:
+        code_commit: Commit của code, hoặc ``unknown``.
+        python: Phiên bản Python.
+        pytorch: Phiên bản PyTorch.
+        cuda: Phiên bản CUDA mà PyTorch dùng.
+        gsplat: Phiên bản gsplat.
+        gpu: Tên GPU.
+        seed: Seed ngẫu nhiên.
+        executor: Nơi chạy, ``local`` hoặc ``kaggle``.
+    """
 
     FILE_KIND: ClassVar[str] = "env"
     code_commit: str
@@ -749,7 +1108,18 @@ class EnvRecord(VersionedFile):
 
 
 class Preview(VersionedFile):
-    """File ``preview.json`` của gói xem trước cho Spark (CONTRACTS mục 7)."""
+    """Schema của file ``preview.json`` trong gói xem trước cho Spark (CONTRACTS mục 7).
+
+    Gói xem trước cho phép xem cảnh trong trình duyệt không cần GPU CUDA; file này ghi gói có gì
+    và thiếu gì so với model đầy đủ.
+
+    Attributes:
+        source_run: Thư mục run tạo ra gói, tương đối với ``D2S_WORKDIR``.
+        sh_degree: Bậc spherical harmonics giữ lại, 0–3.
+        rigid_actors: ``track_id`` của các xe có Gaussian riêng.
+        box_only_actors: ``track_id`` của actor không rigid, chỉ hiện bằng box.
+        omitted: Những phần của model không có trong gói, ví dụ ``["sky"]``.
+    """
 
     FILE_KIND: ClassVar[str] = "preview"
     source_run: str
@@ -763,10 +1133,19 @@ class Preview(VersionedFile):
 
 
 class JobSpec(VersionedFile):
-    """File ``job.json`` engine giao cho ``d2s-worker`` (CONTRACTS mục 9.1).
+    """Schema của file ``job.json`` engine giao cho ``d2s-worker`` (CONTRACTS mục 9.1).
 
-    ``stage_id`` và ``params`` chỉ có khi ``kind`` là ``stage``; ``inputs`` ánh xạ tên đầu vào
-    sang đường dẫn tương đối với ``D2S_WORKDIR``.
+    Worker chạy trong môi trường riêng (codebase ngoài, hoặc tiến trình render của viewer); file
+    này là cách duy nhất engine nói cho worker biết phải làm gì.
+
+    Attributes:
+        job_id: Định danh việc, thường là ``<run_id>/<stage_id>``.
+        kind: ``stage`` (chạy một stage) hoặc ``render`` (giữ model và render cho viewer).
+        stage_id: Stage cần chạy; chỉ có khi ``kind`` là ``stage``.
+        params: Tham số đã gộp của stage.
+        inputs: Tên đầu vào → đường dẫn tương đối với ``D2S_WORKDIR``.
+        output_dir: Thư mục worker ghi kết quả, tương đối với ``D2S_WORKDIR``.
+        env: Tên file môi trường trong ``envs/``, không có đuôi ``.yml``.
     """
 
     FILE_KIND: ClassVar[str] = "job"
@@ -780,7 +1159,11 @@ class JobSpec(VersionedFile):
 
     @model_validator(mode="after")
     def _check_stage_fields(self) -> "JobSpec":
-        """Việc loại ``stage`` phải có ``stage_id``; loại khác không được có."""
+        """Kiểm tra việc loại ``stage`` có ``stage_id`` và việc loại khác không có.
+
+        Raises:
+            ValueError: Nếu không thoả.
+        """
         if self.kind == "stage" and self.stage_id is None:
             raise ValueError("job loại stage phải có stage_id")
         if self.kind != "stage" and self.stage_id is not None:
@@ -789,10 +1172,17 @@ class JobSpec(VersionedFile):
 
 
 class JobResult(VersionedFile):
-    """File ``result.json`` worker ghi khi xong việc (CONTRACTS mục 9.1).
+    """Schema của file ``result.json`` worker ghi khi xong việc, kể cả khi thất bại.
 
-    Thành công thì ``outputs`` ánh xạ tên đầu ra sang đường dẫn và ``error`` trống; thất bại
-    thì ``error`` bắt buộc.
+    Định dạng ở CONTRACTS mục 9.1.
+
+    Attributes:
+        job_id: Định danh việc, giống ``job.json``.
+        status: ``succeeded`` hoặc ``failed``.
+        outputs: Tên đầu ra → đường dẫn; rỗng khi thất bại.
+        duration_s: Thời gian chạy, giây.
+        peak_vram_mb: VRAM cao nhất, megabyte.
+        error: Lỗi; có khi và chỉ khi ``status`` là ``failed``.
     """
 
     FILE_KIND: ClassVar[str] = "result"
@@ -805,7 +1195,11 @@ class JobResult(VersionedFile):
 
     @model_validator(mode="after")
     def _check_error_matches_status(self) -> "JobResult":
-        """``error`` có khi và chỉ khi ``status`` là ``failed``."""
+        """Kiểm tra ``error`` có khi và chỉ khi ``status`` là ``failed``.
+
+        Raises:
+            ValueError: Nếu không thoả.
+        """
         if self.status == "failed" and self.error is None:
             raise ValueError("kết quả failed phải có error")
         if self.status == "succeeded" and self.error is not None:
