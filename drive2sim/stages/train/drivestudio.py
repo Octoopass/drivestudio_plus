@@ -319,7 +319,7 @@ class TrainDrivestudioStage(Stage):
             has_smpl=SMPL_ENTRY in extra,
         )
         ctx.progress(0.0, f"train {params.method} bằng {params.config_file.name}")
-        run_logged(command, ctx.output_dir / LOG_FILE)
+        run_logged(command, ctx.output_dir / LOG_FILE, should_stop=ctx.should_stop)
         if not (ctx.output_dir / FINAL_CHECKPOINT).is_file():
             raise RuntimeError(f"train.py xong nhưng không có {FINAL_CHECKPOINT}")
         ctx.progress(1.0, "train xong")

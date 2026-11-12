@@ -7,13 +7,19 @@ chạy cho một người trên một máy, và hai run train cùng lúc sẽ tr
 Tiến trình Studio không nạp model: các stage bọc DriveStudio chạy script trong tiến trình con
 (ARCHITECTURE mục 2.9), nên luồng nền chỉ điều phối và ghi ``run.json``.
 
-File này chứa ``RunQueue``: nhận run cần chạy, chạy bằng ``execute_run``, chuyển sự kiện tới
-``EventBroker``.
+File này chứa:
+- ``RunQueue``: nhận run cần chạy, chạy bằng ``execute_run``, chuyển sự kiện tới ``EventBroker``.
+- ``IngestJobs``: chạy ingest nền ở luồng riêng và giữ trạng thái từng việc.
 """
 
 import logging
+import threading
+import time
+import uuid
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
+from typing import Optional
 
 from drive2sim.engine.registry import REGISTRY, StageRegistry
 from drive2sim.engine.run import execute_run
@@ -88,4 +94,84 @@ class RunQueue:
 
     def shutdown(self) -> None:
         """Dừng nhận run mới và chờ run đang chạy xong; gọi khi tắt Studio."""
+        self._executor.shutdown(wait=True)
+
+
+class IngestJobs:
+    """Chạy ingest nền cho Studio và giữ trạng thái từng việc trong bộ nhớ.
+
+    Ingest gọi script tiền xử lý có thể chạy nhiều phút, nên ``POST /api/sources/ingest`` trả
+    lời ngay kèm ``job_id`` và giao diện hỏi lại ``GET /api/jobs/{job_id}``. Một luồng riêng,
+    tách khỏi hàng đợi run, để ingest không phải chờ run train xong. Trạng thái mất khi tắt
+    Studio; kết quả thật (``data/<scene_id>/``) vẫn còn trên đĩa.
+
+    Attributes:
+        workdir: Thư mục làm việc.
+    """
+
+    def __init__(self, workdir: Workdir) -> None:
+        self.workdir = workdir
+        self._jobs: dict[str, dict] = {}
+        self._lock = threading.Lock()
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="d2s-ingest")
+
+    def submit(self, label: str, work: Callable[[], str]) -> dict:
+        """Xếp một việc ingest vào hàng đợi.
+
+        Args:
+            label: Mô tả ngắn hiện trên giao diện, ví dụ ``nuscenes scene-0061``.
+            work: Hàm làm việc, trả về ``scene_id`` đã ghi; lỗi gì thì việc thành ``failed``
+                kèm thông báo lỗi.
+
+        Returns:
+            Trạng thái ban đầu của việc (``queued``).
+        """
+        job_id = uuid.uuid4().hex[:12]
+        job = {
+            "job_id": job_id,
+            "kind": "ingest",
+            "label": label,
+            "status": "queued",
+            "scene_id": None,
+            "error": None,
+            "created_at": time.time(),
+            "finished_at": None,
+        }
+        with self._lock:
+            self._jobs[job_id] = job
+        self._executor.submit(self._run, job_id, work)
+        return dict(job)
+
+    def _run(self, job_id: str, work: Callable[[], str]) -> None:
+        """Chạy một việc và ghi kết quả vào trạng thái."""
+        self._update(job_id, status="running")
+        try:
+            scene_id = work()
+        except Exception as error:
+            logger.exception("ingest job %s failed", job_id)
+            self._update(job_id, status="failed", error=str(error), finished_at=time.time())
+        else:
+            self._update(job_id, status="succeeded", scene_id=scene_id, finished_at=time.time())
+
+    def _update(self, job_id: str, **changes: object) -> None:
+        with self._lock:
+            self._jobs[job_id].update(changes)
+
+    def get(self, job_id: str) -> Optional[dict]:
+        """Trạng thái một việc, hoặc ``None`` nếu không có."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            return dict(job) if job else None
+
+    def list(self) -> list[dict]:
+        """Mọi việc, mới nhất trước."""
+        with self._lock:
+            return sorted((dict(j) for j in self._jobs.values()), key=lambda j: -j["created_at"])
+
+    def wait_idle(self, timeout: float = 60.0) -> None:
+        """Chờ mọi việc đã xếp hàng xong; test dùng."""
+        self._executor.submit(lambda: None).result(timeout)
+
+    def shutdown(self) -> None:
+        """Chờ việc đang chạy xong; gọi khi tắt Studio."""
         self._executor.shutdown(wait=True)

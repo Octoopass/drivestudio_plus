@@ -111,7 +111,11 @@ class PrepMasksSegformerStage(Stage):
         view_root = ctx.output_dir / VIEW_DIR
         view = build_view(ctx.scene.root, view_root, exclude=OUTPUT_NAMES)
         ctx.progress(0.0, f"sinh mask bằng {params.model}")
-        run_logged(build_command(params, view_root), ctx.output_dir / LOG_FILE)
+        run_logged(
+            build_command(params, view_root),
+            ctx.output_dir / LOG_FILE,
+            should_stop=ctx.should_stop,
+        )
         moved = collect_outputs(view, ctx.output_dir, OUTPUT_NAMES)
         shutil.rmtree(view_root)
         if "sky_masks" not in moved:

@@ -312,6 +312,8 @@ runs/<scene_id>/<approach_id>/<run_id>/
     ├── run.json
     ├── env.json
     ├── log.txt                          # log của engine, traceback của stage lỗi
+    ├── pid                              # pid của tiến trình đang chạy run; xoá khi xong
+    ├── cancel                           # có file này là có yêu cầu huỷ; engine xoá khi đã huỷ
     └── stages/
         ├── train.drivestudio/           # thư mục log của DriveStudio
         │   ├── scene_view/000/          # cảnh ảo bằng symlink: thư mục cảnh + mask, SMPL từ cache
@@ -330,6 +332,8 @@ runs/<scene_id>/<approach_id>/<run_id>/
 ```
 
 Gốc thư mục run chỉ có `d2s/`, nên file của tool không trùng tên với file của codebase.
+
+Huỷ run (`d2s run cancel`, `POST /api/runs/{run_id}/cancel`) chỉ ghi file `cancel`, nên huỷ được từ tiến trình khác. Engine kiểm tra file này trước mỗi stage; stage đang chạy một tiến trình con thì kiểm tra mỗi giây, gửi SIGTERM cho cả nhóm tiến trình, chờ 10 giây rồi SIGKILL. Stage bị huỷ có trạng thái `cancelled` và chạy tiếp được bằng `run resume`. Run có trạng thái `running` mà không có tiến trình nào giữ `pid` (máy tắt giữa chừng) thì lệnh huỷ đổi ngay sang `cancelled`.
 
 ### 6.2 `d2s/run.json`
 
@@ -609,7 +613,7 @@ Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dà
 | Lệnh | Việc |
 |---|---|
 | `d2s source inspect <thư mục>` | Xem trước thư mục dữ liệu gốc: nhận ra dataset, báo có gì, gợi ý lệnh ingest; không ghi gì |
-| `d2s scene ingest <nguồn> [--source-type <dataset>] [--version <phiên bản>] [--sequence <chuỗi gốc>] [--scene <scene_id>] [--interpolate-n <N>] [--workers <N>]` | Chuyển một chuỗi của nguồn sang `data/<scene_id>/`, ghi manifest và báo cáo kiểm tra; bỏ `--source-type` thì tự nhận dạng như `source inspect`. `scene_id` mặc định `<dataset>_<chuỗi gốc>`. Mã thoát `1` nếu báo cáo có lỗi. Hiện hỗ trợ nuScenes |
+| `d2s scene ingest <nguồn> [--source-type <dataset>] [--version <phiên bản>] [--sequence <chuỗi gốc>] [--scene <scene_id>] [--interpolate-n <N>] [--workers <N>]` | Chuyển một chuỗi của nguồn sang `data/<scene_id>/`, ghi manifest và báo cáo kiểm tra; bỏ `--source-type` thì tự nhận dạng như `source inspect`. `scene_id` mặc định `<dataset>_<chuỗi gốc>`. Mã thoát `1` nếu báo cáo có lỗi. Hỗ trợ nuScenes, Waymo, Argoverse 2, PandaSet, KITTI, nuPlan, PhysicalAI; phiên bản và chuỗi được tự chọn khi chỉ có một |
 | `d2s scene validate <scene_id>` | Kiểm tra lại, ghi `validation.json` |
 | `d2s scene list` / `d2s scene show <scene_id>` | Liệt kê cảnh; xem manifest và báo cáo |
 | `d2s scene delete <scene_id>` | Xoá dữ liệu chuẩn, split, cache và run của cảnh; hỏi xác nhận |
@@ -697,9 +701,18 @@ Route đã có (`drive2sim/studio/api/routes/`):
 | `GET /api/runs/{run_id}/log` | `{"engine": <d2s/log.txt>, "stages": {stage_id: <200 dòng cuối log.txt>}}` | |
 | `GET /api/runs/{run_id}/videos` | Video MP4 trong thư mục run: `{"name", "stage_id", "url"}` | |
 | `GET /api/report` | Bảng so sánh (lọc `scene_id`, `split_id`, `run_id` lặp lại được); `?format=csv` để xuất | `report` |
+| `POST /api/sources/inspect` | Thân `{"path"}`; kết quả nhận dạng như `source inspect --json`; `404` nếu không có thư mục | `source inspect` |
+| `POST /api/sources/ingest` | Thân `path`, `source_type`, `version`, `sequence`, `scene_id`, `interpolate_n`; chọn chuỗi ngay (`400` kèm các lựa chọn nếu thiếu), rồi ingest nền; trả `202` kèm việc | `scene ingest` |
+| `GET /api/jobs`, `GET /api/jobs/{job_id}` | Việc ingest: `job_id`, `label`, `status` (`queued`, `running`, `succeeded`, `failed`), `scene_id`, `error`; giữ trong bộ nhớ tới khi tắt Studio | |
+| `POST /api/scenes/{scene_id}/validate` | Kiểm tra lại, ghi và trả báo cáo | `scene validate` |
+| `DELETE /api/scenes/{scene_id}`, `DELETE /api/scenes/{scene_id}/splits/{split_id}` | `{"removed": [...]}`; `409` khi run đang chạy hoặc split còn run dùng | `scene delete`, `split delete` |
+| `POST /api/runs/{run_id}/cancel` | Ghi yêu cầu huỷ (mục 6.1); trả `run.json` hiện tại | `run cancel` |
+| `DELETE /api/runs/{run_id}` | `{"removed": [...]}`; `409` khi run đang chạy | `run delete` |
+| `POST /api/runs/{run_id}/export` | Thân `{"kind": "ply" \| "preview"}`; đặt lại stage export rồi xếp run vào hàng đợi | `export ply`, `export preview` |
+| `GET /api/cache`, `POST /api/cache/gc` | Liệt kê (kèm `size_bytes`, `used_by`); dọn, thân `scene_id`, `dry_run` | `cache list`, `cache gc` |
 | `GET /files/<đường dẫn>` | File trong `D2S_WORKDIR`; đường dẫn ra ngoài thư mục làm việc trả `404` | |
 
-Chưa có: `cancel`, `DELETE`, nhóm `cache`, `kaggle`. Run chạy nền **lần lượt từng run** trong một luồng (`drive2sim/studio/api/jobs.py`): một người, một máy, hai run train cùng lúc sẽ tranh GPU.
+Chưa có: nhóm `kaggle`. Run chạy nền **lần lượt từng run** trong một luồng (`drive2sim/studio/api/jobs.py`): một người, một máy, hai run train cùng lúc sẽ tranh GPU. Ingest chạy ở luồng riêng, nên không phải chờ run train xong.
 
 ### 11.2 Thân và kết quả
 

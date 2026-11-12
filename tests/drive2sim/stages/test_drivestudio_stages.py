@@ -149,11 +149,15 @@ class FakeContext:
     def log_metric(self, name: str, value: float, step: int) -> None:
         """Bỏ qua metric."""
 
+    def should_stop(self) -> bool:
+        """Không bao giờ huỷ."""
+        return False
+
 
 def test_train_stage_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[list[str]] = []
 
-    def fake_run(command: list[str], log_path: Path) -> None:
+    def fake_run(command: list[str], log_path: Path, **kwargs: object) -> None:
         calls.append(command)
         (tmp_path / "checkpoint_final.pth").write_text("x")
 
@@ -168,7 +172,7 @@ def test_train_stage_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
 def test_train_stage_requires_final_checkpoint(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(drivestudio, "run_logged", lambda command, log_path: None)
+    monkeypatch.setattr(drivestudio, "run_logged", lambda command, log_path, **kwargs: None)
     with pytest.raises(RuntimeError, match="checkpoint_final.pth"):
         TrainDrivestudioStage().run(
             FakeContext(tmp_path), {}, TrainDrivestudioParams(method="omnire")

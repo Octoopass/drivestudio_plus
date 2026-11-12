@@ -15,6 +15,8 @@ một thư mục làm việc tạm, và kiểm tra:
 import copy
 import json
 import os
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -25,9 +27,16 @@ from drive2sim.core.schema import Approach, ArtifactRecord, Manifest, RunRecord,
 from drive2sim.engine.cache import CacheBusyError, CacheStore
 from drive2sim.engine.registry import StageRegistry
 from drive2sim.engine.resolve import resolve
-from drive2sim.engine.run import create_run, execute_run
+from drive2sim.engine.run import (
+    create_run,
+    execute_run,
+    request_cancel,
+    reset_stage,
+    run_is_active,
+)
 from drive2sim.engine.stage import Stage, StageContext
 from drive2sim.engine.workdir import Workdir, WorkdirError
+from drive2sim.stages.commands import run_logged
 from tests.drive2sim.samples import MANIFEST, SPLIT
 
 APPROACH = {
@@ -267,3 +276,61 @@ def test_workdir_lookups(workdir: Workdir) -> None:
         workdir.load_scene("nuscenes_scene-9999")
     with pytest.raises(WorkdirError, match="split create"):
         workdir.load_split(MANIFEST["scene_id"], "every4_front1")
+
+
+def test_cancel_before_start_and_resume(workdir: Workdir) -> None:
+    registry = make_registry()
+    run_dir = new_run(workdir, registry)
+    run_record = request_cancel(run_dir)
+    assert run_record.status == "pending"  # chưa chạy: yêu cầu nằm chờ trong d2s/cancel
+    record = execute_run(run_dir, workdir, registry)
+    assert record.status == "cancelled"
+    assert CALLS == {}
+    assert not (run_dir / "d2s" / "cancel").exists()
+    assert not (run_dir / "d2s" / "pid").exists()
+    assert execute_run(run_dir, workdir, registry).status == "succeeded"
+
+
+def test_cancel_stops_running_subprocess(workdir: Workdir) -> None:
+    registry = make_registry()
+
+    def slow(self: Stage, ctx: StageContext, inputs: dict, params: BaseModel) -> dict:
+        (ctx.output_dir / ".." / ".." / "cancel").resolve().write_text("now")
+        run_logged(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            ctx.output_dir / "log.txt",
+            should_stop=ctx.should_stop,
+        )
+        return {}
+
+    registry.get("train.toy").run = slow  # type: ignore[method-assign]
+    run_dir = new_run(workdir, registry)
+    started = time.monotonic()
+    record = execute_run(run_dir, workdir, registry)
+    assert time.monotonic() - started < 15
+    assert record.status == "cancelled"
+    assert record.stages[1].status == "cancelled"
+    assert "đã dừng" in (run_dir / "d2s" / "stages" / "train.toy" / "log.txt").read_text()
+
+
+def test_cancel_stale_running_run(workdir: Workdir) -> None:
+    registry = make_registry()
+    run_dir = new_run(workdir, registry)
+    record = files.load(run_dir / "d2s" / "run.json", RunRecord)
+    record.status = "running"
+    record.stages[0].status = "running"
+    files.dump(record, run_dir / "d2s" / "run.json")
+    (run_dir / "d2s" / "pid").write_text("999999999")  # tiến trình đã chết
+    assert not run_is_active(run_dir)
+    cancelled = request_cancel(run_dir)
+    assert cancelled.status == "cancelled" and cancelled.stages[0].status == "cancelled"
+
+
+def test_reset_stage_reruns_only_that_stage(workdir: Workdir) -> None:
+    registry = make_registry()
+    run_dir = new_run(workdir, registry)
+    execute_run(run_dir, workdir, registry)
+    reset_stage(run_dir, "train.toy", registry)
+    record = execute_run(run_dir, workdir, registry)
+    assert record.status == "succeeded"
+    assert CALLS == {"init.toy": 1, "train.toy": 2}

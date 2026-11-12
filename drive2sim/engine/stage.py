@@ -8,6 +8,7 @@ Stage là một bước xử lý trong pipeline của approach, ví dụ sinh ma
   và hai hàm báo tiến độ, báo metric.
 - ``Scene``: một cảnh đã ingest, gồm thư mục dữ liệu chuẩn và manifest.
 - ``NoParams``: lớp tham số rỗng cho stage không có tham số.
+- ``StageCancelledError``: lỗi stage ném ra khi người dùng huỷ run giữa chừng.
 
 Stage chỉ làm đúng một việc: đọc đầu vào, ghi file vào ``ctx.output_dir`` và trả về đường dẫn
 của đầu ra. Những việc chung như cache, file ``done``, thư mục ``.partial``, ``artifact.json``
@@ -84,6 +85,21 @@ class StageContext(Protocol):
             value: Giá trị.
             step: Bước (iteration) ứng với giá trị này.
         """
+
+    def should_stop(self) -> bool:
+        """Cho biết người dùng đã yêu cầu huỷ run chưa.
+
+        Stage chạy lâu nên kiểm tra định kỳ và ném ``StageCancelledError`` khi hàm trả
+        ``True``. Stage chạy lệnh ngoài chỉ cần truyền hàm này cho ``run_logged``.
+        """
+
+
+class StageCancelledError(Exception):
+    """Stage dừng vì người dùng yêu cầu huỷ run (``d2s run cancel`` hoặc nút huỷ trên Studio).
+
+    Stage hoặc ``run_logged`` ném lỗi này khi ``ctx.should_stop()`` trả ``True``; engine ghi
+    stage và run là ``cancelled`` thay vì ``failed``.
+    """
 
 
 class NoParams(BaseModel):

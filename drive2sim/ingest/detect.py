@@ -7,7 +7,8 @@ File này chứa:
 - ``SourceReport``: kết quả xem trước: dataset nhận ra được, các chuỗi (cảnh gốc), camera, có
   LiDAR và box không, ingest đã hỗ trợ chưa, và danh sách thư mục, file với dữ liệu lạ.
 - ``inspect_source``: hàm chính.
-- Các hàm ``_detect_*``: mỗi hàm nhận ra một loại nguồn theo dấu hiệu trong thư mục.
+- Các hàm ``_detect_*``: mỗi hàm nhận ra một loại nguồn theo dấu hiệu trong thư mục và liệt kê
+  phiên bản, chuỗi có trong đó.
 
 Với dữ liệu lạ, hàm **không đoán quy ước** (trục camera, chiều của pose, đơn vị), vì những thứ đó
 không suy ra được từ file; nó chỉ liệt kê thư mục ảnh và các loại file để người viết converter
@@ -20,10 +21,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from drive2sim.ingest.drivestudio import SOURCES
 from drive2sim.ingest.images import IMAGE_SUFFIXES, read_image_size
+from drive2sim.paths import SCENE_LISTS_DIR
 
-# Nguồn mà scene ingest đã chạy được.
-INGEST_SUPPORTED: frozenset[str] = frozenset({"nuscenes"})
+# Nguồn mà scene ingest chạy được: mọi dataset có script tiền xử lý của DriveStudio.
+INGEST_SUPPORTED: frozenset[str] = frozenset(SOURCES)
 _MAX_DEPTH = 3
 _MAX_INVENTORY = 20
 
@@ -114,12 +117,103 @@ def _detect_nuscenes(root: Path, report: SourceReport) -> bool:
     return True
 
 
-def _detect_by_signature(root: Path, report: SourceReport) -> bool:
-    """Nhận ra các nguồn chưa có ingest theo dấu hiệu trong thư mục.
+def _dirs(root: Path, pattern: str) -> list[Path]:
+    """Các thư mục con khớp ``pattern``, sắp theo tên."""
+    return sorted(path for path in root.glob(pattern) if path.is_dir())
 
-    Dấu hiệu: file ``.tfrecord`` là Waymo; ``sparse/0/cameras.bin`` hoặc ``cameras.txt`` là
-    COLMAP; file ``.zarr.itar`` hoặc thư mục ``.zarr`` là NCore; thư mục ``calib`` cùng
-    ``image_02`` là KITTI.
+
+def _detect_waymo(root: Path, report: SourceReport) -> bool:
+    """Nhận ra Waymo: có file ``.tfrecord``.
+
+    Script tiền xử lý chỉ đọc các segment có trong ``waymo_train_list.txt``, nên chuỗi liệt kê là
+    các segment vừa có file vừa có trong danh sách đó.
+    """
+    stems = sorted(path.stem for path in root.rglob("*.tfrecord"))
+    if not stems:
+        return False
+    report.dataset = "waymo"
+    known = set((SCENE_LISTS_DIR / "waymo_train_list.txt").read_text().splitlines())
+    report.versions["training"] = [stem for stem in stems if stem in known]
+    if len(report.versions["training"]) < len(stems):
+        report.notes.append(
+            f"{len(stems) - len(report.versions['training'])} segment không có trong "
+            "waymo_train_list.txt nên script tiền xử lý không đọc được"
+        )
+    report.has_lidar = report.has_cuboids = True
+    return True
+
+
+def _detect_argoverse(root: Path, report: SourceReport) -> bool:
+    """Nhận ra Argoverse 2: các thư mục log có ``sensors/cameras/ring_front_center``."""
+    logs = [p.name for p in _dirs(root, "*") if (p / "sensors" / "cameras").is_dir()]
+    if not logs:
+        return False
+    report.dataset = "argoverse2"
+    known = set((SCENE_LISTS_DIR / "argoverse_train_list.txt").read_text().splitlines())
+    report.versions[""] = [log for log in logs if log in known]
+    report.cameras = list(SOURCES["argoverse2"].cameras)
+    report.has_lidar = True
+    report.has_cuboids = any((root / log / "annotations.feather").is_file() for log in logs)
+    return True
+
+
+def _detect_pandaset(root: Path, report: SourceReport) -> bool:
+    """Nhận ra PandaSet: thư mục ``<3 chữ số>/camera/front_camera``."""
+    sequences = [p.name for p in _dirs(root, "[0-9][0-9][0-9]") if (p / "camera").is_dir()]
+    if not sequences:
+        return False
+    report.dataset = "pandaset"
+    report.versions[""] = sequences
+    report.cameras = list(SOURCES["pandaset"].cameras)
+    report.has_lidar = any((root / s / "lidar").is_dir() for s in sequences)
+    report.has_cuboids = any((root / s / "annotations").is_dir() for s in sequences)
+    return True
+
+
+def _detect_kitti(root: Path, report: SourceReport) -> bool:
+    """Nhận ra KITTI raw: ``<ngày>/<ngày>_drive_<số>_sync/image_02``; phiên bản là ngày."""
+    for date_dir in _dirs(root, "????_??_??"):
+        drives = [p.name for p in _dirs(date_dir, "*_drive_*_sync") if (p / "image_02").is_dir()]
+        if drives:
+            report.versions[date_dir.name] = drives
+    if not report.versions:
+        return False
+    report.dataset = "kitti"
+    report.cameras = list(SOURCES["kitti"].cameras)
+    report.has_lidar = True
+    return True
+
+
+def _detect_nuplan(root: Path, report: SourceReport) -> bool:
+    """Nhận ra nuPlan: ``nuplan-v1.1/splits/<split>/*.db``; phiên bản là split."""
+    for split_dir in _dirs(root / "nuplan-v1.1" / "splits", "*"):
+        logs = sorted(p.stem for p in split_dir.glob("*.db"))
+        if logs:
+            report.versions[split_dir.name] = logs
+    if not report.versions:
+        return False
+    report.dataset = "nuplan"
+    report.cameras = list(SOURCES["nuplan"].cameras)
+    report.has_lidar = report.has_cuboids = True
+    return True
+
+
+def _detect_physicalai(root: Path, report: SourceReport) -> bool:
+    """Nhận ra PhysicalAI: file ``pai_<clip>.json`` (kho NCore của bộ dữ liệu PhysicalAI)."""
+    stems = [p.stem for p in sorted(root.glob("**/pai_*.json"))]
+    if not stems:
+        return False
+    report.dataset = "physicalai"
+    report.versions[""] = stems
+    report.cameras = list(SOURCES["physicalai"].cameras)
+    report.has_lidar = True
+    return True
+
+
+def _detect_by_signature(root: Path, report: SourceReport) -> bool:
+    """Nhận ra các nguồn chưa có ingest: COLMAP và NCore khác PhysicalAI.
+
+    Dấu hiệu: COLMAP có ``sparse/0/cameras.bin``; NCore có ``.zarr.itar`` hoặc ``.zarr``.
 
     Args:
         root: Thư mục nguồn.
@@ -128,21 +222,25 @@ def _detect_by_signature(root: Path, report: SourceReport) -> bool:
     Returns:
         ``True`` nếu nhận ra một nguồn.
     """
-    tfrecords = sorted(root.rglob("*.tfrecord"))
-    if tfrecords:
-        report.dataset = "waymo"
-        report.versions[""] = [path.stem for path in tfrecords]
-        return True
     if any((root / "sparse" / "0" / name).is_file() for name in ("cameras.bin", "cameras.txt")):
         report.dataset = "colmap"
         return True
     if any(root.rglob("*.zarr.itar")) or any(root.rglob("*.zarr")):
         report.dataset = "ncore"
         return True
-    if any(root.rglob("image_02")) and any(root.rglob("calib*")):
-        report.dataset = "kitti"
-        return True
     return False
+
+
+_DETECTORS = (
+    _detect_nuscenes,
+    _detect_waymo,
+    _detect_physicalai,
+    _detect_nuplan,
+    _detect_kitti,
+    _detect_argoverse,
+    _detect_pandaset,
+    _detect_by_signature,
+)
 
 
 def _inventory(root: Path) -> list[dict[str, object]]:
@@ -183,8 +281,8 @@ def _inventory(root: Path) -> list[dict[str, object]]:
 def inspect_source(path: Path) -> SourceReport:
     """Xem trước một thư mục dữ liệu gốc.
 
-    Thử nhận ra nuScenes trước (đọc được nhiều thông tin nhất), rồi các nguồn khác theo dấu hiệu.
-    Không nhận ra thì liệt kê thư mục ảnh và loại file.
+    Thử lần lượt từng loại nguồn theo dấu hiệu trong thư mục (``_DETECTORS``); PhysicalAI được thử
+    trước NCore chung vì nó cũng là NCore. Không nhận ra thì liệt kê thư mục ảnh và loại file.
 
     Args:
         path: Thư mục dữ liệu gốc.
@@ -199,7 +297,7 @@ def inspect_source(path: Path) -> SourceReport:
     if not root.is_dir():
         raise FileNotFoundError(f"không có thư mục {root}")
     report = SourceReport(path=root)
-    if _detect_nuscenes(root, report) or _detect_by_signature(root, report):
+    if any(detect(root, report) for detect in _DETECTORS):
         if not report.ingest_supported:
             report.notes.append(
                 f"nhận ra {report.dataset} nhưng scene ingest chưa hỗ trợ nguồn này"

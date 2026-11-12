@@ -7,6 +7,9 @@ File này chứa:
   cho lưới ảnh đồng bộ.
 - ``GET /api/scenes/{scene_id}/splits``, ``GET .../splits/{split_id}``: đọc split.
 - ``POST /api/scenes/{scene_id}/splits``: tạo split (như ``d2s split create``).
+- ``POST /api/scenes/{scene_id}/validate``: kiểm tra lại cảnh, ghi ``reports/validation.json``.
+- ``DELETE /api/scenes/{scene_id}``: xoá cảnh cùng split, cache, run của nó.
+- ``DELETE /api/scenes/{scene_id}/splits/{split_id}``: xoá split (còn run dùng thì ``409``).
 """
 
 import json
@@ -15,8 +18,10 @@ from typing import Optional
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict
 
-from drive2sim.engine import scenes
+from drive2sim.core import files
+from drive2sim.engine import housekeeping, scenes
 from drive2sim.ingest.images import IMAGE_SUFFIXES
+from drive2sim.ingest.validate import validate_scene
 from drive2sim.studio.api.state import state_of
 
 router = APIRouter(prefix="/api/scenes", tags=["scenes"])
@@ -127,3 +132,36 @@ def create_split(scene_id: str, body: CreateSplitBody, request: Request) -> dict
         split_id=body.split_id,
     )
     return split.model_dump(mode="json")
+
+
+@router.post("/{scene_id}/validate")
+def validate(scene_id: str, request: Request) -> dict:
+    """Kiểm tra lại cảnh (như ``d2s scene validate``) và ghi báo cáo.
+
+    Returns:
+        Báo cáo kiểm tra mới.
+    """
+    scene = state_of(request).workdir.load_scene(scene_id)
+    report = validate_scene(scene.root, scene.manifest)
+    files.dump(report, scene.root / "reports" / "validation.json")
+    return report.model_dump(mode="json")
+
+
+@router.delete("/{scene_id}")
+def delete_scene(scene_id: str, request: Request) -> dict:
+    """Xoá cảnh cùng dữ liệu chuẩn, split, cache và run; có run đang chạy thì ``409``.
+
+    Returns:
+        ``{"removed": [đường dẫn đã xoá]}``.
+    """
+    return {"removed": housekeeping.delete_scene(state_of(request).workdir, scene_id)}
+
+
+@router.delete("/{scene_id}/splits/{split_id}")
+def delete_split(scene_id: str, split_id: str, request: Request) -> dict:
+    """Xoá một split; còn run dùng split thì ``409``.
+
+    Returns:
+        ``{"removed": [đường dẫn đã xoá]}``.
+    """
+    return {"removed": housekeeping.delete_split(state_of(request).workdir, scene_id, split_id)}

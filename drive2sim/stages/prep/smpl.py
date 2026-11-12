@@ -94,7 +94,7 @@ class PrepSmplStage(Stage):
         view = build_view(ctx.scene.root, view_root, exclude=[OUTPUT_NAME])
         ctx.progress(0.0, "sinh SMPL bằng 4D-Humans")
         command = build_command(ctx.scene.manifest.source.dataset, view_root)
-        run_logged(command, ctx.output_dir / LOG_FILE)
+        run_logged(command, ctx.output_dir / LOG_FILE, should_stop=ctx.should_stop)
         collect_outputs(view, ctx.output_dir, [OUTPUT_NAME])
         shutil.rmtree(view_root)
         if not (ctx.output_dir / OUTPUT_NAME / "smpl.pkl").is_file():

@@ -1,9 +1,9 @@
 """Điểm vào của lệnh ``d2s``: dựng parser, gọi lệnh, đổi lỗi thành mã thoát.
 
 Lệnh có dạng ``d2s <nhóm> <hành động> [tuỳ chọn]`` (CONTRACTS mục 10.4). File này chứa:
-- ``build_parser``: dựng parser với các nhóm ``source``, ``scene``, ``split``, ``approach``,
-  ``run``, ``studio``, ``schema`` và tuỳ chọn chung ``--workdir``, ``--json``, ``--verbose``,
-  ``--quiet``.
+- ``build_parser``: dựng parser với mọi nhóm lệnh (``source``, ``scene``, ``split``,
+  ``approach``, ``run``, ``report``, ``export``, ``cache``, ``studio``, ``schema``) và tuỳ chọn
+  chung ``--workdir``, ``--json``, ``--verbose``, ``--quiet``, ``--yes``.
 - ``main``: phân tích dòng lệnh, nạp mọi stage, gọi lệnh, và đổi lỗi thành mã thoát:
   ``0`` thành công; ``1`` lỗi khi chạy; ``2`` sai cú pháp hoặc sai giá trị; ``3`` bị khoá vì
   không thoả điều kiện hoặc ràng buộc; ``130`` bị ngắt bằng Ctrl-C.
@@ -23,9 +23,21 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Optional
 
-from drive2sim.cli import approach, run, scene, schema, source, split, studio
+from drive2sim.cli import (
+    approach,
+    cache,
+    export,
+    report,
+    run,
+    scene,
+    schema,
+    source,
+    split,
+    studio,
+)
 from drive2sim.cli.output import CommandError, UsageError
 from drive2sim.engine.cache import CacheBusyError
+from drive2sim.engine.housekeeping import InUseError
 from drive2sim.engine.registry import load_builtin_stages
 from drive2sim.engine.resolve import BlockedError, ResolveError
 from drive2sim.engine.workdir import WorkdirError
@@ -64,6 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--json", action="store_true", help="in kết quả dạng JSON ra stdout")
     common.add_argument("--verbose", action="store_true", help="in thêm metric và traceback")
     common.add_argument("--quiet", action="store_true", help="không in tiến độ ra stderr")
+    common.add_argument("--yes", action="store_true", help="không hỏi xác nhận khi xoá")
 
     parser = argparse.ArgumentParser(
         prog="d2s",
@@ -71,7 +84,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version=f"d2s {_version()}")
     groups = parser.add_subparsers(dest="group", required=True)
-    for module in (source, scene, split, approach, run, studio, schema):
+    for module in (source, scene, split, approach, run, report, export, cache, studio, schema):
         module.register(groups, common)
     return parser
 
@@ -120,6 +133,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return EXIT_USAGE
     except (WorkdirError, FileNotFoundError) as error:
         _print_error(args, "not_found", str(error))
+        return EXIT_ERROR
+    except InUseError as error:
+        _print_error(args, "conflict", str(error))
         return EXIT_ERROR
     except CacheBusyError as error:
         _print_error(args, "conflict", str(error))

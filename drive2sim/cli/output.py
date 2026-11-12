@@ -10,6 +10,7 @@ File này chứa:
 - ``emit``, ``format_table``, ``format_value``, ``info``: in kết quả và thông báo.
 - ``event_printer``: tạo hàm nhận sự kiện của engine và in tiến độ ra stderr.
 - ``parse_value``, ``parse_set``: đọc giá trị ``--set <khoá>=<giá trị>`` theo CONTRACTS mục 10.3.
+- ``confirm``: hỏi xác nhận trước khi xoá; ``--yes`` bỏ hỏi.
 """
 
 import argparse
@@ -180,3 +181,29 @@ def parse_set(pairs: Sequence[str]) -> tuple[dict[str, object], dict[str, dict[s
         else:
             options[key] = value
     return options, stage_params
+
+
+def confirm(args: argparse.Namespace, question: str, items: Sequence[str]) -> None:
+    """Hỏi người dùng xác nhận trước khi xoá (CONTRACTS mục 10.4).
+
+    In danh sách những gì sẽ bị xoá ra stderr rồi hỏi ``[y/N]``. Có ``--yes`` thì không hỏi.
+    Không chạy trong terminal (ví dụ trong script) mà thiếu ``--yes`` thì từ chối, để script không
+    treo chờ câu trả lời.
+
+    Args:
+        args: Tham số dòng lệnh, có ``yes``.
+        question: Câu hỏi, ví dụ ``"Xoá run 2026...?"``.
+        items: Những gì sẽ bị xoá, mỗi mục một dòng.
+
+    Raises:
+        UsageError: Nếu người dùng không đồng ý, hoặc không có terminal và thiếu ``--yes``.
+    """
+    for item in items:
+        print(f"  {item}", file=sys.stderr)
+    if getattr(args, "yes", False):
+        return
+    if not sys.stdin.isatty():
+        raise UsageError("cần --yes để xoá khi không chạy trong terminal")
+    answer = input(f"{question} [y/N] ").strip().lower()
+    if answer not in ("y", "yes", "có", "c"):
+        raise UsageError("đã huỷ, không xoá gì")

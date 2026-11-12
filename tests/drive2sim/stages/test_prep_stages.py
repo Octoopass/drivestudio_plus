@@ -56,6 +56,10 @@ class Context:
     def log_metric(self, name: str, value: float, step: int) -> None:
         """Bỏ qua metric."""
 
+    def should_stop(self) -> bool:
+        """Không bao giờ huỷ."""
+        return False
+
 
 def test_build_view_links_excludes_and_extras(tmp_path: Path) -> None:
     scene = make_scene(tmp_path)
@@ -92,7 +96,7 @@ def test_masks_stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     scene = make_scene(tmp_path)
     calls: list[list[str]] = []
 
-    def fake_run(command: list[str], log_path: Path) -> None:
+    def fake_run(command: list[str], log_path: Path, **kwargs: object) -> None:
         calls.append(command)
         view = Path(command[command.index("--data_root") + 1]) / "000"
         (view / "sky_masks").mkdir()
@@ -112,7 +116,7 @@ def test_masks_stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert command[command.index("--device") + 1] == "cpu"
     assert "--process_dynamic_mask" in command
 
-    monkeypatch.setattr(masks_segformer, "run_logged", lambda command, log_path: None)
+    monkeypatch.setattr(masks_segformer, "run_logged", lambda command, log_path, **kwargs: None)
     with pytest.raises(RuntimeError, match="sky_masks"):
         PrepMasksSegformerStage().run(
             Context(scene, tmp_path / "cache" / "m2"), {}, PrepMasksSegformerParams(dynamic=False)
@@ -123,7 +127,7 @@ def test_smpl_stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     scene = make_scene(tmp_path)
     calls: list[list[str]] = []
 
-    def fake_run(command: list[str], log_path: Path) -> None:
+    def fake_run(command: list[str], log_path: Path, **kwargs: object) -> None:
         calls.append(command)
         view = Path(command[command.index("--data_root") + 1]) / "000"
         assert not (view / "humanpose").exists()  # mục sắp ghi không có trong view
@@ -145,7 +149,7 @@ def test_train_view_uses_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     (masks / "sky_masks").mkdir(parents=True)
     commands: list[list[str]] = []
 
-    def fake_run(command: list[str], log_path: Path) -> None:
+    def fake_run(command: list[str], log_path: Path, **kwargs: object) -> None:
         commands.append(command)
         (log_path.parent / "checkpoint_final.pth").write_text("x")
 

@@ -299,3 +299,47 @@ def test_schema_export(tmp_path: Path) -> None:
     run_schema = json.loads((tmp_path / "run.schema.json").read_text())
     assert run_schema["title"] == "RunRecord"
     assert "stages" in run_schema["properties"]
+
+
+def test_housekeeping_commands(
+    workdir: Path, split_id: str, capsys: pytest.CaptureFixture
+) -> None:
+    base = ["--scene", SCENE, "--split", split_id]
+    code, data = run_json(capsys, "run", "start", "toy", *base)
+    run_id = data["run_id"]
+
+    code, data = run_json(capsys, "report", "--scene", SCENE)
+    assert code == 0 and data[0]["run_id"] == run_id
+    assert main(["report", "--csv"]) == 0
+    assert capsys.readouterr().out.startswith("run_id,")
+
+    code, data = run_json(capsys, "cache", "list")
+    assert code == 0 and data[0]["used_by"] == [run_id]
+    code, data = run_json(capsys, "run", "cancel", run_id)
+    assert code == 0 and data["status"] == "succeeded"  # run đã xong: huỷ không đổi gì
+
+    code, data = run_json(capsys, "split", "delete", SCENE, split_id, "--yes")
+    assert code == 1 and data["error"]["code"] == "conflict"
+    # không có terminal và thiếu --yes thì từ chối xoá
+    code, data = run_json(capsys, "run", "delete", run_id)
+    assert code == 2 and "--yes" in data["error"]["message"]
+    code, data = run_json(capsys, "run", "delete", run_id, "--yes")
+    assert code == 0 and data["removed"]
+    code, data = run_json(capsys, "cache", "gc", "--yes")
+    assert code == 0 and len(data["removed"]) == 1
+    code, data = run_json(capsys, "split", "delete", SCENE, split_id, "--yes")
+    assert code == 0
+
+    code, data = run_json(capsys, "scene", "validate", SCENE)
+    assert data["scene_id"] == SCENE
+    code, data = run_json(capsys, "scene", "delete", SCENE, "--yes")
+    assert code == 0 and any(path.startswith("data/") for path in data["removed"])
+    assert not (workdir / "data" / SCENE).exists()
+
+
+def test_export_unknown_stage_is_reported(
+    workdir: Path, split_id: str, capsys: pytest.CaptureFixture
+) -> None:
+    code, data = run_json(capsys, "run", "start", "toy", "--scene", SCENE, "--split", split_id)
+    code, data = run_json(capsys, "export", "preview", data["run_id"])
+    assert code == 1 and "export.preview" in data["error"]["message"]

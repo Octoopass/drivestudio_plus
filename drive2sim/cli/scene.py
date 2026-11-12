@@ -4,23 +4,26 @@ File này chứa:
 - ``register``: thêm các lệnh ``scene list`` và ``scene show`` vào parser.
 - ``list_scenes``: liệt kê các cảnh có ``manifest.yaml`` trong ``data/``.
 - ``show_scene``: in manifest và tóm tắt báo cáo kiểm tra của một cảnh.
-- ``ingest_scene``: chuyển một cảnh của dữ liệu gốc thành ``data/<scene_id>/`` (hiện hỗ trợ
-  nuScenes), ghi manifest và báo cáo kiểm tra.
+- ``ingest_scene``: chuyển một chuỗi của dữ liệu gốc thành ``data/<scene_id>/`` (mọi dataset có
+  script tiền xử lý của DriveStudio), ghi manifest và báo cáo kiểm tra.
 
-Lệnh ``scene validate`` và ``scene delete`` (CONTRACTS mục 10.4) chưa có.
+- ``validate_scene``: kiểm tra lại một cảnh, ghi ``reports/validation.json``.
+- ``delete_scene``: xoá cảnh cùng split, cache và run của nó, sau khi hỏi xác nhận.
 """
 
 import argparse
 import json
 from pathlib import Path
 
-from drive2sim.cli.output import CommandError, UsageError, emit, format_table, info
+from drive2sim.cli.output import CommandError, UsageError, confirm, emit, format_table, info
 from drive2sim.core import files
 from drive2sim.core.schema import Manifest
-from drive2sim.engine import scenes
+from drive2sim.engine import housekeeping, scenes
 from drive2sim.engine.workdir import Workdir
 from drive2sim.ingest.detect import inspect_source
-from drive2sim.ingest.nuscenes import IngestError, ingest_nuscenes
+from drive2sim.ingest.dispatch import IngestRequestError, plan_ingest, run_ingest
+from drive2sim.ingest.drivestudio import IngestError
+from drive2sim.ingest.validate import validate_scene
 
 
 def register(
@@ -45,7 +48,7 @@ def register(
     )
     ingest.add_argument("path", type=Path, help="thư mục dữ liệu gốc")
     ingest.add_argument("--source-type", help="dataset gốc; bỏ trống thì tự nhận dạng")
-    ingest.add_argument("--version", help="phiên bản dataset, ví dụ v1.0-mini (nuScenes)")
+    ingest.add_argument("--version", help="phiên bản hoặc split, ví dụ v1.0-mini, training")
     ingest.add_argument("--sequence", help="chuỗi (cảnh gốc) cần ingest, ví dụ scene-0061")
     ingest.add_argument("--scene", dest="scene_id", help="scene_id trong tool; mặc định tự đặt")
     ingest.add_argument(
@@ -56,6 +59,12 @@ def register(
     )
     ingest.add_argument("--workers", type=int, default=4, help="số tiến trình của script")
     ingest.set_defaults(handler=ingest_scene)
+    validate = actions.add_parser("validate", parents=[common], help="kiểm tra lại một cảnh")
+    validate.add_argument("scene_id")
+    validate.set_defaults(handler=validate_scene_command)
+    delete = actions.add_parser("delete", parents=[common], help="xoá cảnh, split, cache và run")
+    delete.add_argument("scene_id")
+    delete.set_defaults(handler=delete_scene)
 
 
 def list_scenes(args: argparse.Namespace) -> int:
@@ -124,10 +133,10 @@ def show_scene(args: argparse.Namespace) -> int:
 
 
 def ingest_scene(args: argparse.Namespace) -> int:
-    """Chuyển một cảnh của dữ liệu gốc sang ``data/<scene_id>/``.
+    """Chuyển một chuỗi của dữ liệu gốc sang ``data/<scene_id>/``.
 
-    Bỏ ``--source-type`` thì nhận dạng như ``source inspect``. Với nuScenes: ``--version`` được
-    chọn tự động khi thư mục chỉ có một phiên bản; ``--sequence`` bắt buộc khi có nhiều cảnh.
+    Bỏ ``--source-type`` thì nhận dạng như ``source inspect``. Phiên bản và chuỗi được chọn tự
+    động khi chỉ có một khả năng (``drive2sim.ingest.dispatch.plan_ingest``).
 
     Args:
         args: Tham số dòng lệnh: ``path``, ``source_type``, ``version``, ``sequence``,
@@ -137,33 +146,21 @@ def ingest_scene(args: argparse.Namespace) -> int:
         ``0`` nếu ingest xong và báo cáo kiểm tra không có lỗi; ``1`` nếu báo cáo có lỗi.
 
     Raises:
-        UsageError: Nếu thiếu hoặc sai ``--version``, ``--sequence``.
-        CommandError: Nếu nguồn chưa được hỗ trợ, hoặc ingest lỗi.
+        UsageError: Nếu thiếu hoặc sai dataset, phiên bản, chuỗi.
+        CommandError: Nếu ingest lỗi.
     """
     workdir = Workdir.from_env(args.workdir)
-    report = inspect_source(args.path)
-    dataset = args.source_type or report.dataset
-    if dataset is None:
-        raise CommandError(
-            "không nhận ra dataset; chạy d2s source inspect để xem thư mục có gì", "not_found"
-        )
-    if dataset != "nuscenes":
-        raise CommandError(f"scene ingest chưa hỗ trợ {dataset}; hiện chỉ có nuscenes")
-    versions = report.versions
-    version = args.version or (next(iter(versions)) if len(versions) == 1 else None)
-    if version is None or version not in versions:
-        raise UsageError(f"chọn --version trong: {', '.join(versions) or '(không có)'}")
-    sequences = versions[version]
-    sequence = args.sequence or (sequences[0] if len(sequences) == 1 else None)
-    if sequence is None:
-        shown = ", ".join(sequences[:10]) + (", ..." if len(sequences) > 10 else "")
-        raise UsageError(f"chọn một cảnh bằng --sequence; {version} có: {shown}")
     try:
-        scene_dir = ingest_nuscenes(
+        target = plan_ingest(
+            inspect_source(args.path), args.source_type, args.version, args.sequence
+        )
+    except IngestRequestError as error:
+        raise UsageError(str(error)) from None
+    try:
+        scene_dir = run_ingest(
             args.path,
             workdir,
-            scene_name=sequence,
-            version=version,
+            target,
             scene_id=args.scene_id,
             interpolate_n=args.interpolate_n,
             workers=args.workers,
@@ -182,3 +179,53 @@ def ingest_scene(args: argparse.Namespace) -> int:
         f"{summary['warnings']} cảnh báo",
     )
     return 0 if summary["errors"] == 0 else 1
+
+
+def validate_scene_command(args: argparse.Namespace) -> int:
+    """Kiểm tra lại một cảnh và ghi ``reports/validation.json``.
+
+    Dùng sau khi sửa tay thư mục cảnh, hoặc khi bộ kiểm tra có phép kiểm tra mới.
+
+    Args:
+        args: Tham số dòng lệnh, có ``scene_id``.
+
+    Returns:
+        ``0`` nếu không có lỗi; ``1`` nếu báo cáo có lỗi.
+    """
+    workdir = Workdir.from_env(args.workdir)
+    scene = workdir.load_scene(args.scene_id)
+    report = validate_scene(scene.root, scene.manifest)
+    files.dump(report, scene.root / "reports" / "validation.json")
+    lines = [f"{report.summary.errors} lỗi, {report.summary.warnings} cảnh báo"]
+    lines += [f"  {c.severity}: {c.check_id} {c.message}" for c in report.checks]
+    emit(args, report.model_dump(mode="json"), "\n".join(lines))
+    return 0 if report.summary.errors == 0 else 1
+
+
+def delete_scene(args: argparse.Namespace) -> int:
+    """Xoá một cảnh cùng split, cache và run của nó, sau khi hỏi xác nhận.
+
+    Args:
+        args: Tham số dòng lệnh, có ``scene_id`` và ``yes``.
+
+    Returns:
+        Mã thoát ``0``.
+
+    Raises:
+        InUseError: Nếu một run của cảnh đang chạy.
+    """
+    workdir = Workdir.from_env(args.workdir)
+    workdir.load_scene(args.scene_id)
+    targets = [
+        workdir.relative(path)
+        for path in (
+            workdir.scene_dir(args.scene_id),
+            workdir.cache_dir / args.scene_id,
+            workdir.runs_dir / args.scene_id,
+        )
+        if path.exists()
+    ]
+    confirm(args, f"Xoá cảnh {args.scene_id} cùng mọi split, cache và run của nó?", targets)
+    removed = housekeeping.delete_scene(workdir, args.scene_id)
+    emit(args, {"removed": removed}, f"đã xoá {', '.join(removed)}")
+    return 0

@@ -318,3 +318,62 @@ def test_built_frontend_is_committed() -> None:
     from drive2sim.studio.api.app import FRONTEND_DIST
 
     assert (FRONTEND_DIST / "index.html").is_file()
+
+
+def test_housekeeping_routes(client: TestClient) -> None:
+    split_id = create_split(client)
+    run_id = client.post(
+        "/api/runs", json={"approach_id": "toy", "scene_id": SCENE, "split_id": split_id}
+    ).json()["run_id"]
+    client.app.state.studio.queue.wait_idle()
+
+    cache = client.get("/api/cache").json()
+    assert cache["total"] == 1 and cache["items"][0]["used_by"] == [run_id]
+    assert client.post("/api/cache/gc", json={"dry_run": True}).json()["removed"] == []
+    validated = client.post(f"/api/scenes/{SCENE}/validate").json()
+    assert "summary" in validated and validated["checks"]
+
+    export = client.post(f"/api/runs/{run_id}/export", json={"kind": "preview"})
+    assert export.status_code == 400 and "export.preview" in export.json()["error"]["message"]
+    cancelled = client.post(f"/api/runs/{run_id}/cancel")
+    assert cancelled.status_code == 202 and cancelled.json()["status"] == "succeeded"
+
+    in_use = client.delete(f"/api/scenes/{SCENE}/splits/{split_id}")
+    assert in_use.status_code == 409 and in_use.json()["error"]["code"] == "conflict"
+    assert client.delete(f"/api/runs/{run_id}").json()["removed"][0].endswith(run_id)
+    assert client.get(f"/api/runs/{run_id}").status_code == 404
+    gc = client.post("/api/cache/gc", json={}).json()
+    assert len(gc["removed"]) == 1 and client.get("/api/cache").json()["total"] == 0
+    assert client.delete(f"/api/scenes/{SCENE}/splits/{split_id}").status_code == 200
+    assert f"data/{SCENE}" in client.delete(f"/api/scenes/{SCENE}").json()["removed"]
+    assert client.get("/api/scenes").json()["total"] == 0
+
+
+def test_source_inspect_and_ingest_job(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from drive2sim.ingest import drivestudio
+    from tests.drive2sim.ingest.test_ingest import fake_preprocess, make_raw_nuscenes
+
+    monkeypatch.setattr(drivestudio, "run_logged", fake_preprocess([]))
+    raw = make_raw_nuscenes(tmp_path / "raw")
+    report = client.post("/api/sources/inspect", json={"path": str(raw)}).json()
+    assert report["dataset"] == "nuscenes" and report["ingest_supported"]
+    missing = client.post("/api/sources/inspect", json={"path": str(tmp_path / "nope")})
+    assert missing.status_code == 404
+
+    ambiguous = client.post("/api/sources/ingest", json={"path": str(raw)})
+    assert (
+        ambiguous.status_code == 400 and "chọn một chuỗi" in ambiguous.json()["error"]["message"]
+    )
+    job = client.post("/api/sources/ingest", json={"path": str(raw), "sequence": "scene-0103"})
+    assert job.status_code == 202 and job.json()["status"] in ("queued", "running")
+    client.app.state.studio.ingest_jobs.wait_idle()
+    done = client.get(f"/api/jobs/{job.json()['job_id']}").json()
+    assert done["status"] == "succeeded" and done["scene_id"] == "nuscenes_scene-0103"
+    again = client.post("/api/sources/ingest", json={"path": str(raw), "sequence": "scene-0103"})
+    client.app.state.studio.ingest_jobs.wait_idle()
+    failed = client.get(f"/api/jobs/{again.json()['job_id']}").json()
+    assert failed["status"] == "failed" and "đã có" in failed["error"]
+    assert client.get("/api/jobs").json()["total"] == 2
+    assert client.get("/api/jobs/nope").status_code == 404

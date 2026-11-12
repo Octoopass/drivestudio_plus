@@ -86,7 +86,7 @@ def input_key_for_run_stage(run_id: str, stage_id: str) -> str:
     return f"run:{run_id}/{stage_id}"
 
 
-def _pid_alive(pid: int) -> bool:
+def pid_alive(pid: int) -> bool:
     """Kiểm tra tiến trình ``pid`` còn chạy trên máy này không.
 
     Gửi tín hiệu 0 tới tiến trình: không làm gì tiến trình nhưng báo lỗi nếu nó không tồn tại.
@@ -174,7 +174,7 @@ class CacheStore:
         except FileExistsError:
             owner = partial / OWNER_FILE
             pid = int(owner.read_text()) if owner.is_file() else None
-            if pid is not None and pid != os.getpid() and _pid_alive(pid):
+            if pid is not None and pid != os.getpid() and pid_alive(pid):
                 raise CacheBusyError(
                     f"tiến trình {pid} đang ghi cache {cache_key}; chờ nó xong rồi chạy lại"
                 ) from None

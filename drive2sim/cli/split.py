@@ -5,6 +5,7 @@ File này chứa:
 - ``create_split``: tạo split ``every_nth_frame:N``, ghi vào
   ``data/<scene_id>/splits/<split_id>.json``.
 - ``list_splits``, ``show_split``: liệt kê và xem split.
+- ``delete_split``: xoá một split không còn run nào dùng.
 
 Phần kiểm tra và ghi file nằm ở ``drive2sim/engine/scenes.py``, dùng chung với API của Studio;
 file này chỉ đọc tham số dòng lệnh và in kết quả.
@@ -13,8 +14,8 @@ file này chỉ đọc tham số dòng lệnh và in kết quả.
 import argparse
 from typing import Optional
 
-from drive2sim.cli.output import UsageError, emit, format_table, info
-from drive2sim.engine import scenes
+from drive2sim.cli.output import UsageError, confirm, emit, format_table, info
+from drive2sim.engine import housekeeping, scenes
 from drive2sim.engine.workdir import Workdir
 
 
@@ -47,6 +48,11 @@ def register(
     show.add_argument("scene_id")
     show.add_argument("split_id")
     show.set_defaults(handler=show_split)
+
+    delete = actions.add_parser("delete", parents=[common], help="xoá một split")
+    delete.add_argument("scene_id")
+    delete.add_argument("split_id")
+    delete.set_defaults(handler=delete_split)
 
 
 def _parse_frame_range(raw: Optional[str]) -> Optional[tuple[int, int]]:
@@ -138,4 +144,24 @@ def show_split(args: argparse.Namespace) -> int:
         ]
     )
     emit(args, split.model_dump(mode="json"), text)
+    return 0
+
+
+def delete_split(args: argparse.Namespace) -> int:
+    """Xoá một split sau khi hỏi xác nhận.
+
+    Args:
+        args: Tham số dòng lệnh, có ``scene_id``, ``split_id``, ``yes``.
+
+    Returns:
+        Mã thoát ``0``.
+
+    Raises:
+        InUseError: Nếu còn run dùng split này.
+    """
+    workdir = Workdir.from_env(args.workdir)
+    path = workdir.split_path(args.scene_id, args.split_id)
+    confirm(args, f"Xoá split {args.split_id}?", [workdir.relative(path)])
+    removed = housekeeping.delete_split(workdir, args.scene_id, args.split_id)
+    emit(args, {"removed": removed}, f"đã xoá {', '.join(removed)}")
     return 0

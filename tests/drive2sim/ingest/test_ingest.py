@@ -1,4 +1,4 @@
-"""Kiểm tra tầng dữ liệu: đọc kích thước ảnh, nhận dạng nguồn, manifest, kiểm tra, ingest nuScenes.
+"""Kiểm tra tầng dữ liệu: đọc kích thước ảnh, nhận dạng nguồn, manifest, kiểm tra, ingest.
 
 Không có dữ liệu nuScenes thật trên máy test, nên file này dựng:
 - ảnh JPEG và PNG giả ở mức byte (chỉ phần đầu file chứa kích thước);
@@ -20,12 +20,23 @@ from drive2sim.cli.main import main
 from drive2sim.core import files
 from drive2sim.core.schema import Manifest, ValidationReport
 from drive2sim.engine.workdir import Workdir
-from drive2sim.ingest import nuscenes
+from drive2sim.ingest import drivestudio
 from drive2sim.ingest.detect import inspect_source
+from drive2sim.ingest.dispatch import IngestRequestError, IngestTarget, plan_ingest, run_ingest
+from drive2sim.ingest.drivestudio import (
+    SOURCES,
+    IngestError,
+    build_command,
+    default_scene_id,
+    find_scene_dir,
+    ingest_drivestudio,
+)
 from drive2sim.ingest.images import read_image_size
 from drive2sim.ingest.manifest import build_manifest
-from drive2sim.ingest.nuscenes import NUSCENES_CAMERAS, IngestError, ingest_nuscenes
 from drive2sim.ingest.validate import validate_scene
+from drive2sim.paths import SCENE_LISTS_DIR
+
+NUSCENES_CAMERAS = list(SOURCES["nuscenes"].cameras)
 
 
 def write_png(path: Path, width: int, height: int) -> None:
@@ -99,13 +110,58 @@ def test_inspect_nuscenes(tmp_path: Path) -> None:
     assert report.has_lidar and report.has_cuboids and report.ingest_supported
 
 
+WAYMO_SEGMENT = (SCENE_LISTS_DIR / "waymo_train_list.txt").read_text().split()[0]
+ARGOVERSE_LOG = (SCENE_LISTS_DIR / "argoverse_train_list.txt").read_text().split()[0]
+
+
+@pytest.mark.parametrize(
+    "layout,dataset,versions",
+    [
+        (
+            [f"training/{WAYMO_SEGMENT}.tfrecord", "training/not_listed.tfrecord"],
+            "waymo",
+            {"training": [WAYMO_SEGMENT]},
+        ),
+        (
+            [f"{ARGOVERSE_LOG}/sensors/cameras/ring_front_center/0.jpg", "other/x.txt"],
+            "argoverse2",
+            {"": [ARGOVERSE_LOG]},
+        ),
+        (["001/camera/front_camera/00.jpg", "002/camera/x.jpg"], "pandaset", {"": ["001", "002"]}),
+        (
+            ["2011_09_26/2011_09_26_drive_0001_sync/image_02/data/0.png"],
+            "kitti",
+            {"2011_09_26": ["2011_09_26_drive_0001_sync"]},
+        ),
+        (
+            ["nuplan-v1.1/splits/mini/b.db", "nuplan-v1.1/splits/mini/a.db"],
+            "nuplan",
+            {"mini": ["a", "b"]},
+        ),
+        (
+            ["clips/pai_c2.json", "clips/pai_c1.json", "clips/c1.zarr.itar"],
+            "physicalai",
+            {"": ["pai_c1", "pai_c2"]},
+        ),
+    ],
+)
+def test_inspect_drivestudio_datasets(
+    tmp_path: Path, layout: list[str], dataset: str, versions: dict
+) -> None:
+    for name in layout:
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_bytes(b"x")
+    report = inspect_source(tmp_path)
+    assert report.dataset == dataset
+    assert report.versions == versions
+    assert report.ingest_supported
+
+
 @pytest.mark.parametrize(
     "layout,dataset",
     [
-        (["seg_a.tfrecord"], "waymo"),
         (["sparse/0/cameras.bin"], "colmap"),
-        (["clip/pai.ncore4.zarr.itar"], "ncore"),
-        (["2011_09_26/calib_cam_to_cam.txt", "2011_09_26/drive/image_02/0.png"], "kitti"),
+        (["clip/x.ncore4.zarr.itar"], "ncore"),
     ],
 )
 def test_inspect_signatures(tmp_path: Path, layout: list[str], dataset: str) -> None:
@@ -165,55 +221,113 @@ def test_validate_clean_and_broken(tmp_path: Path) -> None:
     ValidationReport.model_validate(report.model_dump())
 
 
-def fake_preprocess(calls: list[list[str]]):  # noqa: ANN201
-    """Thay script tiền xử lý: ghi một cảnh giả vào đúng chỗ script thật sẽ ghi."""
+def fake_preprocess(calls: list[list[str]], fail: bool = False):  # noqa: ANN201
+    """Thay script tiền xử lý: ghi một cảnh giả vào chỗ giống script nuScenes thật."""
 
     def run(command: list[str], log_path: Path, cwd: Path) -> None:
         calls.append(command)
+        log_path.write_text("ok\n")
+        if fail:
+            raise RuntimeError("lệnh thoát với mã 1")
         index = int(command[command.index("--scene_ids") + 1])
         target = command[command.index("--target_dir") + 1]
         make_processed_scene(cwd / target / "mini" / f"{index:03d}")
-        log_path.write_text("ok\n")
 
     return run
 
 
+def test_default_scene_id_and_commands(tmp_path: Path) -> None:
+    assert default_scene_id("kitti", "2011_09_26_drive_0001_sync") == (
+        "kitti_2011_09_26_drive_0001_sync"
+    )
+    assert default_scene_id("pandaset", "001") == "pandaset_001"
+    assert default_scene_id("nuscenes", "Scene.0061") == "nuscenes_scene-0061"
+
+    argo = build_command(SOURCES["argoverse2"], tmp_path, "ignored", "3", 2)
+    assert argo[argo.index("--dataset") + 1] == "argoverse"
+    assert "--split" not in argo
+    kitti = build_command(SOURCES["kitti"], tmp_path, "2011_09_26", "x", 4, ["--a", "1"])
+    assert kitti[kitti.index("--split") + 1] == "2011_09_26"
+    assert kitti[-2:] == ["--a", "1"]
+
+
+def test_find_scene_dir(tmp_path: Path) -> None:
+    with pytest.raises(IngestError, match="thấy 0"):
+        find_scene_dir(tmp_path)
+    (tmp_path / "log_a" / "images").mkdir(parents=True)
+    assert find_scene_dir(tmp_path) == tmp_path / "log_a"
+    (tmp_path / "log_b" / "images").mkdir(parents=True)
+    with pytest.raises(IngestError, match="thấy 2"):
+        find_scene_dir(tmp_path)
+
+
+def test_plan_ingest(tmp_path: Path) -> None:
+    report = inspect_source(make_raw_nuscenes(tmp_path))
+    with pytest.raises(IngestRequestError, match="chọn một chuỗi; có 2"):
+        plan_ingest(report)
+    assert plan_ingest(report, sequence="scene-0103") == IngestTarget(
+        "nuscenes", "v1.0-mini", "scene-0103"
+    )
+    with pytest.raises(IngestRequestError, match="không có phiên bản"):
+        plan_ingest(report, version="v1.0-trainval")
+    with pytest.raises(IngestRequestError, match="không có chuỗi"):
+        plan_ingest(report, sequence="scene-9999")
+    with pytest.raises(IngestRequestError, match="chưa hỗ trợ"):
+        plan_ingest(report, source_type="colmap")
+    with pytest.raises(IngestRequestError, match="không nhận ra"):
+        plan_ingest(inspect_source(tmp_path / "v1.0-mini"))
+
+
 def test_ingest_nuscenes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[list[str]] = []
-    monkeypatch.setattr(nuscenes, "run_logged", fake_preprocess(calls))
+    monkeypatch.setattr(drivestudio, "run_logged", fake_preprocess(calls))
     raw = make_raw_nuscenes(tmp_path / "raw")
     workdir = Workdir(tmp_path / "work")
-    scene_dir = ingest_nuscenes(raw, workdir, "scene-0103", "v1.0-mini")
+    target = IngestTarget("nuscenes", "v1.0-mini", "scene-0103")
+    scene_dir = run_ingest(raw, workdir, target)
 
     assert scene_dir == workdir.scene_dir("nuscenes_scene-0103")
     command = calls[0]
     assert command[command.index("--scene_ids") + 1] == "1"
     assert command[command.index("--target_dir") + 1] == "out"
+    assert command[command.index("--split") + 1] == "v1.0-mini"
     assert command[command.index("--interpolate_N") + 1] == "4"
     manifest = files.load(scene_dir / "manifest.yaml", Manifest)
     assert manifest.source.sequence_id == "scene-0103"
+    assert manifest.source.data_license == "CC BY-NC-SA 4.0"
     report = files.load(scene_dir / "reports" / "validation.json", ValidationReport)
     assert report.summary.errors == 0
     assert (scene_dir / "reports" / "ingest_log.txt").is_file()
     assert not (workdir.data_dir / ".ingest" / "nuscenes_scene-0103").exists()
 
     with pytest.raises(IngestError, match="đã có"):
-        ingest_nuscenes(raw, workdir, "scene-0103", "v1.0-mini")
-    with pytest.raises(IngestError, match="không có cảnh"):
-        ingest_nuscenes(raw, workdir, "scene-9999", "v1.0-mini")
+        run_ingest(raw, workdir, target)
+    with pytest.raises(IngestError, match="không có scene-9999"):
+        ingest_drivestudio(raw, workdir, "nuscenes", "scene-9999", "v1.0-mini")
+    with pytest.raises(IngestError, match="chưa hỗ trợ"):
+        ingest_drivestudio(raw, workdir, "colmap", "x")
+
+
+def test_ingest_script_failure_keeps_log(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(drivestudio, "run_logged", fake_preprocess([], fail=True))
+    workdir = Workdir(tmp_path / "work")
+    with pytest.raises(IngestError, match="script tiền xử lý lỗi"):
+        ingest_drivestudio(tmp_path, workdir, "pandaset", "001")
+    assert (workdir.data_dir / ".ingest" / "pandaset_001" / "ingest_log.txt").is_file()
+    assert not workdir.scene_dir("pandaset_001").exists()
 
 
 def test_cli_end_to_end(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
 ) -> None:
-    monkeypatch.setattr(nuscenes, "run_logged", fake_preprocess([]))
+    monkeypatch.setattr(drivestudio, "run_logged", fake_preprocess([]))
     monkeypatch.setenv("D2S_WORKDIR", str(tmp_path / "work"))
     raw = make_raw_nuscenes(tmp_path / "raw")
 
     assert main(["source", "inspect", str(raw), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["dataset"] == "nuscenes"
     assert main(["scene", "ingest", str(raw), "--quiet"]) == 2  # nhiều cảnh, thiếu --sequence
-    assert "--sequence" in capsys.readouterr().err
+    assert "chọn một chuỗi" in capsys.readouterr().err
     assert main(["scene", "ingest", str(raw), "--sequence", "scene-0061", "--quiet"]) == 0
     assert (
         main(

@@ -13,6 +13,8 @@ File này chứa:
   ``done``. Mỗi khi một stage đổi trạng thái, ``run.json`` được ghi lại và một sự kiện được phát
   ra cho CLI hoặc Studio.
 - ``list_runs``, ``load_summary``, ``summary_path``: đọc các run đã có và kết quả đánh giá.
+- ``request_cancel``, ``run_is_active``: huỷ một run, biết run còn chạy không.
+- ``reset_stage``: chạy lại hoặc thêm một stage (cho ``d2s export``).
 - ``EventSink``: kiểu của hàm nhận sự kiện tiến độ (cùng dạng với sự kiện SSE, CONTRACTS mục
   11.4).
 
@@ -22,7 +24,9 @@ chỉ làm tiếp phần còn thiếu. Stage lỗi làm run dừng ở trạng t
 """
 
 import functools
+import os
 import platform
+import shutil
 import subprocess
 import sys
 import time
@@ -56,7 +60,7 @@ from drive2sim.engine.cache import (
 )
 from drive2sim.engine.registry import REGISTRY, StageRegistry
 from drive2sim.engine.resolve import Plan, validate_params, wire_inputs
-from drive2sim.engine.stage import SCENE_INPUT, Scene
+from drive2sim.engine.stage import SCENE_INPUT, Scene, StageCancelledError
 from drive2sim.engine.workdir import Workdir
 
 D2S_DIR = "d2s"
@@ -64,6 +68,8 @@ RUN_FILE = "run.json"
 ENV_FILE = "env.json"
 DONE_FILE = "done"
 LOG_FILE = "log.txt"
+CANCEL_FILE = "cancel"  # có file này trong d2s/ nghĩa là người dùng yêu cầu huỷ run
+PID_FILE = "pid"  # pid của tiến trình đang chạy run; không có nghĩa là run không chạy
 
 # Nhận một sự kiện dạng {"event": ..., "run_id": ..., ...} như SSE (CONTRACTS mục 11.4).
 EventSink = Callable[[dict[str, object]], None]
@@ -267,6 +273,7 @@ class _StageContext:
         run_id: Run đang chạy.
         stage_id: Stage đang chạy.
         sink: Hàm nhận sự kiện.
+        cancel_file: File ``d2s/cancel`` của run; có file này là người dùng đã yêu cầu huỷ.
     """
 
     output_dir: Path
@@ -275,6 +282,11 @@ class _StageContext:
     run_id: str
     stage_id: str
     sink: EventSink
+    cancel_file: Path
+
+    def should_stop(self) -> bool:
+        """Cho biết người dùng đã yêu cầu huỷ run chưa (có file ``d2s/cancel``)."""
+        return self.cancel_file.exists()
 
     def progress(self, fraction: float, message: str = "") -> None:
         """Phát sự kiện ``progress`` của stage.
@@ -456,6 +468,7 @@ class _Runner:
             self.record.run_id,
             stage_record.stage_id,
             self.sink,
+            self.run_dir / D2S_DIR / CANCEL_FILE,
         )
         output_paths = cls().run(ctx, inputs, params)
         self.write_artifact(
@@ -485,11 +498,28 @@ class _Runner:
         artifact_dirs: list[Optional[Path]] = [None] * len(stage_ids)
         artifact_keys: list[Optional[str]] = [None] * len(stage_ids)
 
+        pid_file = self.run_dir / D2S_DIR / PID_FILE
+        pid_file.write_text(str(os.getpid()))
+        try:
+            return self._execute_stages(wiring, cache, artifact_dirs, artifact_keys)
+        finally:
+            pid_file.unlink(missing_ok=True)
+
+    def _execute_stages(
+        self,
+        wiring: list[dict[str, object]],
+        cache: CacheStore,
+        artifact_dirs: list[Optional[Path]],
+        artifact_keys: list[Optional[str]],
+    ) -> RunRecord:
+        """Phần thân của ``execute``: chạy từng stage; tách ra để ``execute`` lo file ``pid``."""
         self.record.status = "running"
         self.save()
         self.emit_status(None, "running")
         for index, stage_record in enumerate(self.record.stages):
             stage_id = stage_record.stage_id
+            if (self.run_dir / D2S_DIR / CANCEL_FILE).exists():
+                return self.cancel(None)
             cls = self.registry.get(stage_id)
             # Kiểm tra lại tham số: code của stage có thể đã đổi từ lúc tạo run.
             stage_record.params = validate_params(stage_id, stage_record.params, self.registry)
@@ -543,6 +573,9 @@ class _Runner:
                 self.save()
                 self.emit_status(None, "cancelled")
                 raise
+            except StageCancelledError:
+                self.finish_stage(stage_record, "cancelled", started, measured=True)
+                return self.cancel(stage_record)
             except Exception as error:
                 self.fail_stage(stage_record, error, started)
                 return self.record
@@ -555,6 +588,26 @@ class _Runner:
         self.save()
         self.emit_status(None, "succeeded")
         self.sink({"event": "done", "run_id": self.record.run_id, "status": "succeeded"})
+        return self.record
+
+    def cancel(self, stage_record: Optional[StageRecord]) -> RunRecord:
+        """Kết thúc run ở trạng thái ``cancelled`` theo yêu cầu huỷ của người dùng.
+
+        Xoá file ``d2s/cancel`` để lần chạy tiếp sau không bị huỷ ngay, ghi ``run.json`` và phát
+        sự kiện ``status``, ``done``.
+
+        Args:
+            stage_record: Stage đang chạy khi bị huỷ (đã được ghi ``cancelled``), hoặc ``None``
+                nếu huỷ trước khi bắt đầu stage tiếp theo.
+
+        Returns:
+            ``run.json`` sau khi huỷ.
+        """
+        (self.run_dir / D2S_DIR / CANCEL_FILE).unlink(missing_ok=True)
+        self.record.status = "cancelled"
+        self.save()
+        self.emit_status(None, "cancelled")
+        self.sink({"event": "done", "run_id": self.record.run_id, "status": "cancelled"})
         return self.record
 
     def start_stage(self, stage_record: StageRecord) -> None:
@@ -693,3 +746,103 @@ def load_summary(run_dir: Path) -> Optional[Summary]:
     """
     path = summary_path(run_dir)
     return files.load(path, Summary) if path.is_file() else None
+
+
+def run_is_active(run_dir: Path) -> bool:
+    """Cho biết run có đang được một tiến trình còn sống chạy không.
+
+    Engine ghi pid vào ``d2s/pid`` khi bắt đầu chạy và xoá khi xong. File còn nhưng tiến trình đã
+    chết (máy tắt, tiến trình bị kill) thì run không còn chạy, dù ``run.json`` có thể vẫn ghi
+    ``running``.
+
+    Args:
+        run_dir: Thư mục run.
+
+    Returns:
+        ``True`` nếu có tiến trình còn sống đang chạy run.
+    """
+    pid_file = Path(run_dir) / D2S_DIR / PID_FILE
+    try:
+        pid = int(pid_file.read_text())
+    except (OSError, ValueError):
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def request_cancel(run_dir: Path) -> RunRecord:
+    """Yêu cầu huỷ một run.
+
+    Nếu run đang chạy, ghi file ``d2s/cancel``: engine dừng trước stage tiếp theo, và stage đang
+    chạy lệnh ngoài dừng lệnh đó trong khoảng một giây. Nếu run không chạy (chờ trong hàng đợi
+    sẽ bị huỷ khi tới lượt, còn run ghi ``running`` nhưng tiến trình đã chết) thì ghi luôn
+    ``cancelled`` vào ``run.json``.
+
+    Args:
+        run_dir: Thư mục run.
+
+    Returns:
+        ``run.json`` sau khi ghi yêu cầu.
+    """
+    run_dir = Path(run_dir)
+    record = files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
+    if record.status in ("succeeded", "failed", "cancelled"):
+        return record
+    (run_dir / D2S_DIR / CANCEL_FILE).write_text(_now_utc().isoformat() + "\n")
+    if not run_is_active(run_dir) and record.status == "running":
+        for stage in record.stages:
+            if stage.status == "running":
+                stage.status = "cancelled"
+        record.status = "cancelled"
+        (run_dir / D2S_DIR / CANCEL_FILE).unlink(missing_ok=True)
+        files.dump(record, run_dir / D2S_DIR / RUN_FILE)
+    return record
+
+
+def reset_stage(run_dir: Path, stage_id: str, registry: StageRegistry = REGISTRY) -> RunRecord:
+    """Chuẩn bị chạy lại một stage của run, hoặc thêm stage đó vào cuối run nếu chưa có.
+
+    Dùng cho ``d2s export ply|preview <run_id>``: stage export được chạy lại mà không chạy lại
+    train. Stage không cache bị xoá thư mục kết quả (kể cả file ``done``); stage có cache chỉ được
+    đặt lại trạng thái, vì kết quả cache dùng chung. Sau đó gọi ``execute_run`` để chạy: các stage
+    khác đã xong được bỏ qua.
+
+    Args:
+        run_dir: Thư mục run.
+        stage_id: Stage cần chạy lại hoặc thêm, ví dụ ``export.ply_world``.
+        registry: Bảng stage.
+
+    Returns:
+        ``run.json`` sau khi sửa.
+
+    Raises:
+        KeyError: Nếu ``stage_id`` chưa đăng ký.
+        ResolveError: Nếu stage cần một đầu vào mà không stage nào của run tạo ra.
+    """
+    run_dir = Path(run_dir)
+    cls = registry.get(stage_id)
+    record = files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
+    existing = [stage for stage in record.stages if stage.stage_id == stage_id]
+    if existing:
+        stage = existing[0]
+        stage.status = "pending"
+        stage.error = None
+        if not cls.cacheable:
+            shutil.rmtree(run_dir / D2S_DIR / "stages" / stage_id, ignore_errors=True)
+    else:
+        record.stages.append(
+            StageRecord(
+                stage_id=stage_id,
+                status="pending",
+                params=validate_params(stage_id, {}, registry),
+            )
+        )
+        wire_inputs([stage.stage_id for stage in record.stages], registry)
+    record.status = "pending"
+    files.dump(record, run_dir / D2S_DIR / RUN_FILE)
+    return record

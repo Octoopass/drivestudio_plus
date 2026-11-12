@@ -23,13 +23,15 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from drive2sim.engine.cache import CacheBusyError
+from drive2sim.engine.housekeeping import InUseError
 from drive2sim.engine.registry import REGISTRY, StageRegistry, load_builtin_stages
 from drive2sim.engine.resolve import BlockedError, ResolveError
 from drive2sim.engine.scenes import SplitError, SplitExistsError
 from drive2sim.engine.workdir import Workdir, WorkdirError
+from drive2sim.ingest.dispatch import IngestRequestError
 from drive2sim.studio.api.events import EventBroker
-from drive2sim.studio.api.jobs import RunQueue
-from drive2sim.studio.api.routes import approaches, report, runs, scenes
+from drive2sim.studio.api.jobs import IngestJobs, RunQueue
+from drive2sim.studio.api.routes import approaches, cache, report, runs, scenes, sources
 from drive2sim.studio.api.state import StudioState
 
 FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
@@ -72,6 +74,14 @@ def _install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(CacheBusyError)
     async def conflict_cache(request: Request, error: CacheBusyError) -> JSONResponse:
         return error_response(409, "conflict", str(error))
+
+    @app.exception_handler(InUseError)
+    async def conflict_in_use(request: Request, error: InUseError) -> JSONResponse:
+        return error_response(409, "conflict", str(error))
+
+    @app.exception_handler(IngestRequestError)
+    async def invalid_ingest(request: Request, error: IngestRequestError) -> JSONResponse:
+        return error_response(400, "invalid_request", str(error))
 
     @app.exception_handler(ResolveError)
     async def invalid_resolve(request: Request, error: ResolveError) -> JSONResponse:
@@ -129,6 +139,7 @@ def create_app(
         """Khi tắt Studio, chờ run đang chạy xong rồi mới thoát."""
         yield
         app.state.studio.queue.shutdown()
+        app.state.studio.ingest_jobs.shutdown()
 
     app = FastAPI(
         title="drive2sim Studio",
@@ -137,9 +148,11 @@ def create_app(
         lifespan=lifespan,
     )
     broker = EventBroker()
-    app.state.studio = StudioState(workdir, broker, RunQueue(workdir, broker, registry), registry)
+    app.state.studio = StudioState(
+        workdir, broker, RunQueue(workdir, broker, registry), registry, IngestJobs(workdir)
+    )
     _install_error_handlers(app)
-    for module in (scenes, approaches, runs, report):
+    for module in (sources, scenes, approaches, runs, report, cache):
         app.include_router(module.router)
 
     @app.get("/files/{path:path}")

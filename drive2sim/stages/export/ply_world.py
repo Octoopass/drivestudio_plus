@@ -98,7 +98,9 @@ class ExportPlyWorldStage(Stage):
         """
         assert isinstance(params, ExportPlyWorldParams)
         run_logged(
-            build_command(params, inputs["model"], ctx.output_dir), ctx.output_dir / LOG_FILE
+            build_command(params, inputs["model"], ctx.output_dir),
+            ctx.output_dir / LOG_FILE,
+            should_stop=ctx.should_stop,
         )
         ply = ctx.output_dir / PLY_FILE
         if not ply.is_file():

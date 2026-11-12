@@ -370,16 +370,16 @@ drivestudio_plus/                          branch drive2sim
 │   │   ├── utils/                         camera, geometry, logging, misc, visualization, backup
 │   │   └── tools/                         train.py, eval.py, viewer.py, export_ply.py, gather_results.py (thay dần bằng stage và CLI)
 │   ├── core/                              identifiers.py, schema.py, files.py, split.py (đã có); transforms.py, camera.py (chưa có)
-│   ├── ingest/                            detect.py (source inspect), images.py, manifest.py, validate.py, nuscenes.py (đã có); <dataset>.py khác (chưa có)
+│   ├── ingest/                            detect.py (source inspect), dispatch.py (chọn chuỗi), drivestudio.py (converter chung cho 7 dataset), images.py, manifest.py, validate.py
 │   ├── stages/                            commands.py, scene_view.py; prep/masks_segformer.py, prep/smpl.py, train/drivestudio.py, eval/standard.py, export/ply_world.py (đã có); init/, render/ (khung)
-│   ├── engine/                            stage.py, registry.py, resolve.py, approaches.py, workdir.py, scenes.py, cache.py, run.py, report.py
+│   ├── engine/                            stage.py, registry.py, resolve.py, approaches.py, workdir.py, scenes.py, cache.py, run.py, report.py, housekeeping.py (xoá, dọn cache)
 │   ├── approaches/                        omnire.yaml, streetgs.yaml
 │   ├── kaggle/                (khung)     client.py, bundle.py, templates/<tên>.ipynb
 │   ├── sim/                   (khung)     renderer.py (L2), actors.py (L3), server/ (L4; protos/ từ NuRec)
 │   ├── studio/                            api/ (app.py, state.py, events.py, jobs.py, routes/<nhóm>.py); frontend/ (Vite + React: src/pages/, src/components/, src/locales/, src/api/generated/, dist/ đã build); viz/ (khung)
 │   ├── external/              (khung)     <codebase>/: worker cho codebase ngoài
 │   ├── scripts/               (khung)     công cụ phát triển chạy một lần
-│   └── cli/                               main.py, output.py; source.py, scene.py, split.py, approach.py, run.py, studio.py, schema.py
+│   └── cli/                               main.py, output.py; source.py, scene.py, split.py, approach.py, run.py, report.py, export.py, cache.py, studio.py, schema.py
 ├── third_party/                           smplx (pip -e, import smplx); Humans4D (submodule, import hmr2); ncore (submodule, tag v19.9.0: converter NCore)
 ├── envs/                      (khung)     file môi trường: main.yml, <codebase>.yml (mục 2.9)
 └── tests/drive2sim/           (khung)     cùng cây thư mục với drive2sim/; fixtures/
@@ -399,7 +399,8 @@ Chạy script bằng `python -m`, ví dụ `python -m drive2sim.recon.tools.trai
 
 | Cần thêm | Đặt ở | Tên file, tên lớp | Đăng ký hoặc khai báo ở |
 |---|---|---|---|
-| Nguồn dữ liệu mới (dataset, CARLA, dữ liệu mentor) | `drive2sim/ingest/` | `<dataset>.py`, lớp `<Dataset>Converter`; ghi ra định dạng chuẩn (CONTRACTS mục 2.1) | Giá trị mới cho `--source-type` trong `drive2sim/cli/scene.py` |
+| Dataset đã có script tiền xử lý của DriveStudio | `drive2sim/ingest/drivestudio.py` | Một dòng `DriveStudioSource` trong `SOURCES` (camera, LiDAR, cách đổi tên chuỗi sang `--scene_ids`) | Hàm `_detect_<dataset>` trong `drive2sim/ingest/detect.py`, thêm vào `_DETECTORS` |
+| Nguồn dữ liệu mới chưa có script (CARLA, COLMAP, dữ liệu mentor) | `drive2sim/ingest/` | `<dataset>.py`, lớp `<Dataset>Converter`; ghi ra định dạng chuẩn (CONTRACTS mục 2.1) | Nhánh trong `drive2sim/ingest/dispatch.py` và hàm nhận dạng trong `detect.py` |
 | Stage mới | `drive2sim/stages/<nhóm>/` | `<tên>.py`, lớp `<Nhóm><Tên>Stage`, `stage_id` là `<nhóm>.<tên>` | `@register_stage("<nhóm>.<tên>")` trong chính file đó |
 | Loại artifact mới | `drive2sim/core/schema.py` | giá trị mới của `artifact_type` | Bảng CONTRACTS mục 5.4 |
 | Approach mới | `drive2sim/approaches/` | `<approach_id>.yaml` | Tự nạp khi engine khởi động |
@@ -447,9 +448,11 @@ Schema Pydantic v2 cho manifest, split, artifact, approach (stage, ô chọn, r�
 | Ảnh kèm pose (COLMAP) | Tự viết, ghi theo khung thư mục của một dataset có sẵn |
 | Dữ liệu mentor | Tự viết khi biết định dạng, ghi theo khung thư mục của một dataset có sẵn |
 
+Bảy dataset ở hai dòng đầu dùng chung một converter, `drive2sim/ingest/drivestudio.py`: mỗi dataset chỉ khác nhau ở một dòng mô tả (tên camera theo thứ tự chỉ số, tên LiDAR, cách đổi tên chuỗi sang `--scene_ids` của script). Converter chạy script trong thư mục tạm, tìm thư mục cảnh duy nhất có `images/` mà script vừa ghi (mỗi script đặt ở một chỗ khác nhau), chuyển tới `data/<scene_id>/`, rồi ghi manifest và báo cáo. `drive2sim/ingest/dispatch.py` chọn phiên bản và chuỗi từ kết quả nhận dạng; CLI và Studio cùng gọi nó. Với Argoverse 2, PandaSet, nuPlan, PhysicalAI, script không ghi tên cảm biến LiDAR nên manifest ghi tên chung `LIDAR`. Chỉ số chuỗi của nuPlan giả định danh sách log sắp theo tên file `.db`; chưa kiểm với nuplan-devkit.
+
 Converter mới viết theo cách NVIDIA làm với NCore (`skills/ncore-data-conversion/references/adapting-a-converter.md`): chép converter gần nhất *về hình dạng dữ liệu*, chỉ thay phần đọc file nguồn, phần dựng mô hình camera và LiDAR, phần tính mốc thời gian; phần ghi ra giữ nguyên.
 
-`d2s source inspect <thư mục>` xem trước thư mục dữ liệu gốc, không ghi gì. Lệnh nhận ra dataset đã biết theo dấu hiệu trong thư mục (ví dụ `v1.0-mini/sample.json` là nuScenes, `.tfrecord` là Waymo, `sparse/0/cameras.bin` là COLMAP, `.zarr.itar` là NCore), báo có bao nhiêu cảnh, camera, có LiDAR và box không, rồi gợi ý lệnh ingest. Với dữ liệu lạ, lệnh chỉ báo thư mục có gì (thư mục ảnh, số ảnh, độ phân giải, file pose, LiDAR); **không đoán quy ước** (trục camera, chiều của pose, đơn vị), vì những thứ đó không suy ra được từ file. `scene ingest` không có `--source-type` thì dùng cùng bước nhận dạng.
+`d2s source inspect <thư mục>` xem trước thư mục dữ liệu gốc, không ghi gì. Lệnh nhận ra dataset đã biết theo dấu hiệu trong thư mục (`v1.0-*/scene.json` là nuScenes, `.tfrecord` là Waymo, `<log>/sensors/cameras/` là Argoverse 2, `<3 chữ số>/camera/` là PandaSet, `<ngày>/<ngày>_drive_*_sync/image_02/` là KITTI, `nuplan-v1.1/splits/<split>/*.db` là nuPlan, `pai_*.json` là PhysicalAI, `sparse/0/cameras.bin` là COLMAP, `.zarr.itar` là NCore khác), báo có bao nhiêu cảnh, camera, có LiDAR và box không, rồi gợi ý lệnh ingest. Với dữ liệu lạ, lệnh chỉ báo thư mục có gì (thư mục ảnh, số ảnh, độ phân giải, file pose, LiDAR); **không đoán quy ước** (trục camera, chiều của pose, đơn vị), vì những thứ đó không suy ra được từ file. `scene ingest` không có `--source-type` thì dùng cùng bước nhận dạng.
 
 Bộ kiểm tra (CONTRACTS mục 3.2) theo cách NVIDIA kiểm tra dữ liệu (`skills/ncore-data-conversion/SKILL.md`): không có phép kiểm tra nào đủ một mình, nên đi từ rẻ tới kỹ. Kiểm tra cấu trúc (đủ file, ảnh đọc được, số khung khớp); rồi chiếu LiDAR lên ảnh. Nếu lệch, chiếu lại ở các khung xe đứng yên: còn lệch là lỗi calib, hết lệch là lỗi mốc thời gian.
 
@@ -593,17 +596,20 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (thư mục DriveStudio
 | `engine`: interface stage và registry | Xong; kiểm tra khai báo stage lúc đăng ký | `35bc590` |
 | `engine`: resolve (ô chọn, preset, `auto`, điều kiện dữ liệu, ràng buộc, nối đầu vào) | Xong | `37d5159` |
 | `engine`: thư mục làm việc, cache, tạo và chạy run (chạy tiếp, huỷ, ghi lỗi) | Xong; chạy với stage giả; 108 test đạt trên Python 3.9 và 3.12 | |
+| `engine`: huỷ run đang chạy (file `cancel`, dừng nhóm tiến trình con), chạy lại một stage, xoá run, split, cảnh, liệt kê và dọn cache | Xong; test huỷ dùng tiến trình con thật | |
 | Stage bọc DriveStudio: `train.drivestudio`, `eval.standard`, `export.ply_world`; approach `omnire`, `streetgs` | Xong trong code; dựng lệnh có test; **chưa chạy thật** (cần GPU); approach chưa chạy được tới khi có `prep.to_drivestudio` | |
 | CLI `d2s`: `scene list/show`, `split create/list/show`, `approach list/show/check`, `run start/resume/status/list` | Xong; 138 test đạt trên Python 3.9 và 3.12 | |
-| CLI còn lại: `scene ingest/validate/delete`, `split delete`, `run cancel/delete`, `kaggle`, `report`, `export`, `cache`, `studio`, `serve` | Chưa làm; làm cùng phần tương ứng | |
+| CLI: `scene ingest/validate/delete`, `split delete`, `run cancel/delete`, `report`, `export`, `cache list/gc`, `studio` | Xong | |
+| CLI còn lại: `kaggle`, `serve` | Chưa làm; làm cùng phần tương ứng | |
 | Studio API (`studio/api`): cảnh, split, approach (`check` kèm lựa chọn bị khoá), run chạy nền, SSE, log, video, bảng so sánh, `/files/`; lệnh `d2s studio` | Xong; 163 test đạt trên Python 3.9 và 3.12; đã chạy thử server thật | |
+| Studio API: nhận dạng và ingest nền (`/api/sources`, `/api/jobs`), huỷ, xoá, export run, xoá cảnh và split, kiểm tra lại cảnh, cache | Xong; 182 test đạt trên Python 3.9 và 3.12 | |
 | Studio giao diện (`studio/frontend`): nhóm A (tổng quan cảnh, camera, ảnh đồng bộ theo khung, split trên thanh thời gian, báo cáo kiểm tra, tạo split), chạy mới (ô chọn bị khoá kèm lý do, xem trước stage và cache), nhóm B và C (làn đường stage theo SSE, metric, kết quả, video, log, chạy tiếp), nhóm D (bảng xếp hạng, PSNR theo thời gian train và VRAM, CSV, video cạnh nhau); tiếng Việt và tiếng Anh; chế độ sáng, tối; màn hình hẹp | Xong; đã xem bằng trình duyệt trên dữ liệu mẫu (không phải dữ liệu thật) | |
 | Studio còn thiếu: sơ đồ rig nhìn từ trên xuống và quỹ đạo xe trên bản đồ 2D (cần đọc extrinsics, pose theo cách lưu của từng dataset); depth và tách lớp; xuất hình cho báo cáo (mới có CSV); viewer 3D (`studio/viz`); nhóm E | Chưa làm | |
 | Kaggle (`kaggle/`), `envs/main.yml` | Chưa làm; cần teammate trả lời mục 8 câu 1 | |
 | Stage `prep.masks_segformer`, `prep.smpl` (cache, thư mục cảnh ảo); đầu vào tuỳ chọn của stage; approach `omnire`, `streetgs` có stage prep | Xong trong code; có test với script giả; **chưa chạy thật** (cần GPU, `transformers`, `hmr2`) | |
 | Tầng dữ liệu: `source inspect`; `scene ingest` cho nuScenes (gọi script có sẵn, sinh manifest); kiểm tra cấu trúc | Xong trong code; có test với dữ liệu giả; **chưa chạy thật** (cần nuScenes và `nuscenes-devkit`) | |
 | Bộ kiểm tra: chiếu LiDAR lên ảnh | Chưa làm; báo cáo ghi mục `projection.not_run` | |
-| `scene ingest` cho Waymo, Argoverse 2, KITTI, nuPlan, PandaSet, PhysicalAI | Chưa làm | |
+| `scene ingest` cho Waymo, Argoverse 2, KITTI, nuPlan, PandaSet, PhysicalAI (converter chung, nhận dạng từng dataset) | Xong trong code; có test với dữ liệu giả; **chưa chạy thật** (cần dữ liệu và devkit của từng dataset) | |
 | `sim/` (L2–L4) | Chưa làm | |
 
 Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiền xử lý (mask, SMPL); OmniRe, Street GS, PVG, Deformable-GS; renderer 3DGS / 3DGUT / 3DGEER; rolling shutter ở `ut`/`geer`; FastGS; `tools/eval.py`; video; `tools/viewer.py`; `tools/export_ply.py`; đọc NCore V4 cho PhysicalAI.

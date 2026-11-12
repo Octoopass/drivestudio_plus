@@ -7,7 +7,8 @@ File này chứa:
 - ``status_run``, ``list_runs``: xem trạng thái một run và liệt kê các run.
 
 Tiến độ in ra stderr trong lúc chạy; kết quả cuối in ra stdout. Run lỗi trả mã thoát ``1``.
-Lệnh ``run cancel`` và ``run delete`` (CONTRACTS mục 10.4) chưa có.
+- ``cancel_run``: yêu cầu huỷ một run đang chạy hoặc đang chờ.
+- ``delete_run``: xoá thư mục của một run sau khi hỏi xác nhận.
 """
 
 import argparse
@@ -15,6 +16,7 @@ import argparse
 from drive2sim.cli.approach import add_plan_arguments, resolve_from_args
 from drive2sim.cli.output import (
     CommandError,
+    confirm,
     emit,
     event_printer,
     format_table,
@@ -23,7 +25,8 @@ from drive2sim.cli.output import (
 )
 from drive2sim.core import files
 from drive2sim.core.schema import RunRecord
-from drive2sim.engine.run import D2S_DIR, RUN_FILE, create_run, execute_run
+from drive2sim.engine import housekeeping
+from drive2sim.engine.run import D2S_DIR, RUN_FILE, create_run, execute_run, request_cancel
 from drive2sim.engine.run import list_runs as read_runs
 from drive2sim.engine.workdir import Workdir
 
@@ -53,6 +56,14 @@ def register(
     status = actions.add_parser("status", parents=[common], help="xem trạng thái một run")
     status.add_argument("run_id")
     status.set_defaults(handler=status_run)
+
+    cancel = actions.add_parser("cancel", parents=[common], help="huỷ một run")
+    cancel.add_argument("run_id")
+    cancel.set_defaults(handler=cancel_run)
+
+    delete = actions.add_parser("delete", parents=[common], help="xoá thư mục của một run")
+    delete.add_argument("run_id")
+    delete.set_defaults(handler=delete_run)
 
     list_parser = actions.add_parser("list", parents=[common], help="liệt kê run")
     list_parser.add_argument("--scene", dest="scene_id")
@@ -157,4 +168,42 @@ def list_runs(args: argparse.Namespace) -> int:
         [r.model_dump(mode="json") for r in records],
         format_table(["run_id", "cảnh", "split", "approach", "trạng thái"], rows),
     )
+    return 0
+
+
+def cancel_run(args: argparse.Namespace) -> int:
+    """Yêu cầu huỷ một run.
+
+    Run đang chạy dừng trong khoảng một giây (lệnh ngoài của stage bị dừng); run đang chờ bị huỷ
+    khi tới lượt; run ghi ``running`` nhưng tiến trình đã chết được ghi ``cancelled`` ngay.
+
+    Args:
+        args: Tham số dòng lệnh, có ``run_id``.
+
+    Returns:
+        Mã thoát ``0``.
+    """
+    workdir = Workdir.from_env(args.workdir)
+    record = request_cancel(workdir.find_run(args.run_id))
+    emit(args, record.model_dump(mode="json"), f"run {record.run_id}: đã gửi yêu cầu huỷ")
+    return 0
+
+
+def delete_run(args: argparse.Namespace) -> int:
+    """Xoá thư mục của một run sau khi hỏi xác nhận.
+
+    Args:
+        args: Tham số dòng lệnh, có ``run_id`` và ``yes``.
+
+    Returns:
+        Mã thoát ``0``.
+
+    Raises:
+        InUseError: Nếu run đang chạy.
+    """
+    workdir = Workdir.from_env(args.workdir)
+    run_dir = workdir.find_run(args.run_id)
+    confirm(args, f"Xoá run {args.run_id}?", [workdir.relative(run_dir)])
+    removed = housekeeping.delete_run(workdir, args.run_id)
+    emit(args, {"removed": removed}, f"đã xoá {', '.join(removed)}")
     return 0
