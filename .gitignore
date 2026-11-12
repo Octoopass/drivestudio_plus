@@ -4,9 +4,13 @@ __pycache__/
 *$py.class
 smpl_models/
 *.zip
-*.html
 
 # self added
+# thư mục làm việc của drive2sim (D2S_WORKDIR mặc định là gốc repo; AGENTS.md mục 6)
+/data/
+/cache/
+/runs/
+kaggle.json
 data/waymo
 data/pandaset
 data/argoverse
@@ -16,7 +20,6 @@ data/nuplan
 data/physicalai
 vscode_debugs
 debug/
-.vscode
 log*/
 wandb/
 nr3d_lib/
@@ -28,7 +31,6 @@ method_compare/
 simulated_results/
 sky_masks/
 fine_dynamic_masks_example/
-*.sh
 pandaset-devkit/
 
 # C extensions
@@ -36,13 +38,13 @@ pandaset-devkit/
 
 # Distribution / packaging
 .Python
-build/
+/build/
 develop-eggs/
-dist/
+/dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
 lib64/
 parts/
 sdist/

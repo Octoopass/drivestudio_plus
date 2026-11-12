@@ -1,6 +1,6 @@
 # drive2sim: hợp đồng dữ liệu và giao diện
 
-Tài liệu này quy định định dạng của dữ liệu đi qua tool, interface mà approach và stage phải theo, cùng quy tắc đặt tên và lệnh CLI (mục 10). Người thêm approach mới chỉ cần đọc tài liệu này cùng `ARCHITECTURE.md` mục 4.
+Tài liệu này quy định định dạng của dữ liệu đi qua tool, interface mà approach và stage phải theo, cùng quy tắc đặt tên và lệnh CLI (mục 10). Người thêm approach mới chỉ cần đọc tài liệu này cùng `ARCHITECTURE.md` mục 4. Người làm Studio đọc thêm mục 11 (API).
 
 Đây là thiết kế đích (`ARCHITECTURE.md` mục 7). Mọi file do tool ghi đều có trường `schema_version`; thay đổi làm vỡ tương thích thì tăng số đầu của phiên bản. Khi đọc, tool chấp nhận file cùng loại và cùng số đầu; khoá lạ bị báo lỗi để bắt lỗi gõ sai trong file viết tay.
 
@@ -84,6 +84,7 @@ available:
 
 - `timeline`: khung thứ `i` là khung thứ `i` của `reference_sensor`. Ảnh của camera khác được ghép với khung gần nhất về thời gian.
 - `available` là cơ sở để khoá approach (mục 4.2).
+- `cameras[].model` ghi đúng mô hình trong nguồn, nên có thể là `ideal_pinhole` của NCore; approach chỉ khai báo nhận ba mô hình chuẩn (mục 10.3), và `ideal_pinhole` được coi là `opencv_pinhole` với hệ số méo bằng 0.
 - Các giá trị trong ví dụ chỉ minh hoạ định dạng.
 
 ## 3. Split và báo cáo kiểm tra
@@ -457,10 +458,53 @@ Dùng cho codebase ngoài (môi trường riêng) và cho tiến trình render c
 d2s-worker --job job.json --result result.json
 ```
 
-- `job.json`: `schema_version`, `stage_id` hoặc loại việc, tham số đã gộp, đường dẫn đầu vào, `output_dir`.
-- `result.json`: trạng thái, đường dẫn đầu ra, `peak_vram_mb`, thông báo lỗi nếu có.
-- Trong lúc chạy, worker in ra stdout mỗi dòng một JSON: `{"event": "progress", "fraction": 0.42, "message": "..."}` hoặc `{"event": "metric", "name": "loss", "value": 0.031, "step": 4200}`.
-- Mã thoát khác 0 nghĩa là thất bại.
+`job.json` do engine ghi, worker đọc:
+
+```json
+{
+  "schema_version": "d2s-job/0.1",
+  "job_id": "20261112-081000-omnire-a1b2/train.external",
+  "kind": "stage",
+  "stage_id": "train.external",
+  "params": {"codebase": "nurec", "num_iters": 30000},
+  "inputs": {"scene": "data/nuscenes_scene-0061", "points_init": "cache/nuscenes_scene-0061/init.depth@0.1.0-9b03c2d1"},
+  "output_dir": "runs/nuscenes_scene-0061/omnire/20261112-081000-omnire-a1b2/d2s/stages/train.external",
+  "env": "nurec"
+}
+```
+
+- `kind` lấy một trong: `stage` (chạy một stage), `render` (giữ model trong bộ nhớ và render cho viewer hoặc server).
+- `stage_id` và `params` chỉ có khi `kind` là `stage`. `inputs` ánh xạ tên đầu vào của stage sang đường dẫn.
+- `env` là tên file môi trường trong `envs/` (không có đuôi `.yml`).
+- Mọi đường dẫn tương đối với `D2S_WORKDIR` (mục 10.3).
+
+`result.json` do worker ghi khi xong, kể cả khi thất bại:
+
+```json
+{
+  "schema_version": "d2s-result/0.1",
+  "job_id": "20261112-081000-omnire-a1b2/train.external",
+  "status": "failed",
+  "outputs": {},
+  "duration_s": 12.5,
+  "peak_vram_mb": 0,
+  "error": {"code": "env_missing", "message": "Không tìm thấy môi trường envs/nurec.yml"}
+}
+```
+
+- `status` lấy một trong: `succeeded`, `failed`. Thành công thì `outputs` ánh xạ tên đầu ra sang đường dẫn và `error` là `null`.
+- `error.code` là `snake_case`, dùng chung bảng mã với API (mục 11.3); `error.message` bằng tiếng Việt, hiện thẳng cho người dùng.
+- Trong lúc chạy, worker in ra **stdout** mỗi dòng một JSON, trường `event` lấy một trong:
+
+| `event` | Các trường | Nghĩa |
+|---|---|---|
+| `progress` | `fraction` (0–1), `message` | Tiến độ |
+| `metric` | `name`, `value`, `step` | Một giá trị metric trong lúc train |
+| `log` | `level` (`info` / `warning` / `error`), `message` | Dòng log cho người đọc |
+
+  Dòng nào không phải JSON thì engine coi là `log` mức `info`. Log của thư viện ngoài đi ra **stderr**.
+- Mã thoát: `0` thành công; khác `0` thất bại. Engine đọc `result.json` trước, mã thoát sau; không có `result.json` thì coi là lỗi `worker_crashed`.
+- Worker nhận **SIGTERM** là yêu cầu dừng: ghi `result.json` với `status: failed`, `error.code: cancelled`, rồi thoát.
 
 ### 9.2 Gói job cho Kaggle
 
@@ -482,7 +526,7 @@ Notebook chạy `d2s run start --bundle bundle/`, ghi kết quả ra `/kaggle/wo
 | Định danh | Mẫu | Ví dụ |
 |---|---|---|
 | `scene_id` | `<dataset>_<sequence_id>`; chỉ gồm `a-z 0-9 _ -`, chữ thường | `nuscenes_scene-0061`, `waymo_10017090168044687777` |
-| `split_id` | `<chiến lược><N>_<nhóm camera>` | `every8_allcams`, `every10_front3` |
+| `split_id` | `every<N>_<nhóm camera>` với chiến lược `every_nth_frame:N`; `custom_<tên>` với chiến lược `custom`. Nhóm camera: `allcams` (mọi camera trong manifest), `front1` / `front3` (camera trước và hai bên), hoặc `<k>cams` (k camera theo thứ tự trong manifest) | `every8_allcams`, `every10_front3`, `custom_night_a` |
 | `approach_id` | `snake_case`, tên method, không chứa lựa chọn của ô | `omnire`, `streetgs` |
 | Tên ô chọn | `snake_case`, danh từ ngắn | `init`, `renderer`, `campose`, `fastgs` |
 | Tên preset | `snake_case`, mô tả mục đích | `paper`, `no_lidar`, `fisheye` |
@@ -500,6 +544,11 @@ Notebook chạy `d2s run start --bundle bundle/`, ghi kết quả ra `/kaggle/wo
 - Mã Python: module `snake_case`; lớp `PascalCase`; lớp stage đặt theo `<Nhóm><Tên>Stage`, ví dụ `PrepMasksSegformerStage` cho `prep.masks_segformer`. Quy tắc đặt tên đầy đủ cho module, lớp, hàm, biến, tham số ở `AGENTS.md` mục 4.2.
 - Package Python có `__init__.py`; thư mục chưa có file giữ trong git bằng `.gitkeep`, xoá `.gitkeep` khi thư mục đã có file.
 - File môi trường trong `envs/`: `main.yml` cho môi trường chính, `<codebase>.yml` cho codebase ngoài.
+- Config method (`drive2sim/configs/methods/`): `<method>.yaml` là config gốc; biến thể là `<method>_<biến thể>[_<biến thể>].yaml`, các biến thể xếp theo thứ tự cố định **renderer → densify → campose** (`geer`, `ut`; `fastgs`; `nocampose`), ví dụ `streetgs_geer_fastgs.yaml`. Biến thể kế thừa từ config gốc (mục 10.5). Config cũ chép nguyên file được giữ tới khi chuyển sang kế thừa (`ARCHITECTURE.md` mục 7.4 bước 5).
+- Config dataset (`drive2sim/configs/datasets/<dataset>/`): `<k>cams.yaml`; biến thể `<k>cams_<biến thể>.yaml`, ví dụ `7cams_native.yaml` (giữ mô hình camera gốc, không khử méo).
+- Mask thân xe: `drive2sim/assets/ego_masks/<dataset>/<chỉ số camera>.png`, chỉ số là vị trí camera trong danh sách `cameras` của manifest (bắt đầu từ 0). Mỗi dataset có một bảng chỉ số ↔ `camera_id` trong `drive2sim/recon/data/dataset_meta.py`; code mới dùng `camera_id`, chỉ đổi sang chỉ số ở biên với mã DriveStudio.
+- File bên trong một artifact (mục 5.4): `videos/<camera_id>_<loại>.mp4` với loại `gt`, `render`, `diff`, `side_by_side`; `eval_report/report.json` (nguồn của `summary.json`) và `eval_report/per_image.json`; `masks` và `depth_prior` là một component group NCore tên `ncore4-<stage tên>.zarr.itar`; `smpl/<track_id>.npz`.
+- Log của stage: `log.txt` trong thư mục kết quả của stage (mục 5.2), ghi cả stdout và stderr của worker nếu có. Log của engine cho cả run: `d2s/log.txt`.
 
 ### 10.3 Tên trường và tham số
 
@@ -509,6 +558,10 @@ Notebook chạy `d2s run start --bundle bundle/`, ghi kết quả ra `/kaggle/wo
 - Boolean: tính từ hoặc dạng `uses_`, `has_`: `cacheable`, `uses_lidar`, `has_cuboids`. Ô chọn bật/tắt dùng `true` / `false`.
 - Giá trị liệt kê: chữ thường `snake_case`; mô hình camera: `opencv_pinhole`, `opencv_fisheye`, `ftheta`; renderer: `3dgs`, `3dgut`, `3dgeer` (engine đổi sang `render_mode` của DriveStudio: `default`, `ut`, `geer`).
 - Định danh trong tham chiếu: `scene_id`, `split_id`, `approach_id`, `stage_id`, `run_id`, `cache_key`; không dùng `id` trơn trong file có nhiều loại định danh.
+- Thời điểm tuyệt đối: chuỗi ISO 8601 theo UTC, kết thúc bằng `Z`, tên trường kết thúc bằng `_utc` (`created_utc`). Thời điểm trong dữ liệu cảm biến vẫn là số nguyên micro giây `_us` (mục 1).
+- Đường dẫn trong file JSON/YAML do tool ghi: **tương đối với `D2S_WORKDIR`**, dùng dấu `/`, không bắt đầu bằng `/` hay `./` (`runs/nuscenes_scene-0061/...`). Nhờ vậy chép cả thư mục làm việc sang máy khác là dùng được (`ARCHITECTURE.md` mục 2.6). Đường dẫn tuyệt đối chỉ xuất hiện trong log.
+- Giá trị `--set <khoá>=<giá trị>` và giá trị ô chọn từ CLI được phân tích như YAML: `true`/`false` thành boolean, `10` thành số nguyên, `0.5` thành số thực, `a,b,c` thành danh sách chuỗi, phần còn lại là chuỗi; muốn giữ chuỗi `"10"` thì đặt trong ngoặc kép. Sau khi phân tích, giá trị được kiểm tra theo `Params` của stage hoặc `choices` của ô; sai kiểu là lỗi mã thoát `2`.
+- Số thực trong metric ghi đủ độ chính xác của `float32` (tối đa 7 chữ số có nghĩa), không làm tròn thêm; giá trị không tính được ghi `null`, không ghi `NaN`.
 
 ### 10.4 CLI
 
@@ -519,12 +572,14 @@ Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dà
 | `d2s scene ingest <nguồn> --source-type <dataset> [--scene <scene_id>]` | Chuyển nguồn sang dữ liệu chuẩn, ghi manifest, kiểm tra |
 | `d2s scene validate <scene_id>` | Kiểm tra lại, ghi `validation.json` |
 | `d2s scene list` / `d2s scene show <scene_id>` | Liệt kê cảnh; xem manifest và báo cáo |
+| `d2s scene delete <scene_id>` | Xoá dữ liệu chuẩn, split, cache và run của cảnh; hỏi xác nhận |
 | `d2s split create <scene_id> --strategy every_nth_frame:8 --cameras <id,...> [--split <split_id>]` | Tạo split |
+| `d2s split list <scene_id>` / `d2s split show <scene_id> <split_id>` / `d2s split delete <scene_id> <split_id>` | Liệt kê, xem, xoá split |
 | `d2s approach list` / `d2s approach show <approach_id>` | Liệt kê approach; xem ô chọn, preset, ràng buộc |
 | `d2s approach check <approach_id> --scene <scene_id> --split <split_id> [--preset <tên>] [--set <ô>=<giá trị>]...` | Kiểm tra điều kiện và in danh sách stage sẽ chạy, stage nào dùng lại cache |
 | `d2s run start <approach_id> --scene <scene_id> --split <split_id> [--preset <tên>] [--set <ô>=<giá trị>]... [--executor local\|kaggle]` | Chạy |
 | `d2s run resume <run_id>` | Chạy tiếp từ stage dở |
-| `d2s run status <run_id>` / `d2s run list [--scene <scene_id>]` / `d2s run cancel <run_id>` | Theo dõi, liệt kê, huỷ |
+| `d2s run status <run_id>` / `d2s run list [--scene <scene_id>]` / `d2s run cancel <run_id>` / `d2s run delete <run_id>` | Theo dõi, liệt kê, huỷ, xoá thư mục run |
 | `d2s kaggle push <run_id>` / `d2s kaggle status <run_id>` / `d2s kaggle pull <run_id>` | Làm việc với Kaggle (thường do `run start --executor kaggle` tự gọi) |
 | `d2s report <run_id>...` | Bảng so sánh nhiều run |
 | `d2s export ply <run_id>` / `d2s export preview <run_id>` | Chạy lại stage export cho một run |
@@ -533,8 +588,97 @@ Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dà
 | `d2s serve <run_id> [--port <số>]` | Bật server gRPC cho một run (L4) |
 
 Quy tắc chung:
-- Đối tượng chính đi theo vị trí (`<run_id>`, `<scene_id>`); các định danh khác đi theo tuỳ chọn (`--scene`, `--split`).
-- `--set <ô>=<giá trị>` lặp lại được, dùng cho cả ô chọn và tham số stage (`--set train.drivestudio.num_iters=10000`).
-- `--json` cho mọi lệnh liệt kê và xem, để script đọc được.
-- Mã thoát: `0` thành công; `1` lỗi khi chạy; `2` sai cú pháp; `3` bị khoá vì không thoả điều kiện hoặc ràng buộc.
-- Biến môi trường: `D2S_WORKDIR` (thư mục chứa `data/`, `cache/`, `runs/`; mặc định là thư mục hiện tại).
+- Mẫu lệnh là `d2s <nhóm> <hành động>`. Nhóm chỉ có một hành động thì là lệnh đơn (`report`, `studio`, `serve`); khi nhóm đó có hành động thứ hai thì tách thành `<nhóm> <hành động>` và giữ lệnh đơn cũ làm bí danh một phiên bản. `d2s-worker` là entrypoint riêng vì chạy trong môi trường khác (mục 9.1).
+- Đối tượng chính đi theo vị trí (`<run_id>`, `<scene_id>`); các định danh khác đi theo tuỳ chọn (`--scene`, `--split`). Lệnh về split nhận `<scene_id> <split_id>` theo thứ tự cha trước con.
+- Tuỳ chọn chung cho mọi lệnh: `--workdir <thư mục>` (ưu tiên hơn `D2S_WORKDIR`), `--json`, `--verbose` / `--quiet`, `--yes` (bỏ hỏi xác nhận), `--help`; `d2s --version` in phiên bản tool và `schema_version` hiện tại của từng loại file.
+- **Không dùng cờ ngắn** (`-s`, `-v`), trừ `-h` cho `--help`. Tuỳ chọn dài đọc là hiểu, không phải tra bảng; thêm cờ ngắn sau này không phá gì vì chỉ là bí danh.
+- Tham số danh sách: một chuỗi cách nhau bằng dấu phẩy, không có khoảng trắng (`--cameras CAM_FRONT,CAM_BACK`). Chỉ `--set` lặp lại tuỳ chọn, vì mỗi lần là một cặp khoá và giá trị.
+- `--set <ô>=<giá trị>` lặp lại được, dùng cho cả ô chọn và tham số stage (`--set train.drivestudio.num_iters=10000`). Kiểu giá trị theo mục 10.3.
+- Lệnh xoá (`scene delete`, `split delete`, `run delete`, `cache gc`) hỏi xác nhận, in ra những gì sẽ xoá trước; `--yes` bỏ hỏi. Lệnh xoá không xoá gì ngoài `D2S_WORKDIR`.
+- Kết quả có cấu trúc (bảng khi không có `--json`, JSON khi có) đi ra **stdout**; log, tiến độ và cảnh báo đi ra **stderr**. Nhờ vậy `d2s run list --json | jq` luôn nhận JSON sạch. `--json` in một đối tượng hoặc một mảng JSON, trường `snake_case`, cùng tên với file trong CONTRACTS.
+- Thông báo lỗi bằng tiếng Việt (mục 10.6), một dòng đầu nói việc gì hỏng, các dòng sau nói vì sao và làm gì tiếp; kèm `error.code` như API (mục 11.3) khi có `--json`.
+- Mã thoát: `0` thành công; `1` lỗi khi chạy; `2` sai cú pháp hoặc sai kiểu giá trị; `3` bị khoá vì không thoả điều kiện hoặc ràng buộc; `130` bị ngắt bằng Ctrl-C.
+- Biến môi trường: `D2S_WORKDIR` (thư mục chứa `data/`, `cache/`, `runs/`; mặc định là thư mục hiện tại). Không có biến môi trường nào khác; mọi cấu hình đi qua tuỳ chọn hoặc file.
+
+### 10.5 Config và kế thừa
+
+Áp dụng cho config method và config dataset trong `drive2sim/configs/` (file YAML người viết tay).
+
+- Một config có thể khai báo `extends: <tên file>` ở cấp ngoài cùng; tên file tính tương đối với file đang đọc và chỉ được trỏ vào file **trong cùng thư mục** (`extends: streetgs.yaml`). Kế thừa được nhiều cấp; vòng lặp là lỗi.
+- Gộp theo quy tắc: mapping gộp sâu theo khoá; mọi giá trị khác (số, chuỗi, boolean, **danh sách**) ở file con thay hẳn giá trị ở file cha; khoá có giá trị `null` ở file con là xoá khoá đó. Danh sách không gộp vì thứ tự và số phần tử của danh sách thường có nghĩa (ví dụ các mốc lịch learning rate).
+- Engine gộp `extends` xong rồi mới đưa config cho DriveStudio (OmegaConf). Khoá `extends` bị bỏ khỏi config đã gộp; `config.yaml` ghi trong thư mục run là bản đã gộp, không còn `extends`.
+- File con chỉ ghi phần khác với file cha. Lý do: sửa một tham số chung thì sửa ở một chỗ; đọc file con là thấy ngay biến thể khác gì.
+- Lỗi khi đọc config (file cha không có, vòng lặp, YAML sai) báo kèm tên **cả hai** file và dừng ngay trước khi tạo thư mục run, để không để lại run rỗng.
+- Config dataset vẫn chọn qua khoá `dataset: <dataset>/<k>cams` như DriveStudio; không dùng `extends` giữa config method và config dataset.
+
+### 10.6 Ngôn ngữ
+
+- **Tiếng Việt** cho mọi thứ người đọc: docstring, comment trong code và trong YAML mới, thông báo của CLI và của worker (`error.message`, `log`), thông báo lỗi của schema (`ValueError`), tài liệu trong `docs/`, giao diện Studio mặc định.
+- **Tiếng Anh** cho mọi thứ máy đọc hoặc chia sẻ với mã nguồn mở: tên biến, hàm, lớp, module, khoá YAML/JSON, `error.code`, tên sự kiện, tên lệnh và tuỳ chọn CLI, commit message, README gốc của DriveStudio và hướng dẫn dataset kế thừa từ upstream.
+- File kế thừa từ DriveStudio (`drive2sim/recon/`, config method cũ, `docs/datasets/`) giữ comment tiếng Anh cho tới khi được sửa tới; phần sửa mới viết tiếng Việt.
+- Studio có hai ngôn ngữ, mặc định tiếng Việt, chuyển sang tiếng Anh bằng nút trên giao diện; lựa chọn lưu trong trình duyệt. Chuỗi giao diện đặt trong `drive2sim/studio/frontend/src/locales/vi.json` và `en.json`, khoá dạng `<màn hình>.<thành phần>.<tên>` (`runs.table.status`); không viết chuỗi cứng trong component. Thông báo từ API (`error.message`) đi thẳng ra giao diện và chỉ có tiếng Việt; `error.code` là khoá để giao diện tra bản dịch khi đang ở tiếng Anh.
+
+## 11. API của Studio
+
+FastAPI phục vụ REST và Server-Sent Events, chỉ nghe trên `127.0.0.1` (`ARCHITECTURE.md` mục 2.10). API chỉ là một lớp mỏng trên engine: mọi lệnh CLI ở mục 10.4 có một route tương ứng, cùng bước kiểm tra, cùng mã lỗi.
+
+### 11.1 Route
+
+- Tiền tố `/api/`. Nhóm route trùng nhóm lệnh CLI, viết **số nhiều**: `/api/scenes`, `/api/splits`, `/api/approaches`, `/api/runs`, `/api/cache`, `/api/kaggle`, `/api/report`. Định danh đi trong đường dẫn: `/api/runs/{run_id}`, `/api/scenes/{scene_id}/splits/{split_id}`.
+- HTTP verb theo loại hành động:
+
+| Hành động | Verb và đường dẫn | Ví dụ |
+|---|---|---|
+| Liệt kê, xem | `GET` | `GET /api/runs?scene_id=...`, `GET /api/runs/{run_id}` |
+| Tạo | `POST` vào collection | `POST /api/runs` (thân là approach, scene, split, preset, options, executor) |
+| Hành động trên một đối tượng | `POST /…/{id}/<hành động>` | `POST /api/runs/{run_id}/cancel`, `POST /api/runs/{run_id}/resume` |
+| Kiểm tra trước khi chạy | `POST` vào `/check` | `POST /api/approaches/{approach_id}/check` (tương ứng `d2s approach check`) |
+| Xoá | `DELETE` | `DELETE /api/runs/{run_id}` |
+| File tĩnh (video, ảnh, PLY, gói xem trước) | `GET /files/<đường dẫn tương đối với D2S_WORKDIR>` | `GET /files/runs/.../videos/CAM_FRONT_render.mp4` |
+
+- Không dùng `PUT` hay `PATCH`: tool không sửa tại chỗ file nào ngoài qua một hành động có tên.
+- Tham số lọc của `GET` đi theo query string, tên `snake_case` trùng tên trường (`?scene_id=`, `?status=`).
+- Frontend tĩnh phục vụ ở `/`; viser nhúng ở `/viz/`.
+
+### 11.2 Thân và kết quả
+
+- JSON, trường `snake_case`, **cùng tên và cùng kiểu với file trong CONTRACTS**: `GET /api/runs/{run_id}` trả đúng nội dung `run.json` cộng thêm `summary` (nội dung `summary.json`, nếu có). Frontend không đổi sang `camelCase`; kiểu TypeScript sinh từ JSON Schema của `drive2sim/core/schema.py` (`d2s schema export`), nên không có bảng ánh xạ tên nào phải giữ tay.
+- Danh sách trả về `{"items": [...], "total": <n>}`; không phân trang trong bản đầu (một người dùng, vài trăm run).
+- Tạo và hành động trả `202` kèm đối tượng vừa tạo hoặc vừa đổi trạng thái (`run.json`); việc thật chạy nền, theo dõi qua SSE.
+- Frontend bỏ qua trường lạ trong kết quả (thêm trường ở server không làm hỏng giao diện cũ); server từ chối trường lạ trong thân yêu cầu (bắt lỗi gõ sai), cùng quy tắc với file (phần đầu tài liệu).
+
+### 11.3 Lỗi
+
+Mọi lỗi trả về cùng một hình dạng, HTTP status theo loại:
+
+```json
+{"error": {"code": "blocked", "message": "Approach omnire bị khoá: cảnh không có LiDAR mà ô init là init.lidar", "details": {"option": "init", "choice": "init.lidar"}}}
+```
+
+| HTTP | `error.code` | Khi nào | Mã thoát CLI tương ứng |
+|---|---|---|---|
+| 400 | `invalid_request` | Thân hoặc query sai cú pháp, sai kiểu, trường lạ | 2 |
+| 404 | `not_found` | `scene_id`, `run_id`... không tồn tại | 1 |
+| 409 | `conflict` | Đối tượng đã tồn tại, hoặc run đang chạy mà bị yêu cầu xoá | 1 |
+| 422 | `blocked` | Không thoả điều kiện dữ liệu hoặc `constraints` (mục 4.2) | 3 |
+| 500 | `internal` | Lỗi không lường trước; `message` không lộ traceback, traceback vào log | 1 |
+| 503 | `worker_unavailable` | Worker render chưa sẵn sàng hoặc đã chết | 1 |
+
+Mã lỗi của worker (mục 9.1) dùng cùng bảng, thêm `env_missing`, `worker_crashed`, `cancelled`. `code` là `snake_case`, thêm mã mới thì ghi vào bảng này. `message` tiếng Việt, viết cho người dùng, không phải cho lập trình viên.
+
+### 11.4 Server-Sent Events
+
+- Endpoint: `GET /api/runs/{run_id}/events` (một run) và `GET /api/events` (mọi run đang chạy, cho màn hình tổng quan).
+- Mỗi sự kiện SSE có `event:` là tên và `data:` là một JSON. Tên sự kiện và trường trùng với sự kiện của worker (mục 9.1) cộng thêm `run_id` và `stage_id`:
+
+| `event` | `data` | Khi nào |
+|---|---|---|
+| `status` | `run_id`, `stage_id` (hoặc `null`), `status` | Run hoặc stage đổi trạng thái (giá trị như `run.json`) |
+| `progress` | `run_id`, `stage_id`, `fraction`, `message` | Tiến độ trong stage |
+| `metric` | `run_id`, `stage_id`, `name`, `value`, `step` | Metric trong lúc train |
+| `log` | `run_id`, `stage_id`, `level`, `message` | Dòng log |
+| `done` | `run_id`, `status` | Run kết thúc; sau sự kiện này server đóng kết nối |
+
+- Khi client kết nối, server gửi ngay một `status` cho trạng thái hiện tại rồi mới phát tiếp, để giao diện mở muộn vẫn đúng.
+- Mỗi sự kiện có `id:` tăng dần trong một run; client gửi `Last-Event-ID` để nhận lại những gì bỏ lỡ (server giữ 1000 sự kiện gần nhất trong bộ nhớ, ngoài ra có `d2s/log.txt`).
+- Nhịp `: keepalive` mỗi 15 giây để kết nối không bị proxy hoặc port forward cắt.

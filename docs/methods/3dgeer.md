@@ -63,7 +63,7 @@ To use 3DGEER with any method:
 
     This writes `novel_ftheta_<step>/<trajectory>.mp4` under `videos/` after training or `videos_eval/` during evaluation. Optional `frames`, `height`, and `width` control the video length and resolution. Use `ftheta_parameters` for a calibration JSON path or mapping instead of the source camera's calibration; omit `fov` and `radial_coeffs`. Set `render_ftheta: null` or `False` to disable it. Unspecified trajectory, frame count, and FPS settings inherit from `render_novel` when available.
 
-    An example OmniRe + 3DGEER config can be found [here](../../configs/methods/omnire_geer.yaml).
+    An example OmniRe + 3DGEER config can be found [here](../../drive2sim/configs/methods/omnire_geer.yaml).
 
 3. Train and evaluate the model according to the [README](../../README.md#training).
 

@@ -33,7 +33,7 @@ Trạng thái: bản nháp, ngày 12/11/2026.
 | Preset | Tổ hợp ô chọn đặt sẵn, ví dụ `paper`, `no_lidar`. |
 | Chuẩn bị riêng | Các stage lấy bớt, sinh thêm hoặc đổi dạng dữ liệu chuẩn cho vừa một approach (mục 6.3). |
 | Codebase | Mã nguồn tái dựng mà approach chạy trên đó. Lõi là DriveStudio trong repo này; approach từ codebase khác (NuRec, feed-forward...) được bọc lại và chạy trong môi trường riêng. |
-| Track | Loại rig camera: **pinhole** (4–6 camera) hoặc **fisheye** (4–6 camera). Hai track xử lý riêng, không trộn camera pinhole và fisheye trong một lần dựng. |
+| Track | Loại rig camera: **pinhole** hoặc **fisheye**, thường 4–8 camera (Argoverse 7, nuPlan 8). Hai track xử lý riêng, không trộn camera pinhole và fisheye trong một lần dựng. |
 | Run | Một lần chạy một approach trên một cảnh, với một split và một bộ tham số. |
 
 ## 4. Mức năng lực của approach
@@ -185,6 +185,8 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 **Nghiệm thu tầng dữ liệu (sau refactor):**
 1. nuScenes mini đi qua ingest sang dữ liệu chuẩn, có manifest và báo cáo kiểm tra.
 2. Approach `omnire` (preset `paper`) train trên cùng một cảnh bằng đường dữ liệu chuẩn và bằng loader cũ của DriveStudio cho PSNR test chênh không quá một ngưỡng chốt trước.
+
+Thứ tự làm thật (`ARCHITECTURE.md` mục 7.4) là bộ khung trước, tầng dữ liệu sau, vì bộ khung bọc được mã DriveStudio hiện có và cho kết quả sớm hơn; hai phần nghiệm thu độc lập nhau.
 
 **Nghiệm thu bộ khung:**
 1. Một approach chạy trọn luồng mục 5 ở chế độ Local và chế độ Kaggle; khi phiên Kaggle bị ngắt, lần sau chạy tiếp từ chỗ dở.

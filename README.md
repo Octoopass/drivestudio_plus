@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/media/logo-dark.png">
     <source media="(prefers-color-scheme: light)" srcset="docs/media/logo.png">
-    <img alt="Logo" src="docs/media/logo_clipped.png" width="700">
+    <img alt="Logo" src="docs/media/logo.png" width="700">
   </picture>
 </p>
 <p align="center">
@@ -51,7 +51,7 @@ On this branch all code lives in one Python package, `drive2sim/`. The DriveStud
 | `configs/3dgeer.md`, `configs/fastgs.md` | `docs/methods/` |
 | `docs/<Dataset>.md` | `docs/datasets/<dataset>.md` |
 
-Install with `pip install -e .` from the repository root (or keep `export PYTHONPATH=$(pwd)`), and run scripts as modules, for example `python -m drive2sim.recon.tools.train`. `smplx` and `hmr2` are imported as installed packages (`pip install -e third_party/smplx`, and `third_party/Humans4D` as described in `docs/HumanPose.md`). The design of the drive2sim tool is in `docs/drive2sim/`.
+Install with `pip install -e .` from the repository root (or keep `export PYTHONPATH=$(pwd)`), and run scripts as modules, for example `python -m drive2sim.recon.tools.train`. `smplx` and `hmr2` are imported as installed packages (`pip install -e third_party/smplx`, and `third_party/Humans4D` as described in `docs/datasets/human_pose.md`). The design of the drive2sim tool is in `docs/drive2sim/`; coding rules for contributors are in `AGENTS.md`.
 
 ### What this fork adds
 

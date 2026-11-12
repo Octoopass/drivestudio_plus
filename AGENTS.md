@@ -18,7 +18,7 @@ Ba tài liệu thiết kế nằm trong `docs/drive2sim/`:
 |---|---|
 | `SPEC.md` | Tool phải làm gì: mức L1–L4, luồng sử dụng, Studio, đánh giá |
 | `ARCHITECTURE.md` | Xây thế nào: các quyết định thiết kế kèm lý do, cấu trúc repo, chỗ đặt code mới (mục 3.1), hiện trạng và lộ trình (mục 7) |
-| `CONTRACTS.md` | Định dạng file, interface của stage, quy tắc đặt tên và CLI (mục 10) |
+| `CONTRACTS.md` | Định dạng file, interface của stage và worker, quy tắc đặt tên, config, ngôn ngữ và CLI (mục 10), API của Studio (mục 11) |
 
 Quy tắc:
 - **Trước khi viết code có quyết định về thiết kế** (thêm module, đổi định dạng file, đổi interface, thêm lệnh CLI, chọn thư viện): đọc kỹ phần liên quan của cả ba tài liệu. Code phải theo docs.
@@ -30,7 +30,7 @@ Quy tắc:
 ## 3. Đặt code ở đâu, đặt tên ra sao
 
 - Chỗ đặt file mới: theo bảng ở `ARCHITECTURE.md` mục 3.1. Không thêm thư mục mã mới ở gốc repo; ở gốc chỉ có `docs/`, `tests/`, `third_party/`, `envs/` và file cấu hình.
-- Tên định danh, file, trường, tham số, lệnh CLI: theo `CONTRACTS.md` mục 10.
+- Tên định danh, file, trường, tham số, lệnh CLI: theo `CONTRACTS.md` mục 10. Config kế thừa theo mục 10.5; route, lỗi và sự kiện của API theo mục 11. Không tự nghĩ ra mã lỗi, tên sự kiện hay tuỳ chọn CLI mới; thiếu thì thêm vào bảng trong CONTRACTS trước.
 - Một file một việc: mỗi stage, converter, nhóm lệnh CLI, nhóm route API là một file.
 - Import theo đường dẫn đầy đủ (`from drive2sim.recon.models.nodes import RigidNodes`), không dùng import tương đối.
 - File đi kèm package (assets, configs, approaches) truy cập qua `drive2sim/paths.py`, không dùng đường dẫn tương đối theo thư mục đang chạy.
@@ -116,7 +116,7 @@ def make_cache_key(
 
 - Docstring theo quy ước Google (`Args:`, `Returns:`, `Raises:`), ruff kiểm tra định dạng.
 - Hàm test đặt tên mô tả rõ hành vi nên không bắt buộc docstring; module test vẫn có docstring.
-- Tên biến, hàm, lớp và thông báo lỗi trong code giữ bằng tiếng Anh; docstring và comment bằng tiếng Việt.
+- Ngôn ngữ theo `CONTRACTS.md` mục 10.6: tên biến, hàm, lớp, khoá, mã lỗi bằng tiếng Anh; docstring, comment và **mọi thông báo cho người dùng** (kể cả `ValueError` của schema, thông báo CLI, `error.message`) bằng tiếng Việt, viết rõ việc gì hỏng và làm gì tiếp.
 
 ### 4.5 Comment
 
@@ -142,11 +142,13 @@ def make_cache_key(
 - Kiểm tra Python 3.9: `uv run --python 3.9 --no-project --with "pydantic>=2.5,<3" --with "pyyaml>=6" --with "pytest>=7" python -m pytest -q`.
 - Thay đổi hành vi ở `drive2sim/recon/` không chạy được trên máy không có GPU: ghi rõ "chưa chạy thật" trong commit và docs, rồi kiểm tra hồi quy trên Kaggle (train lại cùng cảnh, so PSNR) theo `ARCHITECTURE.md` mục 7.3 và 10.
 
-## 6. Commit
+## 6. Branch và commit
 
+- Branch chính của nhóm: `drive2sim`. Branch làm việc đặt `<loại>/<việc>` với loại là `feat`, `fix`, `docs`, `refactor`, `exp` (thí nghiệm), ví dụ `feat/engine-registry`, `exp/fastgs-nuscenes`; gộp vào `drive2sim` bằng merge thường, không rebase lịch sử đã đẩy lên.
 - Commit và push bằng tài khoản `awun0105` (`quanlam0105@gmail.com`).
+- Dòng đầu commit: `<phạm vi>: <việc đã làm>` với phạm vi là thư mục cấp một trong package hoặc `docs`, `tests`, `envs`, ví dụ `core: add job and result schemas`, `docs: define Studio API`. Nhiều phạm vi thì tách commit.
 - Mỗi commit một việc. Di chuyển file (chỉ đổi chỗ và sửa import) tách riêng khỏi thay đổi hành vi.
-- Commit message tiếng Anh: dòng đầu ngắn, mô tả việc đã làm; phần thân ghi lý do, cách kiểm tra, và những gì chưa kiểm tra.
+- Commit message tiếng Anh (mục 10.6 của CONTRACTS): dòng đầu ngắn; phần thân ghi lý do, cách kiểm tra, và những gì chưa kiểm tra.
 - Không commit dữ liệu (`data/`, `cache/`, `runs/`), checkpoint, token (`kaggle.json`), `.venv/`.
 
 ## 7. License

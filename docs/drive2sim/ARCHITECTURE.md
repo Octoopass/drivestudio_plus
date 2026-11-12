@@ -6,6 +6,8 @@ Tài liệu này mô tả cách xây tool theo `SPEC.md`, ngay trên repo này. 
 
 Trạng thái: bản nháp, ngày 12/11/2026.
 
+**Đọc theo thứ tự nào.** Người mới đọc mục 1 (tổng quan), rồi mục 7 (đã làm gì, còn gì, làm theo thứ tự nào), rồi mục 3.1 (code mới đặt ở đâu). Mười lăm quyết định ở mục 2 đọc khi cần biết lý do của một lựa chọn cụ thể. Mục 4–6 là chi tiết từng khối, luồng dữ liệu và interface theo mức năng lực.
+
 ## 1. Tổng quan
 
 Repo gồm bốn tầng:
@@ -70,7 +72,7 @@ Mỗi quyết định gồm: giải thích công cụ hoặc khái niệm, lý d
 **Khái niệm.** `drivestudio_plus` ([Octoopass/drivestudio_plus](https://github.com/Octoopass/drivestudio_plus)) là fork DriveStudio của một thành viên trong nhóm. Repo gồm:
 - DriveStudio ở commit `e59bda4` (MIT): OmniRe, Street Gaussians, PVG, Deformable-GS, loader của 6 dataset, script tiền xử lý, `tools/eval.py`.
 - Patch 3DGEER/3DGUT của Bosch (AGPL-3.0), áp nguyên vẹn từ nhánh `gsplat-geer`, commit `f15cee2`. Patch này thêm: renderer chọn bằng `trainer.render.render_mode: default | ut | geer`, camera fisheye/F-theta gốc, rolling shutter, loader PhysicalAI (đọc NCore V4) và `tools/viewer.py` (viser 1.0.30 + nerfview 0.1.2).
-- Phần teammate thêm: densify và prune kiểu FastGS (`drive2sim/configs/fastgs.md`), `tools/export_ply.py`, `datasets/tools/extract_masks_hf.py`, các config `*_nocampose`.
+- Phần teammate thêm: densify và prune kiểu FastGS (`docs/methods/fastgs.md`), `tools/export_ply.py`, `datasets/tools/extract_masks_hf.py`, các config `*_nocampose`.
 
 Tool được làm trên branch `drive2sim`. Trên branch này, mã DriveStudio được **chuyển hẳn vào package `drive2sim/recon/`** (mục 3), cùng một `pyproject.toml`, thay vì để các thư mục `datasets/`, `models/`, `utils/`, `tools/` ở gốc repo. Branch `drive2sim` được dùng làm dòng chính của nhóm từ đây.
 
@@ -99,7 +101,12 @@ Tool được làm trên branch `drive2sim`. Trên branch này, mã DriveStudio 
 - Thời gian tính bằng micro giây (`uint64`); mỗi ảnh có thời điểm bắt đầu và kết thúc, dùng cho rolling shutter.
 - Hệ toạ độ: `rig` x tới trước, y sang trái, z lên trên, gốc ở giữa trục sau trên mặt đất; `world` đặt pose đầu tiên của xe làm gốc; camera theo OpenCV.
 
-Đọc và ghi bằng gói `nvidia-ncore` (PyPI, bản 19.9.0, Python ≥ 3.8). Repo NCore có converter cho Waymo, nuScenes, Argoverse 2, KITTI, PhysicalAI và COLMAP (`drive2sim/recon/tools/data_converter/`).
+Đọc và ghi bằng gói `nvidia-ncore` (PyPI, Python ≥ 3.8). Repo NCore có converter cho Waymo, nuScenes, Argoverse 2, KITTI, PhysicalAI và COLMAP (`third_party/ncore/tools/data_converter/`).
+
+**Phiên bản chốt: 19.9.0, zarr format v2.** Gói PyPI `nvidia-ncore==19.9.0` (trong `requirements.txt`) và submodule `third_party/ncore` pin tag `v19.9.0`, để thư viện và mã converter cùng một phiên bản.
+- Lý do: 19.9.0 là bản ổn định mới nhất (10/11/2026); dòng 20.x còn beta. Tag `v19.9.0` đã có đủ `tools/data_converter/`. Dòng 19.x dùng zarr-python 2, trùng với hướng dẫn PhysicalAI đang có.
+- Khác biệt với 20.x (đã kiểm, commit `c5fce26` của NCore): 20.x thêm zarr format v3 và đọc bất đồng bộ cho `SequenceLoaderV4`; zarr v2 vẫn là mặc định và đọc được bằng mọi phiên bản ncore, nên dữ liệu ingest bằng 19.9.0 vẫn đọc được sau khi nâng. Breaking change duy nhất: `BaseDataConverterConfig` bắt buộc có `zarr_format`, ảnh hưởng tới converter tự viết.
+- Khi nâng phiên bản: `source.converter_version` trong manifest đổi, nên cảnh phải ingest lại và cache theo cảnh phải dọn (mục 2.7).
 
 **Lý do.**
 - Cần một định dạng chung cho mọi nguồn, đúng tinh thần NCore của NuRec. NCore có sẵn converter cho phần lớn nguồn cần dùng, nên ít phải tự viết nhất.
@@ -211,7 +218,7 @@ Thiết kế đích: một đường duy nhất `NCore → thư mục DriveStudi
 
 **Khái niệm.** Kaggle cho chạy notebook trên GPU miễn phí, giới hạn thời gian mỗi phiên và quota theo tuần. Kaggle API cho phép upload dữ liệu, đẩy notebook, hỏi trạng thái và tải kết quả.
 
-**Lý do.** Máy hiện tại chỉ có Quadro T2000 4 GB, không đủ train. Teammate cũng đang train trên Kaggle T4.
+**Lý do.** Máy phát triển thường không có GPU đủ VRAM để train (các run trong README mục "Results so far" dùng 7–15 GB VRAM). Kaggle T4 16 GB miễn phí là nơi các run hiện có đã chạy.
 
 **Ưu điểm.** Không tốn tiền GPU; cùng lệnh `d2s run start`, chỉ đổi `--executor`.
 
@@ -235,7 +242,7 @@ Thiết kế đích: một đường duy nhất `NCore → thư mục DriveStudi
 **Ưu điểm.** Codebase ngoài không làm hỏng môi trường chính; worker lỗi thì Studio vẫn chạy.
 
 **Nhược điểm.**
-- Mỗi môi trường tốn vài GB; máy hiện tại chỉ còn khoảng 11 GB trống.
+- Mỗi môi trường tốn vài GB ổ đĩa.
 - Phiên bản PyTorch thật sự của môi trường chính chưa chốt (mục 8).
 
 ### 2.10 API của Studio: FastAPI và Server-Sent Events, chỉ nghe trên `127.0.0.1`
@@ -247,6 +254,8 @@ Thiết kế đích: một đường duy nhất `NCore → thư mục DriveStudi
 **Ưu điểm.** SSE đơn giản hơn WebSocket cho việc đẩy tiến độ; không mở cổng ra ngoài nên không cần xác thực.
 
 **Nhược điểm.** Lệnh từ người dùng phải đi qua REST; muốn chia sẻ từ xa phải tự port forward.
+
+Route, thân, lỗi và sự kiện SSE quy định ở CONTRACTS mục 11; API chỉ là lớp mỏng trên engine, mỗi lệnh CLI có một route tương ứng.
 
 ### 2.11 Giao diện Studio: Vite + React
 
@@ -280,7 +289,7 @@ Thiết kế đích: một đường duy nhất `NCore → thư mục DriveStudi
 - Có độ trễ mỗi lần xoay; lúc xoay ảnh mờ hơn.
 - viser không có khái niệm thời gian (paper viser, mục 5); thanh thời gian phải tự làm hoặc lấy từ `drive2sim/recon/tools/viewer.py`.
 - nerfview gọi `os._exit(1)` khi `render_fn` ném lỗi (`_renderer.py`), tắt cả tiến trình. `render_fn` của tool phải tự bắt mọi lỗi và trả về ảnh báo lỗi.
-- Không dùng Rerun (đã thử trong project P-087, chạy lag), SuperSplat, PlayCanvas (vẽ splat trong trình duyệt, cùng giới hạn với chế độ xem trước).
+- Không dùng Rerun (đã thử, chạy lag với cảnh lớn), SuperSplat, PlayCanvas (vẽ splat trong trình duyệt, cùng giới hạn với chế độ xem trước).
 
 ### 2.13 Chế độ xem trước không cần GPU CUDA: Spark trong trình duyệt, file PLY
 
@@ -289,7 +298,7 @@ Thiết kế đích: một đường duy nhất `NCore → thư mục DriveStudi
 - *PLY* là định dạng file của 3DGS gốc: 59–62 số thực 32 bit mỗi Gaussian, khoảng 240 byte, nên 3 triệu Gaussian là khoảng 720 MB. `drive2sim/recon/tools/export_ply.py` của repo xuất đúng định dạng này trong hệ world; export gốc của DriveStudio (`drive2sim/recon/utils/misc.py:50`) co toạ độ vào hộp đơn vị.
 - *SPZ* (Niantic) lưu cùng thông tin nhưng làm tròn rồi nén ZSTD; README của SPZ ghi file thường nhỏ hơn PLY khoảng 10 lần. Vị trí là số nguyên 24 bit, mặc định 12 bit phần lẻ (`load-spz.cc`): độ phân giải khoảng 0,24 mm, phạm vi ±2048 m. SH bậc 1 còn 5 bit, bậc cao hơn còn 4 bit.
 
-**Lý do.** Mở được kết quả trên máy không có GPU CUDA, ví dụ laptop của mentor.
+**Lý do.** Mở được kết quả trên máy không có GPU CUDA, ví dụ laptop khi bàn giao.
 
 **Ưu điểm.** Không cần worker; xoay mượt; giữ màu theo góc nhìn; xe đổi pose theo khung nên phát lại được quỹ đạo.
 
@@ -365,7 +374,7 @@ drivestudio_plus/                          branch drive2sim
 │   ├── external/              (khung)     <codebase>/: worker cho codebase ngoài
 │   ├── scripts/               (khung)     công cụ phát triển chạy một lần
 │   └── cli/                   (khung)     main.py, <nhóm>.py
-├── third_party/                           smplx (pip -e, import smplx); Humans4D (submodule, import hmr2); ncore (submodule, pin d84bfc1: converter NCore)
+├── third_party/                           smplx (pip -e, import smplx); Humans4D (submodule, import hmr2); ncore (submodule, tag v19.9.0: converter NCore)
 ├── envs/                      (khung)     file môi trường: main.yml, <codebase>.yml (mục 2.9)
 └── tests/drive2sim/           (khung)     cùng cây thư mục với drive2sim/; fixtures/
 ```
@@ -400,8 +409,8 @@ Chạy script bằng `python -m`, ví dụ `python -m drive2sim.recon.tools.trai
 | File đi kèm package (mask thân xe, danh sách cảnh) | `drive2sim/assets/<loại>/` | | Truy cập qua `drive2sim/paths.py`, không dùng đường dẫn tương đối theo thư mục đang chạy |
 | Codebase ngoài | `drive2sim/external/<codebase>/` | `worker.py`; môi trường ở `envs/<codebase>.yml` | Stage `train.external` với tham số `codebase: <tên>` |
 | Lệnh CLI mới | `drive2sim/cli/<nhóm>.py` | hàm `<hành_động>` | Theo CONTRACTS mục 10.4 |
-| API cho Studio | `drive2sim/studio/api/routes/<nhóm>.py` | đường dẫn `/api/<nhóm>/...` | `app.py` |
-| Màn hình Studio | `drive2sim/studio/frontend/src/pages/` | `PascalCase.tsx` | Router của frontend |
+| API cho Studio | `drive2sim/studio/api/routes/<nhóm>.py` | đường dẫn `/api/<nhóm số nhiều>/...`, verb, lỗi và sự kiện theo CONTRACTS mục 11 | `app.py` |
+| Màn hình Studio | `drive2sim/studio/frontend/src/pages/` | `PascalCase.tsx`; chuỗi giao diện trong `src/locales/vi.json`, `en.json` (CONTRACTS mục 10.6) | Router của frontend |
 | Mẫu notebook Kaggle | `drive2sim/kaggle/templates/` | `<tên>.ipynb` | `bundle.py` |
 | Test | `tests/drive2sim/<cùng đường dẫn>/` | `test_<module>.py` | |
 | Fixture dữ liệu nhỏ cho test | `tests/drive2sim/fixtures/<scene_id>/` | | |
@@ -477,20 +486,20 @@ Approach dự kiến:
 
 | Approach | Ô chọn | Config DriveStudio dùng làm gốc |
 |---|---|---|
-| `omnire` | `init`: lidar / depth / auto; `renderer`: default / ut / geer; `campose`; `fastgs` | `omnire*.yaml` |
+| `omnire` | `init`: lidar / depth / auto; `renderer`: 3dgs / 3dgut / 3dgeer; `campose`; `fastgs` | `omnire*.yaml` |
 | `streetgs` | như trên | `streetgs*.yaml` |
 
 Các config hiện có của teammate map sang tổ hợp ô:
 
 | Config hiện có | Tổ hợp ô tương ứng |
 |---|---|
-| `streetgs_nocampose.yaml` / `omnire_nocampose.yaml` | renderer default, campose tắt, fastgs tắt |
-| `streetgs_ut.yaml` | renderer ut, campose tắt |
-| `streetgs_geer.yaml` / `omnire_geer.yaml` | renderer geer, campose tắt |
-| `streetgs_fastgs.yaml` / `omnire_fastgs.yaml` | renderer default, campose tắt, fastgs bật |
-| `streetgs_geer_fastgs.yaml` | renderer geer, campose tắt, fastgs bật |
+| `streetgs_nocampose.yaml` / `omnire_nocampose.yaml` | renderer 3dgs, campose tắt, fastgs tắt |
+| `streetgs_ut.yaml` | renderer 3dgut, campose tắt |
+| `streetgs_geer.yaml` / `omnire_geer.yaml` | renderer 3dgeer, campose tắt |
+| `streetgs_fastgs.yaml` / `omnire_fastgs.yaml` | renderer 3dgs, campose tắt, fastgs bật |
+| `streetgs_geer_fastgs.yaml` | renderer 3dgeer, campose tắt, fastgs bật |
 
-Ràng buộc đã biết: renderer `geer` không đi với campose bật, vì 3DGEER không tối ưu được pose camera. Các config 3DGEER của teammate còn đổi `densify_grad_thresh: 0.01` và `refine_interval: 300` (README của fork); hai giá trị này đi theo lựa chọn renderer `geer`.
+Tên renderer theo CONTRACTS mục 10.3 (`3dgs`, `3dgut`, `3dgeer`); engine đổi sang `render_mode` của DriveStudio (`default`, `ut`, `geer`). Ràng buộc đã biết: renderer `3dgeer` không đi với campose bật, vì 3DGEER không tối ưu được pose camera. Các config 3DGEER của teammate còn đổi `densify_grad_thresh: 0.01` và `refine_interval: 300` (README của fork); hai giá trị này đi theo lựa chọn renderer `3dgeer`.
 
 ### 4.6 kaggle
 
@@ -508,7 +517,7 @@ Xem các stage `export.*` ở mục 4.3.
 
 ### 4.9 studio
 
-- `api/`: FastAPI phục vụ REST cho cảnh, approach, run, metric; SSE cho tiến độ và log; file tĩnh của frontend, video, ảnh, gói xem trước. Chỉ nghe trên `127.0.0.1`.
+- `api/`: FastAPI phục vụ REST cho cảnh, approach, run, metric; SSE cho tiến độ và log; file tĩnh của frontend, video, ảnh, gói xem trước. Chỉ nghe trên `127.0.0.1`. Hợp đồng ở CONTRACTS mục 11.
 - `frontend/`: Vite + React theo luồng sử dụng ở SPEC mục 5; màn hình chọn approach có preset, ô chọn, lựa chọn bị khoá kèm lý do, và danh sách stage sẽ chạy (stage nào dùng lại cache); video là thẻ `<video>` MP4 H.264, phát đồng bộ nhiều camera; nút của mức approach không đạt thì ẩn.
 - `viz/`: viser chạy trong tiến trình Studio, nhúng bằng iframe; ảnh và depth lấy từ worker render (mục 2.9). Hai chế độ:
 
@@ -520,14 +529,14 @@ Xem các stage `export.*` ở mục 4.3.
 
 ### 4.10 cli
 
-Lệnh dạng `d2s <nhóm> <hành động>`. Danh sách đầy đủ và quy tắc tuỳ chọn ở CONTRACTS mục 10.4.
+Lệnh dạng `d2s <nhóm> <hành động>`. Danh sách đầy đủ, tuỳ chọn chung, stdout/stderr và mã thoát ở CONTRACTS mục 10.4; kiểu giá trị `--set` ở 10.3; ngôn ngữ thông báo ở 10.6.
 
 | Nhóm | Hành động |
 |---|---|
-| `scene` | `ingest`, `validate`, `list`, `show` |
-| `split` | `create` |
+| `scene` | `ingest`, `validate`, `list`, `show`, `delete` |
+| `split` | `create`, `list`, `show`, `delete` |
 | `approach` | `list`, `show`, `check` |
-| `run` | `start`, `resume`, `status`, `list`, `cancel` |
+| `run` | `start`, `resume`, `status`, `list`, `cancel`, `delete` |
 | `kaggle` | `push`, `status`, `pull` |
 | `export` | `ply`, `preview` |
 | `cache` | `list`, `gc` |
@@ -568,8 +577,8 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (NCore V4 + manifest.ya
 | Docs thiết kế (SPEC, ARCHITECTURE, CONTRACTS) | Xong, cập nhật theo từng quyết định | |
 | Di chuyển mã DriveStudio vào `drive2sim/recon/` (ba lượt) | Xong; kiểm tra tĩnh đạt; chưa chạy thật | `7a7c121`, `726b3ba`, `9f35aff` |
 | Sửa chạy tiếp khi train | Xong trong code; chưa chạy thật | `7851701` |
-| Khung thư mục của tool, submodule NCore | Xong; các thư mục còn trống | `ceacb2c` |
-| `core`: định danh, schema mọi file trong CONTRACTS, đọc ghi, split | Xong; 60 test đạt trên Python 3.9 và 3.12; test đọc mọi ví dụ trong CONTRACTS; qua `ruff check` | `9bb7bbc`, (commit này) |
+| Khung thư mục của tool, submodule NCore (pin `v19.9.0`, mục 2.2) | Xong; các thư mục còn trống | `ceacb2c` |
+| `core`: định danh, schema mọi file trong CONTRACTS (kể cả `job.json`, `result.json`), đọc ghi, split | Xong; 66 test đạt trên Python 3.9 và 3.12; test đọc mọi ví dụ trong CONTRACTS; qua `ruff check` | `9bb7bbc`, `96876ad` |
 | `core`: phép biến đổi toạ độ, mô hình camera, đọc NCore | Chưa làm | |
 | `engine`, `stages`, `approaches`, `cli` | Chưa làm | |
 | Studio (`studio/api`, `studio/frontend`, `studio/viz`) | Chưa làm | |
@@ -592,7 +601,8 @@ Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiề
 | Config chép nguyên file: `streetgs_nocampose.yaml` khác `streetgs.yaml` 9 dòng trên 148; các bản `_ut`, `_geer`, `_fastgs` khác 10–19 dòng | `drive2sim/configs/methods/*.yaml` | Một config gốc cho mỗi method; biến thể chỉ ghi phần khác, ứng với các ô chọn |
 | Render nằm lẫn trong viewer và trainer | `drive2sim/recon/tools/viewer.py` (2523 dòng), `drive2sim/recon/trainers/base.py` (1125 dòng) | Tách hàm render dùng riêng cho `sim/` |
 | Export không có sky, SMPL, vật biến dạng; SH của xe không xoay theo xe | `drive2sim/recon/tools/export_ply.py` | Ghi rõ giới hạn; mở rộng cho `export.preview` |
-| Không có test | | `tests/drive2sim/`, bắt đầu bằng kiểm tra hồi quy của loader |
+| Thông báo lỗi trong `drive2sim/core/` (`ValueError` của identifiers, schema, files) còn tiếng Anh, viết trước khi chốt CONTRACTS mục 10.6 | `drive2sim/core/identifiers.py`, `schema.py`, `files.py` | Chuyển sang tiếng Việt trong một commit riêng, sửa test đang so chuỗi nếu có |
+| Chưa có test cho `drive2sim/recon/` (`core/` đã có 60 test) | `drive2sim/recon/` | `tests/drive2sim/recon/`, bắt đầu bằng kiểm tra hồi quy của loader |
 | Phiên bản PyTorch chưa khớp: `requirements.txt` ghi `torch==2.0.0+cu117`, gsplat-geer ghi đã chạy với 2.4.1 | `requirements.txt` | Hỏi teammate; chốt một môi trường |
 
 ### 7.3 Nguyên tắc khi refactor
@@ -604,7 +614,7 @@ Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiề
 
 ### 7.4 Thứ tự làm
 
-0. **Di chuyển mã DriveStudio vào `drive2sim/recon/`** (đã làm, hai lượt): đổi chỗ file, sửa import trong mã và chuỗi import trong config, thêm `pyproject.toml`, `drive2sim/paths.py` cho `assets/`; lượt hai tách `preprocess/` khỏi `data/loaders/`, chuyển import tương đối sang tuyệt đối, gom config method vào `configs/methods/`, docs vào `docs/datasets/` và `docs/methods/`; lượt ba chuyển `configs/` vào `drive2sim/configs/`. Sau đó tạo khung thư mục của tool và thêm submodule NCore. Đã kiểm tra tĩnh (mọi import `drive2sim...` và mọi chuỗi import trong config trỏ tới lớp có thật); **chưa chạy thật**.
+0. **Di chuyển mã DriveStudio vào `drive2sim/recon/`** (đã làm, ba lượt): đổi chỗ file, sửa import trong mã và chuỗi import trong config, thêm `pyproject.toml`, `drive2sim/paths.py` cho `assets/`; lượt hai tách `preprocess/` khỏi `data/loaders/`, chuyển import tương đối sang tuyệt đối, gom config method vào `configs/methods/`, docs vào `docs/datasets/` và `docs/methods/`; lượt ba chuyển `configs/` vào `drive2sim/configs/`. Sau đó tạo khung thư mục của tool và thêm submodule NCore. Đã kiểm tra tĩnh (mọi import `drive2sim...` và mọi chuỗi import trong config trỏ tới lớp có thật); **chưa chạy thật**.
 1. **Kaggle chạy tiếp được:** sửa chạy tiếp (mục 7.2; đã sửa trong code, chưa chạy thử) và làm `drive2sim/kaggle/`. Chạy được OmniRe trên cảnh nuScenes mini mà teammate đã dùng; đây cũng là lần kiểm tra hành vi của bước 0.
 2. **Engine và stage bọc mã hiện có:** registry, file approach có ô chọn, `train.drivestudio`, `eval.standard`, `render.videos`, `export.ply_world`, `run.json`, CLI `d2s`. Đạt L1 theo thiết kế; Studio nhóm A–D làm song song.
 3. **Tầng dữ liệu:** nuScenes mini → NCore bằng converter có sẵn (thử chạy không cần Bazel, trên Kaggle) → `prep.to_drivestudio` → loader NCore → kiểm tra hồi quy với loader cũ.
