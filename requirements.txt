@@ -32,3 +32,7 @@ gdown
 nerfview==0.1.2
 splines==0.3.3
 lpips==0.1.4
+
+# added in this fork
+plyfile                # tools/export_ply.py
+transformers==4.40.2   # datasets/tools/extract_masks_hf.py (Hugging Face SegFormer)
