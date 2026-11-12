@@ -15,4 +15,4 @@ include = ["drive2sim*"]
 namespaces = true
 
 [tool.setuptools.package-data]
-drive2sim = ["assets/**/*", "configs/**/*"]
+drive2sim = ["assets/**/*", "configs/**/*", "approaches/*.yaml", "kaggle/templates/*", "sim/server/protos/*"]
