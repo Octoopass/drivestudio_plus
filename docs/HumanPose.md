@@ -15,12 +15,12 @@ We provide pre-processed human body pose data for a subset of scenes from variou
 
 | Dataset    | File ID                         | Note                                                           |
 |------------|----------------------------------|----------------------------------------------------------------|
-| Waymo      | 1QrtMrPAQhfSABpfgQWJZA2o_DDamL_7_ | *Processed SMPL data for 60+ scenes, including all listed in `data/waymo_example_scenes.txt `              |
-| PandaSet   | 1ODzoH7SxNzjOThhKUc_n2LLXcOAeGMCM | Scenes listed in `data/pandaset_example_scenes.txt`                                            |
-| ArgoVerse2 | 1XbYannJpQ9SRAL1-49XDLL833wqQolDd | Scenes listed in `data/argoverse_example_scenes.txt`           |
+| Waymo      | 1QrtMrPAQhfSABpfgQWJZA2o_DDamL_7_ | *Processed SMPL data for 60+ scenes, including all listed in `drive2sim/assets/scene_lists/waymo_example_scenes.txt `              |
+| PandaSet   | 1ODzoH7SxNzjOThhKUc_n2LLXcOAeGMCM | Scenes listed in `drive2sim/assets/scene_lists/pandaset_example_scenes.txt`                                            |
+| ArgoVerse2 | 1XbYannJpQ9SRAL1-49XDLL833wqQolDd | Scenes listed in `drive2sim/assets/scene_lists/argoverse_example_scenes.txt`           |
 | NuScenes   | 1Z0gJVRtPnjvusQVaW7ghZnwfycZStCZx | v1.0-mini split (10 scenes)                                    |
-| KITTI      | 1eAMNi5NFMU8T7tjQBT_jzxeX-yJRwVKM | Scenes listed in `data/kitti_example_scenes.txt`               |
-| NuPlan     | 1EohZnZCUPDmqsaC1p5WBCDYJi1u9cymt | Scenes listed in `data/nuplan_example_scenes.txt`              |
+| KITTI      | 1eAMNi5NFMU8T7tjQBT_jzxeX-yJRwVKM | Scenes listed in `drive2sim/assets/scene_lists/kitti_example_scenes.txt`               |
+| NuPlan     | 1EohZnZCUPDmqsaC1p5WBCDYJi1u9cymt | Scenes listed in `drive2sim/assets/scene_lists/nuplan_example_scenes.txt`              |
 
 *We are currently working on processing SMPL data for all Waymo scenes. Stay tuned for updates.
 
@@ -85,10 +85,10 @@ Supported datasets for human body pose extraction:
    ```bash
    conda activate 4D-humans
 
-   python datasets/tools/humanpose_process.py \
+   python -m drive2sim.recon.data.tools.humanpose_process \
    --dataset waymo \
    --data_root data/waymo/processed/training \
-   --split_file data/waymo_example_scenes.txt \
+   --split_file drive2sim/assets/scene_lists/waymo_example_scenes.txt \
    [--save_temp] [--verbose]
    ```
 
@@ -96,10 +96,10 @@ Supported datasets for human body pose extraction:
    ```bash
    conda activate 4D-humans
 
-   python datasets/tools/humanpose_process.py \
+   python -m drive2sim.recon.data.tools.humanpose_process \
    --dataset pandaset \
    --data_root data/pandaset/processed \
-   --split_file data/pandaset_example_scenes.txt \
+   --split_file drive2sim/assets/scene_lists/pandaset_example_scenes.txt \
    [--save_temp] [--verbose]
    ```
 
@@ -107,10 +107,10 @@ Supported datasets for human body pose extraction:
    ```bash
    conda activate 4D-humans
 
-   python datasets/tools/humanpose_process.py \
+   python -m drive2sim.recon.data.tools.humanpose_process \
    --dataset argoverse \
    --data_root data/argoverse/processed/training \
-   --split_file data/argoverse_example_scenes.txt \
+   --split_file drive2sim/assets/scene_lists/argoverse_example_scenes.txt \
    [--save_temp] [--verbose]
    ```
 
@@ -118,7 +118,7 @@ Supported datasets for human body pose extraction:
    ```bash
    conda activate 4D-humans
 
-   python datasets/tools/humanpose_process.py \
+   python -m drive2sim.recon.data.tools.humanpose_process \
    --dataset nuscenes \
    --data_root data/nuscenes/processed_10Hz/mini \
    --scene_ids 0 1 2 3 4 5 6 7 8 9 \
@@ -129,10 +129,10 @@ Supported datasets for human body pose extraction:
    ```bash
    conda activate 4D-humans
 
-   python datasets/tools/humanpose_process.py \
+   python -m drive2sim.recon.data.tools.humanpose_process \
    --dataset kitti \
    --data_root data/kitti/processed \
-   --split_file data/kitti_example_scenes.txt \
+   --split_file drive2sim/assets/scene_lists/kitti_example_scenes.txt \
    [--save_temp] [--verbose]
    ```
 
@@ -140,10 +140,10 @@ Supported datasets for human body pose extraction:
    ```bash
    conda activate 4D-humans
 
-   python datasets/tools/humanpose_process.py \
+   python -m drive2sim.recon.data.tools.humanpose_process \
    --dataset nuplan \
    --data_root data/nuplan/processed/mini \
-   --split_file data/nuplan_example_scenes.txt \
+   --split_file drive2sim/assets/scene_lists/nuplan_example_scenes.txt \
    [--save_temp] [--verbose]
    ```
 

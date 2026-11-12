@@ -95,15 +95,15 @@ pip install -e .
 ```
 
 ## 3. Process Raw Data
-You can provide a split file (e.g. `data/nuplan_example_scenes.txt`) to process a batch of scenes at once:
+You can provide a split file (e.g. `drive2sim/assets/scene_lists/nuplan_example_scenes.txt`) to process a batch of scenes at once:
 ```shell
 # export PYTHONPATH=\path\to\project
-python datasets/preprocess.py \
+python -m drive2sim.recon.data.preprocess \
     --data_root data/nuplan/raw \
     --target_dir data/nuplan/processed \
     --dataset nuplan \
     --split mini \
-    --split_file data/nuplan_example_scenes.txt \
+    --split_file drive2sim/assets/scene_lists/nuplan_example_scenes.txt \
     --workers 6 \
     --start_frame_idx 1000 \
     --max_frame_limit 300 \
@@ -158,11 +158,11 @@ If you encounter problems downloading the original SegFormer checkpoint from the
 conda activate segformer
 segformer_path=/path/to/segformer
 
-python datasets/tools/extract_masks.py \
+python -m drive2sim.recon.data.tools.extract_masks \
     --data_root data/nuplan/processed/mini \
     --segformer_path=$segformer_path \
     --checkpoint=$segformer_path/pretrained/segformer.b5.1024x1024.city.160k.pth \
-    --split_file data/nuplan_example_scenes.txt \
+    --split_file drive2sim/assets/scene_lists/nuplan_example_scenes.txt \
     --process_dynamic_mask
 ```
 

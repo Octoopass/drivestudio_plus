@@ -30,7 +30,7 @@ To process the 10 scenes in NuScenes **v1.0-mini split**, you can run:
 
 ```shell
 # export PYTHONPATH=\path\to\project
-python datasets/preprocess.py \
+python -m drive2sim.recon.data.preprocess \
     --data_root data/nuscenes/raw \
     --target_dir data/nuscenes/processed \
     --dataset nuscenes \
@@ -97,7 +97,7 @@ conda activate segformer
 segformer_path=/path/to/segformer
 split=mini
 
-python datasets/tools/extract_masks.py \
+python -m drive2sim.recon.data.tools.extract_masks \
     --data_root data/nuscenes/processed_10Hz/$split \
     --segformer_path=$segformer_path \
     --checkpoint=$segformer_path/pretrained/segformer.b5.1024x1024.city.160k.pth \

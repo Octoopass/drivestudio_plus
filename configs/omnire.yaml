@@ -3,7 +3,7 @@ dataset: waymo/3cams
 
 # ------------- Trainer ------------ #
 trainer:
-  type: models.trainers.MultiTrainer
+  type: drive2sim.recon.trainers.MultiTrainer
   optim:
     num_iters: 30000
     use_grad_scaler: false
@@ -70,7 +70,7 @@ trainer:
 # ------------- Model ------------ #
 model:
   Background:
-    type: models.gaussians.VanillaGaussians
+    type: drive2sim.recon.models.gaussians.VanillaGaussians
     init:
       from_lidar:
         num_samples: 800_000
@@ -83,7 +83,7 @@ model:
         step_interval: 10
         max_gauss_ratio: 10.       # threshold of ratio of gaussian max to min scale before applying regularization loss from the PhysGaussian paper
   RigidNodes:
-    type: models.nodes.RigidNodes
+    type: drive2sim.recon.models.nodes.RigidNodes
     init:
       instance_max_pts: 5000 # max initial points for each instance
       only_moving: true # only optimize moving instances
@@ -110,7 +110,7 @@ model:
         lr: 0.0005
         lr_final: 0.0001
   DeformableNodes:
-    type: models.nodes.DeformableNodes
+    type: drive2sim.recon.models.nodes.DeformableNodes
     init:
       instance_max_pts: 5000
       only_moving: true
@@ -164,7 +164,7 @@ model:
         lr: 0.0005
         lr_final: 0.0001
   SMPLNodes: 
-    type: models.nodes.SMPLNodes
+    type: drive2sim.recon.models.nodes.SMPLNodes
     init:
       only_moving: true
       traj_length_thres: 0.5
@@ -234,14 +234,14 @@ model:
       freeze_shs_dc: false
       freeze_shs_rest: false
   Sky:
-    type: models.modules.EnvLight
+    type: drive2sim.recon.models.modules.EnvLight
     params:
       resolution: 1024
     optim:
       all:
         lr: 0.01
   Affine:
-    type: models.modules.AffineTransform
+    type: drive2sim.recon.models.modules.AffineTransform
     params:
       embedding_dim: 4
       base_mlp_layer_width: 64
@@ -251,7 +251,7 @@ model:
         lr: 1.0e-5
         weight_decay: 1.0e-6
   CamPose:
-    type: models.modules.CameraOptModule
+    type: drive2sim.recon.models.modules.CameraOptModule
     optim:
       all:
         lr: 1.0e-5

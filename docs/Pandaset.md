@@ -51,15 +51,15 @@ NOTE: This fork of the [original devkit](https://github.com/scaleapi/pandaset-de
 
 ## 3. Process Raw Data
 
-You can provide a split file (e.g. `data/pandaset_example_scenes.txt`) to process a batch of scenes at once:
+You can provide a split file (e.g. `drive2sim/assets/scene_lists/pandaset_example_scenes.txt`) to process a batch of scenes at once:
 
 ```shell
 # export PYTHONPATH=\path\to\project
-python datasets/preprocess.py \
+python -m drive2sim.recon.data.preprocess \
     --data_root data/pandaset/raw \
     --target_dir data/pandaset/processed \
     --dataset pandaset \
-    --split_file data/pandaset_example_scenes.txt \
+    --split_file drive2sim/assets/scene_lists/pandaset_example_scenes.txt \
     --workers 32 \
     --process_keys images lidar calib pose dynamic_masks objects
 ```
@@ -111,11 +111,11 @@ If you encounter problems downloading the original SegFormer checkpoint from the
 conda activate segformer
 segformer_path=/path/to/segformer
 
-python datasets/tools/extract_masks.py \
+python -m drive2sim.recon.data.tools.extract_masks \
     --data_root data/pandaset/processed \
     --segformer_path=$segformer_path \
     --checkpoint=$segformer_path/pretrained/segformer.b5.1024x1024.city.160k.pth \
-    --split_file data/pandaset_example_scenes.txt \
+    --split_file drive2sim/assets/scene_lists/pandaset_example_scenes.txt \
     --process_dynamic_mask
 ```
 

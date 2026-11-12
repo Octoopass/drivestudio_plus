@@ -3,7 +3,7 @@ dataset: waymo/3cams
 
 # ------------- Trainer ------------ #
 trainer:
-  type: models.trainers.SingleTrainer
+  type: drive2sim.recon.trainers.SingleTrainer
   optim:
     num_iters: 30000
     use_grad_scaler: false
@@ -75,7 +75,7 @@ trainer:
 # ------------- Model ------------ #
 model:
   Background:
-    type: models.gaussians.PeriodicVibrationGaussians
+    type: drive2sim.recon.models.gaussians.PeriodicVibrationGaussians
     init:
       from_lidar:
         num_samples: 800_000
@@ -112,14 +112,14 @@ model:
       densify_t_size_thresh: 0.01
       no_time_split: true
   Sky:
-    type: models.modules.EnvLight
+    type: drive2sim.recon.models.modules.EnvLight
     params:
       resolution: 1024
     optim:
       all:
         lr: 0.01
   Affine:
-    type: models.modules.AffineTransform
+    type: drive2sim.recon.models.modules.AffineTransform
     params:
       embedding_dim: 4
       base_mlp_layer_width: 64
@@ -129,7 +129,7 @@ model:
         lr: 1.0e-5
         weight_decay: 1.0e-6
   CamPose:
-    type: models.modules.CameraOptModule
+    type: drive2sim.recon.models.modules.CameraOptModule
     optim:
       all:
         lr: 1.0e-5

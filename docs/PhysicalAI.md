@@ -72,7 +72,7 @@ the demo when it is the only clip in the raw folder:
 
 ```shell
 # export PYTHONPATH=\path\to\project
-python datasets/preprocess.py \
+python -m drive2sim.recon.data.preprocess \
     --data_root data/physicalai/raw \
     --target_dir data/physicalai/processed \
     --dataset physicalai \
@@ -122,7 +122,7 @@ conda activate segformer
 segformer_path=/pathtosegformer
 
 # export PYTHONPATH=\path\to\project
-python datasets/tools/extract_masks.py \
+python -m drive2sim.recon.data.tools.extract_masks \
     --data_root data/physicalai/processed \
     --segformer_path=$segformer_path \
     --checkpoint=$segformer_path/pretrained/segformer.b5.1024x1024.city.160k.pth \
@@ -148,7 +148,7 @@ to install the `4D-humans` environment and download the SMPL and estimator model
 conda activate 4D-humans
 
 # export PYTHONPATH=\path\to\project
-python datasets/tools/humanpose_process.py \
+python -m drive2sim.recon.data.tools.humanpose_process \
     --dataset physicalai \
     --data_root data/physicalai/processed \
     --scene_ids 0 \

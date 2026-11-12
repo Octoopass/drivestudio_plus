@@ -70,7 +70,7 @@ To use 3DGEER with any method:
 4. Open the interactive viewer:
 
     ```shell
-    python tools/viewer.py --ckpt $ckpt_path --port 8080
+    python -m drive2sim.recon.tools.viewer --ckpt $ckpt_path --port 8080
     ```
 
     Open `http://localhost:8080` to scrub scene time, toggle Gaussian groups, switch between pinhole, fisheye and calibrated FTheta cameras, and export camera-path videos.

@@ -27,15 +27,30 @@ A 3DGS framework for omni urban scene reconstruction and simulation!
 
 This repository is a fork of [ziyc/drivestudio](https://github.com/ziyc/drivestudio) at commit `e59bda4`, extended for the project *Reconstructing Real-world Driving Scenes*. The upstream README continues below, with the installation steps adjusted for this fork.
 
+### Layout on branch `drive2sim`
+
+On this branch all code lives in one Python package, `drive2sim/`. The DriveStudio code moved as follows, with imports and config import strings updated and no change in behaviour:
+
+| Before | Now |
+|---|---|
+| `datasets/` | `drive2sim/recon/data/` |
+| `models/` | `drive2sim/recon/models/` |
+| `models/trainers/` | `drive2sim/recon/trainers/` |
+| `utils/` | `drive2sim/recon/utils/` |
+| `tools/` | `drive2sim/recon/tools/` |
+| `data/ego_masks/`, `data/*.txt` | `drive2sim/assets/ego_masks/`, `drive2sim/assets/scene_lists/` |
+
+Install with `pip install -e .` from the repository root (or keep `export PYTHONPATH=$(pwd)`), and run scripts as modules, for example `python -m drive2sim.recon.tools.train`. `smplx` and `hmr2` are imported as installed packages (`pip install -e third_party/smplx`, and `third_party/Humans4D` as described in `docs/HumanPose.md`). The design of the drive2sim tool is in `docs/drive2sim/`.
+
 ### What this fork adds
 
 | Change | Where | Guide |
 |---|---|---|
-| **Choice of renderer**: standard 3DGS, 3DGUT or 3DGEER, selected with `trainer.render.render_mode: default \| ut \| geer`. Also adds native fisheye / FTheta and rolling-shutter training, the PhysicalAI dataset and an interactive viewer. This is Bosch's DriveStudio patch from [boschresearch/3dgeer](https://github.com/boschresearch/3dgeer) (branch `gsplat-geer`, commit `f15cee2`), applied unchanged. | `models/trainers/base.py`, `tools/viewer.py`, `datasets/physicalai/`, and others | [configs/3dgeer.md](configs/3dgeer.md) |
-| **FastGS-style multi-view densification and pruning**: Gaussians are added only where several training views agree the reconstruction is wrong, and low-opacity Gaussians are pruned late in training. Off by default; enabled with `trainer.fastgs.enabled: true`. Works with all three renderers. | `models/trainers/base.py`, `models/gaussians/vanilla.py`, `models/nodes/rigid.py` | [configs/fastgs.md](configs/fastgs.md) |
+| **Choice of renderer**: standard 3DGS, 3DGUT or 3DGEER, selected with `trainer.render.render_mode: default \| ut \| geer`. Also adds native fisheye / FTheta and rolling-shutter training, the PhysicalAI dataset and an interactive viewer. This is Bosch's DriveStudio patch from [boschresearch/3dgeer](https://github.com/boschresearch/3dgeer) (branch `gsplat-geer`, commit `f15cee2`), applied unchanged. | `drive2sim/recon/trainers/base.py`, `drive2sim/recon/tools/viewer.py`, `drive2sim/recon/data/physicalai/`, and others | [configs/3dgeer.md](configs/3dgeer.md) |
+| **FastGS-style multi-view densification and pruning**: Gaussians are added only where several training views agree the reconstruction is wrong, and low-opacity Gaussians are pruned late in training. Off by default; enabled with `trainer.fastgs.enabled: true`. Works with all three renderers. | `drive2sim/recon/trainers/base.py`, `drive2sim/recon/models/gaussians/vanilla.py`, `drive2sim/recon/models/nodes/rigid.py` | [configs/fastgs.md](configs/fastgs.md) |
 | **Configs without camera-pose refinement**, so that training and held-out frames use the same dataset poses. | `configs/*_nocampose.yaml` | |
-| **Sky and dynamic masks without mmcv**: a drop-in replacement for `extract_masks.py` that uses the Hugging Face SegFormer-B5 port and runs in the main environment. | `datasets/tools/extract_masks_hf.py` | |
-| **World-frame `.ply` export**: writes the static background (optionally with vehicles baked at one frame) in the standard INRIA 3DGS layout, plus a `scene.json` sidecar. DriveStudio's own export normalises positions into a unit box. | `tools/export_ply.py` | |
+| **Sky and dynamic masks without mmcv**: a drop-in replacement for `extract_masks.py` that uses the Hugging Face SegFormer-B5 port and runs in the main environment. | `drive2sim/recon/data/tools/extract_masks_hf.py` | |
+| **World-frame `.ply` export**: writes the static background (optionally with vehicles baked at one frame) in the standard INRIA 3DGS layout, plus a `scene.json` sidecar. DriveStudio's own export normalises positions into a unit box. | `drive2sim/recon/tools/export_ply.py` | |
 
 ### New configs
 
@@ -81,20 +96,20 @@ These runs differ in more than one setting (densification rule, CamPose on or of
 ```shell
 export PYTHONPATH=$(pwd)
 
-# sky and dynamic masks for processed scenes (replaces datasets/tools/extract_masks.py)
-python datasets/tools/extract_masks_hf.py \
+# sky and dynamic masks for processed scenes (replaces drive2sim/recon/data/tools/extract_masks.py)
+python -m drive2sim.recon.data.tools.extract_masks_hf \
     --data_root data/nuscenes/processed_10Hz/mini \
     --start_idx 0 --num_scenes 1 --process_dynamic_mask
 
 # train with the FastGS-style densification
-python tools/train.py \
+python -m drive2sim.recon.tools.train \
     --config_file configs/streetgs_fastgs.yaml \
     --output_root $output_root --project $project --run_name $expname \
     dataset=nuscenes/1cams data.scene_idx=0 \
     data.pixel_source.load_smpl=False data.pixel_source.test_image_stride=10
 
 # export a standard 3DGS .ply in the world frame (add --rigid_frame 0 to bake vehicles at frame 0)
-python tools/export_ply.py --ckpt $output_root/$project/$expname/checkpoint_final.pth --out $export_dir
+python -m drive2sim.recon.tools.export_ply --ckpt $output_root/$project/$expname/checkpoint_final.pth --out $export_dir
 ```
 
 `load_smpl=False` is needed for Street Gaussians configs, which have no human nodes. The `1cams` dataset configs hold out no test frames unless `test_image_stride` is set.
@@ -214,7 +229,7 @@ cd ../..
 
 Notes for this fork:
 
-- `requirements.txt` now also lists `plyfile` (for `tools/export_ply.py`) and `transformers` (for `datasets/tools/extract_masks_hf.py`).
+- `requirements.txt` now also lists `plyfile` (for `drive2sim/recon/tools/export_ply.py`) and `transformers` (for `drive2sim/recon/data/tools/extract_masks_hf.py`).
 - If the gsplat-geer build stops with `glm/gtc/type_ptr.hpp: No such file`, the `glm` submodule is empty: clone [glm](https://github.com/g-truc/glm) 1.0.1 into `third_party/3dgeer/gsplat/cuda/csrc/third_party/glm` and install again.
 - Dataset-specific packages are still installed separately, as described in each dataset guide (for example `nuscenes-devkit` for nuScenes, the NCore SDK for PhysicalAI).
 
@@ -236,7 +251,7 @@ export PYTHONPATH=$(pwd)
 start_timestep=0 # start frame index for training
 end_timestep=-1 # end frame index, -1 for the last frame
 
-python tools/train.py \
+python -m drive2sim.recon.tools.train \
     --config_file configs/omnire.yaml \
     --output_root $output_root \
     --project $project \
@@ -254,7 +269,7 @@ python tools/train.py \
 - For PhysicalAI, use `dataset=physicalai/7cams`. Native FTheta training uses GEER or UT with `data.pixel_source.undistort: False` in the dataset config; set it to `True` for pinhole rectification. See the [3DGEER guide](configs/3dgeer.md) for setup.
 ### Evaluation
 ```shell
-python tools/eval.py --resume_from $ckpt_path
+python -m drive2sim.recon.tools.eval --resume_from $ckpt_path
 ```
 
 <details>
@@ -265,9 +280,9 @@ To compare with OmniRe, run the following commands to reproduce the paper’s ch
 # Scene Reconstruction
 for scene_idx in {0..7}; do
     IFS=',' read scene_idx seg_name start_timestep end_timestep <<< $(awk -v idx="$(($scene_idx + 2))" \
-        'NR==idx {print $1, $2, $3, $4}' data/waymo_example_scenes.txt)
+        'NR==idx {print $1, $2, $3, $4}' drive2sim/assets/scene_lists/waymo_example_scenes.txt)
     
-    python tools/train.py \
+    python -m drive2sim.recon.tools.train \
         --config_file configs/paper_legacy/omnire.yaml \
         --output_root logs/omnire_waymo/ \
         --project recon \
@@ -283,9 +298,9 @@ done
 # Novel View Synthesis
 for scene_idx in {0..7}; do
     IFS=',' read scene_idx seg_name start_timestep end_timestep <<< $(awk -v idx="$(($scene_idx + 2))" \
-        'NR==idx {print $1, $2, $3, $4}' data/waymo_example_scenes.txt)
+        'NR==idx {print $1, $2, $3, $4}' drive2sim/assets/scene_lists/waymo_example_scenes.txt)
     
-    python tools/train.py \
+    python -m drive2sim.recon.tools.train \
         --config_file configs/paper_legacy/omnire.yaml \
         --output_root logs/omnire_waymo/ \
         --project nvs \
@@ -297,7 +312,7 @@ for scene_idx in {0..7}; do
 done
 ```
 
-and run `utils/gather_results.py` to get the results.
+and run `drive2sim/recon/utils/gather_results.py` to get the results.
 </details>
 
 ## 👏 Contributions

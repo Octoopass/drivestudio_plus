@@ -3,7 +3,7 @@ dataset: waymo/3cams
 
 # ------------- Trainer ------------ #
 trainer:
-  type: models.trainers.SingleTrainer
+  type: drive2sim.recon.trainers.SingleTrainer
   optim:
     num_iters: 30000
     use_grad_scaler: false
@@ -70,7 +70,7 @@ trainer:
 # ------------- Model ------------ #
 model:
   Background:
-    type: models.gaussians.DeformableGaussians
+    type: drive2sim.recon.models.gaussians.DeformableGaussians
     init:
       from_lidar:
         num_samples: 800_000
@@ -98,14 +98,14 @@ model:
         scale_factor: 5            # str or float, if "scene_scale", scale the learning rate by the scene scale
         max_steps: 40000
   Sky:
-    type: models.modules.EnvLight
+    type: drive2sim.recon.models.modules.EnvLight
     params:
       resolution: 1024
     optim:
       all:
         lr: 0.01
   Affine:
-    type: models.modules.AffineTransform
+    type: drive2sim.recon.models.modules.AffineTransform
     params:
       embedding_dim: 4
       base_mlp_layer_width: 64
@@ -115,7 +115,7 @@ model:
         lr: 1.0e-5
         weight_decay: 1.0e-6
   CamPose:
-    type: models.modules.CameraOptModule
+    type: drive2sim.recon.models.modules.CameraOptModule
     optim:
       all:
         lr: 1.0e-5

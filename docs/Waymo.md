@@ -16,22 +16,22 @@ mkdir -p ./data/waymo/processed
 ```
 
 ## 2. Download the raw data
-For the Waymo Open Dataset, we first organize the scene names alphabetically and store them in `data/waymo_train_list.txt`. The scene index is then determined by the line number minus one.
+For the Waymo Open Dataset, we first organize the scene names alphabetically and store them in `drive2sim/assets/scene_lists/waymo_train_list.txt`. The scene index is then determined by the line number minus one.
 
 For example, to obtain the 23th, 114th, and 788th scenes from the Waymo Open Dataset, execute:
 
 ```shell
-python datasets/waymo/waymo_download.py \
+python -m drive2sim.recon.data.waymo.waymo_download \
     --target_dir ./data/waymo/raw \
     --scene_ids 23 114 327 621 703 172 552 788
 ```
 
-You can also provide a split file (e.g. `data/waymo_example_scenes.txt`) to download a batch of scenes at once:
+You can also provide a split file (e.g. `drive2sim/assets/scene_lists/waymo_example_scenes.txt`) to download a batch of scenes at once:
 
 ```shell
-python datasets/waymo/waymo_download.py \
+python -m drive2sim.recon.data.waymo.waymo_download \
     --target_dir ./data/waymo/raw \
-    --split_file data/waymo_example_scenes.txt
+    --split_file drive2sim/assets/scene_lists/waymo_example_scenes.txt
 ```
 
 If you wish to run experiments on different scenes, please specify your own list of scenes.
@@ -59,7 +59,7 @@ pip install waymo-open-dataset-tf-2-11-0==1.6.0
 To preprocess specific scenes of the dataset, use the following command:
 ```shell
 # export PYTHONPATH=\path\to\project
-python datasets/preprocess.py \
+python -m drive2sim.recon.data.preprocess \
     --data_root data/waymo/raw/ \
     --target_dir data/waymo/processed \
     --dataset waymo \
@@ -71,12 +71,12 @@ python datasets/preprocess.py \
 Alternatively, preprocess a batch of scenes by providing the split file:
 ```shell
 # export PYTHONPATH=\path\to\project
-python datasets/preprocess.py \
+python -m drive2sim.recon.data.preprocess \
     --data_root data/waymo/raw/ \
     --target_dir data/waymo/processed \
     --dataset waymo \
     --split training \
-    --split_file data/waymo_example_scenes.txt \
+    --split_file drive2sim/assets/scene_lists/waymo_example_scenes.txt \
     --workers 8 \
     --process_keys images lidar calib pose dynamic_masks objects
 ```
@@ -133,11 +133,11 @@ If you encounter problems downloading the original SegFormer checkpoint from the
 conda activate segformer
 segformer_path=/pathtosegformer
 
-python datasets/tools/extract_masks.py \
+python -m drive2sim.recon.data.tools.extract_masks \
     --data_root data/waymo/processed/training \
     --segformer_path=$segformer_path \
     --checkpoint=$segformer_path/pretrained/segformer.b5.1024x1024.city.160k.pth \
-    --split_file data/waymo_example_scenes.txt \
+    --split_file drive2sim/assets/scene_lists/waymo_example_scenes.txt \
     --process_dynamic_mask
 ```
 Replace `/pathtosegformer` with the actual path to your Segformer installation.

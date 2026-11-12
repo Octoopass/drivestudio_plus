@@ -51,11 +51,11 @@ To process the raw KITTI data, use the following command:
 
 ``` shell
 # export PYTHONPATH=\path\to\project
-python datasets/preprocess.py \
+python -m drive2sim.recon.data.preprocess \
     --data_root data/kitti/raw \
     --dataset kitti \
     --split 2011_09_26 \
-    --split_file data/kitti_example_scenes.txt \
+    --split_file drive2sim/assets/scene_lists/kitti_example_scenes.txt \
     --target_dir data/kitti/processed \
     --workers 32 \
     --process_keys images lidar pose calib dynamic_masks objects
@@ -108,11 +108,11 @@ If you encounter problems downloading the original SegFormer checkpoint from the
 conda activate segformer
 segformer_path=/path/to/segformer
 
-python datasets/tools/extract_masks.py \
+python -m drive2sim.recon.data.tools.extract_masks \
     --data_root data/kitti/processed \
     --segformer_path=$segformer_path \
     --checkpoint=$segformer_path/pretrained/segformer.b5.1024x1024.city.160k.pth \
-    --split_file data/kitti_example_scenes.txt \
+    --split_file drive2sim/assets/scene_lists/kitti_example_scenes.txt \
     --process_dynamic_mask
 ```
 

@@ -16,7 +16,7 @@ data:
   end_timestep: -1 # which timestep to end at, -1 means the last timestep
   preload_device: cuda # choose from ["cpu", "cuda"], cache the data on this device
   pixel_source: # image source and object annotations
-    type: datasets.nuscenes.nuscenes_sourceloader.NuScenesPixelSource
+    type: drive2sim.recon.data.nuscenes.nuscenes_sourceloader.NuScenesPixelSource
     cameras: [0] # which cameras to use
     downscale_when_loading: [2] # the size of the images to load
     downscale: 1 # downscale factor wrt to the downscale_when_loading
@@ -31,7 +31,7 @@ data:
       buffer_ratio: 0.5 # the percentage of images sampled according to the error buffer
       start_enhance_weight: 3 # give more chance to sample starting frames, which usually have more errors
   lidar_source: # everything related to "lidar" --- from lidar points
-    type: datasets.nuscenes.nuscenes_sourceloader.NuScenesLiDARSource
+    type: drive2sim.recon.data.nuscenes.nuscenes_sourceloader.NuScenesLiDARSource
     load_lidar: True # whether to load lidar
     # ---- compute aabb from lidar ---- #
     # if load_lidar is True, we compute aabb from lidar, otherwise we compute aabb from cameras

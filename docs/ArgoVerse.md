@@ -49,19 +49,19 @@ To install the development toolkit, we follow the [official setup instructions](
 
 ## 3. Process the Data
 
-After downloading the raw dataset, you'll need to preprocess these data to our desired format. For the ArgoVerse2 Dataset, we first organize the scene names alphabetically and store them in `data/argoverse_train_list.txt`. The scene index is then determined by the line number minus one.
+After downloading the raw dataset, you'll need to preprocess these data to our desired format. For the ArgoVerse2 Dataset, we first organize the scene names alphabetically and store them in `drive2sim/assets/scene_lists/argoverse_train_list.txt`. The scene index is then determined by the line number minus one.
 
 #### Running the preprocessing script
 
-You can provide a split file (e.g. `data/argoverse_example_scenes.txt`) to process a batch of scenes at once:
+You can provide a split file (e.g. `drive2sim/assets/scene_lists/argoverse_example_scenes.txt`) to process a batch of scenes at once:
 
 ```shell
 # export PYTHONPATH=\path\to\project
-python datasets/preprocess.py \
+python -m drive2sim.recon.data.preprocess \
     --data_root data/argoverse/raw \
     --target_dir data/argoverse/processed/training \
     --dataset argoverse \
-    --split_file data/argoverse_example_scenes.txt \
+    --split_file drive2sim/assets/scene_lists/argoverse_example_scenes.txt \
     --workers 64 \
     --process_keys images lidar calib pose dynamic_masks objects
 ```
@@ -70,7 +70,7 @@ You can also process a specific range of scenes:
 
 ```shell
 # export PYTHONPATH=\path\to\project
-python datasets/preprocess.py \
+python -m drive2sim.recon.data.preprocess \
     --data_root data/argoverse/raw \
     --target_dir data/argoverse/processed/training \
     --dataset argoverse \
@@ -127,11 +127,11 @@ If you encounter problems downloading the original SegFormer checkpoint from the
  conda activate segformer
  segformer_path=/path/to/segformer
 
- python datasets/tools/extract_masks.py \
+ python -m drive2sim.recon.data.tools.extract_masks \
     --data_root data/argoverse/processed/training \
     --segformer_path=$segformer_path \
     --checkpoint=$segformer_path/pretrained/segformer.b5.1024x1024.city.160k.pth \
-    --split_file data/argoverse_example_scenes.txt \
+    --split_file drive2sim/assets/scene_lists/argoverse_example_scenes.txt \
     --process_dynamic_mask
 ```
 
