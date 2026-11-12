@@ -7,7 +7,7 @@ The larger original PhysicalAI release must first be converted to NCore with
 [NVIDIA's converter](https://github.com/NVIDIA/ncore); it is not the same input format.
 
 The processed scene always contains native FTheta images. In
-`configs/datasets/physicalai/7cams.yaml`, `data.pixel_source.undistort: False` selects native
+`drive2sim/configs/datasets/physicalai/7cams.yaml`, `data.pixel_source.undistort: False` selects native
 training; set it to `True` to rectify images and masks to pinhole geometry at
 load time. Processing never requires a NuRec model, pretrained scene, or
 intermediate camera bundle.

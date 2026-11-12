@@ -1,5 +1,5 @@
-# Street Gaussians (no CamPose, standard 3DGS renderer) with FastGS-style multi-view densification and pruning.
-# Untested: score_thresh in particular needs tuning from the 'FastGS @ step' log lines.
+# OmniRe (no CamPose, standard 3DGS renderer) with FastGS-style multi-view densification and pruning.
+# Applies to Background, RigidNodes and DeformableNodes; SMPLNodes are unchanged. Untested: score_thresh needs tuning from the 'FastGS @ step' log lines.
 seed: 0
 dataset: waymo/3cams
 
@@ -18,7 +18,7 @@ trainer:
     absgrad: true # whether to use absolute gradient for rendering, supported by gsplat kernel
     sparse_grad: false # whether to use sparse gradient for rendering, supported by gsplat kernel
     batch_size: 1 # batch size for rendering, currently only support 1
-  fastgs: # multi-view densification / pruning in the spirit of FastGS, see configs/fastgs.md
+  fastgs: # multi-view densification / pruning in the spirit of FastGS, see docs/methods/fastgs.md
     enabled: true
     num_views: 10             # training views sampled per scoring pass
     loss_thresh: 0.1          # normalised L1 error above which a pixel counts as high-error
@@ -70,8 +70,8 @@ trainer:
     # may differ in different models
     reset_alpha_value: 0.01       # reset alpha to this value
     densify_grad_thresh: 0.0005   # above this grad, gaussians are densified
-    densify_size_thresh: 0.003   # below this size, gaussians are *duplicated*, otherwise split
-    cull_alpha_thresh: 0.005       # threshold of opacity for culling gaussians
+    densify_size_thresh: 0.003    # below this size, gaussians are *duplicated*, otherwise split
+    cull_alpha_thresh: 0.005      # threshold of opacity for culling gaussians
     cull_scale_thresh: 0.5        # threshold of scale for culling gaussians
     cull_screen_size: 0.15        # if a gaussian is more than this percent of screen space, cull it
     split_screen_size: 0.05       # if a gaussian is more than this percent of screen space, split it
@@ -121,6 +121,130 @@ model:
       ins_translation:
         lr: 0.0005
         lr_final: 0.0001
+  DeformableNodes:
+    type: drive2sim.recon.models.nodes.DeformableNodes
+    init:
+      instance_max_pts: 5000
+      only_moving: true
+      traj_length_thres: 0.5
+    networks:
+      D: 8
+      W: 256
+      embed_dim: 16
+      x_multires: 10                # default 10
+      t_multires: 10                # default 10
+      deform_quat: True
+      deform_scale: False
+    ctrl:
+      reset_alpha_value: 0.1
+      cull_scale_thresh: 0.1
+      stop_screen_size_at: 30000
+      stop_split_at: 20000
+      sh_degree: 3
+      cull_out_of_bound: false
+      use_deformgs_for_nonrigid: True # default True
+      use_deformgs_after: 3000        # default 3000
+      stop_optimizing_canonical_xyz: True
+    reg:
+      sharp_shape_reg:
+        w: 1.
+        step_interval: 10
+        max_gauss_ratio: 10.
+      out_of_bound_loss:
+        w: 1.
+        stop_after: 30000
+      temporal_smooth_reg:
+        trans:
+          w: 0.01 # optimal value may vary
+          smooth_range: 5 # optimal value may vary
+    optim:
+      xyz:
+        lr: 1.6e-04
+        lr_final: 1.6e-06
+        scale_factor: 2.
+      embedding:
+        lr: 0.001
+        lr_final: 0.0001
+      deform_network:
+        lr: 1.6e-03
+        lr_final: 1.6e-04
+        scale_factor: 5.
+      ins_rotation:
+        lr: 0.00001
+        lr_final: 0.000005
+      ins_translation:
+        lr: 0.0005
+        lr_final: 0.0001
+  SMPLNodes: 
+    type: drive2sim.recon.models.nodes.SMPLNodes
+    init:
+      only_moving: true
+      traj_length_thres: 0.5
+    reg:
+      sharp_shape_reg:
+        w: 1.
+        step_interval: 10
+        max_gauss_ratio: 10.
+      temporal_smooth_reg:
+        trans:
+          w: 0.01 # optimal value may vary
+          smooth_range: 5 # range of frames to consider for smoothing
+        # joint_smooth:
+        #   w: 0.01 # optimal value may vary
+      knn_reg:
+        # lambda_std_x: 0.0001
+        lambda_std_q: 0.001
+        lambda_std_s: 0.001
+        lambda_std_o: 0.001
+        lambda_std_shs_dc: 0.001
+        lambda_std_shs_rest: 0.001
+      max_s_square_reg:
+        w: 0.05
+      x_offset:
+        w: 0.2
+      voxel_deformer_reg:
+        lambda_std_w: 0.6
+        lambda_std_w_rest: 0.5
+        lambda_w_norm: 0.6
+        lambda_w_rest_norm: 0.3
+    optim:
+      xyz:
+        lr: 1.6e-04
+        lr_final: 1.6e-06
+        scale_factor: 3.0
+      rotation:
+        lr: 0.005
+      sh_dc:
+        lr: 0.005
+      sh_rest:
+        lr: 0.00025
+      ins_rotation:
+        lr: 0.00001
+        lr_final: 0.000005
+      ins_translation:
+        lr: 0.0005
+        lr_final: 0.0001
+      smpl_rotation:
+        lr: 0.00005
+        lr_final: 0.00001
+      w_dc_vox:
+        lr: 0.0001
+        lr_final: 0.00001
+        opt_after: 10000
+    ctrl:
+      sh_degree: 1
+      opacity_init_value: 0.99
+      ball_gaussians: false
+      constrain_xyz_offset: false
+      knn_update_interval: 100
+      knn_neighbors: 3
+      use_voxel_deformer: true
+      freeze_x: false
+      freeze_o: false
+      freeze_q: false
+      freeze_s: false
+      freeze_shs_dc: false
+      freeze_shs_rest: false
   Sky:
     type: drive2sim.recon.models.modules.EnvLight
     params:

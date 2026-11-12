@@ -15,4 +15,4 @@ include = ["drive2sim*"]
 namespaces = true
 
 [tool.setuptools.package-data]
-drive2sim = ["assets/**/*"]
+drive2sim = ["assets/**/*", "configs/**/*"]

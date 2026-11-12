@@ -46,7 +46,8 @@ On this branch all code lives in one Python package, `drive2sim/`. The DriveStud
 | `utils/` | `drive2sim/recon/utils/` |
 | `tools/`, `utils/gather_results.py` | `drive2sim/recon/tools/` |
 | `data/ego_masks/`, `data/*.txt` | `drive2sim/assets/ego_masks/`, `drive2sim/assets/scene_lists/` |
-| `configs/<method>.yaml`, `configs/paper_legacy/` | `configs/methods/` |
+| `configs/<method>.yaml`, `configs/paper_legacy/` | `drive2sim/configs/methods/` |
+| `configs/datasets/` | `drive2sim/configs/datasets/` |
 | `configs/3dgeer.md`, `configs/fastgs.md` | `docs/methods/` |
 | `docs/<Dataset>.md` | `docs/datasets/<dataset>.md` |
 
@@ -56,9 +57,9 @@ Install with `pip install -e .` from the repository root (or keep `export PYTHON
 
 | Change | Where | Guide |
 |---|---|---|
-| **Choice of renderer**: standard 3DGS, 3DGUT or 3DGEER, selected with `trainer.render.render_mode: default \| ut \| geer`. Also adds native fisheye / FTheta and rolling-shutter training, the PhysicalAI dataset and an interactive viewer. This is Bosch's DriveStudio patch from [boschresearch/3dgeer](https://github.com/boschresearch/3dgeer) (branch `gsplat-geer`, commit `f15cee2`), applied unchanged. | `drive2sim/recon/trainers/base.py`, `drive2sim/recon/tools/viewer.py`, `drive2sim/recon/data/physicalai/`, and others | [configs/3dgeer.md](docs/methods/3dgeer.md) |
-| **FastGS-style multi-view densification and pruning**: Gaussians are added only where several training views agree the reconstruction is wrong, and low-opacity Gaussians are pruned late in training. Off by default; enabled with `trainer.fastgs.enabled: true`. Works with all three renderers. | `drive2sim/recon/trainers/base.py`, `drive2sim/recon/models/gaussians/vanilla.py`, `drive2sim/recon/models/nodes/rigid.py` | [configs/fastgs.md](docs/methods/fastgs.md) |
-| **Configs without camera-pose refinement**, so that training and held-out frames use the same dataset poses. | `configs/*_nocampose.yaml` | |
+| **Choice of renderer**: standard 3DGS, 3DGUT or 3DGEER, selected with `trainer.render.render_mode: default \| ut \| geer`. Also adds native fisheye / FTheta and rolling-shutter training, the PhysicalAI dataset and an interactive viewer. This is Bosch's DriveStudio patch from [boschresearch/3dgeer](https://github.com/boschresearch/3dgeer) (branch `gsplat-geer`, commit `f15cee2`), applied unchanged. | `drive2sim/recon/trainers/base.py`, `drive2sim/recon/tools/viewer.py`, `drive2sim/recon/data/loaders/physicalai.py`, `drive2sim/recon/preprocess/physicalai/`, and others | [docs/methods/3dgeer.md](docs/methods/3dgeer.md) |
+| **FastGS-style multi-view densification and pruning**: Gaussians are added only where several training views agree the reconstruction is wrong, and low-opacity Gaussians are pruned late in training. Off by default; enabled with `trainer.fastgs.enabled: true`. Works with all three renderers. | `drive2sim/recon/trainers/base.py`, `drive2sim/recon/models/gaussians/vanilla.py`, `drive2sim/recon/models/nodes/rigid.py` | [docs/methods/fastgs.md](docs/methods/fastgs.md) |
+| **Configs without camera-pose refinement**, so that training and held-out frames use the same dataset poses. | `drive2sim/configs/methods/*_nocampose.yaml` | |
 | **Sky and dynamic masks without mmcv**: a drop-in replacement for `extract_masks.py` that uses the Hugging Face SegFormer-B5 port and runs in the main environment. | `drive2sim/recon/preprocess/masks/segformer_hf.py` | |
 | **World-frame `.ply` export**: writes the static background (optionally with vehicles baked at one frame) in the standard INRIA 3DGS layout, plus a `scene.json` sidecar. DriveStudio's own export normalises positions into a unit box. | `drive2sim/recon/tools/export_ply.py` | |
 
@@ -87,7 +88,7 @@ It follows [FastGS](https://github.com/fastgs/FastGS) in spirit but is not a por
 - Scores are averaged over the views that actually see a Gaussian. In a forward-driving clip most views do not see a given Gaussian, so averaging over all sampled views would block nearly all densification.
 - FastGS's pruning budget and its rasterizer speed-ups are not included.
 
-It applies to `Background`, `RigidNodes` and `DeformableNodes`; `SMPLNodes` and PVG are unchanged. Settings and tuning are described in [configs/fastgs.md](docs/methods/fastgs.md).
+It applies to `Background`, `RigidNodes` and `DeformableNodes`; `SMPLNodes` and PVG are unchanged. Settings and tuning are described in [docs/methods/fastgs.md](docs/methods/fastgs.md).
 
 ### Results so far
 
@@ -113,7 +114,7 @@ python -m drive2sim.recon.preprocess.masks.segformer_hf \
 
 # train with the FastGS-style densification
 python -m drive2sim.recon.tools.train \
-    --config_file configs/methods/streetgs_fastgs.yaml \
+    --config_file drive2sim/configs/methods/streetgs_fastgs.yaml \
     --output_root $output_root --project $project --run_name $expname \
     dataset=nuscenes/1cams data.scene_idx=0 \
     data.pixel_source.load_smpl=False data.pixel_source.test_image_stride=10
@@ -262,7 +263,7 @@ start_timestep=0 # start frame index for training
 end_timestep=-1 # end frame index, -1 for the last frame
 
 python -m drive2sim.recon.tools.train \
-    --config_file configs/methods/omnire.yaml \
+    --config_file drive2sim/configs/methods/omnire.yaml \
     --output_root $output_root \
     --project $project \
     --run_name $expname \
@@ -272,9 +273,9 @@ python -m drive2sim.recon.tools.train \
     data.end_timestep=$end_timestep
 ```
 
-- To run other methods, change `--config_file`. See `configs/` for more options.
+- To run other methods, change `--config_file`. See `drive2sim/configs/` for more options.
 - Specify dataset and number of cameras by setting `dataset`. Examples: `waymo/1cams`, `waymo/5cams`, `pandaset/6cams`, `argoverse/7cams`, etc.
-  You can set up arbitrary camera combinations for each dataset. See `configs/datasets/` for custom configuration details.
+  You can set up arbitrary camera combinations for each dataset. See `drive2sim/configs/datasets/` for custom configuration details.
 - For over 3 cameras or 450+ images, we recommend using `omnire_extended_cam.yaml`. It works better in practice.
 - For PhysicalAI, use `dataset=physicalai/7cams`. Native FTheta training uses GEER or UT with `data.pixel_source.undistort: False` in the dataset config; set it to `True` for pinhole rectification. See the [3DGEER guide](docs/methods/3dgeer.md) for setup.
 ### Evaluation
@@ -293,7 +294,7 @@ for scene_idx in {0..7}; do
         'NR==idx {print $1, $2, $3, $4}' drive2sim/assets/scene_lists/waymo_example_scenes.txt)
     
     python -m drive2sim.recon.tools.train \
-        --config_file configs/methods/paper_legacy/omnire.yaml \
+        --config_file drive2sim/configs/methods/paper_legacy/omnire.yaml \
         --output_root logs/omnire_waymo/ \
         --project recon \
         --run_name ${scene_idx} \
@@ -311,7 +312,7 @@ for scene_idx in {0..7}; do
         'NR==idx {print $1, $2, $3, $4}' drive2sim/assets/scene_lists/waymo_example_scenes.txt)
     
     python -m drive2sim.recon.tools.train \
-        --config_file configs/methods/paper_legacy/omnire.yaml \
+        --config_file drive2sim/configs/methods/paper_legacy/omnire.yaml \
         --output_root logs/omnire_waymo/ \
         --project nvs \
         --run_name ${scene_idx} \

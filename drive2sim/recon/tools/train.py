@@ -1,3 +1,4 @@
+from drive2sim.paths import CONFIGS_DIR
 from omegaconf import OmegaConf
 import numpy as np
 import os
@@ -43,7 +44,7 @@ def setup(args):
     if "dataset" in cfg:
         dataset_type = cfg.pop("dataset")
         dataset_cfg = OmegaConf.load(
-            os.path.join("configs", "datasets", f"{dataset_type}.yaml")
+            os.path.join(CONFIGS_DIR, "datasets", f"{dataset_type}.yaml")
         )
         # merge data
         cfg = OmegaConf.merge(cfg, dataset_cfg)
@@ -98,7 +99,7 @@ def setup(args):
     # Backup codes
     backup_project(
         os.path.join(log_dir, 'backup'), "./", 
-        ["configs", "drive2sim"], 
+        ["drive2sim"], 
         [".py", ".h", ".cpp", ".cuh", ".cu", ".sh", ".yaml"]
     )
     return cfg
