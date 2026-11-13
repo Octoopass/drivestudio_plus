@@ -523,8 +523,9 @@
   "new.env.none": "chưa có",
   "new.env.expected": "cần {version}",
   "new.env.install": "Cài bằng",
-  "new.env.install_hint": "Tạo conda env bằng {file} rồi chạy script này trong env đó, sau đó mở lại Studio bằng Python của env. Mất khá lâu vì phải build gsplat-geer, nvdiffrast, pytorch3d. Chạy trên Kaggle thì notebook tự cài, không cần bước này.",
+  "new.env.install_hint": "Tạo conda env bằng {file} rồi chạy script này trong env đó, sau đó mở lại Studio bằng Python của env. Mất khá lâu vì phải build gsplat-geer, nvdiffrast, pytorch3d. Chạy trên Kaggle thì notebook tự cài, không cần bước này. File mô hình SMPL không cài bằng script: tải ở smpl.is.tue.mpg.de (cần tài khoản, đồng ý giấy phép), đặt ở <thư mục làm việc>/smpl_models/SMPL_NEUTRAL.pkl hoặc trỏ biến D2S_SMPL_MODEL tới nó.",
   "errors.forbidden": "Không được phép",
   "common.status.cancel_requested": "đang huỷ",
-  "common.status.new_script": "mới tạo"
+  "common.status.new_script": "mới tạo",
+  "new.env.check.smpl_model": "Mô hình SMPL (dựng người)"
 }

@@ -523,8 +523,9 @@
   "new.env.none": "not installed",
   "new.env.expected": "needs {version}",
   "new.env.install": "Install with",
-  "new.env.install_hint": "Create the conda env from {file}, run this script inside it, then reopen Studio with that env's Python. It takes a while because gsplat-geer, nvdiffrast and pytorch3d are built. Kaggle notebooks install it themselves.",
+  "new.env.install_hint": "Create the conda env from {file}, run this script inside it, then reopen Studio with that env's Python. It takes a while because gsplat-geer, nvdiffrast and pytorch3d are built. Kaggle notebooks install it themselves. The SMPL model file is not installed by the script: download it from smpl.is.tue.mpg.de (account and licence needed) and put it at <workdir>/smpl_models/SMPL_NEUTRAL.pkl, or point D2S_SMPL_MODEL at it.",
   "errors.forbidden": "Forbidden",
   "common.status.cancel_requested": "cancelling",
-  "common.status.new_script": "new"
+  "common.status.new_script": "new",
+  "new.env.check.smpl_model": "SMPL model (people)"
 }

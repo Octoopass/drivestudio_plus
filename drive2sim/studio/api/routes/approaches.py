@@ -99,14 +99,19 @@ def get_approach(approach_id: str) -> dict:
 
 
 @router.get("/{approach_id}/environment")
-def environment(approach_id: str) -> dict:
+def environment(approach_id: str, request: Request) -> dict:
     """Máy chạy Studio có đúng môi trường Python mà approach cần để chạy trên máy này không.
 
     Returns:
         Bảng kiểm tra theo ``environment_check``: ``ok``, ``warn`` (khác phiên bản, kết quả có
         thể lệch), ``missing`` (thiếu, run sẽ lỗi), kèm lệnh cài.
     """
-    return environment_check(load_approach(approach_id).codebase)
+    approach = load_approach(approach_id)
+    return environment_check(
+        approach.codebase,
+        needs_smpl=any(stage.stage == "prep.smpl" for stage in approach.stages),
+        workdir_root=state_of(request).workdir.root,
+    )
 
 
 @router.post("/{approach_id}/check")

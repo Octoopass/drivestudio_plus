@@ -231,6 +231,7 @@ Notes for this fork:
 
 - `requirements.txt` now also lists `plyfile` (for `drive2sim/recon/tools/export_ply.py`) and `transformers` (for `drive2sim/recon/preprocess/masks/segformer_hf.py`).
 - `requirements.txt` pins `torch==2.4.1+cu121` (the version gsplat-geer was run with) instead of DriveStudio's `torch==2.0.0+cu117`, drops `xformers` (unused), and uses `numpy==1.23.5` and `open3d==0.17.0` so it also installs on Python 3.11.
+- OmniRe needs the SMPL body model `SMPL_NEUTRAL.pkl` to reconstruct people. It is licensed and not in the repo: download it from https://smpl.is.tue.mpg.de and put it at `<workdir>/smpl_models/SMPL_NEUTRAL.pkl` (or set `D2S_SMPL_MODEL`). For Kaggle runs, upload it as a private dataset and set `D2S_KAGGLE_SMPL_DATASET=<user>/<dataset>` before `d2s kaggle push`. Studio's New run page shows whether the file is found.
 - Stock gsplat (`pip install git+https://github.com/nerfstudio-project/gsplat.git@v1.3.0`) only supports `render_mode: default` and has not been tested with this fork.
 - At commit `f15cee2` the `glm` submodule of gsplat-geer is declared but missing from the tree, which made the build stop with `glm/gtc/type_ptr.hpp: No such file`; `envs/install_main.sh` now fetches glm 1.0.1 into place by itself. If a step fails, fix it and rerun from that step with `bash envs/install_main.sh --from <step>`.
 - Dataset-specific packages are still installed separately, as described in each dataset guide (for example `nuscenes-devkit` for nuScenes, the NCore SDK for PhysicalAI).
