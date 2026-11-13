@@ -43,6 +43,7 @@ def run_logged(
     log_path: Path,
     cwd: Optional[Path] = None,
     should_stop: Optional[Callable[[], bool]] = None,
+    env: Optional[dict[str, str]] = None,
 ) -> None:
     """Chạy một câu lệnh, nối stdout và stderr vào ``log_path``.
 
@@ -56,6 +57,7 @@ def run_logged(
         cwd: Thư mục chạy lệnh; mặc định là thư mục hiện tại.
         should_stop: Hàm cho biết người dùng đã yêu cầu huỷ chưa, thường là
             ``ctx.should_stop`` của stage.
+        env: Biến môi trường thêm cho lệnh, cộng vào môi trường hiện tại.
 
     Raises:
         StageCancelledError: Nếu bị huỷ giữa chừng.
@@ -67,7 +69,12 @@ def run_logged(
         log_file.write("$ " + " ".join(command) + "\n")
         log_file.flush()
         process = subprocess.Popen(
-            command, stdout=log_file, stderr=subprocess.STDOUT, cwd=cwd, start_new_session=True
+            command,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            cwd=cwd,
+            start_new_session=True,
+            env={**os.environ, **env} if env else None,
         )
         while True:
             try:

@@ -33,6 +33,7 @@ from drive2sim import paths
 from drive2sim.core.schema import Manifest, Split, parse_strategy
 from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import Stage, StageContext
+from drive2sim.paths import SMPL_MODEL_ENV, SMPL_MODEL_NAME, find_smpl_model
 from drive2sim.stages.commands import LOG_FILE, run_logged
 from drive2sim.stages.scene_view import DRIVESTUDIO_DATASETS, VIEW_SCENE, build_view
 
@@ -322,8 +323,23 @@ class TrainDrivestudioStage(Stage):
             has_sky_masks="sky_masks" in extra,
             has_smpl=SMPL_ENTRY in extra,
         )
+        env = {}
+        if SMPL_ENTRY in extra:
+            # Có người (SMPL) thì trainer cần file mô hình SMPL. Tìm trước khi chạy, để báo rõ
+            # ngay thay vì lỗi sau vài phút nạp dữ liệu. output_dir là
+            # <workdir>/runs/<cảnh>/<approach>/<run>/d2s/stages/<stage>.
+            workdir_root = ctx.output_dir.parents[6] if len(ctx.output_dir.parents) > 6 else None
+            smpl_model = find_smpl_model(workdir_root)
+            if smpl_model is None:
+                raise RuntimeError(
+                    f"cảnh có người (SMPL) nhưng không thấy file mô hình {SMPL_MODEL_NAME}: "
+                    f"đặt ở <thư mục làm việc>/smpl_models/ hoặc trỏ biến {SMPL_MODEL_ENV} tới nó "
+                    "(tải ở https://smpl.is.tue.mpg.de); trên Kaggle gắn dataset chứa file "
+                    "(biến D2S_KAGGLE_SMPL_DATASET khi đẩy)"
+                )
+            env[SMPL_MODEL_ENV] = str(smpl_model)
         ctx.progress(0.0, f"train {params.method} bằng {params.config_file.name}")
-        run_logged(command, ctx.output_dir / LOG_FILE, should_stop=ctx.should_stop)
+        run_logged(command, ctx.output_dir / LOG_FILE, should_stop=ctx.should_stop, env=env)
         if not (ctx.output_dir / FINAL_CHECKPOINT).is_file():
             raise RuntimeError(f"train.py xong nhưng không có {FINAL_CHECKPOINT}")
         ctx.progress(1.0, "train xong")
