@@ -6,7 +6,7 @@
 //   DriveStudio (viser, POST /api/runs/{id}/gpu-viewer) và trang nhúng nó; viewer vẽ từ checkpoint
 //   bằng renderer gốc nên đủ mọi phần của model.
 // File kéo thả (.ply, .spz, .splat, .ksplat, .sog) chỉ đọc trong trình duyệt, không gửi lên server.
-import { Box, CheckCircle2, Crosshair, FileUp, Pause, Play, Power, XCircle, Video as VideoIcon } from "lucide-react";
+import { ArrowLeft, Box, CheckCircle2, ChevronLeft, Crosshair, FileUp, Maximize2, Minimize2, Pause, Play, Power, SlidersHorizontal, XCircle, Video as VideoIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, asApiError, del, post, preferredVideo, seg, useApi, type ApiError } from "../api/client";
 import type { ActorPoses, List, RunRecord, Splats, Video } from "../api/types";
@@ -34,6 +34,20 @@ type Source = "preview" | "ply" | "video" | "gpu" | "file";
 const SPLAT_SOURCES: Source[] = ["preview", "ply", "file"];
 // Tốc độ phát, khung dữ liệu mỗi giây: nuScenes trong DriveStudio khoảng 10 khung mỗi giây.
 const PLAYBACK_FPS = 10;
+// Bảng điều khiển thu gọn hay mở, nhớ theo trình duyệt (chỉ là tiện lợi; lỗi bộ nhớ thì bỏ qua).
+const PANEL_KEY = "d2s.viewer.panel";
+
+function readPanelOpen(): boolean {
+  try {
+    return window.localStorage.getItem(PANEL_KEY) !== "closed";
+  } catch {
+    return true;
+  }
+}
+
+function formatBytes(bytes: number): string {
+  return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(2)} GB` : `${(bytes / 1e6).toFixed(1)} MB`;
+}
 
 interface GpuViewerStatus {
   state: "stopped" | "starting" | "running" | "exited";
@@ -73,9 +87,18 @@ export function ViewerPage({ runId }: { runId?: string }) {
   const [playing, setPlaying] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [webgl, setWebgl] = useState(true);
+  // Màn chọn nguồn: run đang chọn và file đã kéo vào, chưa mở cho tới khi bấm nút.
+  const [pickRun, setPickRun] = useState<string>("");
+  const [pickFile, setPickFile] = useState<File | null>(null);
+  const [panelOpen, setPanelOpen] = useState(readPanelOpen);
+  const [fullscreen, setFullscreen] = useState(false);
+  const full = useRef<HTMLDivElement>(null);
+  // Đang xem (màn hình lớn) khi đã chọn run (qua URL) hoặc đã mở file; còn lại là màn chọn nguồn.
+  const immersive = !!runId || (source === "file" && !!file);
 
+  // Viewer chỉ tồn tại trong màn xem: tạo khi vào, trả context WebGL khi quay ra màn chọn.
   useEffect(() => {
-    if (!host.current) return;
+    if (!immersive || !host.current) return;
     try {
       viewer.current = new SplatViewer(host.current);
       // Nhấp đúp bay tới một điểm thì thôi bám camera, nếu không camera bị kéo về ngay khung sau.
@@ -83,8 +106,30 @@ export function ViewerPage({ runId }: { runId?: string }) {
     } catch {
       setWebgl(false);
     }
-    return () => viewer.current?.dispose();
+    return () => {
+      viewer.current?.dispose();
+      viewer.current = null;
+    };
+  }, [immersive]);
+
+  useEffect(() => {
+    const onChange = () => setFullscreen(!!full.current && document.fullscreenElement === full.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void full.current?.requestFullscreen?.();
+  };
+  const togglePanel = () =>
+    setPanelOpen((open) => {
+      try {
+        window.localStorage.setItem(PANEL_KEY, open ? "closed" : "open");
+      } catch {
+        // bộ nhớ trình duyệt bị chặn: chỉ không nhớ được lựa chọn
+      }
+      return !open;
+    });
 
   // Chọn sẵn mode tốt nhất mà run có: gói xem trước, rồi cảnh tĩnh, rồi video, cuối cùng Render GPU
   // (luôn chọn được để xem máy còn thiếu gì).
@@ -92,7 +137,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
     if (!splats.data || !videos.data) return;
     setSource(splats.data.preview ? "preview" : splats.data.ply ? "ply" : videos.data.items.length ? "video" : "gpu");
     setVideoUrl(preferredVideo(videos.data.items)?.url ?? "");
-  }, [splats.data, videos.data]);
+  }, [splats.data, videos.data, runId]); // runId: mở lại cùng run thì dữ liệu cache không đổi
 
   // Nạp nguồn đã chọn.
   useEffect(() => {
@@ -233,209 +278,309 @@ export function ViewerPage({ runId }: { runId?: string }) {
 
   const preview = splats.data?.preview;
   const splatMode = !!source && SPLAT_SOURCES.includes(source);
-  const nothing = !source || (source === "file" && !file);
+  const loading = !!runId && !source && !splats.error;
   const videoItems = videos.data?.items ?? [];
-  return (
-    <div className="page" style={{ maxWidth: "none" }}>
-      <PageHead title={t("viewer.page.title")} info={t("viewer.page.lede")} />
-      <div className="viewer">
-        <aside className="viewer-side">
-          <label className="field">
-            <span>{t("viewer.field.run")}</span>
-            <select value={runId ?? ""} onChange={(e) => go({ page: "viewer", runId: e.target.value || undefined })}>
-              <option value="">{t("viewer.field.no_run")}</option>
-              {(runs.data?.items ?? []).map((run) => (
-                <option key={run.run_id}>{run.run_id}</option>
-              ))}
-            </select>
-          </label>
-          <ErrorBox error={splats.error} />
-          {runId && splats.data && (
-            <div className="field">
-              <span>
-                {t("viewer.field.source")}
-                <InfoTip>{t("viewer.mode.hint")}</InfoTip>
-              </span>
-              <div className="mode-list" role="radiogroup" aria-label={t("viewer.field.source")}>
-                {(
-                  [
-                    ["preview", !!splats.data.preview],
-                    ["ply", !!splats.data.ply],
-                    ["video", videoItems.length > 0],
-                    ["gpu", true],
-                  ] as [Source, boolean][]
-                ).map(([value, available]) => (
+  const doneRuns = [...(runs.data?.items ?? [])].sort((a, b) => (b.created_utc ?? "").localeCompare(a.created_utc ?? ""));
+  const chosenRun = pickRun || doneRuns[0]?.run_id || "";
+
+  const openPicked = () => {
+    if (!pickFile) return;
+    openFile(pickFile);
+  };
+  const leave = () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    setPlaying(false);
+    setFile(null);
+    setSource(null);
+    setCameras(null);
+    setFollow(false);
+    if (runId) go({ page: "viewer" });
+  };
+
+  // Màn 1: chọn nguồn. Chọn run hoặc kéo file vào trước, bấm nút mới mở màn xem.
+  if (!immersive) {
+    return (
+      <div className="page">
+        <PageHead title={t("viewer.page.title")} info={t("viewer.page.lede")} />
+        <div className="viewer-launch">
+          <section className="card launch-card">
+            <h3>{t("viewer.launch.run_title")}</h3>
+            <p className="small muted">{t("viewer.launch.run_text")}</p>
+            <ErrorBox error={runs.error} />
+            {runs.data && doneRuns.length === 0 && <p className="small muted">{t("viewer.launch.no_runs")}</p>}
+            {doneRuns.length > 0 && (
+              <div className="launch-runs" role="radiogroup" aria-label={t("viewer.field.run")}>
+                {doneRuns.map((run) => (
                   <button
-                    key={value}
+                    key={run.run_id}
                     type="button"
                     role="radio"
-                    aria-checked={source === value}
-                    className={source === value ? "active" : undefined}
-                    disabled={!available}
-                    title={available ? undefined : t(`viewer.mode.${value}.missing`)}
-                    onClick={() => setSource(value)}
+                    aria-checked={chosenRun === run.run_id}
+                    className={chosenRun === run.run_id ? "active" : undefined}
+                    onClick={() => setPickRun(run.run_id)}
+                    onDoubleClick={() => go({ page: "viewer", runId: run.run_id })}
                   >
-                    <b>{t(`viewer.mode.${value}`)}</b>
-                    <span className="small muted">{available ? t(`viewer.mode.${value}.sub`) : t(`viewer.mode.${value}.missing`)}</span>
+                    <b className="id ellipsis">{run.run_id}</b>
+                    <span className="small muted ellipsis">
+                      {run.scene_id} · {run.approach.approach_id}
+                      {run.approach.preset ? ` / ${run.approach.preset}` : ""}
+                    </span>
                   </button>
                 ))}
               </div>
+            )}
+            <div className="row">
+              <button className="btn primary" disabled={!chosenRun} onClick={() => go({ page: "viewer", runId: chosenRun })}>
+                <Box size={17} />
+                {t("viewer.launch.open_run")}
+              </button>
             </div>
-          )}
-          {source === "video" && videoItems.length > 1 && (
-            <label className="field">
-              <span>{t("viewer.field.video")}</span>
-              <select value={videoUrl} onChange={(e) => setVideoUrl(e.target.value)}>
-                {videoItems.map((v) => (
-                  <option key={v.url} value={v.url}>
-                    {v.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <div
-            className="drop"
-            onDragOver={(e) => e.preventDefault()}
+          </section>
+          <section
+            className={`card launch-card launch-drop${dragging ? " dragging" : ""}`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
             onDrop={(e) => {
               e.preventDefault();
-              openFile(e.dataTransfer.files[0]);
+              setDragging(false);
+              setPickFile(e.dataTransfer.files[0] ?? null);
             }}
           >
-            <FileUp size={23} />
-            <span className="small">{t("viewer.drop.text")}</span>
-            <button className="btn sm" onClick={() => fileInput.current?.click()}>
-              {t("viewer.drop.button")}
+            <h3>{t("viewer.launch.file_title")}</h3>
+            <div className="drop">
+              <FileUp size={29} />
+              <span className="small">{t("viewer.drop.text")}</span>
+              <button className="btn sm" onClick={() => fileInput.current?.click()}>
+                {t("viewer.drop.button")}
+              </button>
+              <input ref={fileInput} type="file" accept={ACCEPT} hidden onChange={(e) => setPickFile(e.target.files?.[0] ?? null)} />
+              {pickFile && (
+                <span className="small id ellipsis" style={{ maxWidth: "100%" }}>
+                  {pickFile.name} · {formatBytes(pickFile.size)}
+                </span>
+              )}
+            </div>
+            <div className="row">
+              <button className="btn primary" disabled={!pickFile} onClick={openPicked}>
+                <Box size={17} />
+                {t("viewer.launch.open_file")}
+              </button>
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  // Màn 2: xem. Cảnh chiếm cả vùng nội dung; mọi thanh phụ nằm nổi, trong suốt, bên trong cảnh.
+  const title = source === "file" && file ? file.name : runId;
+  return (
+    <div
+      ref={full}
+      className={`viewer-full${dragging ? " dragging" : ""}`}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target) setDragging(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragging(false);
+        openFile(e.dataTransfer.files[0]);
+      }}
+    >
+      <div className="viewer-stage" ref={host} />
+      {source === "video" && videoUrl && (
+        <div className="viewer-overlay">
+          <video key={videoUrl} src={videoUrl} controls autoPlay loop muted />
+        </div>
+      )}
+      {source === "gpu" && runId && (
+        <div className="viewer-overlay">
+          <RenderCheckPanel runId={runId} />
+        </div>
+      )}
+      {!webgl && (
+        <div className="viewer-empty">
+          <div className="box">{t("viewer.no_webgl")}</div>
+        </div>
+      )}
+      {loading && (
+        <div className="viewer-empty">
+          <div className="box">{t("viewer.hud.preparing")}</div>
+        </div>
+      )}
+
+      <div className="vbar vbar-left glass">
+        <button className="btn sm ghost" onClick={leave} title={t("viewer.launch.back")}>
+          <ArrowLeft size={16} />
+          <span className="hide-narrow">{t("viewer.launch.back")}</span>
+        </button>
+        <b className="id ellipsis vtitle" title={title ?? undefined}>
+          {title}
+        </b>
+        <button className="btn icon sm ghost" onClick={toggleFullscreen} aria-label={t(fullscreen ? "viewer.hud.exit_fullscreen" : "viewer.hud.fullscreen")} title={t(fullscreen ? "viewer.hud.exit_fullscreen" : "viewer.hud.fullscreen")}>
+          {fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+        </button>
+      </div>
+
+      {splatMode && (
+        <div className="vbar vbar-right">
+          {progress !== null && <span className="tag glass">{t("viewer.hud.loading", { percent: Math.round(progress * 100) })}</span>}
+          {count !== null && <span className="tag glass">{t("viewer.hud.count", { count: count.toLocaleString() })}</span>}
+          {poses && <span className="tag glass">{t("viewer.hud.actors", { count: poses.track_ids.length })}</span>}
+          <button className="btn sm glass" onClick={() => viewer.current?.frameAll()}>
+            <Crosshair size={16} />
+            {t("viewer.hud.recenter")}
+          </button>
+        </div>
+      )}
+
+      {panelOpen ? (
+        <aside className="vpanel glass" aria-label={t("viewer.panel.title")}>
+          <header>
+            <SlidersHorizontal size={16} />
+            <b>{t("viewer.panel.title")}</b>
+            <button className="btn icon sm ghost" onClick={togglePanel} aria-label={t("viewer.panel.collapse")} title={t("viewer.panel.collapse")}>
+              <ChevronLeft size={17} />
             </button>
-            <input ref={fileInput} type="file" accept={ACCEPT} hidden onChange={(e) => openFile(e.target.files?.[0])} />
-            {file && source === "file" && <span className="small id ellipsis" style={{ maxWidth: "100%" }}>{file.name}</span>}
-          </div>
-          {(splatMode || !source) && (
-          <>
-          <div className="field">
-            <span>
-              {t("viewer.field.up")}
-              <InfoTip>{t("viewer.field.up_hint")}</InfoTip>
-            </span>
-            <Segmented<UpAxis>
-              label={t("viewer.field.up")}
-              value={up}
-              onChange={setUp}
-              options={[
-                { value: "z", label: "Z+" },
-                { value: "-z", label: "Z−" },
-                { value: "y", label: "Y+" },
-                { value: "-y", label: "Y−" },
-                { value: "x", label: "X+" },
-                { value: "-x", label: "X−" },
-              ]}
-            />
-          </div>
-          {cameras && cameras.length > 0 && (
-            <div className="field">
-              <span>
-                {t("viewer.field.camera")}
-                <InfoTip>{t("viewer.field.camera_hint")}</InfoTip>
-              </span>
-              <div className="row wrap" style={{ gap: 8 }}>
-                <select value={cameraIndex} onChange={(e) => setCameraIndex(Number(e.target.value))} aria-label={t("viewer.field.camera")}>
-                  {cameras.map((item, index) => (
-                    <option key={item.name} value={index}>
-                      {item.name}
+          </header>
+          <div className="vpanel-body">
+            <ErrorBox error={splats.error} />
+            {runId && splats.data && (
+              <div className="field">
+                <span>
+                  {t("viewer.field.source")}
+                  <InfoTip>{t("viewer.mode.hint")}</InfoTip>
+                </span>
+                <div className="mode-list compact" role="radiogroup" aria-label={t("viewer.field.source")}>
+                  {(
+                    [
+                      ["preview", !!splats.data.preview],
+                      ["ply", !!splats.data.ply],
+                      ["video", videoItems.length > 0],
+                      ["gpu", true],
+                    ] as [Source, boolean][]
+                  ).map(([value, available]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={source === value}
+                      className={source === value ? "active" : undefined}
+                      disabled={!available}
+                      title={available ? t(`viewer.mode.${value}.sub`) : t(`viewer.mode.${value}.missing`)}
+                      onClick={() => setSource(value)}
+                    >
+                      <b>{t(`viewer.mode.${value}`)}</b>
+                      <span className="small muted">{available ? t(`viewer.mode.${value}.sub`) : t(`viewer.mode.${value}.missing`)}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {source === "video" && videoItems.length > 1 && (
+              <label className="field">
+                <span>{t("viewer.field.video")}</span>
+                <select value={videoUrl} onChange={(e) => setVideoUrl(e.target.value)}>
+                  {videoItems.map((v) => (
+                    <option key={v.url} value={v.url}>
+                      {v.name}
                     </option>
                   ))}
                 </select>
-                <button className="btn sm" onClick={() => goToCamera()}>
-                  <VideoIcon size={15} />
-                  {t("viewer.camera.go")}
-                </button>
-              </div>
-              <label className="chip-check">
-                <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
-                {t("viewer.camera.follow")}
               </label>
-            </div>
-          )}
-          <div className="field">
-            <span>
-              {t("viewer.field.sh")}
-              <InfoTip>{t("viewer.field.sh_hint")}</InfoTip>
-            </span>
-            <Segmented<number> label={t("viewer.field.sh")} value={sh} onChange={setSh} options={[0, 1, 2, 3].map((n) => ({ value: n, label: String(n) }))} />
+            )}
+            {splatMode && (
+              <>
+                {cameras && cameras.length > 0 && (
+                  <div className="field">
+                    <span>
+                      {t("viewer.field.camera")}
+                      <InfoTip>{t("viewer.field.camera_hint")}</InfoTip>
+                    </span>
+                    <select value={cameraIndex} onChange={(e) => setCameraIndex(Number(e.target.value))} aria-label={t("viewer.field.camera")}>
+                        {cameras.map((item, index) => (
+                          <option key={item.name} value={index}>
+                            {item.name}
+                          </option>
+                        ))}
+                    </select>
+                    <div className="row wrap" style={{ gap: 8 }}>
+                      <button className="btn sm" onClick={() => goToCamera()}>
+                        <VideoIcon size={15} />
+                        {t("viewer.camera.go")}
+                      </button>
+                      <label className="chip-check">
+                      <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
+                        {t("viewer.camera.follow")}
+                      </label>
+                    </div>
+                  </div>
+                )}
+                <div className="field">
+                  <span>
+                    {t("viewer.field.up")}
+                    <InfoTip>{t("viewer.field.up_hint")}</InfoTip>
+                  </span>
+                  <Segmented<UpAxis>
+                    label={t("viewer.field.up")}
+                    value={up}
+                    onChange={setUp}
+                    options={[
+                      { value: "z", label: "Z+" },
+                      { value: "-z", label: "Z−" },
+                      { value: "y", label: "Y+" },
+                      { value: "-y", label: "Y−" },
+                      { value: "x", label: "X+" },
+                      { value: "-x", label: "X−" },
+                    ]}
+                  />
+                </div>
+                <div className="field">
+                  <span>
+                    {t("viewer.field.sh")}
+                    <InfoTip>{t("viewer.field.sh_hint")}</InfoTip>
+                  </span>
+                  <Segmented<number> label={t("viewer.field.sh")} value={sh} onChange={setSh} options={[0, 1, 2, 3].map((n) => ({ value: n, label: String(n) }))} />
+                </div>
+                {preview && source === "preview" && (preview.box_only_actors.length > 0 || preview.omitted.length > 0) && (
+                  <p className="small muted">{t("viewer.note.omitted", { items: [...preview.omitted, ...preview.box_only_actors.slice(0, 3)].join(", ") })}</p>
+                )}
+                <p className="small faint">{t("viewer.help")}</p>
+              </>
+            )}
+            <p className="small faint">{t("viewer.panel.drop_hint")}</p>
           </div>
-          {preview && source === "preview" && (preview.box_only_actors.length > 0 || preview.omitted.length > 0) && (
-            <p className="small muted">{t("viewer.note.omitted", { items: [...preview.omitted, ...preview.box_only_actors.slice(0, 3)].join(", ") })}</p>
-          )}
-          <p className="small faint">{t("viewer.help")}</p>
-          </>
-          )}
         </aside>
-        <div
-          className={`viewer-stage${dragging ? " dragging" : ""}`}
-          ref={host}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragging(false);
-            openFile(e.dataTransfer.files[0]);
-          }}
-        >
-          {source === "video" && videoUrl && (
-            <div className="viewer-overlay">
-              <video key={videoUrl} src={videoUrl} controls autoPlay loop muted />
-            </div>
-          )}
-          {source === "gpu" && runId && (
-            <div className="viewer-overlay">
-              <RenderCheckPanel runId={runId} />
-            </div>
-          )}
-          {!webgl && (
-            <div className="viewer-empty">
-              <div className="box">{t("viewer.no_webgl")}</div>
-            </div>
-          )}
-          {webgl && nothing && (
-            <div className="viewer-empty">
-              <div className="box">
-                <Box size={37} />
-                <strong style={{ color: "#e6eaee" }}>{t("viewer.empty.title")}</strong>
-                <span className="small">{t("viewer.empty.text")}</span>
-              </div>
-            </div>
-          )}
-          {!nothing && splatMode && (
-            <div className="hud">
-              {progress !== null && <span className="tag">{t("viewer.hud.loading", { percent: Math.round(progress * 100) })}</span>}
-              {count !== null && <span className="tag">{t("viewer.hud.count", { count: count.toLocaleString() })}</span>}
-              {poses && <span className="tag">{t("viewer.hud.actors", { count: poses.track_ids.length })}</span>}
-              {count !== null && <span className="tag">{t("viewer.hud.fly")}</span>}
-              <button className="btn sm" style={{ background: "rgba(10,13,16,.7)", color: "#e6eaee", borderColor: "rgba(255,255,255,.14)" }} onClick={() => viewer.current?.frameAll()}>
-                <Crosshair size={16} />
-                {t("viewer.hud.recenter")}
-              </button>
-            </div>
-          )}
-          {error && (
-            <div style={{ position: "absolute", left: 15, right: 15, top: 65 }}>
-              <div className="alert" role="alert">{error}</div>
-            </div>
-          )}
-          {splatMode && poses && poses.T_object_world.length > 1 && (
-            <div className="hud-bottom">
-              <button className="btn icon sm" onClick={() => setPlaying((p) => !p)} aria-label={t(playing ? "scene.frames.pause" : "scene.frames.play")}>
-                {playing ? <Pause size={18} /> : <Play size={18} />}
-              </button>
-              <input type="range" min={0} max={poses.T_object_world.length - 1} value={frame} onChange={(e) => setFrame(Number(e.target.value))} aria-label={t("viewer.hud.frame")} />
-              <span className="dense nowrap">{t("scene.frames.frame", { frame, last: poses.T_object_world.length - 1 })}</span>
-            </div>
-          )}
+      ) : (
+        <button className="btn sm glass vpanel-open" onClick={togglePanel} aria-label={t("viewer.panel.expand")}>
+          <SlidersHorizontal size={16} />
+          {t("viewer.panel.title")}
+        </button>
+      )}
+
+      {error && (
+        <div className="viewer-error">
+          <div className="alert" role="alert">
+            {error}
+          </div>
         </div>
-      </div>
+      )}
+      {splatMode && poses && poses.T_object_world.length > 1 && (
+        <div className="hud-bottom glass">
+          <button className="btn icon sm" onClick={() => setPlaying((p) => !p)} aria-label={t(playing ? "scene.frames.pause" : "scene.frames.play")}>
+            {playing ? <Pause size={18} /> : <Play size={18} />}
+          </button>
+          <input type="range" min={0} max={poses.T_object_world.length - 1} value={frame} onChange={(e) => setFrame(Number(e.target.value))} aria-label={t("viewer.hud.frame")} />
+          <span className="dense nowrap">{t("scene.frames.frame", { frame, last: poses.T_object_world.length - 1 })}</span>
+        </div>
+      )}
     </div>
   );
 }
