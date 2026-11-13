@@ -42,6 +42,7 @@ from drive2sim.engine.cache import CacheBusyError
 from drive2sim.engine.housekeeping import InUseError
 from drive2sim.engine.registry import load_builtin_stages
 from drive2sim.engine.resolve import BlockedError, ResolveError
+from drive2sim.engine.run import RunActiveError
 from drive2sim.engine.workdir import WorkdirError
 from drive2sim.kaggle.client import KaggleError
 
@@ -149,7 +150,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except (WorkdirError, FileNotFoundError) as error:
         _print_error(args, "not_found", str(error))
         return EXIT_ERROR
-    except InUseError as error:
+    except (InUseError, RunActiveError) as error:
         _print_error(args, "conflict", str(error))
         return EXIT_ERROR
     except CacheBusyError as error:
