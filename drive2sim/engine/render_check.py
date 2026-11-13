@@ -90,7 +90,9 @@ def render_readiness(run_dir: Optional[Path] = None) -> dict[str, Any]:
             {
                 "id": "checkpoint",
                 "ok": checkpoint is not None,
-                "value": str(checkpoint.relative_to(run_dir)) if checkpoint else None,
+                "value": str(checkpoint.relative_to(run_dir))
+                if checkpoint
+                else f"không có {CHECKPOINT} trong stage train.* của run",
             }
         )
     return {"ready": all(check["ok"] for check in checks), "checks": checks}
