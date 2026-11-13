@@ -42,6 +42,10 @@ from drive2sim.core.schema import (
     RunRecord,
     Summary,
 )
+from drive2sim.engine.approaches import load_approach
+from drive2sim.engine.registry import load_builtin_stages
+from drive2sim.engine.resolve import resolve
+from drive2sim.engine.run import plan_cache_keys
 from drive2sim.engine.scenes import create_split
 from drive2sim.engine.workdir import DEMO_MARKER, Workdir
 
@@ -351,10 +355,26 @@ def _artifact(path: Path, stage_id: str, artifact_type: str, duration: Optional[
 
 
 def make_cache(work: Workdir, scene_id: str) -> dict[str, str]:
-    """Kết quả cache dùng chung của các stage chuẩn bị; trả ``stage_id`` → ``cache_key``."""
+    """Kết quả cache dùng chung của các stage chuẩn bị; trả ``stage_id`` → ``cache_key``.
+
+    Khoá tính bằng chính engine (``plan_cache_keys`` trên kế hoạch OmniRe của cảnh), nên engine
+    thấy đúng các mục cache này: "Chạy mới" báo dùng lại cache, và xuất lại một run mẫu không chạy
+    lại stage prep (khoá bịa từng làm stage prep chạy thật và run mẫu thành "lỗi").
+    """
+    load_builtin_stages()
+    scene = work.load_scene(scene_id)
+    split_id = sorted(path.stem for path in (work.scene_dir(scene_id) / "splits").glob("*.json"))[
+        0
+    ]
+    split = work.load_split(scene_id, split_id)
+    plan = resolve(load_approach("omnire"), scene.manifest, split)
+    planned = dict(
+        zip((stage.stage_id for stage in plan.stages), plan_cache_keys(plan, scene, split))
+    )
     keys = {}
-    for stage_id, digest in CACHE_HASH.items():
-        key = f"{scene_id}/{stage_id}@0.1.0-{digest}"
+    for stage_id in CACHE_HASH:
+        key = planned[stage_id]
+        assert key is not None
         folder = work.cache_dir / scene_id / key.split("/", 1)[1]
         kind = "masks" if "masks" in stage_id else "smpl"
         _artifact(folder, stage_id, kind, PREP_TIME[stage_id], key)
