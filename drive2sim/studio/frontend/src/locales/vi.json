@@ -165,7 +165,6 @@
   "new.plan.summary": "{stages} stage, {cached} dùng lại cache",
   "new.plan.cache": "dùng lại cache",
   "new.plan.run": "sẽ chạy",
-  "new.plan.lidar": "Dùng LiDAR ở: {stages}",
   "new.plan.no_lidar": "Run này không dùng LiDAR.",
   "new.plan.waiting": "Chọn cảnh, split và approach để xem kế hoạch.",
   "new.plan.reuse": "{count} stage dùng lại cache",
@@ -513,5 +512,11 @@
   "common.camera": "Camera",
   "scene.action.create_split": "Tạo split",
   "run.action.compare": "So sánh",
-  "run.action.new_on_split": "Chạy mới trên split này"
+  "run.action.new_on_split": "Chạy mới trên split này",
+  "run.stages.lidar": "LiDAR",
+  "run.kaggle.status_unknown": "không hỏi được",
+  "scene.splits.range": "Đoạn khung",
+  "scene.splits.range_hint": "Khung đầu và khung cuối dùng cho split, tính cả hai đầu (0 tới {last}). Mặc định cả cảnh. Chọn đoạn ngắn để chạy thử nhanh hơn.",
+  "scene.splits.range_first": "Khung đầu",
+  "scene.splits.range_last": "Khung cuối"
 }

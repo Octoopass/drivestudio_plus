@@ -736,7 +736,7 @@ FastAPI phục vụ REST và Server-Sent Events, chỉ nghe trên `127.0.0.1` (`
 
 - Không dùng `PUT` hay `PATCH`: tool không sửa tại chỗ file nào ngoài qua một hành động có tên.
 - Tham số lọc của `GET` đi theo query string, tên `snake_case` trùng tên trường (`?scene_id=`, `?status=`).
-- Frontend tĩnh phục vụ ở `/`; viser nhúng ở `/viz/`.
+- Frontend tĩnh phục vụ ở `/`. Viewer GPU (viser) không đi qua Studio: nó nghe `127.0.0.1` ở cổng riêng, `GET /api/gpu-viewer` trả `url`, trang Xem 3D nhúng bằng iframe.
 
 Route đã có (`drive2sim/studio/api/routes/`):
 

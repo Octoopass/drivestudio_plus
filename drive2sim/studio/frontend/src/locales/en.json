@@ -165,7 +165,6 @@
   "new.plan.summary": "{stages} stages, {cached} from cache",
   "new.plan.cache": "from cache",
   "new.plan.run": "will run",
-  "new.plan.lidar": "Uses LiDAR in: {stages}",
   "new.plan.no_lidar": "This run does not use LiDAR.",
   "new.plan.waiting": "Pick a scene, split and approach to see the plan.",
   "new.plan.reuse": "{count} stages reuse existing results",
@@ -513,5 +512,11 @@
   "common.camera": "Camera",
   "scene.action.create_split": "Create split",
   "run.action.compare": "Compare",
-  "run.action.new_on_split": "New run on this split"
+  "run.action.new_on_split": "New run on this split",
+  "run.stages.lidar": "LiDAR",
+  "run.kaggle.status_unknown": "unavailable",
+  "scene.splits.range": "Frame range",
+  "scene.splits.range_hint": "First and last frame of the split, inclusive (0 to {last}). Default: the whole scene. A short range makes trial runs faster.",
+  "scene.splits.range_first": "First frame",
+  "scene.splits.range_last": "Last frame"
 }

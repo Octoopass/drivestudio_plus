@@ -291,12 +291,11 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
                     stage_id: s.stage_id,
                     status: s.cache_hit ? "succeeded" : "pending",
                     cached: s.cache_hit,
+                    lidar: check.lidar_usage.includes(s.stage_id),
                     note: t(s.cache_hit ? "new.plan.cache" : "new.plan.run"),
                   }))}
                 />
-                <p className="muted small">
-                  {check.lidar_usage.length ? t("new.plan.lidar", { stages: check.lidar_usage.join(", ") }) : t("new.plan.no_lidar")}
-                </p>
+                {check.lidar_usage.length === 0 && <p className="muted small">{t("new.plan.no_lidar")}</p>}
               </div>
             )}
             {!check && !checking && !checkError && <p className="muted">{t("new.plan.waiting")}</p>}

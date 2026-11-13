@@ -107,7 +107,15 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
         />
         <div className="panel-body">
           {tab === "frames" && <Frames sceneId={sceneId} numFrames={manifest.timeline.num_frames} splits={splits} />}
-          {tab === "splits" && <Splits sceneId={sceneId} cameras={manifest.cameras.map((c) => c.camera_id)} splits={splits} onChange={scene.reload} />}
+          {tab === "splits" && (
+            <Splits
+              sceneId={sceneId}
+              cameras={manifest.cameras.map((c) => c.camera_id)}
+              numFrames={manifest.timeline.num_frames}
+              splits={splits}
+              onChange={scene.reload}
+            />
+          )}
           {tab === "cameras" && (
             <div className="table-wrap">
               <table>
@@ -291,18 +299,39 @@ function Frames({ sceneId, numFrames, splits }: { sceneId: string; numFrames: nu
   );
 }
 
-function Splits({ sceneId, cameras, splits, onChange }: { sceneId: string; cameras: string[]; splits: string[]; onChange: () => void }) {
+function Splits({
+  sceneId,
+  cameras,
+  numFrames,
+  splits,
+  onChange,
+}: {
+  sceneId: string;
+  cameras: string[];
+  numFrames: number;
+  splits: string[];
+  onChange: () => void;
+}) {
   const { t } = useI18n();
   const toast = useToast();
   const [every, setEvery] = useState(8);
   const [chosen, setChosen] = useState<string[]>(cameras);
+  // Đoạn khung (SPEC mục 5 bước 3), tính cả hai đầu; mặc định cả cảnh.
+  const [first, setFirst] = useState(0);
+  const [last, setLast] = useState(Math.max(0, numFrames - 1));
+  const rangeOk = first >= 0 && last < numFrames && first <= last;
   const [error, setError] = useState<ApiError | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
   const create = async () => {
     setError(null);
     try {
-      const split = await post<Split>(`/api/scenes/${seg(sceneId)}/splits`, { strategy: `every_nth_frame:${every}`, cameras: chosen });
+      const whole = first === 0 && last === numFrames - 1;
+      const split = await post<Split>(`/api/scenes/${seg(sceneId)}/splits`, {
+        strategy: `every_nth_frame:${every}`,
+        cameras: chosen,
+        ...(whole ? {} : { frame_range: [first, last] }),
+      });
       toast({ kind: "ok", title: t("scene.splits.created", { split: split.split_id }) });
       onChange();
     } catch (err) {
@@ -341,6 +370,17 @@ function Splits({ sceneId, cameras, splits, onChange }: { sceneId: string; camer
             <input type="number" min={1} value={every} onChange={(e) => setEvery(Number(e.target.value))} />
           </label>
           <div className="field">
+            <span>
+              {t("scene.splits.range")}
+              <InfoTip>{t("scene.splits.range_hint", { last: numFrames - 1 })}</InfoTip>
+            </span>
+            <div className="row" style={{ gap: 8, maxWidth: 320 }}>
+              <input type="number" min={0} max={numFrames - 1} value={first} onChange={(e) => setFirst(Number(e.target.value))} aria-label={t("scene.splits.range_first")} />
+              <span className="muted">–</span>
+              <input type="number" min={0} max={numFrames - 1} value={last} onChange={(e) => setLast(Number(e.target.value))} aria-label={t("scene.splits.range_last")} />
+            </div>
+          </div>
+          <div className="field">
             <span>{t("scene.splits.cameras")}</span>
             <div className="row wrap">
               {cameras.map((camera) => (
@@ -356,7 +396,7 @@ function Splits({ sceneId, cameras, splits, onChange }: { sceneId: string; camer
             </div>
           </div>
           <div>
-            <button className="btn primary" onClick={create} disabled={chosen.length === 0 || every < 1}>
+            <button className="btn primary" onClick={create} disabled={chosen.length === 0 || every < 1 || !rangeOk}>
               {t("scene.splits.create")}
             </button>
           </div>

@@ -169,5 +169,7 @@ export interface KaggleStatus {
   commit: string;
   pushed_utc: string;
   pulled_utc: string | null;
-  status: string;
+  /** Trạng thái notebook; null khi không hỏi được Kaggle (lý do ở status_error). */
+  status: string | null;
+  status_error: string | null;
 }

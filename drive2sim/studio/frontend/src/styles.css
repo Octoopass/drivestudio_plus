@@ -598,3 +598,4 @@ th button.sorted .sort-icon { color: var(--accent-ink); opacity: 1; }
 .infotip.warn .infotip-btn { color: var(--warn); }
 .stat-link { color: inherit; text-decoration: none; border-radius: 8px; }
 .stat-link:hover { background: var(--raised); }
+.lidar-tag { font-size: 0.72em; padding: 0 6px; color: var(--info); border-color: color-mix(in srgb, var(--info) 40%, var(--line)); flex: none; }

@@ -234,6 +234,7 @@ export function RunPage({ runId }: { runId: string }) {
         stages={stages.map((s) => ({
           stage_id: s.stage_id,
           status: s.status,
+          lidar: (data.lidar_usage ?? []).includes(s.stage_id),
           cached: s.cache_hit && s.status === "succeeded",
           note:
             s.status === "running" && live.progress?.stage === s.stage_id
@@ -510,7 +511,10 @@ function KagglePanel({ runId }: { runId: string }) {
         <dl className="facts">
           <div>
             <dt>{t("run.kaggle.status")}</dt>
-            <dd><Status value={state.data.status} /></dd>
+            <dd className="row" style={{ gap: 4 }}>
+              {state.data.status ? <Status value={state.data.status} /> : <span className="muted">{t("run.kaggle.status_unknown")}</span>}
+              {state.data.status_error && <InfoTip warn>{state.data.status_error}</InfoTip>}
+            </dd>
           </div>
           <div>
             <dt>{t("run.kaggle.kernel")}</dt>

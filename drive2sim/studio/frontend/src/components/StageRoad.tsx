@@ -10,6 +10,8 @@ export interface RoadStage {
   cached?: boolean;
   note?: string;
   fraction?: number | null;
+  /** Stage dùng LiDAR (lidar_usage của run, SPEC mục 8B). */
+  lidar?: boolean;
 }
 
 function StageIcon({ stage }: { stage: RoadStage }) {
@@ -26,7 +28,10 @@ export function StageRoad({ stages }: { stages: RoadStage[] }) {
     <ol className="road" aria-label={t("run.stages.title")}>
       {stages.map((stage) => (
         <li key={stage.stage_id} className={stage.status} title={stage.stage_id}>
-          <div className="stage">{stage.stage_id}</div>
+          <div className="stage row" style={{ gap: 6 }}>
+            <span className="ellipsis">{stage.stage_id}</span>
+            {stage.lidar && <span className="tag lidar-tag">{t("run.stages.lidar")}</span>}
+          </div>
           <div className="note">
             <StageIcon stage={stage} />
             <span className="ellipsis">{stage.note ?? t(`common.status.${stage.status}`)}</span>
