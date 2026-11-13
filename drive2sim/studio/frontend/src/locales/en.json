@@ -297,6 +297,7 @@
   "viewer.hud.loading": "Loading {percent}%",
   "viewer.hud.count": "{count} splats",
   "viewer.hud.actors": "{count} vehicles",
+  "viewer.hud.fly": "Double-click: fly to",
   "viewer.hud.recenter": "Recenter",
   "viewer.hud.frame": "Frame",
   "new.field.training": "Training",
@@ -520,7 +521,7 @@
   "scene.splits.range_first": "First frame",
   "scene.splits.range_last": "Last frame",
   "viewer.field.camera": "Source camera",
-  "viewer.field.camera_hint": "Poses and field of view of the recording cameras, in the scene's coordinate frame. The scene opens at the video's viewpoint; with follow on, the view tracks the camera frame by frame while playing.",
+  "viewer.field.camera_hint": "Poses and field of view of the recording cameras, in the scene's coordinate frame. The scene opens at the video's viewpoint; with follow on, the view tracks the camera while playing, interpolated between frames for smooth motion (pause on a frame for the camera's exact view).",
   "viewer.camera.go": "Go to camera",
   "viewer.camera.follow": "Follow camera while playing"
 }

@@ -32,6 +32,8 @@ function defaultCamera(cameras: SceneCamera[]): number {
 const ACCEPT = ".ply,.spz,.splat,.ksplat,.sog,.zip";
 type Source = "preview" | "ply" | "video" | "gpu" | "file";
 const SPLAT_SOURCES: Source[] = ["preview", "ply", "file"];
+// Tốc độ phát, khung dữ liệu mỗi giây: nuScenes trong DriveStudio khoảng 10 khung mỗi giây.
+const PLAYBACK_FPS = 10;
 
 interface GpuViewerStatus {
   state: "stopped" | "starting" | "running" | "exited";
@@ -76,6 +78,8 @@ export function ViewerPage({ runId }: { runId?: string }) {
     if (!host.current) return;
     try {
       viewer.current = new SplatViewer(host.current);
+      // Nhấp đúp bay tới một điểm thì thôi bám camera, nếu không camera bị kéo về ngay khung sau.
+      viewer.current.onFly = () => setFollow(false);
     } catch {
       setWebgl(false);
     }
@@ -166,15 +170,10 @@ export function ViewerPage({ runId }: { runId?: string }) {
     setCount(null);
     setPlaying(false);
   }, [runId]); // chỉ chạy khi đổi run, không chạy khi đổi nguồn xem
+  // Đứng yên (kéo thanh khung): đặt đúng pose của khung số nguyên.
   useEffect(() => {
-    if (poses) viewer.current?.setPoses(poses.track_ids, poses.T_object_world[frame] ?? []);
-  }, [frame, poses]);
-  useEffect(() => {
-    if (!playing || !poses) return;
-    const last = poses.T_object_world.length - 1;
-    const timer = window.setInterval(() => setFrame((f) => (f >= last ? 0 : f + 1)), 100);
-    return () => window.clearInterval(timer);
-  }, [playing, poses]);
+    if (poses && !playing) viewer.current?.setPoses(poses.track_ids, poses.T_object_world[frame] ?? []);
+  }, [frame, poses, playing]);
 
   const openFile = (picked: File | undefined) => {
     if (!picked) return;
@@ -192,8 +191,45 @@ export function ViewerPage({ runId }: { runId?: string }) {
     viewer.current?.setCameraPose(camera.c2w[index], camera.K[index][4], camera.height);
   };
   useEffect(() => {
-    if (follow) goToCamera(frame);
-  }, [frame, follow, cameraIndex]); // goToCamera đọc state mới nhất mỗi lần render
+    if (follow && !playing) goToCamera(frame);
+  }, [frame, follow, cameraIndex, playing]); // goToCamera đọc state mới nhất mỗi lần render
+
+  // Đang phát: mỗi khung hình của trình duyệt đặt xe (và camera, khi bám camera) ở vị trí nội suy
+  // giữa hai khung dữ liệu liền nhau, nên chuyển động liền thay vì nhảy 10 lần mỗi giây. Thanh
+  // khung chỉ cập nhật khi qua khung số nguyên mới. Ảnh giữa hai khung là ảnh nội suy, không phải
+  // ảnh camera thật; muốn so với ảnh gốc thì dừng ở một khung.
+  const followRef = useRef(follow);
+  followRef.current = follow;
+  const cameraRef = useRef(camera);
+  cameraRef.current = camera;
+  const frameRef = useRef(frame);
+  frameRef.current = frame;
+  useEffect(() => {
+    if (!playing || !poses) return;
+    const last = poses.T_object_world.length - 1;
+    let time = frameRef.current >= last ? 0 : frameRef.current;
+    let previous = performance.now();
+    let handle = 0;
+    const tick = (now: number) => {
+      time += ((now - previous) / 1000) * PLAYBACK_FPS;
+      previous = now;
+      if (time > last) time = 0;
+      const index = Math.floor(time);
+      const next = Math.min(index + 1, last);
+      const alpha = time - index;
+      viewer.current?.setPoses(poses.track_ids, poses.T_object_world[index] ?? [], poses.T_object_world[next] ?? [], alpha);
+      const cam = cameraRef.current;
+      if (followRef.current && cam) {
+        const a = Math.min(index, cam.c2w.length - 1);
+        const b = Math.min(next, cam.c2w.length - 1);
+        viewer.current?.setCameraPose(cam.c2w[a], cam.K[a][4], cam.height, cam.c2w[b], alpha);
+      }
+      if (index !== frameRef.current) setFrame(index);
+      handle = requestAnimationFrame(tick);
+    };
+    handle = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(handle);
+  }, [playing, poses]);
 
   const preview = splats.data?.preview;
   const splatMode = !!source && SPLAT_SOURCES.includes(source);
@@ -377,6 +413,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
               {progress !== null && <span className="tag">{t("viewer.hud.loading", { percent: Math.round(progress * 100) })}</span>}
               {count !== null && <span className="tag">{t("viewer.hud.count", { count: count.toLocaleString() })}</span>}
               {poses && <span className="tag">{t("viewer.hud.actors", { count: poses.track_ids.length })}</span>}
+              {count !== null && <span className="tag">{t("viewer.hud.fly")}</span>}
               <button className="btn sm" style={{ background: "rgba(10,13,16,.7)", color: "#e6eaee", borderColor: "rgba(255,255,255,.14)" }} onClick={() => viewer.current?.frameAll()}>
                 <Crosshair size={16} />
                 {t("viewer.hud.recenter")}

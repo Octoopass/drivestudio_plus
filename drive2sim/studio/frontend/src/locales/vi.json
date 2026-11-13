@@ -297,6 +297,7 @@
   "viewer.hud.loading": "Đang tải {percent}%",
   "viewer.hud.count": "{count} splat",
   "viewer.hud.actors": "{count} xe",
+  "viewer.hud.fly": "Nhấp đúp: bay tới",
   "viewer.hud.recenter": "Căn lại",
   "viewer.hud.frame": "Khung",
   "new.field.training": "Train",
@@ -520,7 +521,7 @@
   "scene.splits.range_first": "Khung đầu",
   "scene.splits.range_last": "Khung cuối",
   "viewer.field.camera": "Camera gốc",
-  "viewer.field.camera_hint": "Pose và góc nhìn của các camera lúc quay, cùng hệ toạ độ với cảnh. Mở cảnh ở đúng góc của video; bật bám camera thì khi phát, góc nhìn đi theo camera từng khung.",
+  "viewer.field.camera_hint": "Pose và góc nhìn của các camera lúc quay, cùng hệ toạ độ với cảnh. Mở cảnh ở đúng góc của video; bật bám camera thì khi phát, góc nhìn đi theo camera, nội suy giữa hai khung cho mượt (dừng ở một khung mới là ảnh đúng của camera).",
   "viewer.camera.go": "Về góc camera",
   "viewer.camera.follow": "Bám camera khi phát"
 }

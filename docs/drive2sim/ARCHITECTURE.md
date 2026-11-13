@@ -310,6 +310,10 @@ Route, thân, lỗi và sự kiện SSE quy định ở CONTRACTS mục 11; API 
 - Hệ world của DriveStudio có trục Z hướng lên, đơn vị mét; three.js lấy Y lên. Trang Xem 3D xoay cả cảnh để trục lên của file trùng Y. Trục lên lấy theo thứ tự: dòng `comment drive2sim up=...` trong header PLY (mọi PLY tool xuất có dòng này, CONTRACTS mục 7); file khác thì đoán: lấy 90% điểm gần trung vị nhất, tìm trục ít trải nhất (PCA, là pháp tuyến mặt đường), làm tròn về trục gần nhất, chiều lên là chiều từ đỉnh mật độ (mặt đường) về phía đuôi dài hơn (cây, nhà). Người xem đổi được trong ô "Trục lên".
 - Khung nhìn bao lấy phần lõi cảnh: hộp từ phân vị 2% tới 98% của tâm splat, nên vài Gaussian bay xa (nền trời, nhiễu) không làm camera lùi ra xa hàng trăm mét.
 - Run có `cameras.json` thì trang mở ở đúng pose camera gốc (ưu tiên camera trước), khung 0, cùng góc nhìn với video; có nút về góc camera và tuỳ chọn bám camera khi phát.
+- Khi phát (10 khung mỗi giây), xe và camera (lúc bám camera) đặt ở pose nội suy giữa hai khung liền nhau ở mỗi khung hình của trình duyệt: vị trí nội suy tuyến tính, hướng nội suy cầu. Xe chỉ có mặt ở một trong hai khung thì không nội suy. Ảnh giữa hai khung là ảnh nội suy, không phải ảnh camera thật; dừng ở một khung mới so được với ảnh gốc.
+- Nhấp đúp vào cảnh: tìm splat trúng tia từ chuột (raycast của Spark, bỏ splat có độ đục dưới 0,2) rồi bay camera tới gần điểm đó trong 0,7 giây, giữ hướng nhìn; tắt bám camera. Kéo chuột giữa lúc bay thì dừng bay.
+
+**Vì sao không đổi sang PlayCanvas (supersplat-viewer, như dự án P-087).** supersplat-viewer là viewer trọn gói cho một cảnh tĩnh kèm quỹ đạo camera; gói xem trước cần nhiều đối tượng splat đổi pose theo khung, Spark làm được sẵn. Bay tới điểm và phát camera mượt làm được trên Spark với vài chục dòng, nên đổi thư viện chỉ tốn công viết lại trang.
 
 **Lý do.** Mở được kết quả trên máy không có GPU CUDA, ví dụ laptop khi bàn giao.
 

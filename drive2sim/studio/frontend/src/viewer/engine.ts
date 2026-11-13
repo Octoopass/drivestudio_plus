@@ -74,6 +74,36 @@ function smallestEigenvector(m: number[][]): THREE.Vector3 {
   return new THREE.Vector3(v[0][index], v[1][index], v[2][index]);
 }
 
+type Matrix16 = [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number];
+
+const _posA = new THREE.Vector3();
+const _posB = new THREE.Vector3();
+const _rotA = new THREE.Quaternion();
+const _rotB = new THREE.Quaternion();
+const _scale = new THREE.Vector3();
+
+/**
+ * Pose nằm giữa hai pose cứng (ma trận 4x4 theo hàng): vị trí nội suy tuyến tính, hướng nội suy
+ * cầu (slerp), `alpha` 0 là `a`, 1 là `b`. Ghi kết quả vào `out`.
+ */
+export function blendPose(a: number[], b: number[], alpha: number, out: THREE.Matrix4): THREE.Matrix4 {
+  out.set(...(a as Matrix16));
+  if (alpha <= 0 || a === b) return out;
+  out.decompose(_posA, _rotA, _scale);
+  new THREE.Matrix4().set(...(b as Matrix16)).decompose(_posB, _rotB, new THREE.Vector3());
+  return out.compose(_posA.lerp(_posB, alpha), _rotA.slerp(_rotB, alpha), _scale);
+}
+
+/** Đường bay của camera khi nhấp đúp: vị trí và tâm xoay đi từ `from*` tới `to*` trong `duration` ms. */
+interface Flight {
+  fromPosition: THREE.Vector3;
+  toPosition: THREE.Vector3;
+  fromTarget: THREE.Vector3;
+  toTarget: THREE.Vector3;
+  start: number;
+  duration: number;
+}
+
 export interface SplatSource {
   name: string;
   url?: string;
@@ -92,6 +122,10 @@ export class SplatViewer {
   private generation = 0;
   private spark: SparkRenderer;
   private upAxis: UpAxis | null = null;
+  private flight: Flight | null = null;
+  private raycaster = new THREE.Raycaster();
+  /** Gọi khi người xem nhấp đúp bay tới một điểm (trang tắt "bám camera" để camera không bị kéo về). */
+  onFly?: () => void;
 
   constructor(private host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: false });
@@ -107,14 +141,60 @@ export class SplatViewer {
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.12;
     this.controls.screenSpacePanning = true;
+    // Người xem kéo chuột giữa lúc đang bay thì dừng bay, nhường cho chuột.
+    this.controls.addEventListener("start", () => {
+      this.flight = null;
+    });
     this.setUpAxis("z");
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(host);
     this.resize();
+    this.renderer.domElement.addEventListener("dblclick", this.onDoubleClick);
     this.renderer.setAnimationLoop(() => {
+      this.stepFlight();
       this.controls.update();
       this.renderer.render(this.scene, this.camera);
     });
+  }
+
+  /** Nhấp đúp vào cảnh: tìm splat trúng tia từ chuột rồi bay tới gần điểm đó. */
+  private onDoubleClick = (event: MouseEvent): void => {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const pointer = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(pointer, this.camera);
+    const hit = this.raycaster.intersectObjects(this.meshes.filter((mesh) => mesh.visible), false)[0];
+    if (!hit) return;
+    this.flyTo(hit.point);
+    this.onFly?.();
+  };
+
+  /**
+   * Bay camera tới gần `point` (toạ độ three.js), giữ hướng nhìn hiện tại: dừng ở 40% quãng
+   * đường, trong khoảng 2–30 m trước điểm đó; tâm xoay chuyển sang điểm đó.
+   */
+  flyTo(point: THREE.Vector3, duration = 700): void {
+    const direction = point.clone().sub(this.camera.position);
+    const distance = direction.length();
+    if (distance < 1e-6) return;
+    const stop = THREE.MathUtils.clamp(distance * 0.4, Math.min(2, distance), 30);
+    this.flight = {
+      fromPosition: this.camera.position.clone(),
+      toPosition: point.clone().sub(direction.normalize().multiplyScalar(stop)),
+      fromTarget: this.controls.target.clone(),
+      toTarget: point.clone(),
+      start: performance.now(),
+      duration,
+    };
+  }
+
+  private stepFlight(): void {
+    const flight = this.flight;
+    if (!flight) return;
+    const linear = Math.min(1, (performance.now() - flight.start) / flight.duration);
+    const eased = linear < 0.5 ? 2 * linear * linear : 1 - (-2 * linear + 2) ** 2 / 2;
+    this.camera.position.lerpVectors(flight.fromPosition, flight.toPosition, eased);
+    this.controls.target.lerpVectors(flight.fromTarget, flight.toTarget, eased);
+    if (linear >= 1) this.flight = null;
   }
 
   private resize(): void {
@@ -240,15 +320,19 @@ export class SplatViewer {
     return meshes.reduce((sum, mesh) => sum + (mesh.splats?.getNumSplats() ?? 0), 0);
   }
 
-  /** Đặt pose của từng xe ở một khung: ma trận 4x4 theo hàng, null là xe không có mặt. */
-  setPoses(trackIds: string[], poses: (number[] | null)[]): void {
+  /**
+   * Đặt pose của từng xe: ma trận 4x4 theo hàng, null là xe không có mặt. Có `next` và `alpha` thì
+   * đặt pose nằm giữa khung này và khung sau (phát mượt); xe chỉ có mặt ở một trong hai khung thì
+   * lấy đúng pose của khung này, không nội suy.
+   */
+  setPoses(trackIds: string[], poses: (number[] | null)[], next?: (number[] | null)[], alpha = 0): void {
     trackIds.forEach((trackId, index) => {
       const mesh = this.actors.get(trackId);
       if (!mesh) return;
       const pose = poses[index];
       mesh.visible = pose != null;
       if (pose) {
-        mesh.matrix.set(...(pose as [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number]));
+        blendPose(pose, next?.[index] ?? pose, alpha, mesh.matrix);
         mesh.matrixWorldNeedsUpdate = true;
       }
     });
@@ -285,9 +369,10 @@ export class SplatViewer {
    * Đặt góc nhìn đúng như một camera gốc ở một khung: pose camera→world theo quy ước OpenCV (x
    * phải, y xuống, z nhìn tới), trong toạ độ của dữ liệu; góc nhìn dọc lấy từ fy và chiều cao ảnh.
    */
-  setCameraPose(c2w: number[], fy: number, height: number): void {
+  setCameraPose(c2w: number[], fy: number, height: number, next?: number[], alpha = 0): void {
+    this.flight = null;
     this.root.updateMatrixWorld(true);
-    const pose = new THREE.Matrix4().set(...(c2w as [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number]));
+    const pose = blendPose(c2w, next ?? c2w, alpha, new THREE.Matrix4());
     // OpenCV nhìn theo +z, y xuống; camera three.js nhìn theo −z, y lên: lật trục y và z.
     const flip = new THREE.Matrix4().makeScale(1, -1, -1);
     const world = this.root.matrixWorld.clone().multiply(pose).multiply(flip);
@@ -307,6 +392,7 @@ export class SplatViewer {
 
   dispose(): void {
     this.clear();
+    this.renderer.domElement.removeEventListener("dblclick", this.onDoubleClick);
     this.observer.disconnect();
     this.renderer.setAnimationLoop(null);
     this.controls.dispose();
