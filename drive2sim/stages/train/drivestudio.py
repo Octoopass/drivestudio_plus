@@ -266,7 +266,11 @@ class TrainDrivestudioStage(Stage):
 
     version: ClassVar[str] = "0.1.0"
     cacheable: ClassVar[bool] = False
-    uses_lidar: ClassVar[bool] = False
+    # Mọi config OmniRe, Street GS hiện có khởi tạo Gaussian từ LiDAR: nền từ điểm LiDAR
+    # (model.Background.init.from_lidar), xe và người từ điểm LiDAR trong box. Cảnh không có
+    # LiDAR thì train dừng ở bước khởi tạo, nên engine khoá approach ngay từ lúc chọn. Approach
+    # hoặc preset không cần LiDAR (sau này) sẽ dùng stage hoặc tham số khác.
+    uses_lidar: ClassVar[bool] = True
     inputs: ClassVar[dict[str, str]] = {
         "scene": "scene",
         "split": "split",
