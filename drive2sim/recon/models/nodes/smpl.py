@@ -1,3 +1,4 @@
+import os
 from typing import Dict, List, Tuple
 from omegaconf import OmegaConf
 import random
@@ -12,6 +13,17 @@ from drive2sim.recon.models.gaussians.basics import *
 from drive2sim.recon.models.nodes.rigid import RigidNodes
 from drive2sim.recon.models.gaussians.vanilla import VanillaGaussians
 from pytorch3d.ops import knn_points
+
+# drive2sim: the SMPL model path can be set with D2S_SMPL_MODEL (the train stage sets it to the file
+# found by drive2sim.paths.find_smpl_model); the default keeps DriveStudio's relative path.
+SMPL_MODEL_PATH = os.environ.get("D2S_SMPL_MODEL", "smpl_models/SMPL_NEUTRAL.pkl")
+
+# drive2sim: the official SMPL .pkl stores chumpy objects; chumpy 0.70 calls inspect.getargspec,
+# which Python 3.11 removed (Kaggle uses 3.11). getfullargspec keeps .args and index 0.
+import inspect as _inspect
+
+if not hasattr(_inspect, "getargspec"):
+    _inspect.getargspec = _inspect.getfullargspec
 
 RGB_tuples = torch.tensor(np.vstack([phalp_colors] * 10), dtype=torch.float32) / 255.0
 logger = logging.getLogger()
@@ -87,7 +99,7 @@ class SMPLNodes(RigidNodes):
         self.instances_fv    = instances_fv                            # (num_frame, num_instances)
     
         self.template = SMPLTemplate(
-            smpl_model_path="smpl_models/SMPL_NEUTRAL.pkl",
+            smpl_model_path=SMPL_MODEL_PATH,
             num_human=smpl_betas.shape[0],
             init_beta=smpl_betas,
             cano_pose_type="da_pose",
@@ -543,7 +555,7 @@ class SMPLNodes(RigidNodes):
             torch.zeros(self.num_frames, self.num_instances, 23, 4, device=self.device)
         )
         self.template = SMPLTemplate(
-            smpl_model_path="smpl_models/SMPL_NEUTRAL.pkl",
+            smpl_model_path=SMPL_MODEL_PATH,
             num_human=self.num_instances,
             init_beta=torch.zeros(self.num_instances, 10, device=self.device),
             cano_pose_type="da_pose",
