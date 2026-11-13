@@ -1,13 +1,13 @@
 # Approach OmniRe: dựng cảnh bằng trainer DriveStudio với method OmniRe (nền, xe, người SMPL,
 # vật biến dạng). Định dạng file: CONTRACTS mục 4.1.
 #
-# Mỗi tổ hợp ô chọn được phép ứng với một file config có sẵn trong drive2sim/configs/methods/
+# Mỗi tổ hợp mục cấu hình được phép ứng với một file config có sẵn trong drive2sim/configs/methods/
 # (bảng CONFIG_FILES trong drive2sim/stages/train/drivestudio.py); các ràng buộc bên dưới chặn
 # những tổ hợp chưa có file config.
 #
-# Chưa có ô "init" (LiDAR hay depth): DriveStudio vẫn tự khởi tạo từ LiDAR bên trong trainer,
+# Chưa có mục cấu hình "init" (LiDAR hay depth): DriveStudio vẫn tự khởi tạo từ LiDAR bên trong trainer,
 # cho tới khi tách thành stage init.* (ARCHITECTURE mục 7.4 bước 4).
-schema_version: d2s-approach/0.1
+schema_version: d2s-approach/0.2
 approach_id: omnire
 name: "OmniRe"
 version: 0.1.0
@@ -19,16 +19,45 @@ requires:
   cuboids: required
   split_strategies: [every_nth_frame]
 
+groups:                           # nhóm mục cấu hình trên Studio, theo thứ tự hiện
+  core:
+    label: "Cách dựng"
+    help: "Các khâu chính của approach: cách vẽ Gaussian thành ảnh, và có tự chỉnh pose camera trong lúc train không."
+  speedup:
+    label: "Thuật toán phụ trợ"
+    help: "Thuật toán gắn thêm vào quá trình train, ví dụ để giữ ít Gaussian hơn hay train nhanh hơn. Mỗi thuật toán bật hoặc tắt riêng; tổ hợp nào chưa có file config thì bị khoá."
+
 options:
   renderer:
     choices: [3dgs, 3dgeer]
     default: 3dgs
+    group: core
+    label: "Renderer"
+    help: "Cách vẽ các Gaussian thành ảnh camera."
+    labels: ["3DGS (gốc)", "3DGEER"]
+    descriptions:
+      - "Cách vẽ gốc của 3D Gaussian Splatting, cho camera pinhole."
+      - "Renderer của Bosch Research (docs/methods/3dgeer.md): chiếu chính xác cho camera góc rộng và mắt cá. Không dùng cùng CamPose."
   campose:
     choices: [false, true]
     default: false
+    group: core
+    label: "CamPose"
+    help: "Tự chỉnh pose camera trong lúc train, để bù sai số calib và pose của dataset."
+    labels: ["Tắt", "Bật"]
+    descriptions:
+      - "Dùng nguyên pose camera của dataset."
+      - "Học thêm một độ lệch nhỏ (vị trí và góc xoay) cho pose của từng ảnh, bắt đầu từ 0. Cấu hình gốc trong paper của DriveStudio bật CamPose."
   fastgs:
     choices: [false, true]
     default: false
+    group: speedup
+    label: "FastGS"
+    help: "Quy tắc thêm và bớt Gaussian theo FastGS (docs/methods/fastgs.md). Không đổi cách vẽ ảnh nên dùng được với mọi renderer có config."
+    labels: ["Tắt", "Bật"]
+    descriptions:
+      - "Dùng quy tắc thêm, bớt Gaussian của DriveStudio."
+      - "Render vài view train, tìm vùng ảnh sai nhiều; chỉ tách hoặc nhân Gaussian góp vào vùng sai đó, và bỏ thêm Gaussian mờ hoặc gây sai."
 
 constraints:
   - when: {renderer: 3dgeer}
@@ -46,6 +75,11 @@ presets:
   geer: {renderer: 3dgeer}
   fastgs: {fastgs: true}
 
+preset_help:
+  paper: "Cấu hình gốc của DriveStudio (omnire.yaml): 3DGS, bật CamPose."
+  geer: "Renderer 3DGEER, tắt CamPose."
+  fastgs: "Quy tắc FastGS, tắt CamPose."
+
 stages:
   - {stage: prep.masks_segformer, params: {dynamic: true}}
   - {stage: prep.smpl}
@@ -57,3 +91,4 @@ stages:
       fastgs: "${options.fastgs}"
   - {stage: eval.standard}
   - {stage: export.ply_world}
+  - {stage: export.preview}

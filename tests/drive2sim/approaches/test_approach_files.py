@@ -3,7 +3,7 @@
 File này kiểm tra:
 - mọi file approach đọc được và đúng schema ``d2s-approach``;
 - tên file trùng ``approach_id``;
-- với approach dòng DriveStudio, mọi tổ hợp ô chọn mà ràng buộc cho phép đều có file config
+- với approach dòng DriveStudio, mọi tổ hợp mục cấu hình mà ràng buộc cho phép đều có file config
   method tương ứng trong ``CONFIG_FILES``, để người dùng không chọn được tổ hợp nào mà lúc chạy
   mới báo thiếu config.
 """
@@ -32,7 +32,7 @@ def test_approach_file_valid(path: Path) -> None:
 
 
 def allowed_combinations(approach: Approach) -> list[dict[str, object]]:
-    """Liệt kê mọi tổ hợp ô chọn không vi phạm ràng buộc nào."""
+    """Liệt kê mọi tổ hợp mục cấu hình không vi phạm ràng buộc nào."""
     names = list(approach.options)
     result = []
     for values in itertools.product(*(approach.options[name].choices for name in names)):

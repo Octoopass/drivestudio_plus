@@ -1,10 +1,10 @@
 # Approach Street Gaussians: dựng cảnh bằng trainer DriveStudio với method Street Gaussians (nền
 # và xe, không có người SMPL). Định dạng file: CONTRACTS mục 4.1.
 #
-# Mỗi tổ hợp ô chọn được phép ứng với một file config có sẵn trong drive2sim/configs/methods/
+# Mỗi tổ hợp mục cấu hình được phép ứng với một file config có sẵn trong drive2sim/configs/methods/
 # (bảng CONFIG_FILES trong drive2sim/stages/train/drivestudio.py); các ràng buộc bên dưới chặn
 # những tổ hợp chưa có file config.
-schema_version: d2s-approach/0.1
+schema_version: d2s-approach/0.2
 approach_id: streetgs
 name: "Street Gaussians"
 version: 0.1.0
@@ -16,16 +16,46 @@ requires:
   cuboids: required
   split_strategies: [every_nth_frame]
 
+groups:                           # nhóm mục cấu hình trên Studio, theo thứ tự hiện
+  core:
+    label: "Cách dựng"
+    help: "Các khâu chính của approach: cách vẽ Gaussian thành ảnh, và có tự chỉnh pose camera trong lúc train không."
+  speedup:
+    label: "Thuật toán phụ trợ"
+    help: "Thuật toán gắn thêm vào quá trình train, ví dụ để giữ ít Gaussian hơn hay train nhanh hơn. Mỗi thuật toán bật hoặc tắt riêng; tổ hợp nào chưa có file config thì bị khoá."
+
 options:
   renderer:
     choices: [3dgs, 3dgut, 3dgeer]
     default: 3dgs
+    group: core
+    label: "Renderer"
+    help: "Cách vẽ các Gaussian thành ảnh camera."
+    labels: ["3DGS (gốc)", "3DGUT", "3DGEER"]
+    descriptions:
+      - "Cách vẽ gốc của 3D Gaussian Splatting, cho camera pinhole."
+      - "Renderer của NVIDIA (3D Gaussian Unscented Transform): vẽ được cho camera có độ méo ống kính lớn. Không dùng cùng CamPose."
+      - "Renderer của Bosch Research (docs/methods/3dgeer.md): chiếu chính xác cho camera góc rộng và mắt cá. Không dùng cùng CamPose."
   campose:
     choices: [false, true]
     default: false
+    group: core
+    label: "CamPose"
+    help: "Tự chỉnh pose camera trong lúc train, để bù sai số calib và pose của dataset."
+    labels: ["Tắt", "Bật"]
+    descriptions:
+      - "Dùng nguyên pose camera của dataset."
+      - "Học thêm một độ lệch nhỏ (vị trí và góc xoay) cho pose của từng ảnh, bắt đầu từ 0. Cấu hình gốc trong paper của DriveStudio bật CamPose."
   fastgs:
     choices: [false, true]
     default: false
+    group: speedup
+    label: "FastGS"
+    help: "Quy tắc thêm và bớt Gaussian theo FastGS (docs/methods/fastgs.md). Không đổi cách vẽ ảnh nên dùng được với mọi renderer có config."
+    labels: ["Tắt", "Bật"]
+    descriptions:
+      - "Dùng quy tắc thêm, bớt Gaussian của DriveStudio."
+      - "Render vài view train, tìm vùng ảnh sai nhiều; chỉ tách hoặc nhân Gaussian góp vào vùng sai đó, và bỏ thêm Gaussian mờ hoặc gây sai."
 
 constraints:
   - when: {renderer: 3dgut}
@@ -48,6 +78,12 @@ presets:
   fastgs: {fastgs: true}
   geer_fastgs: {renderer: 3dgeer, fastgs: true}
 
+preset_help:
+  paper: "Cấu hình gốc của DriveStudio (streetgs.yaml): 3DGS, bật CamPose."
+  ut: "Renderer 3DGUT, tắt CamPose."
+  geer: "Renderer 3DGEER, tắt CamPose."
+  fastgs: "Quy tắc FastGS, tắt CamPose."
+  geer_fastgs: "Renderer 3DGEER kèm quy tắc FastGS."
 stages:
   - {stage: prep.masks_segformer, params: {dynamic: true}}
   - stage: train.drivestudio
@@ -58,3 +94,4 @@ stages:
       fastgs: "${options.fastgs}"
   - {stage: eval.standard}
   - {stage: export.ply_world}
+  - {stage: export.preview}
