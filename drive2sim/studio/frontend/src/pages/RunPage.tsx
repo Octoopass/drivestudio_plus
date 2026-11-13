@@ -15,8 +15,14 @@ import { go, href } from "../router";
 
 type Tab = "result" | "metrics" | "stages" | "artifacts" | "videos" | "logs" | "kaggle";
 
-/** Theo dõi sự kiện SSE của một run; gọi onDone khi run kết thúc. */
+/**
+ * Theo dõi sự kiện SSE của một run; gọi onDone khi run kết thúc. Kết nối đóng sau "done", và
+ * trạng thái từ SSE thắng dữ liệu tải từ API, nên sau khi bấm chạy tiếp, xuất lại hay huỷ phải
+ * gọi `restart` để mở lại kết nối với trạng thái mới; không thì trang kẹt ở trạng thái cũ (vẫn
+ * hiện "lỗi" và nút "Chạy tiếp", không có nút Huỷ) tới khi tải lại trang.
+ */
 function useRunEvents(runId: string, onDone: () => void) {
+  const [generation, setGeneration] = useState(0);
   const [statuses, setStatuses] = useState<Record<string, string>>({});
   const [progress, setProgress] = useState<{ stage: string; fraction: number | null; message: string } | null>(null);
   const [metrics, setMetrics] = useState<Record<string, Point[]>>({});
@@ -39,9 +45,15 @@ function useRunEvents(runId: string, onDone: () => void) {
       }),
     );
     return () => source.close();
-  }, [runId]); // onDone đổi mỗi lần render; chỉ mở lại kết nối khi đổi run
+  }, [runId, generation]); // onDone đổi mỗi lần render; mở lại kết nối khi đổi run hoặc restart
 
-  return { statuses, progress, metrics };
+  const restart = () => {
+    setStatuses({});
+    setProgress(null);
+    setMetrics({});
+    setGeneration((g) => g + 1);
+  };
+  return { statuses, progress, metrics, restart };
 }
 
 export function RunPage({ runId }: { runId: string }) {
@@ -97,6 +109,7 @@ export function RunPage({ runId }: { runId: string }) {
     try {
       await post(path, body);
       toast({ kind: "ok", title: label });
+      live.restart();
       refresh();
     } catch (err) {
       toast({ kind: "bad", title: label, detail: asApiError(err).message });

@@ -32,6 +32,7 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
   const [interpolate, setInterpolate] = useState(4);
 
   const [picking, setPicking] = useState(false);
+  const [inspected, setInspected] = useState("");
 
   const inspect = async (target: string = path) => {
     setBusy(true);
@@ -45,6 +46,7 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
     try {
       const result = await post<SourceReport>("/api/sources/inspect", { path: target });
       setReport(result);
+      setInspected(target);
       const versions = Object.keys(result.versions);
       setVersion(versions[0] ?? "");
       setSequence(versions.length ? result.versions[versions[0]][0] ?? "" : "");
@@ -82,8 +84,10 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError(null);
     try {
+      // Nạp đúng thư mục đã xem (dataset, phiên bản, chuỗi lấy từ báo cáo của nó), không phải chữ
+      // đang có trong ô: sửa ô sau khi xem mà không xem lại thì báo cáo không còn khớp.
       const job = await post<Job>("/api/sources/ingest", {
-        path,
+        path: inspected,
         source_type: report?.dataset,
         version: version || null,
         sequence,

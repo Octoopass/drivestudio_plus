@@ -10,7 +10,7 @@
 // - Video của hai run đặt cạnh nhau, phát đồng bộ.
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, ChevronDown, ChevronsUpDown, ChevronUp, Download, Pause, Play, AlertTriangle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, seg, useApi } from "../api/client";
+import { api, preferredVideo, seg, useApi } from "../api/client";
 import type { List, Manifest, ReportRow, SceneDetail, Video } from "../api/types";
 import { GroupedBarChart, Legend, MultiLineChart, ScatterChart, seriesColor, StackedBarChart, type Point } from "../components/charts";
 import { duration, Empty, ErrorBox, InfoTip, Loading, optionsText, PageHead, Panel, Segmented, Tabs, turbo } from "../components/ui";
@@ -309,7 +309,8 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
 
       {rows.length > 1 && (
         <Panel title={t("compare.side.title")} info={t("compare.side.info")}>
-          <SideBySide rows={rows} />
+          {/* key: đổi cảnh hoặc split thì chọn lại hai run, không giữ run của cảnh cũ. */}
+          <SideBySide key={`${currentScene}/${currentSplit}`} rows={rows} />
         </Panel>
       )}
     </div>
@@ -503,7 +504,7 @@ function SideBySide({ rows }: { rows: ReportRow[] }) {
 function FirstVideo({ runId, register }: { runId: string; register: (el: HTMLVideoElement | null) => void }) {
   const { t } = useI18n();
   const videos = useApi<List<Video>>(`/api/runs/${seg(runId)}/videos`);
-  const video = videos.data?.items[0];
+  const video = preferredVideo(videos.data?.items ?? []);
   return (
     <figure>
       {video ? <video ref={register} src={video.url} controls muted preload="metadata" /> : <p className="muted">{t("run.videos.none")}</p>}

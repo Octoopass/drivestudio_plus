@@ -35,6 +35,10 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const known = useRef<Record<string, string>>({});
   const openedAt = useRef(Date.now() / 1000);
   const [jobPoll, setJobPoll] = useState(0);
+  // Kết nối SSE mở một lần cho cả phiên; đọc `t` qua ref để thông báo theo ngôn ngữ đang chọn,
+  // không theo ngôn ngữ lúc mở Studio.
+  const tRef = useRef(t);
+  tRef.current = t;
 
   useEffect(() => {
     const source = new EventSource("/api/events");
@@ -60,16 +64,20 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         return next;
       });
       setTick((n) => n + 1);
-      if (event.status === "succeeded") toast({ kind: "ok", title: t("live.run.succeeded"), detail: event.run_id });
-      if (event.status === "failed") toast({ kind: "bad", title: t("live.run.failed"), detail: event.run_id });
+      if (event.status === "succeeded") toast({ kind: "ok", title: tRef.current("live.run.succeeded"), detail: event.run_id });
+      if (event.status === "failed") toast({ kind: "bad", title: tRef.current("live.run.failed"), detail: event.run_id });
     });
     return () => source.close();
   }, []); // một kết nối cho cả phiên
 
-  // Việc nền: hỏi nhanh khi đang có việc chạy, thưa khi không có.
-  const busy = jobs.some((job) => job.status === "queued" || job.status === "running");
+  // Việc nền: hỏi nhanh khi đang có việc chạy, thưa khi không có. Nhịp lần sau tính từ kết quả
+  // vừa nhận (không từ lần hỏi trước), nên việc vừa xếp hàng được theo dõi nhanh ngay.
   useEffect(() => {
     let alive = true;
+    let timer: number | undefined;
+    const schedule = (busy: boolean) => {
+      if (alive) timer = window.setTimeout(() => setJobPoll((n) => n + 1), busy ? 1500 : 8000);
+    };
     api<List<Job>>("/api/jobs")
       .then((data) => {
         if (!alive) return;
@@ -81,7 +89,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           if ((fresh || (before && before !== job.status)) && (job.status === "succeeded" || job.status === "failed")) {
             toast({
               kind: job.status === "succeeded" ? "ok" : "bad",
-              title: t(`live.job.${job.status}`, { label: job.label }),
+              title: tRef.current(`live.job.${job.status}`, { label: job.label }),
               detail: job.error ?? job.result ?? undefined,
             });
             setTick((n) => n + 1);
@@ -89,9 +97,9 @@ export function LiveProvider({ children }: { children: ReactNode }) {
           known.current[job.job_id] = job.status;
         }
         setJobs(data.items);
+        schedule(data.items.some((job) => job.status === "queued" || job.status === "running"));
       })
-      .catch(() => undefined);
-    const timer = window.setTimeout(() => setJobPoll((n) => n + 1), busy ? 1500 : 8000);
+      .catch(() => schedule(false));
     return () => {
       alive = false;
       window.clearTimeout(timer);

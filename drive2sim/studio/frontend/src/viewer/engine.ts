@@ -24,6 +24,7 @@ export class SplatViewer {
   private actors = new Map<string, SplatMesh>();
   private observer: ResizeObserver;
   private generation = 0;
+  private spark: SparkRenderer;
 
   constructor(private host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: false });
@@ -32,7 +33,8 @@ export class SplatViewer {
     host.appendChild(this.renderer.domElement);
     this.camera = new THREE.PerspectiveCamera(60, 1, 0.05, 5000);
     this.camera.position.set(0, 4, 12);
-    this.scene.add(new SparkRenderer({ renderer: this.renderer }));
+    this.spark = new SparkRenderer({ renderer: this.renderer });
+    this.scene.add(this.spark);
     this.scene.add(this.root);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
@@ -153,7 +155,11 @@ export class SplatViewer {
     this.observer.disconnect();
     this.renderer.setAnimationLoop(null);
     this.controls.dispose();
+    // Giải phóng tài nguyên GPU của Spark và trả hẳn context WebGL: trình duyệt chỉ cho khoảng 16
+    // context cùng lúc, mỗi lần vào trang Xem 3D lại tạo một cái mới.
+    this.spark.dispose();
     this.renderer.dispose();
+    this.renderer.forceContextLoss();
     this.renderer.domElement.remove();
   }
 }

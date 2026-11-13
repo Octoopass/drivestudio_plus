@@ -8,7 +8,7 @@
 // File kéo thả (.ply, .spz, .splat, .ksplat, .sog) chỉ đọc trong trình duyệt, không gửi lên server.
 import { Box, CheckCircle2, Crosshair, FileUp, Pause, Play, Power, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { api, asApiError, del, post, seg, useApi, type ApiError } from "../api/client";
+import { api, asApiError, del, post, preferredVideo, seg, useApi, type ApiError } from "../api/client";
 import type { ActorPoses, List, RunRecord, Splats, Video } from "../api/types";
 import { ErrorBox, InfoTip, Note, PageHead, Segmented } from "../components/ui";
 import { useI18n } from "../i18n";
@@ -69,7 +69,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
   useEffect(() => {
     if (!splats.data || !videos.data) return;
     setSource(splats.data.preview ? "preview" : splats.data.ply ? "ply" : videos.data.items.length ? "video" : "gpu");
-    setVideoUrl(videos.data.items[0]?.url ?? "");
+    setVideoUrl(preferredVideo(videos.data.items)?.url ?? "");
   }, [splats.data, videos.data]);
 
   // Nạp nguồn đã chọn.
@@ -99,7 +99,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
       if (!sources.length) return;
       const total = await v.load(sources, actorIds, (fraction) => alive && setProgress(fraction));
       if (!alive || total === null) return;
-      v.setMaxSh(sh);
+      v.setMaxSh(shRef.current);
       setCount(total);
       setProgress(null);
       if (loadedPoses) {
@@ -115,7 +115,19 @@ export function ViewerPage({ runId }: { runId?: string }) {
   }, [source, file, splats.data]);
 
   useEffect(() => viewer.current?.setUpAxis(up), [up]);
+  // Bậc màu đọc qua ref khi tải xong: người dùng có thể đổi trong lúc file lớn đang tải.
+  const shRef = useRef(sh);
+  shRef.current = sh;
   useEffect(() => viewer.current?.setMaxSh(sh), [sh]);
+  // Bỏ chọn run (về "không chọn"): dọn cảnh của run cũ, trừ khi đang xem file kéo thả.
+  useEffect(() => {
+    if (runId || source === "file") return;
+    viewer.current?.clear();
+    setSource(null);
+    setPoses(null);
+    setCount(null);
+    setPlaying(false);
+  }, [runId]); // chỉ chạy khi đổi run, không chạy khi đổi nguồn xem
   useEffect(() => {
     if (poses) viewer.current?.setPoses(poses.track_ids, poses.T_object_world[frame] ?? []);
   }, [frame, poses]);
@@ -342,7 +354,13 @@ function RenderCheckPanel({ runId }: { runId: string }) {
       setError(asApiError(err));
     }
   };
-  const stop = async () => setViewer(await del<GpuViewerStatus>("/api/gpu-viewer"));
+  const stop = async () => {
+    try {
+      setViewer(await del<GpuViewerStatus>("/api/gpu-viewer"));
+    } catch (err) {
+      setError(asApiError(err));
+    }
+  };
 
   if (mine?.state === "running" && mine.url) {
     return (

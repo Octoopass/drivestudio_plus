@@ -19,10 +19,17 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     headers: init?.body ? { "Content-Type": "application/json" } : undefined,
   });
   const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+  // Lỗi không lường trước của server trả chữ thường ("Internal Server Error"), không phải JSON:
+  // đọc JSON sau khi biết là lỗi, để báo đúng mã HTTP thay vì "SyntaxError: Unexpected token".
+  let data: unknown = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    if (response.ok) throw new ApiError(response.status, "internal", `phản hồi không phải JSON: ${text.slice(0, 200)}`);
+  }
   if (!response.ok) {
-    const error = data?.error ?? {};
-    throw new ApiError(response.status, error.code ?? "internal", error.message ?? text, error.details);
+    const error = (data as { error?: { code?: string; message?: string; details?: Record<string, unknown> } } | null)?.error ?? {};
+    throw new ApiError(response.status, error.code ?? "internal", error.message ?? (text || response.statusText), error.details);
   }
   return data as T;
 }
@@ -51,6 +58,13 @@ export function useApi<T>(path: string | null, pollMs?: number) {
   const [loading, setLoading] = useState(false);
   const [version, setVersion] = useState(0);
 
+  // Đổi đường dẫn (hoặc thành null) thì bỏ dữ liệu cũ: không thì trang không mount lại (ví dụ Xem
+  // 3D khi bỏ chọn run) vẫn hiện dữ liệu của đường dẫn trước tới khi có phản hồi mới.
+  useEffect(() => {
+    setData(null);
+    setError(null);
+  }, [path]);
+
   useEffect(() => {
     if (path === null) return;
     let cancelled = false;
@@ -72,4 +86,15 @@ export function useApi<T>(path: string | null, pollMs?: number) {
 
   const reload = useCallback(() => setVersion((v) => v + 1), []);
   return { data, error, loading, reload };
+}
+
+/**
+ * Video nên mở mặc định trong danh sách video của một run: ảnh render của tập test, rồi của cả
+ * đoạn, rồi video bất kỳ. Thứ tự chữ cái đặt bản đồ sai khác (`..._error_maps.mp4`) lên đầu, nên
+ * lấy phần tử đầu tiên sẽ ra bản đồ sai khác thay vì ảnh render.
+ */
+export function preferredVideo<V extends { name: string }>(items: V[]): V | undefined {
+  const score = (name: string) =>
+    (/error/i.test(name) ? 10 : 0) + (/rgbs?\.mp4$|_rgbs?_|rgb/i.test(name) ? 0 : 2) + (/test_set/i.test(name) ? 0 : 1);
+  return [...items].sort((a, b) => score(a.name) - score(b.name) || a.name.localeCompare(b.name))[0];
 }

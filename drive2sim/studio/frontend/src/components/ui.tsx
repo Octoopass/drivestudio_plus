@@ -12,7 +12,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { ApiError } from "../api/client";
+import { asApiError, type ApiError } from "../api/client";
 import { useI18n } from "../i18n";
 
 export function Panel({
@@ -224,7 +224,9 @@ export function Confirm({
       await onConfirm();
       onClose();
     } catch (err) {
-      setError(err as ApiError);
+      // Lỗi không phải của API (mất mạng, lỗi JS) không có mã: đổi sang ApiError để tiêu đề
+      // không thành "errors.undefined".
+      setError(asApiError(err));
       setBusy(false);
     }
   };
