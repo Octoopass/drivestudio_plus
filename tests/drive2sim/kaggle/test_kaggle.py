@@ -151,13 +151,19 @@ def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Workdir, Fak
     return make_workdir(tmp_path / "work"), FakeKaggle(tmp_path / "kaggle")
 
 
-def test_push_materialize_pull_and_resume(setup: tuple[Workdir, FakeKaggle]) -> None:
+def test_push_materialize_pull_and_resume(
+    setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workdir_, fake_ = setup
+    with pytest.raises(KaggleError, match="D2S_KAGGLE_SMPL_DATASET"):
+        executor.push_run(workdir_, RUN_ID, client=fake_)
+    monkeypatch.setenv("D2S_KAGGLE_SMPL_DATASET", "alice/smpl-model")
     workdir, fake = setup
     state = executor.push_run(workdir, RUN_ID, client=fake)
     assert state.attempt == 1 and state.kernel.startswith("alice/d2s-")
     assert list(fake.datasets.values()) == [["dataset-metadata.json", SCENE]]
     pushed = fake.kernels[state.kernel]
-    assert pushed["metadata"]["dataset_sources"] == [state.dataset]
+    assert pushed["metadata"]["dataset_sources"] == [state.dataset, "alice/smpl-model"]
     assert pushed["metadata"]["kernel_sources"] == []
     assert pushed["metadata"]["enable_gpu"] and pushed["metadata"]["is_private"]
     assert pushed["metadata"]["machine_shape"] == "NvidiaTeslaT4"

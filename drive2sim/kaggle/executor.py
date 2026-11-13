@@ -59,6 +59,7 @@ DEFAULT_ACCELERATOR = "NvidiaTeslaT4"  # machine_shape của Kaggle: GPU T4 x2
 MAX_RESUME_SOURCES = 5  # số lần đẩy trước được gắn vào notebook mới
 DATASET_WAIT_S = 900  # chờ Kaggle xử lý xong dataset cảnh vừa upload, tối đa 15 phút
 DATASET_POLL_S = 10
+SMPL_DATASET_ENV = "D2S_KAGGLE_SMPL_DATASET"  # dataset private chứa SMPL_NEUTRAL.pkl
 
 
 @dataclass
@@ -294,6 +295,18 @@ def push_run(
     dataset = _ensure_scene_dataset(
         client, workdir, username, record.scene_id, scene.manifest.source.converter_version
     )
+    # Run có dựng người (prep.smpl) thì trainer cần file mô hình SMPL, file có bản quyền nên không
+    # đi kèm repo: người dùng tự đưa nó lên một dataset private và đặt tên dataset ở biến này.
+    sources = [dataset]
+    if any(stage.stage_id == "prep.smpl" for stage in record.stages):
+        smpl_dataset = os.environ.get(SMPL_DATASET_ENV, "").strip()
+        if not smpl_dataset:
+            raise KaggleError(
+                "run dựng người (prep.smpl) cần file mô hình SMPL trên Kaggle: upload "
+                "SMPL_NEUTRAL.pkl thành một dataset private rồi đặt biến "
+                f"{SMPL_DATASET_ENV}=<người dùng>/<tên dataset> trước khi đẩy"
+            )
+        sources.append(smpl_dataset)
     attempt = previous.attempt + 1 if previous else 1
     kernel = f"{username}/d2s-{_hash8(run_id)}-{attempt}"
     # Gắn output của tối đa MAX_RESUME_SOURCES lần đẩy trước, mới nhất trước: lần gần nhất có thể
@@ -320,7 +333,7 @@ def push_run(
             "enable_gpu": True,
             "machine_shape": accelerator,
             "enable_internet": True,
-            "dataset_sources": [dataset],
+            "dataset_sources": sources,
             "kernel_sources": resume,
             "competition_sources": [],
         }
