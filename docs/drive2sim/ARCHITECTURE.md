@@ -471,7 +471,7 @@ Mỗi stage là một lớp đăng ký theo tên, theo interface ở CONTRACTS m
 | `init.lidar` | Điểm khởi tạo từ LiDAR | có | `get_lidar_samples` trong `drive2sim/recon/data/driving_dataset.py` |
 | `init.depth` | Điểm khởi tạo từ pose dataset + depth metric | có | Chưa có |
 | `init.slam` | Pose và điểm từ SLAM, khi rig không có pose | có | Chưa có |
-| `train.drivestudio` | Train bằng trainer DriveStudio; method, renderer, FastGS, CamPose chọn qua tham số | không | `drive2sim/recon/tools/train.py` |
+| `train.drivestudio` | Train bằng trainer DriveStudio; method, renderer, FastGS, CamPose chọn qua tham số. Cần LiDAR: config hiện có khởi tạo Gaussian từ LiDAR | không | `drive2sim/recon/tools/train.py` |
 | `train.external` | Train bằng codebase ngoài, trong môi trường riêng | không | Chưa có |
 | `eval.standard` | Đánh giá theo protocol chung (SPEC mục 9) | không | `drive2sim/recon/tools/eval.py` (`do_evaluation`) |
 | `render.videos` | Video ảnh gốc, ảnh render, sai khác theo camera | không | `drive2sim/recon/rendering/videos.py` |

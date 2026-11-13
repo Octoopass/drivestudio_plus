@@ -230,7 +230,7 @@ Engine kiểm tra trước khi chạy. Approach hoặc một lựa chọn bị k
 
 Studio và CLI dùng chung bước kiểm tra này (`drive2sim/engine/resolve.py`). Quy tắc chi tiết:
 - Giá trị của mục cấu hình gộp theo thứ tự: `default` → preset → lựa chọn của người dùng. Mục còn `auto` lấy lựa chọn **đầu tiên** trong `choices` không bị khoá vì dữ liệu, nên thứ tự `choices` là thứ tự ưu tiên.
-- Stage có `uses_lidar: true` nghĩa là **cần** LiDAR; lựa chọn là stage đó bị khoá khi `available.lidar` là `false`.
+- Stage có `uses_lidar: true` nghĩa là **cần** LiDAR; lựa chọn là stage đó bị khoá khi `available.lidar` là `false`, và stage cố định (không do mục cấu hình chọn) cần LiDAR thì cả approach bị khoá trên cảnh không có LiDAR. `train.drivestudio` có `uses_lidar: true` vì mọi config OmniRe, Street GS hiện có khởi tạo Gaussian từ LiDAR (nền từ `model.Background.init.from_lidar`, xe và người từ điểm LiDAR trong box). Hỗ trợ cảnh không có LiDAR sẽ là approach hoặc preset riêng (SPEC mục 5).
 - Một ràng buộc bị vi phạm khi mọi cặp trong `when` và mọi cặp trong `forbid` đều khớp với lựa chọn. So sánh cả kiểu: `1` không khớp `true`.
 - Mô hình `ideal_pinhole` trong manifest được coi là `opencv_pinhole` khi so với `camera_models`.
 - Engine gom **mọi** lý do bị khoá rồi báo một lần (mã lỗi `blocked`, mã thoát `3`). Preset, mục cấu hình, giá trị hay tham số stage không tồn tại, stage chưa đăng ký, hoặc một đầu vào artifact không có stage nào phía trước tạo ra, là lỗi yêu cầu (`invalid_request`, mã thoát `2`).

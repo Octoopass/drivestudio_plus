@@ -327,7 +327,11 @@ def _constraint_reasons(approach: Approach, chosen: dict[str, OptionValue]) -> l
 
 
 def _data_reasons(
-    approach: Approach, manifest: Manifest, split: Split, stage_ids: list[str]
+    approach: Approach,
+    manifest: Manifest,
+    split: Split,
+    stage_ids: list[str],
+    registry: StageRegistry = REGISTRY,
 ) -> list[BlockReason]:
     """Kiểm tra các điều kiện dữ liệu ở cấp approach (CONTRACTS mục 4.2).
 
@@ -340,7 +344,9 @@ def _data_reasons(
         approach: File approach.
         manifest: Manifest của cảnh.
         split: Split của run.
-        stage_ids: Danh sách stage sau khi thay mục cấu hình, để biết có ``prep.undistort`` không.
+        stage_ids: Danh sách stage sau khi thay mục cấu hình, để biết có ``prep.undistort`` không
+            và stage nào cần LiDAR.
+        registry: Bảng stage.
 
     Returns:
         Lý do cho từng điều kiện không thoả; rỗng nếu thoả hết.
@@ -354,6 +360,17 @@ def _data_reasons(
         )
     if approach.requires.cuboids == "required" and manifest.available.cuboids == "none":
         reasons.append(BlockReason("approach cần box 3D nhưng cảnh không có box"))
+    # Stage cố định (không do mục cấu hình chọn) cần LiDAR mà cảnh không có: khoá cả approach.
+    # Stage do mục cấu hình chọn thì đã báo ở lựa chọn đó (_choice_block).
+    if not manifest.available.lidar:
+        for entry, stage_id in zip(approach.stages, stage_ids):
+            if option_reference(entry.stage) is None and stage_id in registry:
+                if registry.get(stage_id).uses_lidar:
+                    reasons.append(
+                        BlockReason(
+                            f"{stage_id} cần LiDAR nhưng cảnh {manifest.scene_id} không có LiDAR"
+                        )
+                    )
     strategy_name, _ = parse_strategy(split.strategy)
     if strategy_name not in approach.requires.split_strategies:
         allowed = ", ".join(approach.requires.split_strategies)
@@ -584,7 +601,7 @@ def resolve(
     # Gom mọi lý do bị khoá trước khi dựng danh sách stage, để người dùng sửa một lần.
     stage_ids = [str(_substitute(entry.stage, chosen)) for entry in approach.stages]
     reasons += _constraint_reasons(approach, chosen)
-    reasons += _data_reasons(approach, manifest, split, stage_ids)
+    reasons += _data_reasons(approach, manifest, split, stage_ids, registry)
     if reasons:
         raise BlockedError(reasons)
     params = {stage_id: dict(values) for stage_id, values in (stage_params or {}).items()}

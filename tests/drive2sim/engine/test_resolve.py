@@ -18,7 +18,8 @@ import pytest
 from pydantic import BaseModel, ConfigDict
 
 from drive2sim.core.schema import Approach, Manifest, Split
-from drive2sim.engine.registry import StageRegistry
+from drive2sim.engine.approaches import load_approach
+from drive2sim.engine.registry import StageRegistry, load_builtin_stages
 from drive2sim.engine.resolve import (
     QUICK_NUM_ITERS,
     BlockedError,
@@ -265,3 +266,18 @@ def test_optional_input_skipped_when_not_produced() -> None:
     registry.register("train.opt")(type("TrainOptStage", (Stage,), body))
     wiring = wire_inputs(["train.opt"], registry)
     assert wiring == [{"split": "split"}]
+
+
+def test_real_approaches_blocked_without_lidar() -> None:
+    """OmniRe, Street GS khởi tạo Gaussian từ LiDAR: cảnh không có LiDAR bị khoá ngay khi chọn."""
+    load_builtin_stages()
+    manifest = Manifest.model_validate(no_lidar_manifest())
+    split = Split.model_validate(SPLIT)
+    for approach_id in ("omnire", "streetgs"):
+        with pytest.raises(BlockedError) as info:
+            resolve(load_approach(approach_id), manifest, split)
+        messages = [reason.message for reason in info.value.reasons]
+        assert any(m.startswith("train.drivestudio cần LiDAR") for m in messages), messages
+    with_lidar = Manifest.model_validate(MANIFEST)
+    plan = resolve(load_approach("omnire"), with_lidar, split)
+    assert plan.lidar_usage == ["train.drivestudio"]
