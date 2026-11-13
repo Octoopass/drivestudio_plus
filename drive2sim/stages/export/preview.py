@@ -10,8 +10,9 @@ File này chứa:
 - ``build_command``: dựng câu lệnh export; tách riêng để test được trên máy không có GPU.
 - ``ExportPreviewStage``: stage đăng ký với engine.
 
-Không nằm trong approach mặc định; thêm vào run bằng ``d2s export preview <run_id>`` hoặc nút
-trên Studio. Chưa chạy thật: cần checkpoint thật và PyTorch.
+Nằm trong danh sách stage mặc định của OmniRe và Street GS (sau ``export.ply_world``); run tạo
+trước đó, hoặc approach khác, thì thêm vào bằng ``d2s export preview <run_id>`` hoặc nút trên
+Studio. Chưa chạy thật: cần checkpoint thật và PyTorch.
 """
 
 import sys

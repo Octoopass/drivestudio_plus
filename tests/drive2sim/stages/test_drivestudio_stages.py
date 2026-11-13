@@ -25,7 +25,11 @@ from drive2sim.core.schema import Manifest, Split, Summary
 from drive2sim.engine.registry import REGISTRY, load_builtin_stages
 from drive2sim.engine.stage import Scene
 from drive2sim.stages import commands
-from drive2sim.stages.eval.standard import make_summary, read_drivestudio_metrics
+from drive2sim.stages.eval.standard import (
+    make_summary,
+    read_drivestudio_metrics,
+    read_train_stats,
+)
 from drive2sim.stages.export import preview as export_preview
 from drive2sim.stages.export.ply_world import ExportPlyWorldParams
 from drive2sim.stages.export.ply_world import build_command as build_export_command
@@ -222,6 +226,45 @@ def test_eval_reads_latest_metrics_and_writes_summary(tmp_path: Path) -> None:
     assert "downscale_when_loading=[2]" in summary.protocol.resolution
     path = files.dump(summary, tmp_path / "summary.json")
     assert files.load(path, Summary) == summary
+
+
+def test_eval_adds_train_stats_and_render_speed(tmp_path: Path) -> None:
+    write_metrics(
+        tmp_path,
+        "images_test_2026-11-12_090000.json",
+        {
+            "psnr": 27.6,
+            "ssim": 0.85,
+            "lpips": 0.2,
+            "masked_psnr": 23.1,
+            "render_fps": 41.5,
+            "render_width": 800,
+            "render_height": 450,
+        },
+    )
+    assert read_train_stats(tmp_path) == {}  # model cũ: không có train_stats.json
+    (tmp_path / "train_stats.json").write_text(
+        json.dumps(
+            {
+                "step": 30000,
+                "num_iters": 30000,
+                "train_time_s": 4100.5,
+                "peak_vram_mb": 7400,
+                "num_gaussians": 1250000,
+                "gaussians_per_node": {"Background": 1000000, "RigidNodes": 250000},
+            }
+        )
+    )
+    summary = make_summary(
+        read_drivestudio_metrics(tmp_path), "every8_front1", tmp_path, read_train_stats(tmp_path)
+    )
+    assert summary.overall.dynamic_psnr == 23.1
+    assert (summary.train_time_s, summary.peak_vram_mb) == (4100.5, 7400)
+    assert (summary.num_gaussians, summary.num_iters) == (1250000, 30000)
+    assert summary.render_fps == 41.5 and summary.render_resolution == "800x450"
+    # thiếu train_stats.json thì các trường để trống, không lỗi
+    bare = make_summary(read_drivestudio_metrics(tmp_path), "every8_front1", tmp_path)
+    assert bare.train_time_s is None and bare.num_gaussians is None
 
 
 def test_eval_without_metrics(tmp_path: Path) -> None:

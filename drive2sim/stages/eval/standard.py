@@ -6,15 +6,20 @@ file metric mới nhất đó, đổi sang định dạng ``summary.json`` của
 kèm protocol đã dùng, để mọi approach có cùng một file kết quả mà Studio và ``d2s report`` đọc
 được (SPEC mục 9).
 
+Ngoài metric ảnh, stage đọc ``train_stats.json`` mà ``train.py`` ghi cùng mỗi checkpoint: thời
+gian train thực (chỉ các bước train, cộng qua các lần chạy tiếp), VRAM cao nhất của tiến trình
+train, số Gaussian của cả model và số iteration. Tốc độ render (``render_fps``) do ``train.py`` đo
+khi render tập test và ghi cùng file metric test.
+
 File này chứa:
 - ``read_drivestudio_metrics``: tìm và đọc file metric test mới nhất của DriveStudio.
-- ``make_summary``: dựng ``Summary`` từ metric đọc được.
+- ``read_train_stats``: đọc ``train_stats.json``.
+- ``make_summary``: dựng ``Summary`` từ metric và thống kê train đọc được.
 - ``EvalStandardStage``: stage đăng ký với engine.
 
-Giới hạn hiện tại: DriveStudio không tách metric theo camera nên ``per_camera`` để trống; thời
-gian train và VRAM nằm trong ``run.json`` (engine đo), số Gaussian chưa đọc được khi không nạp
-checkpoint, nên ba trường này để trống. Tách đánh giá khỏi ``train.py`` là việc sau
-(ARCHITECTURE mục 7.2).
+Giới hạn hiện tại: DriveStudio không tách metric theo camera nên ``per_camera`` để trống. Tách
+đánh giá khỏi ``train.py`` là việc sau (ARCHITECTURE mục 7.2). Phần đo thời gian, VRAM, số
+Gaussian và FPS trong ``train.py`` chưa chạy thật (cần GPU).
 """
 
 import json
@@ -30,9 +35,12 @@ from drive2sim.core.schema import SCHEMA_VERSIONS, EvalProtocol, LpipsSetting, M
 from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import NoParams, Stage, StageContext
 
-PROTOCOL_VERSION = "0.1"
+# 0.2: ảnh render được làm tròn về 8 bit trước khi đo, như ảnh gốc (SPEC mục 9); 0.1 đo ảnh render
+# ở dạng số thực.
+PROTOCOL_VERSION = "0.2"
 METRIC_PREFIX = "image_metrics/test/"
 SUMMARY_FILE = "summary.json"
+TRAIN_STATS_FILE = "train_stats.json"
 REPORT_FILE = "drivestudio_metrics.json"
 
 
@@ -65,6 +73,22 @@ def read_drivestudio_metrics(model_dir: Path) -> dict[str, float]:
     }
 
 
+def read_train_stats(model_dir: Path) -> dict[str, object]:
+    """Đọc ``train_stats.json`` trong thư mục train.
+
+    Args:
+        model_dir: Thư mục kết quả của ``train.drivestudio``.
+
+    Returns:
+        Nội dung file; rỗng nếu chưa có (model train bằng ``train.py`` cũ) hoặc đọc lỗi.
+    """
+    try:
+        data = json.loads((model_dir / TRAIN_STATS_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def _package_version(name: str) -> str:
     """Trả về phiên bản gói Python đã cài, hoặc ``"unknown"`` nếu không đọc được."""
     try:
@@ -91,8 +115,13 @@ def _resolution_of(model_dir: Path) -> str:
     )
 
 
-def make_summary(metrics: dict[str, float], split_id: str, model_dir: Path) -> Summary:
-    """Dựng ``summary.json`` từ metric của DriveStudio.
+def make_summary(
+    metrics: dict[str, float],
+    split_id: str,
+    model_dir: Path,
+    train_stats: Optional[dict[str, object]] = None,
+) -> Summary:
+    """Dựng ``summary.json`` từ metric của DriveStudio và ``train_stats.json``.
 
     Metric theo vùng (người, xe, vật động) chỉ có khi cảnh có box; giá trị âm hoặc thiếu nghĩa là
     DriveStudio không tính được, được ghi ``null`` (CONTRACTS mục 10.3).
@@ -101,6 +130,7 @@ def make_summary(metrics: dict[str, float], split_id: str, model_dir: Path) -> S
         metrics: Kết quả ``read_drivestudio_metrics``.
         split_id: Split của run.
         model_dir: Thư mục train, để đọc độ phân giải trong config.
+        train_stats: Kết quả ``read_train_stats``; thiếu trường nào thì trường đó để trống.
 
     Returns:
         Đối tượng ``Summary``.
@@ -112,6 +142,13 @@ def make_summary(metrics: dict[str, float], split_id: str, model_dir: Path) -> S
     def optional(name: str) -> Optional[float]:
         value = metrics.get(name)
         return value if value is not None and value >= 0 else None
+
+    def stat(name: str) -> Optional[int]:
+        value = (train_stats or {}).get(name)
+        return int(value) if isinstance(value, (int, float)) and value >= 0 else None
+
+    width, height = optional("render_width"), optional("render_height")
+    train_time = (train_stats or {}).get("train_time_s")
 
     return Summary(
         schema_version=SCHEMA_VERSIONS["summary"],
@@ -134,8 +171,15 @@ def make_summary(metrics: dict[str, float], split_id: str, model_dir: Path) -> S
             lpips=metrics["lpips"],
             human_psnr=optional("human_psnr"),
             vehicle_psnr=optional("vehicle_psnr"),
+            dynamic_psnr=optional("masked_psnr"),
             occupied_psnr=optional("occupied_psnr"),
         ),
+        train_time_s=float(train_time) if isinstance(train_time, (int, float)) else None,
+        peak_vram_mb=stat("peak_vram_mb") or None,
+        num_gaussians=stat("num_gaussians"),
+        num_iters=stat("num_iters"),
+        render_fps=optional("render_fps"),
+        render_resolution=f"{int(width)}x{int(height)}" if width and height else None,
     )
 
 
@@ -166,7 +210,9 @@ class EvalStandardStage(Stage):
         metrics = read_drivestudio_metrics(inputs["model"])
         (ctx.output_dir / REPORT_FILE).write_text(json.dumps(metrics, indent=2) + "\n")
         files.dump(
-            make_summary(metrics, ctx.split.split_id, inputs["model"]),
+            make_summary(
+                metrics, ctx.split.split_id, inputs["model"], read_train_stats(inputs["model"])
+            ),
             ctx.output_dir / SUMMARY_FILE,
         )
         return {"report": ctx.output_dir}
