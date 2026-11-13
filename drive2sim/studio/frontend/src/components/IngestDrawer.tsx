@@ -1,13 +1,13 @@
 // Thêm cảnh từ dữ liệu gốc (như `d2s source inspect` rồi `d2s scene ingest`): nhập đường dẫn thư
 // mục trên máy chạy Studio, xem tool nhận ra gì, chọn phiên bản và chuỗi, rồi ingest ở nền. Kết quả
 // hiện trong ngăn "Hoạt động" và thông báo nổi khi xong.
-import { FolderSearch } from "lucide-react";
+import { FolderOpen, FolderSearch } from "lucide-react";
 import { useMemo, useState } from "react";
 import { asApiError, post, type ApiError } from "../api/client";
 import type { Job, SourceReport } from "../api/types";
 import { useI18n } from "../i18n";
 import { useLive } from "../live";
-import { Drawer, ErrorBox, Note, useToast, yesNo } from "./ui";
+import { Drawer, ErrorBox, InfoTip, Note, useToast, yesNo } from "./ui";
 
 const PATH_KEY = "d2s.ingest.path";
 
@@ -31,17 +31,19 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
   const [sceneId, setSceneId] = useState("");
   const [interpolate, setInterpolate] = useState(4);
 
-  const inspect = async () => {
+  const [picking, setPicking] = useState(false);
+
+  const inspect = async (target: string = path) => {
     setBusy(true);
     setError(null);
     setReport(null);
     try {
-      localStorage.setItem(PATH_KEY, path);
+      localStorage.setItem(PATH_KEY, target);
     } catch {
       // không lưu được đường dẫn: bỏ qua
     }
     try {
-      const result = await post<SourceReport>("/api/sources/inspect", { path });
+      const result = await post<SourceReport>("/api/sources/inspect", { path: target });
       setReport(result);
       const versions = Object.keys(result.versions);
       setVersion(versions[0] ?? "");
@@ -50,6 +52,24 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
       setError(asApiError(err));
     } finally {
       setBusy(false);
+    }
+  };
+
+  // Hộp thoại chọn thư mục của hệ điều hành, mở trên máy chạy Studio (trình duyệt không cho biết
+  // đường dẫn thật). Chọn xong thì điền vào ô và xem thư mục luôn.
+  const pick = async () => {
+    setPicking(true);
+    setError(null);
+    try {
+      const result = await post<{ path: string | null }>("/api/pick-folder", { start: path || null });
+      if (result.path) {
+        setPath(result.path);
+        await inspect(result.path);
+      }
+    } catch (err) {
+      setError(asApiError(err));
+    } finally {
+      setPicking(false);
     }
   };
 
@@ -85,6 +105,7 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
   return (
     <Drawer
       title={t("ingest.title")}
+      info={t("ingest.lede")}
       onClose={onClose}
       foot={
         <>
@@ -97,20 +118,30 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
         </>
       }
     >
-      <p className="muted">{t("ingest.lede")}</p>
       <form
         className="row"
         onSubmit={(e) => {
           e.preventDefault();
-          inspect();
+          void inspect();
         }}
       >
         <label className="field grow">
           <span>{t("ingest.field.path")}</span>
           <input type="text" value={path} onChange={(e) => setPath(e.target.value)} placeholder="/data/nuscenes" autoFocus spellCheck={false} />
         </label>
+        <button
+          className="btn icon"
+          type="button"
+          onClick={() => void pick()}
+          disabled={busy || picking}
+          title={picking ? t("ingest.action.picking") : t("ingest.action.pick")}
+          aria-label={t("ingest.action.pick")}
+          style={{ alignSelf: "flex-end" }}
+        >
+          <FolderOpen size={19} />
+        </button>
         <button className="btn" type="submit" disabled={!path || busy} style={{ alignSelf: "flex-end" }}>
-          <FolderSearch size={15} />
+          <FolderSearch size={19} />
           {t("ingest.action.inspect")}
         </button>
       </form>
@@ -157,7 +188,7 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
             </div>
           )}
           {report.ingest_supported && (
-            <div className="stack" style={{ gap: 12 }}>
+            <div className="stack" style={{ gap: 15 }}>
               {versions.length > 1 && (
                 <label className="field">
                   <span>{t("ingest.field.version")}</span>
@@ -181,7 +212,7 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
                 {(report.versions[version]?.length ?? 0) > 12 && (
                   <input type="search" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t("ingest.field.filter")} />
                 )}
-                <select size={Math.min(8, Math.max(3, sequences.length))} value={sequence} onChange={(e) => setSequence(e.target.value)} style={{ height: "auto", padding: 4 }}>
+                <select size={Math.min(8, Math.max(3, sequences.length))} value={sequence} onChange={(e) => setSequence(e.target.value)} style={{ height: "auto", padding: 6 }}>
                   {sequences.map((s) => (
                     <option key={s} value={s}>
                       {s}
@@ -196,9 +227,11 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
                 </label>
                 {report.dataset === "nuscenes" && (
                   <label className="field">
-                    <span>{t("ingest.field.interpolate")}</span>
+                    <span>
+                      {t("ingest.field.interpolate")}
+                      <InfoTip>{t("ingest.field.interpolate_hint")}</InfoTip>
+                    </span>
                     <input type="number" min={0} value={interpolate} onChange={(e) => setInterpolate(Number(e.target.value))} />
-                    <span className="hint">{t("ingest.field.interpolate_hint")}</span>
                   </label>
                 )}
               </div>

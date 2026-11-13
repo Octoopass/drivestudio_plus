@@ -1,6 +1,6 @@
 // Mọi run, mới nhất trước: lọc theo trạng thái, cảnh và chữ; dòng đang chạy có thanh tiến độ trực
 // tiếp; rê chuột vào dòng để huỷ, chạy tiếp hoặc xoá.
-import { Cloud, Play, RotateCcw, Search, Square, Trash2 } from "lucide-react";
+import { Cloud, Play, RotateCcw, Search, Square, Trash2, Zap } from "lucide-react";
 import { useMemo, useState } from "react";
 import { asApiError, del, post, seg, useApi } from "../api/client";
 import type { List, Manifest, RunRecord } from "../api/types";
@@ -48,15 +48,15 @@ export function RunsPage({ sceneId = "", status = "all" }: { sceneId?: string; s
     <div className="page">
       <PageHead
         title={t("runs.page.title")}
-        lede={t("runs.page.lede")}
+        info={t("runs.page.lede")}
         actions={
           <a className="btn primary" href={href({ page: "new" })}>
-            <Play size={15} />
+            <Play size={19} />
             {t("nav.menu.new_run")}
           </a>
         }
       />
-      <div className="row wrap" style={{ gap: 10 }}>
+      <div className="row wrap" style={{ gap: 12 }}>
         <Segmented<Filter>
           label={t("runs.filter.status")}
           value={filter}
@@ -69,9 +69,9 @@ export function RunsPage({ sceneId = "", status = "all" }: { sceneId?: string; s
             <option key={m.scene_id}>{m.scene_id}</option>
           ))}
         </select>
-        <label className="row grow" style={{ position: "relative", minWidth: 200, maxWidth: 360 }}>
-          <Search size={14} style={{ position: "absolute", left: 9 }} className="faint" />
-          <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("runs.filter.search")} style={{ paddingLeft: 28, width: "100%" }} />
+        <label className="row grow" style={{ position: "relative", minWidth: 252, maxWidth: 452 }}>
+          <Search size={18} style={{ position: "absolute", left: 11 }} className="faint" />
+          <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("runs.filter.search")} style={{ paddingLeft: 35, width: "100%" }} />
         </label>
       </div>
       <ErrorBox error={runs.error} />
@@ -92,7 +92,7 @@ export function RunsPage({ sceneId = "", status = "all" }: { sceneId?: string; s
                   <th>{t("runs.table.scene")}</th>
                   <th>{t("runs.table.split")}</th>
                   <th>{t("runs.table.options")}</th>
-                  <th style={{ minWidth: 150 }}>{t("runs.table.status")}</th>
+                  <th style={{ minWidth: 188 }}>{t("runs.table.status")}</th>
                   <th className="num">{t("runs.table.created")}</th>
                   <th />
                 </tr>
@@ -107,18 +107,19 @@ export function RunsPage({ sceneId = "", status = "all" }: { sceneId?: string; s
                         <a className="id" href={href({ page: "run", runId: run.run_id })} onClick={(e) => e.stopPropagation()}>
                           {run.run_id}
                         </a>
-                        <div className="small faint row" style={{ gap: 4 }}>
+                        <div className="small faint row" style={{ gap: 6 }}>
                           {run.approach.approach_id}
-                          {run.executor === "kaggle" && <Cloud size={12} aria-label="Kaggle" />}
+                          {run.approach.quick && <Zap size={15} aria-label={t("run.quick")} className="warn-ink" />}
+                          {run.executor === "kaggle" && <Cloud size={15} aria-label="Kaggle" />}
                         </div>
                       </td>
-                      <td className="ellipsis" style={{ maxWidth: 220 }}>{run.scene_id}</td>
+                      <td className="ellipsis" style={{ maxWidth: 276 }}>{run.scene_id}</td>
                       <td>{run.split_id}</td>
-                      <td className="small muted" style={{ maxWidth: 260 }}>{optionsText(run.approach.options ?? {}) || "–"}</td>
+                      <td className="small muted" style={{ maxWidth: 327 }}>{optionsText(run.approach.options ?? {}) || "–"}</td>
                       <td>
                         <Status value={run.status} />
                         {run.status === "running" && (
-                          <div className="progress" style={{ marginTop: 5 }} title={progress?.message}>
+                          <div className="progress" style={{ marginTop: 7 }} title={progress?.message}>
                             <i style={{ width: `${Math.round(((done + (progress?.fraction ?? 0)) / Math.max(1, (run.stages ?? []).length)) * 100)}%` }} />
                           </div>
                         )}
@@ -128,17 +129,17 @@ export function RunsPage({ sceneId = "", status = "all" }: { sceneId?: string; s
                         <span className="row-actions row" style={{ gap: 2, justifyContent: "flex-end" }}>
                           {(run.status === "running" || run.status === "pending") && (
                             <button className="btn sm ghost icon" title={t("run.action.cancel")} aria-label={t("run.action.cancel")} onClick={() => act(t("run.toast.cancel_requested"), `/api/runs/${seg(run.run_id)}/cancel`)}>
-                              <Square size={13} />
+                              <Square size={16} />
                             </button>
                           )}
                           {(run.status === "failed" || run.status === "cancelled") && run.executor === "local" && (
                             <button className="btn sm ghost icon" title={t("run.action.resume")} aria-label={t("run.action.resume")} onClick={() => act(t("run.toast.resumed"), `/api/runs/${seg(run.run_id)}/resume`)}>
-                              <RotateCcw size={13} />
+                              <RotateCcw size={16} />
                             </button>
                           )}
                           {run.status !== "running" && (
                             <button className="btn sm ghost icon" title={t("common.action.delete")} aria-label={t("common.action.delete")} onClick={() => setDeleting(run)}>
-                              <Trash2 size={13} />
+                              <Trash2 size={16} />
                             </button>
                           )}
                         </span>

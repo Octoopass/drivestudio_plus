@@ -211,6 +211,23 @@ def test_scenes_and_splits(client: TestClient) -> None:
     assert missing.status_code == 404 and missing.json()["error"]["code"] == "not_found"
 
 
+def test_kaggle_setup_routes(client: TestClient, tmp_path: Path) -> None:
+    # conftest chặn lệnh kaggle thật: trạng thái báo chưa cài, không gọi mạng
+    status = client.get("/api/kaggle/setup/status").json()
+    assert status["ready"] is False and status["cli"]["installed"] is False
+    bad = client.post("/api/kaggle/setup/token", json={"token": "abc"})
+    assert bad.status_code == 400
+    first = client.post("/api/kaggle/setup/token", json={"token": "KGAT_abcdef123456"})
+    assert first.status_code == 200 and "KGAT" not in first.text
+    again = client.post("/api/kaggle/setup/token", json={"token": "KGAT_abcdef123456"})
+    assert again.status_code == 409 and again.json()["error"]["code"] == "conflict"
+
+
+def test_studio_info(client: TestClient) -> None:
+    info = client.get("/api/studio").json()
+    assert info["demo"] is False and info["workdir"]
+
+
 def test_approach_check(client: TestClient) -> None:
     split_id = create_split(client)
     assert client.get("/api/approaches").json()["items"][0]["approach_id"] == "toy"
@@ -221,6 +238,10 @@ def test_approach_check(client: TestClient) -> None:
     assert check["blocked_choices"] == {}
     bad = client.post("/api/approaches/toy/check", json={**body, "options": {"init": "x"}})
     assert bad.status_code == 400 and bad.json()["error"]["code"] == "invalid_request"
+    assert check["quick"] is False
+    # toy không có stage nhận num_iters nên không chạy thử nhanh được; API chuyển cờ tới resolve
+    quick = client.post("/api/approaches/toy/check", json={**body, "quick": True})
+    assert quick.status_code == 400 and "chạy thử nhanh" in quick.json()["error"]["message"]
 
 
 def test_approach_blocked(client: TestClient, tmp_path: Path) -> None:
@@ -253,6 +274,9 @@ def test_run_lifecycle(client: TestClient) -> None:
     run = client.get(f"/api/runs/{run_id}").json()
     assert run["status"] == "succeeded", [s.get("error") for s in run["stages"]]
     assert run["summary"]["overall"]["psnr"] == 27.5
+    # env.json ghi máy đã chạy run (ghi lúc bắt đầu chạy, không phải lúc tạo run)
+    assert len(run["env"]["machines"]) == 1
+    assert run["env"]["machines"][0]["cpu_cores"] > 0
     assert client.get("/api/runs", params={"scene_id": SCENE}).json()["total"] == 1
     assert client.get("/api/runs", params={"status": "failed"}).json()["total"] == 0
     log = client.get(f"/api/runs/{run_id}/log").json()
@@ -285,6 +309,13 @@ def test_run_lifecycle(client: TestClient) -> None:
         text = "".join(stream.iter_text())
     assert "event: status" in text and "event: done" in text
 
+    artifacts = client.get(f"/api/runs/{run_id}/artifacts").json()
+    assert [s["stage_id"] for s in artifacts["stages"]][0] == "init.toy"
+    assert client.get(f"/api/runs/{run_id}/curve").json()["series"] == {}
+    outside = client.post("/api/reveal", json={"path": "../"})
+    assert outside.status_code == 409
+    headless = client.post("/api/pick-folder", json={})
+    assert headless.status_code == 409 and "giao diện" in headless.json()["error"]["message"]
     report = client.get("/api/report", params={"scene_id": SCENE}).json()["items"]
     assert report[0]["run_id"] == run_id and report[0]["psnr"] == 27.5
     csv_text = client.get("/api/report", params={"format": "csv"}).text

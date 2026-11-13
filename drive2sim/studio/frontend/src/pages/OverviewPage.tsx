@@ -7,6 +7,7 @@ import type { CacheList, List, Manifest, ReportRow, RunRecord } from "../api/typ
 import { IngestDrawer } from "../components/IngestDrawer";
 import { ago, bytes, Empty, fixed, Loading, PageHead, Panel, Status } from "../components/ui";
 import { useI18n } from "../i18n";
+import { isComparable } from "../metrics";
 import { useLive } from "../live";
 import { go, href } from "../router";
 import { SceneCard } from "./ScenesPage";
@@ -31,7 +32,7 @@ export function OverviewPage() {
   const leaders = useMemo(() => {
     const best = new Map<string, ReportRow>();
     for (const row of report.data?.items ?? []) {
-      if (row.psnr == null) continue;
+      if (row.psnr == null || !isComparable(row)) continue;
       const key = `${row.scene_id}/${row.split_id}`;
       const current = best.get(key);
       if (!current || (current.psnr ?? 0) < row.psnr) best.set(key, row);
@@ -43,15 +44,15 @@ export function OverviewPage() {
     <div className="page">
       <PageHead
         title={t("overview.page.title")}
-        lede={t("overview.page.lede")}
+        info={t("overview.page.lede")}
         actions={
           <>
             <button className="btn" onClick={() => setAdding(true)}>
-              <Plus size={16} />
+              <Plus size={20} />
               {t("scenes.action.add")}
             </button>
             <a className="btn primary" href={href({ page: "new" })}>
-              <Play size={15} />
+              <Play size={19} />
               {t("nav.menu.new_run")}
             </a>
           </>
@@ -94,7 +95,7 @@ export function OverviewPage() {
             const status = live.statuses[run.run_id] ?? run.status;
             const done = (run.stages ?? []).filter((s) => s.status === "succeeded").length;
             return (
-              <a key={run.run_id} href={href({ page: "run", runId: run.run_id })} style={{ display: "block", padding: "12px 16px", borderBottom: "1px solid var(--line)", textDecoration: "none" }}>
+              <a key={run.run_id} href={href({ page: "run", runId: run.run_id })} style={{ display: "block", padding: "15px 20px", borderBottom: "1px solid var(--line)", textDecoration: "none" }}>
                 <div className="row">
                   <span className="id grow ellipsis">{run.run_id}</span>
                   <Status value={status} />
@@ -127,7 +128,7 @@ export function OverviewPage() {
                   {leaders.map((row) => (
                     <tr key={row.run_id} className="link-row" onClick={() => go({ page: "compare", sceneId: row.scene_id, splitId: row.split_id })}>
                       <td>
-                        <div className="ellipsis" style={{ maxWidth: 240 }}>{row.scene_id}</div>
+                        <div className="ellipsis" style={{ maxWidth: 301 }}>{row.scene_id}</div>
                         <div className="small faint">{row.split_id}</div>
                       </td>
                       <td>{row.approach_id}</td>
@@ -160,7 +161,7 @@ export function OverviewPage() {
                 {all.slice(0, 8).map((run) => (
                   <tr key={run.run_id} className="link-row" onClick={() => go({ page: "run", runId: run.run_id })}>
                     <td className="id">{run.run_id}</td>
-                    <td className="ellipsis" style={{ maxWidth: 240 }}>{run.scene_id}</td>
+                    <td className="ellipsis" style={{ maxWidth: 301 }}>{run.scene_id}</td>
                     <td>{run.approach.approach_id}</td>
                     <td><Status value={live.statuses[run.run_id] ?? run.status} /></td>
                     <td className="num muted">{ago(run.created_utc ?? null, locale)}</td>
@@ -173,7 +174,7 @@ export function OverviewPage() {
       </Panel>
 
       {(scenes.data?.items.length ?? 0) > 0 && (
-        <section className="stack" style={{ gap: 10 }}>
+        <section className="stack" style={{ gap: 12 }}>
           <div className="row">
             <h2 className="grow">{t("nav.menu.scenes")}</h2>
             <a className="btn ghost sm" href={href({ page: "scenes" })}>{t("overview.scenes.all")}</a>

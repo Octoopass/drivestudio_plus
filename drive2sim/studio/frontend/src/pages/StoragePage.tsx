@@ -34,10 +34,10 @@ export function StoragePage() {
     <div className="page">
       <PageHead
         title={t("storage.page.title")}
-        lede={t("storage.page.lede")}
+        info={t("storage.page.lede")}
         actions={
           <button className="btn" onClick={preview} disabled={!cache.data?.total}>
-            <Eraser size={15} />
+            <Eraser size={19} />
             {t("storage.gc.action")}
           </button>
         }
@@ -80,7 +80,7 @@ export function StoragePage() {
                 {cache.data!.items.map((entry) => (
                   <tr key={entry.cache_key + entry.partial}>
                     <td className="id">{entry.stage_id}</td>
-                    <td className="ellipsis" style={{ maxWidth: 220 }}>
+                    <td className="ellipsis" style={{ maxWidth: 276 }}>
                       <a href={href({ page: "scene", sceneId: entry.scene_id })}>{entry.scene_id}</a>
                     </td>
                     <td className="small muted">{entry.cache_key.split("/")[1]}</td>
@@ -91,7 +91,7 @@ export function StoragePage() {
                       ) : entry.used_by.length === 0 ? (
                         <span className="tag warn">{t("storage.tag.unused")}</span>
                       ) : (
-                        <span className="row wrap" style={{ gap: 4 }}>
+                        <span className="row wrap" style={{ gap: 6 }}>
                           {entry.used_by.slice(0, 3).map((runId) => (
                             <a key={runId} className="tag" href={href({ page: "run", runId })}>{runId}</a>
                           ))}

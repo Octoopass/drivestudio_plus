@@ -6,8 +6,8 @@ File này chứa:
   ``resolve_from_args`` của CLI.
 - ``GET /api/approaches``, ``GET /api/approaches/{approach_id}``: đọc file approach.
 - ``POST /api/approaches/{approach_id}/check``: kiểm tra trước khi chạy, như ``d2s approach
-  check``: trả danh sách stage, stage nào dùng lại cache, và các lựa chọn bị khoá theo từng ô để
-  giao diện làm mờ kèm lý do.
+  check``: trả danh sách stage, stage nào dùng lại cache, và các lựa chọn bị khoá theo từng mục cấu
+  hình để giao diện làm mờ kèm lý do.
 """
 
 from typing import Any, Optional
@@ -32,8 +32,9 @@ class PlanBody(BaseModel):
         scene_id: Cảnh.
         split_id: Split.
         preset: Preset, nếu có.
-        options: Tên ô → lựa chọn, như ``--set <ô>=<giá trị>``.
+        options: Tên mục → lựa chọn, như ``--set <mục>=<giá trị>``.
         stage_params: ``stage_id`` → tham số, như ``--set <stage_id>.<tham số>=<giá trị>``.
+        quick: Chạy thử nhanh, như ``--quick``.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -43,6 +44,7 @@ class PlanBody(BaseModel):
     preset: Optional[str] = None
     options: dict[str, OptionValue] = {}
     stage_params: dict[str, dict[str, Any]] = {}
+    quick: bool = False
 
 
 def plan_from_body(
@@ -60,7 +62,7 @@ def plan_from_body(
 
     Raises:
         WorkdirError: Nếu cảnh, split hoặc approach không có.
-        ResolveError: Nếu preset, ô, giá trị hoặc tham số sai.
+        ResolveError: Nếu preset, mục cấu hình, giá trị hoặc tham số sai.
         BlockedError: Nếu dữ liệu hoặc tổ hợp lựa chọn không cho chạy.
     """
     scene = state.workdir.load_scene(body.scene_id)
@@ -73,6 +75,7 @@ def plan_from_body(
         option_values=body.options,
         stage_params=body.stage_params,
         registry=state.registry,
+        quick=body.quick,
     )
     return scene, split, plan
 
@@ -90,7 +93,7 @@ def list_approaches() -> dict:
 
 @router.get("/{approach_id}")
 def get_approach(approach_id: str) -> dict:
-    """Trả về nội dung file approach: ô chọn, preset, ràng buộc, stage."""
+    """Trả về nội dung file approach: mục cấu hình, preset, ràng buộc, stage."""
     return load_approach(approach_id).model_dump(mode="json")
 
 
@@ -99,8 +102,8 @@ def check(approach_id: str, body: PlanBody, request: Request) -> dict:
     """Kiểm tra một approach chạy được trên cảnh và split không, không chạy gì.
 
     Returns:
-        ``{"approach_id", "preset", "options", "lidar_usage", "stages": [{"stage_id",
-        "params", "cache_hit"}], "blocked_choices": {ô: [{"choice", "message"}]}}``. Khi bị
+        ``{"approach_id", "preset", "quick", "options", "lidar_usage", "stages": [{"stage_id",
+        "params", "cache_hit"}], "blocked_choices": {mục: [{"choice", "message"}]}}``. Khi bị
         khoá thì trả lỗi ``422`` với các lý do (CONTRACTS mục 11.3).
     """
     state = state_of(request)
@@ -110,6 +113,7 @@ def check(approach_id: str, body: PlanBody, request: Request) -> dict:
     return {
         "approach_id": plan.approach_id,
         "preset": plan.preset,
+        "quick": plan.quick,
         "options": plan.options,
         "lidar_usage": plan.lidar_usage,
         "stages": [

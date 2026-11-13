@@ -13,8 +13,11 @@ File này chứa:
 - ``GET /api/runs/{run_id}/events``, ``GET /api/events``: tiến độ qua Server-Sent Events.
 - ``GET /api/runs/{run_id}/log``: log của engine và phần cuối log của từng stage.
 - ``GET /api/runs/{run_id}/videos``: các video MP4 trong thư mục run, kèm đường dẫn để phát.
+- ``GET /api/runs/{run_id}/artifacts``: nơi lưu kết quả của từng stage và các file trong đó.
+- ``GET /api/runs/{run_id}/curve``: đường cong train (PSNR, loss, số Gaussian theo bước).
 - ``GET /api/runs/{run_id}/splats``: file Gaussian xem được trong trình duyệt (gói xem trước,
   ``scene.ply``), kèm đường dẫn.
+- ``GET /api/runs/{run_id}/render-check``: máy chạy Studio có render được run này bằng GPU không.
 """
 
 from pathlib import Path
@@ -27,12 +30,15 @@ from pydantic import BaseModel, ConfigDict
 from drive2sim.core import files
 from drive2sim.core.schema import Preview, RunRecord
 from drive2sim.engine import housekeeping
+from drive2sim.engine.artifacts import run_artifacts, train_curve
+from drive2sim.engine.render_check import render_readiness
 from drive2sim.engine.run import (
     D2S_DIR,
     LOG_FILE,
     RUN_FILE,
     create_run,
     list_runs,
+    load_env,
     load_summary,
     request_cancel,
     reset_stage,
@@ -123,11 +129,13 @@ def get_runs(
 
 @router.get("/api/runs/{run_id}")
 def get_run(run_id: str, request: Request) -> dict:
-    """Trả về ``run.json`` cộng ``summary`` (nội dung ``summary.json``, nếu đã có)."""
+    """Trả về ``run.json`` cộng ``summary`` (nếu đã có) và ``env`` (nội dung ``env.json``)."""
     run_dir, record = _load(request, run_id)
     summary = load_summary(run_dir)
     data = record.model_dump(mode="json")
     data["summary"] = summary.model_dump(mode="json") if summary else None
+    env = load_env(run_dir)
+    data["env"] = env.model_dump(mode="json") if env else None
     data["run_dir"] = state_of(request).workdir.relative(run_dir)
     return data
 
@@ -240,6 +248,46 @@ def run_log(run_id: str, request: Request) -> dict:
             if (stages_dir / s.stage_id / LOG_FILE).is_file()
         },
     }
+
+
+@router.get("/api/runs/{run_id}/artifacts")
+def artifacts(run_id: str, request: Request) -> dict:
+    """Nơi lưu kết quả của từng stage (thư mục run hay cache) và các file cấp một trong đó.
+
+    Returns:
+        Kết quả ``run_artifacts``.
+    """
+    run_dir, record = _load(request, run_id)
+    return run_artifacts(state_of(request).workdir, record, run_dir)
+
+
+@router.get("/api/runs/{run_id}/curve")
+def curve(run_id: str, request: Request) -> dict:
+    """Đường cong train đọc từ ``metrics.json`` của stage ``train.*``, cả khi run đã xong.
+
+    Returns:
+        ``{"stage_id", "series": {"psnr" | "loss" | "gaussians": [[bước, giá trị], ...]}}``;
+        ``series`` rỗng nếu chưa có dữ liệu.
+    """
+    run_dir, record = _load(request, run_id)
+    stage = next((s for s in record.stages if s.stage_id.startswith("train.")), None)
+    if stage is None:
+        return {"stage_id": None, "series": {}}
+    return {
+        "stage_id": stage.stage_id,
+        "series": train_curve(run_dir / D2S_DIR / "stages" / stage.stage_id),
+    }
+
+
+@router.get("/api/runs/{run_id}/render-check")
+def run_render_check(run_id: str, request: Request) -> dict:
+    """Kiểm tra máy chạy Studio có đủ điều kiện render run này bằng GPU không.
+
+    Returns:
+        ``{"ready", "checks": [{"id", "ok", "value"}]}`` theo ``render_readiness``.
+    """
+    run_dir, _ = _load(request, run_id)
+    return render_readiness(run_dir)
 
 
 @router.get("/api/runs/{run_id}/videos")

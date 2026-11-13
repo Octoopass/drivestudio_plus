@@ -19,6 +19,7 @@ export type CodeCommit = string | null;
 export type Inputs = string[];
 export type CreatedUtc = string;
 export type Files = string[];
+export type DurationS = number | null;
 
 /**
  * Schema của file ``artifact.json`` mô tả kết quả của một stage (CONTRACTS mục 5.3).
@@ -35,6 +36,9 @@ export type Files = string[];
  *     created_utc: Thời điểm tạo.
  *     files: Các file trong thư mục, đường dẫn tương đối với thư mục đó.
  *     meta: Thông tin thêm tuỳ stage, ví dụ tên model đã dùng.
+ *     duration_s: Thời gian stage chạy để tạo ra kết quả này, giây; run sau dùng lại kết quả
+ *         từ cache tính thời gian này vào tổng thời gian dựng cảnh (thêm từ
+ *         ``d2s-artifact/0.2``).
  */
 export interface ArtifactRecord {
   schema_version: SchemaVersion;
@@ -46,6 +50,7 @@ export interface ArtifactRecord {
   created_utc: CreatedUtc;
   files?: Files;
   meta?: Meta;
+  duration_s?: DurationS;
 }
 /**
  * Stage đã tạo ra một artifact, ghi trong ``artifact.json``.

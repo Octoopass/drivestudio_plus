@@ -24,8 +24,15 @@ export type SplitStrategies = ["every_nth_frame" | "custom", ...("every_nth_fram
  */
 export type Choices = [boolean | number | number | string, ...(boolean | number | number | string)[]];
 export type Default = boolean | number | string;
+export type Label = string | null;
+export type Help = string | null;
+export type Labels = string[];
+export type Descriptions = string[];
+export type Group = string | null;
 export type Reason = string;
 export type Constraints = Constraint[];
+export type Label1 = string;
+export type Help1 = string | null;
 /**
  * @minItems 1
  */
@@ -35,9 +42,9 @@ export type Stage = string;
 /**
  * Schema của file khai báo approach ``drive2sim/approaches/<approach_id>.yaml``.
  *
- * Approach là một cách dựng cảnh: danh sách stage chạy lần lượt, có ô chọn, ràng buộc và
+ * Approach là một cách dựng cảnh: danh sách stage chạy lần lượt, có mục cấu hình, ràng buộc và
  * preset (CONTRACTS mục 4.1). Schema kiểm tra cả sự nhất quán bên trong file: preset và ràng
- * buộc chỉ dùng ô và lựa chọn có thật, chỗ giữ chỗ trỏ tới ô có thật.
+ * buộc chỉ dùng mục cấu hình và lựa chọn có thật, chỗ giữ chỗ trỏ tới mục cấu hình có thật.
  *
  * Attributes:
  *     approach_id: Định danh ``snake_case``, ví dụ ``omnire``.
@@ -47,9 +54,11 @@ export type Stage = string;
  *     track: ``pinhole`` hoặc ``fisheye``.
  *     level: Mức năng lực cao nhất đạt được, ``L1``–``L4``.
  *     requires: Điều kiện dữ liệu.
- *     options: Tên ô → ô chọn.
+ *     options: Tên mục → mục cấu hình.
  *     constraints: Các tổ hợp không hợp lệ.
- *     presets: Tên preset → giá trị của các ô khác mặc định.
+ *     presets: Tên preset → giá trị của các mục cấu hình khác mặc định.
+ *     preset_help: Tên preset → mô tả ngắn hiện trên Studio (thêm từ ``d2s-approach/0.2``).
+ *     groups: Tên nhóm → nhóm mục cấu hình, theo thứ tự hiện trên Studio; chỉ để hiển thị.
  *     stages: Các bước theo thứ tự chạy, ít nhất một.
  */
 export interface Approach {
@@ -64,6 +73,8 @@ export interface Approach {
   options?: Options;
   constraints?: Constraints;
   presets?: Presets;
+  preset_help?: PresetHelp;
+  groups?: Groups;
   stages: Stages;
 }
 /**
@@ -83,28 +94,39 @@ export interface Options {
   [k: string]: OptionSpec;
 }
 /**
- * Một ô chọn của approach: các lựa chọn thay thế được cho nhau và giá trị mặc định.
+ * Một mục cấu hình của approach: các lựa chọn thay thế được cho nhau và giá trị mặc định.
  *
- * Ví dụ ô ``renderer`` có ``choices: [3dgs, 3dgut, 3dgeer]``. ``default`` có thể là ``"auto"``:
+ * Ví dụ mục cấu hình ``renderer`` có ``choices: [3dgs, 3dgut, 3dgeer]``. ``default`` có thể là ``"auto"``:
  * engine lấy lựa chọn đầu tiên không bị khoá theo dữ liệu (CONTRACTS mục 4.2).
  *
  * Attributes:
  *     choices: Các lựa chọn, ít nhất một, không trùng; thứ tự là thứ tự ưu tiên của ``auto``.
  *     default: Giá trị mặc định: một lựa chọn trong ``choices``, hoặc ``"auto"``.
+ *     label: Tên hiển thị của mục cấu hình trên Studio, ví dụ ``Renderer``; trống thì dùng tên mục cấu hình.
+ *     help: Giải thích ngắn mục này làm gì, hiện trong icon (i) cạnh tên mục cấu hình.
+ *     labels: Tên hiển thị của từng lựa chọn, cùng thứ tự với ``choices``; trống thì hiện giá
+ *         trị (thêm từ ``d2s-approach/0.2``, cùng ``label``, ``help``).
+ *     descriptions: Giải thích từng lựa chọn, cùng thứ tự với ``choices``; hiện trong icon (i).
+ *     group: Nhóm của mục cấu hình trong ``Approach.groups``; Studio hiện các mục cấu hình theo nhóm.
  */
 export interface OptionSpec {
   choices: Choices;
   default: Default;
+  label?: Label;
+  help?: Help;
+  labels?: Labels;
+  descriptions?: Descriptions;
+  group?: Group;
 }
 /**
  * Một tổ hợp lựa chọn không hợp lệ trong approach.
  *
- * Khi mọi ô trong ``when`` có đúng giá trị đó thì cấm mọi giá trị trong ``forbid``. Ví dụ
+ * Khi mọi mục cấu hình trong ``when`` có đúng giá trị đó thì cấm mọi giá trị trong ``forbid``. Ví dụ
  * ``when: {renderer: 3dgeer}, forbid: {campose: true}`` vì 3DGEER không tối ưu được pose camera.
  *
  * Attributes:
- *     when: Ô → giá trị làm ràng buộc có hiệu lực.
- *     forbid: Ô → giá trị bị cấm khi ``when`` khớp.
+ *     when: Mục → giá trị làm ràng buộc có hiệu lực.
+ *     forbid: Mục → giá trị bị cấm khi ``when`` khớp.
  *     reason: Lý do bằng tiếng Việt, hiện cho người dùng khi tổ hợp bị khoá.
  */
 export interface Constraint {
@@ -123,12 +145,29 @@ export interface Presets {
     [k: string]: boolean | number | string;
   };
 }
+export interface PresetHelp {
+  [k: string]: string;
+}
+export interface Groups {
+  [k: string]: OptionGroup;
+}
+/**
+ * Một nhóm mục cấu hình hiện chung một mục trên Studio, ví dụ nhóm thuật toán phụ trợ.
+ *
+ * Attributes:
+ *     label: Tên nhóm.
+ *     help: Giải thích nhóm, hiện trong icon (i) cạnh tên nhóm.
+ */
+export interface OptionGroup {
+  label: Label1;
+  help?: Help1;
+}
 /**
  * Một bước trong danh sách ``stages`` của approach.
  *
  * Attributes:
- *     stage: ``stage_id`` (ví dụ ``prep.select``) hoặc chỗ giữ chỗ ``${options.<ô>}``; chỗ giữ
- *         chỗ được thay bằng lựa chọn của ô trước khi chạy.
+ *     stage: ``stage_id`` (ví dụ ``prep.select``) hoặc chỗ giữ chỗ ``${options.<mục>}``; chỗ giữ
+ *         chỗ được thay bằng lựa chọn của mục cấu hình trước khi chạy.
  *     params: Tham số cho stage; giá trị cũng có thể là chỗ giữ chỗ.
  */
 export interface StageEntry {

@@ -1,4 +1,4 @@
-// Danh sách cảnh dạng thẻ có ảnh đại diện; nút "Thêm cảnh" mở ngăn kéo ingest.
+// Danh sách cảnh dạng thẻ có ảnh đại diện; nút "Nạp cảnh từ dataset" mở ngăn kéo ingest.
 import { Plus, Search } from "lucide-react";
 import { useState } from "react";
 import { useApi } from "../api/client";
@@ -42,17 +42,17 @@ export function ScenesPage() {
     <div className="page">
       <PageHead
         title={t("scenes.page.title")}
-        lede={t("scenes.page.lede")}
+        info={t("scenes.page.lede")}
         actions={
           <>
             {data && data.total > 6 && (
               <label className="row" style={{ position: "relative" }}>
-                <Search size={14} style={{ position: "absolute", left: 9 }} className="faint" />
-                <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("scenes.filter")} style={{ paddingLeft: 28 }} />
+                <Search size={18} style={{ position: "absolute", left: 11 }} className="faint" />
+                <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("scenes.filter")} style={{ paddingLeft: 35 }} />
               </label>
             )}
             <button className="btn primary" onClick={() => setAdding(true)}>
-              <Plus size={16} />
+              <Plus size={20} />
               {t("scenes.action.add")}
             </button>
           </>
@@ -72,7 +72,7 @@ export function ScenesPage() {
             title={t("scenes.empty.title")}
             action={
               <button className="btn primary" onClick={() => setAdding(true)}>
-                <Plus size={16} />
+                <Plus size={20} />
                 {t("scenes.action.add")}
               </button>
             }

@@ -1,12 +1,13 @@
-// Chạy mới (SPEC mục 5 bước 4–5): chọn cảnh, split, approach, preset và các ô chọn; chọn chạy trên
-// máy hay trên Kaggle. Mỗi lần đổi lựa chọn, gọi /check để biết lựa chọn nào bị khoá (gạch và ghi
+// Chạy mới (SPEC mục 5 bước 4–5): chọn cảnh, split, approach, preset và các mục cấu hình; chọn chạy trên
+// máy hay trên Kaggle, train đầy đủ hay thử nhanh. Mỗi lần đổi lựa chọn, gọi /check để biết lựa chọn nào bị khoá (gạch và ghi
 // lý do) và vẽ trước làn stage sẽ chạy, stage nào dùng lại cache. Bấm chạy thì mở màn hình run.
-import { Cloud, Cpu, Database, Play } from "lucide-react";
+import { Cloud, Cpu, Database, Play, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { asApiError, post, seg, useApi, type ApiError } from "../api/client";
 import type { Approach, CheckResult, List, Manifest, OptionValue, RunRecord, SceneDetail } from "../api/types";
+import { KaggleSetup, type KaggleSetupStatus } from "../components/KaggleSetup";
 import { StageRoad } from "../components/StageRoad";
-import { ErrorBox, Note, PageHead, Panel, Segmented, Skeleton } from "../components/ui";
+import { ErrorBox, InfoTip, Note, PageHead, Panel, Segmented, Skeleton } from "../components/ui";
 import { useI18n } from "../i18n";
 import { go, href } from "../router";
 
@@ -20,9 +21,12 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
   const scene = useApi<SceneDetail>(sceneId ? `/api/scenes/${seg(sceneId)}` : null);
   const [splitId, setSplitId] = useState(initialSplit ?? "");
   const [approachId, setApproachId] = useState("");
-  const [preset, setPreset] = useState("");
+  // Chỉ các mục cấu hình người dùng đã chọn khác đi; mục không có ở đây lấy giá trị mặc định của approach.
+  // Preset không lưu riêng: bấm preset là điền các mục cấu hình, còn preset đang dùng được suy ra từ các mục cấu hình.
   const [options, setOptions] = useState<Record<string, OptionValue>>({});
   const [executor, setExecutor] = useState<"local" | "kaggle">("local");
+  const [quick, setQuick] = useState(false);
+  const [kaggleStatus, setKaggleStatus] = useState<KaggleSetupStatus | null>(null);
   const [check, setCheck] = useState<CheckResult | null>(null);
   const [checkError, setCheckError] = useState<ApiError | null>(null);
   const [checking, setChecking] = useState(false);
@@ -30,6 +34,16 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
   const [startError, setStartError] = useState<ApiError | null>(null);
 
   const approach = approaches.data?.items.find((a) => a.approach_id === approachId);
+  const specs = approach?.options ?? {};
+  const raw = (name: string): OptionValue => (name in options ? options[name] : (specs[name]?.default as OptionValue));
+  // Preset khớp khi mọi mục cấu hình đúng bằng giá trị preset (mục preset không ghi thì là mặc định).
+  const matches = (values: Record<string, OptionValue>) =>
+    Object.keys(specs).every((name) => raw(name) === (name in values ? values[name] : specs[name].default));
+  const presetNames = Object.keys(approach?.presets ?? {});
+  const activePreset: string | null = matches({})
+    ? ""
+    : (presetNames.find((name) => matches((approach?.presets ?? {})[name] as Record<string, OptionValue>)) ?? null);
+  const preset = activePreset || null;
 
   // Chọn sẵn cảnh đầu tiên, split đầu tiên của cảnh, approach đầu tiên.
   useEffect(() => {
@@ -41,7 +55,7 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
   useEffect(() => {
     if (!approachId && approaches.data?.items[0]) setApproachId(approaches.data.items[0].approach_id);
   }, [approaches.data, approachId]);
-  useEffect(() => setOptions({}), [approachId, preset]);
+  useEffect(() => setOptions({}), [approachId]);
 
   // Kiểm tra lại mỗi khi lựa chọn đổi.
   useEffect(() => {
@@ -51,14 +65,14 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
     }
     let cancelled = false;
     setChecking(true);
-    post<CheckResult>(`/api/approaches/${seg(approachId)}/check`, { scene_id: sceneId, split_id: splitId, preset: preset || null, options })
+    post<CheckResult>(`/api/approaches/${seg(approachId)}/check`, { scene_id: sceneId, split_id: splitId, preset, options, quick })
       .then((result) => !cancelled && (setCheck(result), setCheckError(null)))
       .catch((err) => !cancelled && (setCheck(null), setCheckError(asApiError(err))))
       .finally(() => !cancelled && setChecking(false));
     return () => {
       cancelled = true;
     };
-  }, [sceneId, splitId, approachId, preset, options]);
+  }, [sceneId, splitId, approachId, preset, options, quick]);
 
   const start = async () => {
     setStarting(true);
@@ -68,8 +82,9 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
         approach_id: approachId,
         scene_id: sceneId,
         split_id: splitId,
-        preset: preset || null,
+        preset,
         options,
+        quick,
         executor,
       });
       go({ page: "run", runId: run.run_id });
@@ -82,11 +97,51 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
   const blockedReason = (option: string, choice: OptionValue) => check?.blocked_choices[option]?.find((b) => b.choice === choice)?.message;
   const decided = check?.options ?? {};
   const cached = check?.stages.filter((s) => s.cache_hit).length ?? 0;
-  const presets = Object.keys(approach?.presets ?? {});
+  // Số iteration của stage train; không có khi lấy theo file config của method (thường 30000).
+  const trainIters = check?.stages.map((s) => s.params.num_iters).find((n) => typeof n === "number") as number | undefined;
+  // Giá trị hiện tại của một mục cấu hình: lấy từ /check (đã quyết định cả "auto"), chưa có thì lấy tạm.
+  const current = (name: string): OptionValue => (name in decided ? decided[name] : raw(name));
+  // Lựa chọn xung đột với các mục cấu hình khác: cùng quy tắc với engine (mọi cặp when và forbid đều khớp).
+  const conflict = (name: string, choice: OptionValue): string | undefined => {
+    for (const constraint of approach?.constraints ?? []) {
+      const pairs = { ...constraint.when, ...constraint.forbid } as Record<string, OptionValue>;
+      if (!(name in pairs)) continue;
+      if (Object.entries(pairs).every(([key, value]) => (key === name ? choice : current(key)) === value)) {
+        const others = Object.entries(pairs)
+          .filter(([key]) => key !== name)
+          .map(([key, value]) => `${optionLabel(key)} ${choiceLabel(key, value)}`)
+          .join(", ");
+        return t("new.option.conflict", { others, reason: constraint.reason });
+      }
+    }
+    return undefined;
+  };
+  const optionLabel = (name: string) => specs[name]?.label ?? name;
+  const choiceLabel = (name: string, choice: OptionValue) => {
+    const spec = specs[name];
+    const index = (spec?.choices as OptionValue[] | undefined)?.indexOf(choice) ?? -1;
+    return spec?.labels?.[index] ?? show(choice);
+  };
+  const presetHelp = (name: string) => approach?.preset_help?.[name];
+  const optionsSummary = (values: Record<string, OptionValue>) =>
+    Object.entries(values)
+      .map(([key, value]) => `${optionLabel(key)} ${choiceLabel(key, value)}`)
+      .join(", ");
+  // Mục không thuộc nhóm nào hiện trước, không có tiêu đề; sau đó từng nhóm theo thứ tự khai báo.
+  const groupMeta = approach?.groups ?? {};
+  const optionGroups = [
+    { id: "", label: "", help: undefined as string | undefined, names: Object.keys(specs).filter((n) => !specs[n].group || !(specs[n].group! in groupMeta)) },
+    ...Object.entries(groupMeta).map(([id, meta]) => ({
+      id,
+      label: meta.label,
+      help: meta.help ?? undefined,
+      names: Object.keys(specs).filter((n) => specs[n].group === id),
+    })),
+  ].filter((group) => group.names.length > 0);
 
   return (
     <div className="page">
-      <PageHead title={t("new.page.title")} lede={t("new.page.lede")} />
+      <PageHead title={t("new.page.title")} info={t("new.page.lede")} />
       <div className="grid-main">
         <div className="stack">
           <Panel title={t("new.section.data")}>
@@ -110,14 +165,14 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
               </label>
             </div>
             {scenes.data?.total === 0 && (
-              <div style={{ marginTop: 12 }}>
+              <div style={{ marginTop: 15 }}>
                 <Note>
                   {t("new.need.scene")} <a href={href({ page: "scenes" })}>{t("nav.menu.scenes")}</a>
                 </Note>
               </div>
             )}
             {scene.data && scene.data.splits.length === 0 && (
-              <div style={{ marginTop: 12 }}>
+              <div style={{ marginTop: 15 }}>
                 <Note kind="warn">
                   {t("new.need.split")} <a href={href({ page: "scene", sceneId })}>{sceneId}</a>
                 </Note>
@@ -135,46 +190,93 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
                 </button>
               ))}
             </div>
-            {approach && (presets.length > 0 || Object.keys(approach.options ?? {}).length > 0) && (
-              <div style={{ marginTop: 14 }}>
-                {presets.length > 0 && (
+            {approach && (presetNames.length > 0 || Object.keys(specs).length > 0) && (
+              <div style={{ marginTop: 18 }}>
+                {presetNames.length > 0 && (
                   <div className="option-row">
-                    <div className="name">{t("new.field.preset")}</div>
-                    <Segmented<string>
-                      label={t("new.field.preset")}
-                      value={preset}
-                      onChange={setPreset}
-                      options={[{ value: "", label: t("new.field.no_preset") }, ...presets.map((p) => ({ value: p, label: p }))]}
-                    />
+                    <div className="name">
+                      {t("new.field.preset")}
+                      <InfoTip>
+                        <span className="stack" style={{ gap: 6 }}>
+                          <span>{t("new.preset.info")}</span>
+                          <span>
+                            <b>{t("new.field.no_preset")}</b>: {t("new.preset.default_help")}
+                          </span>
+                          {presetNames.map((name) => (
+                            <span key={name}>
+                              <b>{name}</b>: {presetHelp(name) ?? optionsSummary((approach.presets ?? {})[name] as Record<string, OptionValue>)}
+                            </span>
+                          ))}
+                        </span>
+                      </InfoTip>
+                    </div>
+                    <div className="row wrap" style={{ gap: 10 }}>
+                      <Segmented<string>
+                        label={t("new.field.preset")}
+                        value={activePreset ?? "\u0000custom"}
+                        onChange={(name) => setOptions(name ? { ...((approach.presets ?? {})[name] as Record<string, OptionValue>) } : {})}
+                        options={[
+                          { value: "", label: t("new.field.no_preset") },
+                          ...presetNames.map((name) => ({ value: name, label: name })),
+                        ]}
+                      />
+                      {activePreset === null && <span className="tag warn">{t("new.preset.custom")}</span>}
+                    </div>
                   </div>
                 )}
-                {Object.entries(approach.options ?? {}).map(([name, spec]) => {
-                  const choices = spec.choices as OptionValue[];
-                  const reasons = [...new Set(choices.map((c) => blockedReason(name, c)).filter(Boolean))];
-                  return (
-                    <div className="option-row" key={name}>
-                      <div className="name">{name}</div>
-                      <div>
-                        <Segmented<OptionValue>
-                          label={name}
-                          value={decided[name]}
-                          onChange={(choice) => setOptions({ ...options, [name]: choice })}
-                          options={choices.map((choice) => ({
-                            value: choice,
-                            label: show(choice),
-                            disabled: Boolean(blockedReason(name, choice)),
-                            title: blockedReason(name, choice),
-                          }))}
-                        />
-                        {reasons.map((reason) => (
-                          <div className="why" key={reason}>
-                            {reason}
+                {optionGroups.map((group) => (
+                  <div key={group.id} className="option-group">
+                    {group.label && (
+                      <h3 className="option-group-title">
+                        {group.label}
+                        {group.help && <InfoTip>{group.help}</InfoTip>}
+                      </h3>
+                    )}
+                    {group.names.map((name) => {
+                      const spec = specs[name];
+                      const choices = spec.choices as OptionValue[];
+                      const reasonOf = (choice: OptionValue) => blockedReason(name, choice) ?? conflict(name, choice);
+                      const blocked = choices
+                        .map((choice) => ({ choice, reason: reasonOf(choice) }))
+                        .filter((item): item is { choice: OptionValue; reason: string } => Boolean(item.reason));
+                      return (
+                        <div className="option-row" key={name}>
+                          <div className="name">
+                            {optionLabel(name)}
+                            <InfoTip>
+                              <span className="stack" style={{ gap: 6 }}>
+                                {spec.help && <span>{spec.help}</span>}
+                                {choices.map((choice, index) =>
+                                  spec.descriptions?.[index] ? (
+                                    <span key={String(choice)}>
+                                      <b>{choiceLabel(name, choice)}</b>: {spec.descriptions[index]}
+                                    </span>
+                                  ) : null,
+                                )}
+                                {blocked.map(({ choice, reason }) => (
+                                  <span key={`blocked-${String(choice)}`} className="muted">
+                                    {t("new.option.blocked", { choice: choiceLabel(name, choice), reason })}
+                                  </span>
+                                ))}
+                              </span>
+                            </InfoTip>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
+                          <Segmented<OptionValue>
+                            label={optionLabel(name)}
+                            value={current(name)}
+                            onChange={(choice) => setOptions({ ...options, [name]: choice })}
+                            options={choices.map((choice) => ({
+                              value: choice,
+                              label: choiceLabel(name, choice),
+                              disabled: Boolean(reasonOf(choice)),
+                              title: reasonOf(choice),
+                            }))}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             )}
           </Panel>
@@ -183,7 +285,7 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
             {checking && !check && <Skeleton height={58} />}
             <ErrorBox error={checkError} />
             {check && (
-              <div className="stack" style={{ gap: 10 }}>
+              <div className="stack" style={{ gap: 12 }}>
                 <StageRoad
                   stages={check.stages.map((s) => ({
                     stage_id: s.stage_id,
@@ -203,8 +305,8 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
 
         <aside className="sticky stack">
           <Panel title={t("new.section.launch")}>
-            <div className="stack" style={{ gap: 14 }}>
-              <dl className="facts" style={{ flexDirection: "column", gap: 8 }}>
+            <div className="stack" style={{ gap: 18 }}>
+              <dl className="facts" style={{ flexDirection: "column", gap: 10 }}>
                 <div>
                   <dt>{t("new.field.scene")}</dt>
                   <dd>{sceneId || "–"}</dd>
@@ -217,13 +319,19 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
                   <dt>{t("new.field.approach")}</dt>
                   <dd>{approach?.name ?? "–"}</dd>
                 </div>
+                {approach && presetNames.length > 0 && (
+                  <div>
+                    <dt>{t("new.field.preset")}</dt>
+                    <dd>{activePreset === null ? t("new.preset.custom") : activePreset || t("new.field.no_preset")}</dd>
+                  </div>
+                )}
                 {check && Object.keys(check.options).length > 0 && (
                   <div>
                     <dt>{t("new.options.title")}</dt>
                     <dd className="small">
                       {Object.entries(check.options).map(([k, v]) => (
                         <div key={k}>
-                          {k}: <b>{show(v)}</b>
+                          {optionLabel(k)}: <b>{choiceLabel(k, v)}</b>
                         </div>
                       ))}
                     </dd>
@@ -231,26 +339,45 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
                 )}
               </dl>
               <div className="field">
-                <span>{t("new.field.executor")}</span>
+                <span>
+                  {t("new.field.training")}
+                  <InfoTip>{t("new.training.info", { iters: trainIters ?? "–" })}</InfoTip>
+                </span>
+                <Segmented<"full" | "quick">
+                  label={t("new.field.training")}
+                  value={quick ? "quick" : "full"}
+                  onChange={(value) => setQuick(value === "quick")}
+                  options={[
+                    { value: "full", label: t("new.training.full") },
+                    { value: "quick", label: <span className="row" style={{ gap: 7 }}><Zap size={16} />{t("new.training.quick")}</span> },
+                  ]}
+                />
+              </div>
+              <div className="field">
+                <span>
+                  {t("new.field.executor")}
+                  <InfoTip>{t("new.executor.info")}</InfoTip>
+                </span>
                 <Segmented<"local" | "kaggle">
                   label={t("new.field.executor")}
                   value={executor}
                   onChange={setExecutor}
                   options={[
-                    { value: "local", label: <span className="row" style={{ gap: 5 }}><Cpu size={13} />{t("new.executor.local")}</span> },
-                    { value: "kaggle", label: <span className="row" style={{ gap: 5 }}><Cloud size={13} />Kaggle</span> },
+                    { value: "local", label: <span className="row" style={{ gap: 7 }}><Cpu size={16} />{t("new.executor.local")}</span> },
+                    { value: "kaggle", label: <span className="row" style={{ gap: 7 }}><Cloud size={16} />Kaggle</span> },
                   ]}
                 />
-                <span className="hint">{t(`new.executor.${executor}_hint`)}</span>
               </div>
+              {executor === "kaggle" && <KaggleSetup onStatus={setKaggleStatus} />}
+              {executor === "kaggle" && kaggleStatus && !kaggleStatus.ready && <Note kind="warn">{t("kaggle.setup.start_warning")}</Note>}
               {cached > 0 && (
                 <div className="row small muted">
-                  <Database size={13} />
+                  <Database size={16} />
                   {t("new.plan.reuse", { count: cached })}
                 </div>
               )}
-              <button className="btn primary" onClick={start} disabled={!check || starting} style={{ height: 38 }}>
-                <Play size={15} />
+              <button className="btn primary" onClick={start} disabled={!check || starting} style={{ height: 47 }}>
+                <Play size={19} />
                 {t(starting ? "new.action.starting" : executor === "kaggle" ? "new.action.start_kaggle" : "new.action.start")}
               </button>
               <ErrorBox error={startError} />

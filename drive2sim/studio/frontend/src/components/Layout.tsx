@@ -22,6 +22,7 @@ import { useI18n } from "../i18n";
 import { useLive } from "../live";
 import { href, type Page, type Route } from "../router";
 import { ActivityDrawer } from "./ActivityDrawer";
+import { InfoTip } from "./ui";
 import { CommandPalette } from "./CommandPalette";
 
 interface MenuItem {
@@ -116,6 +117,7 @@ export function Layout({ route, children }: { route: Route; children: ReactNode 
   const [palette, setPalette] = useState(false);
   const [activity, setActivity] = useState(false);
   const running = useApi<List<RunRecord>>(`/api/runs?status=running&_=${live.tick}`);
+  const studio = useApi<{ workdir: string; demo: boolean }>("/api/studio");
   const runningCount = running.data?.total ?? 0;
   const activeJobs = live.jobs.filter((job) => job.status === "queued" || job.status === "running").length;
   const busy = runningCount + activeJobs;
@@ -141,7 +143,7 @@ export function Layout({ route, children }: { route: Route; children: ReactNode 
       <nav className="nav" aria-label="drive2sim">
         <a className="brand" href="#/">
           <span className="brand-mark" aria-hidden="true">
-            <Gauge size={16} />
+            <Gauge size={20} />
           </span>
           <span className="brand-name">
             drive<b>2</b>sim
@@ -163,8 +165,14 @@ export function Layout({ route, children }: { route: Route; children: ReactNode 
       <div className="main">
         <header className="topbar">
           <Crumbs route={route} />
+          {studio.data?.demo && (
+            <span className="demo-badge">
+              {t("nav.demo.label")}
+              <InfoTip>{t("nav.demo.info", { workdir: studio.data.workdir })}</InfoTip>
+            </span>
+          )}
           <button className="search-button" onClick={() => setPalette(true)}>
-            <Search size={15} />
+            <Search size={19} />
             <span className="label">{t("nav.search.button")}</span>
             <kbd>Ctrl K</kbd>
           </button>
@@ -173,14 +181,14 @@ export function Layout({ route, children }: { route: Route; children: ReactNode 
             {busy ? t("nav.activity.busy", { count: busy }) : t("nav.activity.idle")}
           </button>
           <button className="btn ghost icon" onClick={nextTheme} title={t(`nav.theme.${theme}`)} aria-label={t(`nav.theme.${theme}`)}>
-            <ThemeIcon size={16} />
+            <ThemeIcon size={20} />
           </button>
           <button
             className="btn ghost sm"
             onClick={() => setLocale(locale === "vi" ? "en" : "vi")}
             title={t("nav.menu.language")}
           >
-            <Languages size={15} />
+            <Languages size={19} />
             {locale === "vi" ? "VI" : "EN"}
           </button>
         </header>

@@ -1,17 +1,19 @@
 // Một run: trạng thái và hành động ở đầu trang (huỷ, chạy tiếp, xuất, xem 3D, Kaggle, xoá); làn
 // stage cập nhật trực tiếp qua SSE; các tab kết quả, metric trong lúc train, stage, video, log, Kaggle.
-import { Box, Cloud, CloudDownload, CloudUpload, Download, RotateCcw, Square, Trash2 } from "lucide-react";
+import { Box, Cloud, CloudDownload, CloudUpload, Download, RotateCcw, Square, Trash2, Zap } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { asApiError, del, post, seg, useApi } from "../api/client";
-import type { KaggleStatus, List, RunDetail, RunEvent, RunLog, Splats, Video } from "../api/types";
+import type { EnvRecord, KaggleStatus, List, ReportRow, RunDetail, RunEvent, RunLog, Splats, Video } from "../api/types";
 import { LineChart, type Point } from "../components/charts";
+import { RunArtifacts } from "../components/RunArtifacts";
 import { StageRoad } from "../components/StageRoad";
-import { ago, Confirm, duration, Empty, ErrorBox, fixed, Loading, Note, optionsText, PageHead, Status, Tabs, useToast } from "../components/ui";
+import { ago, Confirm, count, duration, Empty, ErrorBox, fixed, InfoTip, Loading, Note, optionsText, PageHead, Status, Tabs, useToast } from "../components/ui";
 import { useI18n } from "../i18n";
 import { useLive } from "../live";
+import { BetterArrow, visibleGroups } from "../metrics";
 import { go, href } from "../router";
 
-type Tab = "result" | "metrics" | "stages" | "videos" | "logs" | "kaggle";
+type Tab = "result" | "metrics" | "stages" | "artifacts" | "videos" | "logs" | "kaggle";
 
 /** Theo dõi sự kiện SSE của một run; gọi onDone khi run kết thúc. */
 function useRunEvents(runId: string, onDone: () => void) {
@@ -51,7 +53,15 @@ export function RunPage({ runId }: { runId: string }) {
   const log = useApi<RunLog>(`${base}/log`);
   const videos = useApi<List<Video>>(`${base}/videos`);
   const splats = useApi<Splats>(`${base}/splats`);
+  // Một dòng của bảng so sánh: cùng cách tính thời gian, số Gaussian, file PLY với trang so sánh.
+  const report = useApi<List<ReportRow>>(`/api/report?run_id=${encodeURIComponent(runId)}`);
+
   const [tab, setTab] = useState<Tab>("result");
+  // Đường cong train đọc từ metrics.json: dùng khi không có số liệu trực tiếp (run đã xong).
+  const curve = useApi<{ series: Record<string, [number, number][]> }>(tab === "metrics" ? `${base}/curve` : null);
+  const curveSeries = Object.entries(curve.data?.series ?? {}).map(
+    ([name, rows]) => [name, rows.map(([x, y]) => ({ x, y }))] as [string, Point[]],
+  );
   const [logStage, setLogStage] = useState("__engine__");
   const [deleting, setDeleting] = useState(false);
   const refresh = () => {
@@ -59,6 +69,7 @@ export function RunPage({ runId }: { runId: string }) {
     log.reload();
     videos.reload();
     splats.reload();
+    report.reload();
   };
   const live = useRunEvents(runId, refresh);
   // Run khác xong hoặc đổi trạng thái (ví dụ việc Kaggle tải về xong) cũng làm mới trang này.
@@ -93,21 +104,24 @@ export function RunPage({ runId }: { runId: string }) {
   };
 
   const summary = data.summary;
-  // summary.json có thể không ghi thời gian train và VRAM; lấy từ stage train của run.
-  const train = stages.find((s) => s.stage_id.startsWith("train."));
-  const trainTime = summary?.train_time_s ?? train?.duration_s ?? null;
-  const peakVram = summary?.peak_vram_mb ?? Math.max(0, ...stages.map((s) => s.peak_vram_mb ?? 0));
+  const row = report.data?.items[0];
   return (
     <div className="page">
       <PageHead
         title={data.run_id}
         meta={
           <>
-            <div className="row wrap" style={{ gap: 10 }}>
+            <div className="row wrap" style={{ gap: 12 }}>
               <Status value={status} />
+              {data.approach.quick && (
+                <span className="tag warn" title={t("run.quick_hint")}>
+                  <Zap size={15} />
+                  {t("run.quick")}
+                </span>
+              )}
               {data.executor === "kaggle" && (
                 <span className="tag info">
-                  <Cloud size={12} />
+                  <Cloud size={15} />
                   Kaggle
                 </span>
               )}
@@ -130,6 +144,17 @@ export function RunPage({ runId }: { runId: string }) {
                 <dt>{t("run.facts.options")}</dt>
                 <dd>{optionsText(data.approach.options ?? {}) || "–"}</dd>
               </div>
+              <div>
+                <dt>{t("run.facts.machine")}</dt>
+                <dd className="row" style={{ gap: 2 }}>
+                  {machineText(data.env, t("run.facts.no_gpu"))}
+                  {(data.env?.machines ?? []).length > 0 && data.env && (
+                    <InfoTip>
+                      <MachineInfo env={data.env} />
+                    </InfoTip>
+                  )}
+                </dd>
+              </div>
             </dl>
           </>
         }
@@ -137,35 +162,45 @@ export function RunPage({ runId }: { runId: string }) {
           <>
             {!active && (
               <button className="btn ghost icon" onClick={() => setDeleting(true)} title={t("common.action.delete")} aria-label={t("common.action.delete")}>
-                <Trash2 size={16} />
+                <Trash2 size={20} />
               </button>
             )}
             {active && (
               <button className="btn danger" onClick={() => action(t("run.toast.cancel_requested"), `${base}/cancel`)}>
-                <Square size={14} />
+                <Square size={18} />
                 {t("run.action.cancel")}
               </button>
             )}
             {(status === "failed" || status === "cancelled") && data.executor === "local" && (
               <button className="btn" onClick={() => action(t("run.toast.resumed"), `${base}/resume`)}>
-                <RotateCcw size={15} />
+                <RotateCcw size={19} />
                 {t("run.action.resume")}
               </button>
             )}
             {status === "succeeded" && (
               <>
-                <button className="btn" onClick={() => action(t("run.toast.export", { kind: "PLY" }), `${base}/export`, { kind: "ply" })}>
-                  <Download size={15} />
-                  {t("run.action.export_ply")}
+                {/* Run thường đã có cả hai (stage mặc định của approach); khi đó nút chỉ để xuất lại,
+                    ví dụ sau khi stage export lỗi hay code export vừa sửa, nên làm mờ đi. */}
+                <button
+                  className={`btn${splats.data?.ply ? " ghost" : ""}`}
+                  title={splats.data?.ply ? t("run.action.reexport_hint") : undefined}
+                  onClick={() => action(t("run.toast.export", { kind: "PLY" }), `${base}/export`, { kind: "ply" })}
+                >
+                  <Download size={19} />
+                  {t(splats.data?.ply ? "run.action.reexport_ply" : "run.action.export_ply")}
                 </button>
-                <button className="btn" onClick={() => action(t("run.toast.export", { kind: "preview" }), `${base}/export`, { kind: "preview" })}>
-                  <Download size={15} />
-                  {t("run.action.export_preview")}
+                <button
+                  className={`btn${splats.data?.preview ? " ghost" : ""}`}
+                  title={splats.data?.preview ? t("run.action.reexport_hint") : undefined}
+                  onClick={() => action(t("run.toast.export", { kind: "preview" }), `${base}/export`, { kind: "preview" })}
+                >
+                  <Download size={19} />
+                  {t(splats.data?.preview ? "run.action.reexport_preview" : "run.action.export_preview")}
                 </button>
               </>
             )}
             <a className={`btn${hasSplats ? " primary" : ""}`} href={href({ page: "viewer", runId })} aria-disabled={!hasSplats}>
-              <Box size={15} />
+              <Box size={19} />
               {t("run.action.view3d")}
             </a>
           </>
@@ -181,7 +216,9 @@ export function RunPage({ runId }: { runId: string }) {
             s.status === "running" && live.progress?.stage === s.stage_id
               ? `${live.progress.fraction != null ? `${Math.round(live.progress.fraction * 100)}% ` : ""}${live.progress.message}`
               : s.cache_hit && s.status === "succeeded"
-                ? t("run.stages.from_cache")
+                ? s.reused_duration_s
+                  ? t("run.stages.from_cache_time", { time: duration(s.reused_duration_s) })
+                  : t("run.stages.from_cache")
                 : s.duration_s
                   ? `${t(`common.status.${s.status}`)}, ${duration(s.duration_s)}`
                   : undefined,
@@ -206,6 +243,7 @@ export function RunPage({ runId }: { runId: string }) {
             { value: "result", label: t("run.tab.result") },
             { value: "metrics", label: t("run.tab.metrics"), badge: Object.keys(live.metrics).length || null },
             { value: "stages", label: t("run.tab.stages"), badge: stages.length },
+            { value: "artifacts", label: t("run.tab.artifacts") },
             { value: "videos", label: t("run.tab.videos"), badge: videos.data?.total || null },
             { value: "logs", label: t("run.tab.logs") },
             ...(data.executor === "kaggle" ? [{ value: "kaggle" as Tab, label: "Kaggle" }] : []),
@@ -219,42 +257,39 @@ export function RunPage({ runId }: { runId: string }) {
               </Empty>
             ) : (
               <div className="stack">
-                <div className="panel">
-                  <div className="stat-row">
-                    <div className="stat">
-                      <div className="label">PSNR</div>
-                      <div className="value">{fixed(summary.overall.psnr)}<small>dB</small></div>
-                    </div>
-                    <div className="stat">
-                      <div className="label">SSIM</div>
-                      <div className="value">{fixed(summary.overall.ssim, 3)}</div>
-                    </div>
-                    <div className="stat">
-                      <div className="label">LPIPS</div>
-                      <div className="value">{fixed(summary.overall.lpips, 3)}</div>
-                    </div>
-                    {summary.overall.human_psnr != null && (
-                      <div className="stat">
-                        <div className="label">{t("run.result.human")}</div>
-                        <div className="value">{fixed(summary.overall.human_psnr)}</div>
+                {row &&
+                  visibleGroups([row]).map((group) => (
+                    <section key={group.id} className="stack" style={{ gap: 8 }}>
+                      <h3 className="small muted row" style={{ gap: 2 }}>
+                        {t(group.label)}
+                        <InfoTip>
+                          {t(group.hint)}
+                          {group.id === "quality" &&
+                            " " +
+                              t("run.result.protocol", {
+                                net: summary.protocol.lpips.net,
+                                package: summary.protocol.lpips.package,
+                                version: summary.protocol.lpips.package_version,
+                                resolution: summary.protocol.resolution,
+                              })}
+                        </InfoTip>
+                      </h3>
+                      <div className="panel">
+                        <div className="stat-row">
+                          {group.metrics.map((metric) => (
+                            <Stat
+                              key={metric.key}
+                              better={metric.better}
+                              label={t(metric.label)}
+                              hint={metric.hint ? t(metric.hint, { resolution: summary.render_resolution ?? "–" }) : undefined}
+                              value={metric.format(row)}
+                              unit={metric.unit}
+                            />
+                          ))}
+                        </div>
                       </div>
-                    )}
-                    {summary.overall.vehicle_psnr != null && (
-                      <div className="stat">
-                        <div className="label">{t("run.result.vehicle")}</div>
-                        <div className="value">{fixed(summary.overall.vehicle_psnr)}</div>
-                      </div>
-                    )}
-                    <div className="stat">
-                      <div className="label">{t("run.result.train_time")}</div>
-                      <div className="value">{duration(trainTime)}</div>
-                    </div>
-                    <div className="stat">
-                      <div className="label">{t("run.result.vram")}</div>
-                      <div className="value">{peakVram ? (peakVram / 1024).toFixed(1) : "–"}<small>GB</small></div>
-                    </div>
-                  </div>
-                </div>
+                    </section>
+                  ))}
                 {summary.per_camera && Object.keys(summary.per_camera).length > 0 && (
                   <div className="table-wrap">
                     <table>
@@ -279,22 +314,28 @@ export function RunPage({ runId }: { runId: string }) {
                     </table>
                   </div>
                 )}
-                <p className="muted small">
-                  {t("run.result.protocol", {
-                    net: summary.protocol.lpips.net,
-                    package: summary.protocol.lpips.package,
-                    version: summary.protocol.lpips.package_version,
-                    resolution: summary.protocol.resolution,
-                  })}
-                </p>
               </div>
             ))}
 
           {tab === "metrics" &&
             (Object.keys(live.metrics).length === 0 ? (
-              <Empty title={t("run.metrics.none")}>
-                <p>{t("run.metrics.hint")}</p>
-              </Empty>
+              curveSeries.length > 0 ? (
+                <div className="grid-2">
+                  {curveSeries.map(([name, points]) => (
+                    <figure key={name} style={{ margin: 0 }}>
+                      <figcaption className="row">
+                        <b className="grow">{t(`run.curve.${name}`)}</b>
+                        <span className="dense muted">{name === "gaussians" ? count(points[points.length - 1].y) : points[points.length - 1].y.toFixed(name === "loss" ? 4 : 2)}</span>
+                      </figcaption>
+                      <LineChart points={points} label={t(`run.curve.${name}`)} xLabel={t("run.curve.step")} />
+                    </figure>
+                  ))}
+                </div>
+              ) : (
+                <Empty title={t("run.metrics.none")}>
+                  <p>{t("run.metrics.hint")}</p>
+                </Empty>
+              )
             ) : (
               <div className="grid-2">
                 {Object.entries(live.metrics).map(([name, points]) => (
@@ -328,7 +369,15 @@ export function RunPage({ runId }: { runId: string }) {
                       <td className="id">{s.stage_id}</td>
                       <td><Status value={s.status} /></td>
                       <td className="small muted">{s.cache_hit ? t("run.stages.reused") : ""}</td>
-                      <td className="num">{duration(s.duration_s)}</td>
+                      <td className="num">
+                        {s.cache_hit ? (
+                          <span className="muted" title={t("run.stages.original_hint")}>
+                            {s.reused_duration_s ? t("run.stages.original", { time: duration(s.reused_duration_s) }) : "–"}
+                          </span>
+                        ) : (
+                          duration(s.duration_s)
+                        )}
+                      </td>
                       <td className="num">{s.peak_vram_mb || "–"}</td>
                       <td className="small muted">{optionsText((s.params ?? {}) as Record<string, unknown>) || "–"}</td>
                     </tr>
@@ -337,6 +386,8 @@ export function RunPage({ runId }: { runId: string }) {
               </table>
             </div>
           )}
+
+          {tab === "artifacts" && <RunArtifacts runId={runId} />}
 
           {tab === "videos" &&
             ((videos.data?.items ?? []).length === 0 ? (
@@ -421,7 +472,7 @@ function KagglePanel({ runId }: { runId: string }) {
     }
   };
   return (
-    <div className="stack" style={{ gap: 12 }}>
+    <div className="stack" style={{ gap: 15 }}>
       {state.error && state.error.code !== "kaggle_failed" && <ErrorBox error={state.error} />}
       {state.error?.code === "kaggle_failed" && <Note kind="warn">{state.error.message}</Note>}
       {state.data && (
@@ -452,15 +503,64 @@ function KagglePanel({ runId }: { runId: string }) {
       )}
       <div className="row wrap">
         <button className="btn" onClick={() => job("push")}>
-          <CloudUpload size={15} />
+          <CloudUpload size={19} />
           {t("run.kaggle.push")}
         </button>
         <button className="btn" onClick={() => job("pull")} disabled={!state.data}>
-          <CloudDownload size={15} />
+          <CloudDownload size={19} />
           {t("run.kaggle.pull")}
         </button>
+        <InfoTip>{t("run.kaggle.hint")}</InfoTip>
       </div>
-      <p className="muted small">{t("run.kaggle.hint")}</p>
     </div>
+  );
+}
+
+/** Một mục cấu hình số liệu; ``hint`` hiện khi rê chuột vào nhãn. */
+function Stat({ label, value, unit, hint, better }: { label: string; value: string; unit?: string; hint?: string; better?: "high" | "low" }) {
+  return (
+    <div className="stat">
+      <div className="label">
+        <span className="ellipsis">{label}</span>
+        <BetterArrow better={better} />
+        {hint && <InfoTip>{hint}</InfoTip>}
+      </div>
+      <div className="value">
+        {value}
+        {unit && value !== "–" && <small>{unit}</small>}
+      </div>
+    </div>
+  );
+}
+
+/** GPU của các máy đã chạy run, ví dụ "Tesla T4 · 15 GB"; "–" khi run chưa chạy. */
+function machineText(env: EnvRecord | null, noGpu: string): string {
+  const machines = env?.machines ?? [];
+  if (!machines.length) return "–";
+  const names = [...new Set(machines.map((m) => (m.gpu ? `${(m.gpu_count ?? 0) > 1 ? `${m.gpu_count}× ` : ""}${m.gpu}` : noGpu)))];
+  return names.join(" + ");
+}
+
+/** Nội dung icon giải thích: cấu hình từng máy đã chạy run và phiên bản gói. */
+function MachineInfo({ env }: { env: EnvRecord }) {
+  const { t, locale } = useI18n();
+  const machines = env.machines ?? [];
+  return (
+    <span className="stack" style={{ gap: 10 }}>
+      {machines.length > 1 && <span>{t("run.machine.several", { count: machines.length })}</span>}
+      {machines.map((m, index) => (
+        <span key={index} className="machine">
+          {machines.length > 1 && <b>{t("run.machine.since", { when: ago(m.first_seen_utc ?? null, locale) })}</b>}
+          <span>GPU: {m.gpu ? `${(m.gpu_count ?? 0) > 1 ? `${m.gpu_count}× ` : ""}${m.gpu}${m.gpu_memory_mb ? `, ${(m.gpu_memory_mb / 1024).toFixed(0)} GB` : ""}` : t("run.facts.no_gpu")}</span>
+          {m.gpu_driver && <span>{t("run.machine.driver")}: {m.gpu_driver}</span>}
+          <span>CPU: {m.cpu ?? "–"}{m.cpu_cores ? `, ${t("run.machine.threads", { count: m.cpu_cores })}` : ""}</span>
+          <span>RAM: {m.ram_gb != null ? `${m.ram_gb} GB` : "–"}</span>
+          {m.os && <span>{t("run.machine.os")}: {m.os}</span>}
+        </span>
+      ))}
+      <span className="muted">
+        Python {env.python}, PyTorch {env.pytorch ?? "–"}, CUDA {env.cuda ?? "–"}, gsplat {env.gsplat ?? "–"}
+      </span>
+    </span>
   );
 }

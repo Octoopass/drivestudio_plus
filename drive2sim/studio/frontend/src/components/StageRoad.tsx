@@ -13,11 +13,11 @@ export interface RoadStage {
 }
 
 function StageIcon({ stage }: { stage: RoadStage }) {
-  if (stage.cached) return <Database size={12} />;
-  if (stage.status === "succeeded") return <Check size={12} />;
-  if (stage.status === "failed") return <X size={12} />;
-  if (stage.status === "running") return <Loader2 size={12} />;
-  return <CircleDashed size={12} />;
+  if (stage.cached) return <Database size={15} />;
+  if (stage.status === "succeeded") return <Check size={15} />;
+  if (stage.status === "failed") return <X size={15} />;
+  if (stage.status === "running") return <Loader2 size={15} />;
+  return <CircleDashed size={15} />;
 }
 
 export function StageRoad({ stages }: { stages: RoadStage[] }) {

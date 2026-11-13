@@ -4,17 +4,61 @@
 (``/api/jobs``); hỏi trạng thái thì trả lời ngay.
 
 File này chứa:
+- ``GET /api/kaggle/setup/status``: kiểm tra lệnh ``kaggle``, khoá API, tài khoản, giờ GPU còn lại
+  và code đã push chưa (``drive2sim/kaggle/setup.py``).
+- ``POST /api/kaggle/setup/token``: lưu khoá API vào thư mục cấu hình của Kaggle.
 - ``GET /api/kaggle/{run_id}``: ``kaggle.json`` của run cộng trạng thái notebook.
 - ``POST /api/kaggle/{run_id}/push``: đẩy (lần sau chạy tiếp); trả ``202`` kèm việc.
 - ``POST /api/kaggle/{run_id}/pull``: tải kết quả về; trả ``202`` kèm việc.
 """
 
-from fastapi import APIRouter, Request
+from typing import Optional
 
-from drive2sim.kaggle import executor
+from fastapi import APIRouter, Request
+from pydantic import BaseModel, ConfigDict, Field
+
+from drive2sim.kaggle import executor, setup
 from drive2sim.studio.api.state import StudioState, state_of
 
 router = APIRouter(prefix="/api/kaggle", tags=["kaggle"])
+
+
+class TokenBody(BaseModel):
+    """Khoá API người dùng nhập trên Studio.
+
+    Attributes:
+        token: Token mới (``KGAT_...``) hoặc khoá kiểu cũ.
+        username: Tên người dùng Kaggle; chỉ cần với khoá kiểu cũ.
+        replace: Cho phép ghi đè khoá đã có.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    token: str = Field(min_length=1, max_length=512, repr=False)
+    username: Optional[str] = None
+    replace: bool = False
+
+
+@router.get("/setup/status")
+def setup_status() -> dict:
+    """Kiểm tra Kaggle đã sẵn sàng chạy run chưa; gọi ``kaggle quota`` (chỉ đọc).
+
+    Returns:
+        Kết quả ``setup.check`` (``ready``, ``cli``, ``credentials``, ``account``, ``gpu``,
+        ``code``).
+    """
+    return setup.check()
+
+
+@router.post("/setup/token")
+def setup_token(body: TokenBody) -> dict:
+    """Lưu khoá API vào thư mục cấu hình của Kaggle CLI (quyền ``600``); không trả lại khoá.
+
+    Returns:
+        ``{"kind", "path"}``. Khoá sai dạng trả ``400``; đã có khoá mà ``replace`` là ``false``
+        trả ``409``.
+    """
+    return setup.save_token(body.token, body.username, body.replace)
 
 
 def submit_push(state: StudioState, run_id: str) -> dict:

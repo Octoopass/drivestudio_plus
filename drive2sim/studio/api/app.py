@@ -21,6 +21,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, ConfigDict, Field
 
 from drive2sim.engine.cache import CacheBusyError
 from drive2sim.engine.housekeeping import InUseError
@@ -30,8 +31,12 @@ from drive2sim.engine.scenes import SplitError, SplitExistsError
 from drive2sim.engine.workdir import Workdir, WorkdirError
 from drive2sim.ingest.dispatch import IngestRequestError
 from drive2sim.kaggle.client import KaggleError
+from drive2sim.kaggle.setup import CredentialExistsError
 from drive2sim.studio.api.events import EventBroker
 from drive2sim.studio.api.jobs import BackgroundJobs, RunQueue
+from drive2sim.studio.api.kaggle_watch import KaggleWatcher
+from drive2sim.studio.api.picker import PickerError, pick_folder
+from drive2sim.studio.api.reveal import RevealError, reveal
 from drive2sim.studio.api.routes import approaches, cache, kaggle, report, runs, scenes, sources
 from drive2sim.studio.api.state import StudioState
 
@@ -84,6 +89,10 @@ def _install_error_handlers(app: FastAPI) -> None:
     async def invalid_ingest(request: Request, error: IngestRequestError) -> JSONResponse:
         return error_response(400, "invalid_request", str(error))
 
+    @app.exception_handler(CredentialExistsError)
+    async def credential_exists(request: Request, error: CredentialExistsError) -> JSONResponse:
+        return error_response(409, "conflict", str(error))
+
     @app.exception_handler(KaggleError)
     async def kaggle_failed(request: Request, error: KaggleError) -> JSONResponse:
         return error_response(502, "kaggle_failed", str(error))
@@ -125,6 +134,7 @@ def create_app(
     workdir: Workdir,
     registry: StageRegistry = REGISTRY,
     frontend_dir: Optional[Path] = FRONTEND_DIST,
+    kaggle_watch_s: Optional[float] = None,
 ) -> FastAPI:
     """Dựng ứng dụng Studio.
 
@@ -132,6 +142,8 @@ def create_app(
         workdir: Thư mục làm việc.
         registry: Bảng stage; test truyền bảng riêng có stage giả.
         frontend_dir: Thư mục giao diện đã build (``npm run build``); phục vụ ở ``/`` nếu có.
+        kaggle_watch_s: Có thì cứ chừng ấy giây hỏi trạng thái các run trên Kaggle và tự tải kết
+            quả về khi notebook xong (``KaggleWatcher``); ``None`` thì không theo dõi (test).
 
     Returns:
         Ứng dụng FastAPI.
@@ -141,8 +153,14 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        """Khi tắt Studio, chờ run đang chạy xong rồi mới thoát."""
+        """Bật theo dõi Kaggle khi mở; khi tắt Studio, chờ run đang chạy xong rồi mới thoát."""
+        watcher = None
+        if kaggle_watch_s:
+            watcher = KaggleWatcher(workdir, app.state.studio.jobs, interval_s=kaggle_watch_s)
+            watcher.start()
         yield
+        if watcher is not None:
+            watcher.stop()
         app.state.studio.queue.shutdown()
         app.state.studio.jobs.shutdown()
 
@@ -159,6 +177,49 @@ def create_app(
     _install_error_handlers(app)
     for module in (sources, scenes, approaches, runs, report, cache, kaggle):
         app.include_router(module.router)
+
+    class RevealBody(BaseModel):
+        """Đường dẫn cần mở, tương đối với thư mục làm việc."""
+
+        model_config = ConfigDict(extra="forbid")
+        path: str = Field(min_length=1, max_length=1024)
+
+    @app.post("/api/reveal")
+    def reveal_path(body: RevealBody) -> dict:
+        """Mở file hoặc thư mục trong trình quản lý file của máy chạy Studio.
+
+        Returns:
+            ``{"path": <đường dẫn tuyệt đối đã mở>}``; không mở được thì ``409`` kèm lý do.
+        """
+        try:
+            return {"path": str(reveal(workdir, body.path))}
+        except RevealError as error:
+            raise HTTPException(409, str(error)) from None
+
+    class PickFolderBody(BaseModel):
+        start: Optional[str] = Field(default=None, max_length=1024)
+
+    @app.post("/api/pick-folder")
+    def pick_folder_route(body: PickFolderBody) -> dict:
+        """Mở hộp thoại chọn thư mục của hệ điều hành trên máy chạy Studio và chờ người dùng chọn.
+
+        Returns:
+            ``{"path": <thư mục đã chọn>}``, ``path`` là ``null`` nếu người dùng đóng hộp thoại;
+            máy không mở được hộp thoại thì ``409`` kèm lý do.
+        """
+        try:
+            return {"path": pick_folder(body.start)}
+        except PickerError as error:
+            raise HTTPException(409, str(error)) from None
+
+    @app.get("/api/studio")
+    def studio_info() -> dict:
+        """Thông tin của Studio đang chạy: thư mục làm việc, và có phải dữ liệu mẫu không.
+
+        Returns:
+            ``{"workdir": <đường dẫn>, "demo": <true nếu là thư mục dữ liệu mẫu>}``.
+        """
+        return {"workdir": str(workdir.root), "demo": workdir.is_demo}
 
     @app.get("/files/{path:path}")
     def serve_file(path: str) -> FileResponse:

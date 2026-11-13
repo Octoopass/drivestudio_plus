@@ -1,17 +1,27 @@
-// Xem 3D trong trình duyệt bằng Spark: mở gói xem trước của một run (nền tĩnh và từng xe, phát lại
-// xe theo khung), mở scene.ply của run, hoặc kéo thả một file splat bất kỳ trên máy (.ply, .spz,
-// .splat, .ksplat, .sog); file kéo thả chỉ đọc trong trình duyệt, không gửi lên server.
-import { Box, Crosshair, FileUp, Pause, Play } from "lucide-react";
+// Xem 3D: bốn mode cho một run, cộng kéo thả file.
+// - Gói xem trước: Spark vẽ trong trình duyệt nền tĩnh và từng xe, phát lại xe theo khung.
+// - Cảnh tĩnh: Spark vẽ scene.ply của run.
+// - Video: phát các video MP4 mà stage train đã render theo camera gốc (đầy đủ mọi phần của model).
+// - Render GPU: renderer của DriveStudio vẽ từ checkpoint trên máy chạy Studio; hiện mới có bước
+//   kiểm tra máy (GET /api/runs/{id}/render-check), phần render trực tiếp chưa làm.
+// File kéo thả (.ply, .spz, .splat, .ksplat, .sog) chỉ đọc trong trình duyệt, không gửi lên server.
+import { Box, CheckCircle2, Crosshair, FileUp, Pause, Play, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, seg, useApi } from "../api/client";
-import type { ActorPoses, List, RunRecord, Splats } from "../api/types";
-import { ErrorBox, Note, PageHead, Segmented } from "../components/ui";
+import type { ActorPoses, List, RunRecord, Splats, Video } from "../api/types";
+import { ErrorBox, InfoTip, Note, PageHead, Segmented } from "../components/ui";
 import { useI18n } from "../i18n";
 import { go } from "../router";
 import { SplatViewer, type SplatSource, type UpAxis } from "../viewer/engine";
 
 const ACCEPT = ".ply,.spz,.splat,.ksplat,.sog,.zip";
-type Source = "preview" | "ply" | "file";
+type Source = "preview" | "ply" | "video" | "gpu" | "file";
+const SPLAT_SOURCES: Source[] = ["preview", "ply", "file"];
+
+interface RenderCheck {
+  ready: boolean;
+  checks: { id: string; ok: boolean; value: string | null }[];
+}
 
 export function ViewerPage({ runId }: { runId?: string }) {
   const { t } = useI18n();
@@ -20,7 +30,9 @@ export function ViewerPage({ runId }: { runId?: string }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const runs = useApi<List<RunRecord>>("/api/runs?status=succeeded");
   const splats = useApi<Splats>(runId ? `/api/runs/${seg(runId)}/splats` : null);
+  const videos = useApi<List<Video>>(runId ? `/api/runs/${seg(runId)}/videos` : null);
   const [source, setSource] = useState<Source | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string>("");
   const [file, setFile] = useState<File | null>(null);
   const [up, setUp] = useState<UpAxis>("z");
   const [sh, setSh] = useState(3);
@@ -43,11 +55,13 @@ export function ViewerPage({ runId }: { runId?: string }) {
     return () => viewer.current?.dispose();
   }, []);
 
-  // Chọn sẵn nguồn tốt nhất khi run có file xem được.
+  // Chọn sẵn mode tốt nhất mà run có: gói xem trước, rồi cảnh tĩnh, rồi video, cuối cùng Render GPU
+  // (luôn chọn được để xem máy còn thiếu gì).
   useEffect(() => {
-    if (!splats.data) return;
-    setSource(splats.data.preview ? "preview" : splats.data.ply ? "ply" : null);
-  }, [splats.data]);
+    if (!splats.data || !videos.data) return;
+    setSource(splats.data.preview ? "preview" : splats.data.ply ? "ply" : videos.data.items.length ? "video" : "gpu");
+    setVideoUrl(videos.data.items[0]?.url ?? "");
+  }, [splats.data, videos.data]);
 
   // Nạp nguồn đã chọn.
   useEffect(() => {
@@ -111,10 +125,12 @@ export function ViewerPage({ runId }: { runId?: string }) {
   };
 
   const preview = splats.data?.preview;
+  const splatMode = !!source && SPLAT_SOURCES.includes(source);
   const nothing = !source || (source === "file" && !file);
+  const videoItems = videos.data?.items ?? [];
   return (
     <div className="page" style={{ maxWidth: "none" }}>
-      <PageHead title={t("viewer.page.title")} lede={t("viewer.page.lede")} />
+      <PageHead title={t("viewer.page.title")} info={t("viewer.page.lede")} />
       <div className="viewer">
         <aside className="viewer-side">
           <label className="field">
@@ -127,22 +143,49 @@ export function ViewerPage({ runId }: { runId?: string }) {
             </select>
           </label>
           <ErrorBox error={splats.error} />
-          {runId && splats.data && !splats.data.preview && !splats.data.ply && (
-            <Note kind="warn">{t("viewer.note.no_export")}</Note>
-          )}
-          {runId && splats.data && (splats.data.preview || splats.data.ply) && (
+          {runId && splats.data && (
             <div className="field">
-              <span>{t("viewer.field.source")}</span>
-              <Segmented<Source>
-                label={t("viewer.field.source")}
-                value={source ?? undefined}
-                onChange={setSource}
-                options={[
-                  { value: "preview", label: t("viewer.source.preview"), disabled: !splats.data.preview },
-                  { value: "ply", label: "scene.ply", disabled: !splats.data.ply },
-                ]}
-              />
+              <span>
+                {t("viewer.field.source")}
+                <InfoTip>{t("viewer.mode.hint")}</InfoTip>
+              </span>
+              <div className="mode-list" role="radiogroup" aria-label={t("viewer.field.source")}>
+                {(
+                  [
+                    ["preview", !!splats.data.preview],
+                    ["ply", !!splats.data.ply],
+                    ["video", videoItems.length > 0],
+                    ["gpu", true],
+                  ] as [Source, boolean][]
+                ).map(([value, available]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={source === value}
+                    className={source === value ? "active" : undefined}
+                    disabled={!available}
+                    title={available ? undefined : t(`viewer.mode.${value}.missing`)}
+                    onClick={() => setSource(value)}
+                  >
+                    <b>{t(`viewer.mode.${value}`)}</b>
+                    <span className="small muted">{available ? t(`viewer.mode.${value}.sub`) : t(`viewer.mode.${value}.missing`)}</span>
+                  </button>
+                ))}
+              </div>
             </div>
+          )}
+          {source === "video" && videoItems.length > 1 && (
+            <label className="field">
+              <span>{t("viewer.field.video")}</span>
+              <select value={videoUrl} onChange={(e) => setVideoUrl(e.target.value)}>
+                {videoItems.map((v) => (
+                  <option key={v.url} value={v.url}>
+                    {v.name}
+                  </option>
+                ))}
+              </select>
+            </label>
           )}
           <div
             className="drop"
@@ -152,7 +195,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
               openFile(e.dataTransfer.files[0]);
             }}
           >
-            <FileUp size={18} />
+            <FileUp size={23} />
             <span className="small">{t("viewer.drop.text")}</span>
             <button className="btn sm" onClick={() => fileInput.current?.click()}>
               {t("viewer.drop.button")}
@@ -160,8 +203,13 @@ export function ViewerPage({ runId }: { runId?: string }) {
             <input ref={fileInput} type="file" accept={ACCEPT} hidden onChange={(e) => openFile(e.target.files?.[0])} />
             {file && source === "file" && <span className="small id ellipsis" style={{ maxWidth: "100%" }}>{file.name}</span>}
           </div>
+          {(splatMode || !source) && (
+          <>
           <div className="field">
-            <span>{t("viewer.field.up")}</span>
+            <span>
+              {t("viewer.field.up")}
+              <InfoTip>{t("viewer.field.up_hint")}</InfoTip>
+            </span>
             <Segmented<UpAxis>
               label={t("viewer.field.up")}
               value={up}
@@ -172,17 +220,20 @@ export function ViewerPage({ runId }: { runId?: string }) {
                 { value: "y", label: "Y+" },
               ]}
             />
-            <span className="hint">{t("viewer.field.up_hint")}</span>
           </div>
           <div className="field">
-            <span>{t("viewer.field.sh")}</span>
+            <span>
+              {t("viewer.field.sh")}
+              <InfoTip>{t("viewer.field.sh_hint")}</InfoTip>
+            </span>
             <Segmented<number> label={t("viewer.field.sh")} value={sh} onChange={setSh} options={[0, 1, 2, 3].map((n) => ({ value: n, label: String(n) }))} />
-            <span className="hint">{t("viewer.field.sh_hint")}</span>
           </div>
           {preview && source === "preview" && (preview.box_only_actors.length > 0 || preview.omitted.length > 0) && (
             <p className="small muted">{t("viewer.note.omitted", { items: [...preview.omitted, ...preview.box_only_actors.slice(0, 3)].join(", ") })}</p>
           )}
           <p className="small faint">{t("viewer.help")}</p>
+          </>
+          )}
         </aside>
         <div
           className={`viewer-stage${dragging ? " dragging" : ""}`}
@@ -198,6 +249,16 @@ export function ViewerPage({ runId }: { runId?: string }) {
             openFile(e.dataTransfer.files[0]);
           }}
         >
+          {source === "video" && videoUrl && (
+            <div className="viewer-overlay">
+              <video key={videoUrl} src={videoUrl} controls autoPlay loop muted />
+            </div>
+          )}
+          {source === "gpu" && runId && (
+            <div className="viewer-overlay">
+              <RenderCheckPanel runId={runId} />
+            </div>
+          )}
           {!webgl && (
             <div className="viewer-empty">
               <div className="box">{t("viewer.no_webgl")}</div>
@@ -206,32 +267,32 @@ export function ViewerPage({ runId }: { runId?: string }) {
           {webgl && nothing && (
             <div className="viewer-empty">
               <div className="box">
-                <Box size={30} />
+                <Box size={37} />
                 <strong style={{ color: "#e6eaee" }}>{t("viewer.empty.title")}</strong>
                 <span className="small">{t("viewer.empty.text")}</span>
               </div>
             </div>
           )}
-          {!nothing && (
+          {!nothing && splatMode && (
             <div className="hud">
               {progress !== null && <span className="tag">{t("viewer.hud.loading", { percent: Math.round(progress * 100) })}</span>}
               {count !== null && <span className="tag">{t("viewer.hud.count", { count: count.toLocaleString() })}</span>}
               {poses && <span className="tag">{t("viewer.hud.actors", { count: poses.track_ids.length })}</span>}
               <button className="btn sm" style={{ background: "rgba(10,13,16,.7)", color: "#e6eaee", borderColor: "rgba(255,255,255,.14)" }} onClick={() => viewer.current?.frameAll()}>
-                <Crosshair size={13} />
+                <Crosshair size={16} />
                 {t("viewer.hud.recenter")}
               </button>
             </div>
           )}
           {error && (
-            <div style={{ position: "absolute", left: 12, right: 12, top: 52 }}>
+            <div style={{ position: "absolute", left: 15, right: 15, top: 65 }}>
               <div className="alert" role="alert">{error}</div>
             </div>
           )}
-          {poses && poses.T_object_world.length > 1 && (
+          {splatMode && poses && poses.T_object_world.length > 1 && (
             <div className="hud-bottom">
               <button className="btn icon sm" onClick={() => setPlaying((p) => !p)} aria-label={t(playing ? "scene.frames.pause" : "scene.frames.play")}>
-                {playing ? <Pause size={14} /> : <Play size={14} />}
+                {playing ? <Pause size={18} /> : <Play size={18} />}
               </button>
               <input type="range" min={0} max={poses.T_object_world.length - 1} value={frame} onChange={(e) => setFrame(Number(e.target.value))} aria-label={t("viewer.hud.frame")} />
               <span className="dense nowrap">{t("scene.frames.frame", { frame, last: poses.T_object_world.length - 1 })}</span>
@@ -239,6 +300,38 @@ export function ViewerPage({ runId }: { runId?: string }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Mode Render GPU: các điều kiện máy chạy Studio phải có, cái nào thiếu thì ghi cách sửa. */
+function RenderCheckPanel({ runId }: { runId: string }) {
+  const { t } = useI18n();
+  const check = useApi<RenderCheck>(`/api/runs/${seg(runId)}/render-check`);
+  return (
+    <div className="box render-check">
+      <strong>{t("viewer.gpu.title")}</strong>
+      {check.error && <ErrorBox error={check.error} />}
+      {!check.data && !check.error && <span className="small muted">{t("viewer.gpu.checking")}</span>}
+      {check.data && (
+        <>
+          <ul>
+            {check.data.checks.map((item) => (
+              <li key={item.id}>
+                {item.ok ? <CheckCircle2 size={18} className="ok-ink" /> : <XCircle size={18} className="bad-ink" />}
+                <span>
+                  <b>{t(`viewer.gpu.check.${item.id}`)}</b>
+                  <span className="small muted"> {item.ok ? item.value : t(`viewer.gpu.fix.${item.id}`)}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+          <Note kind={check.data.ready ? "info" : "warn"}>{t(check.data.ready ? "viewer.gpu.ready" : "viewer.gpu.not_ready")}</Note>
+          <button className="btn sm" onClick={check.reload}>
+            {t("viewer.gpu.recheck")}
+          </button>
+        </>
+      )}
     </div>
   );
 }

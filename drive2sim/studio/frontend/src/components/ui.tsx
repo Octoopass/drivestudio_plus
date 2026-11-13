@@ -1,11 +1,13 @@
 // Thành phần giao diện dùng ở nhiều màn hình: panel, nhãn trạng thái, hộp lỗi, khung đang tải,
-// trạng thái trống, tab, nút chọn, hộp thoại xác nhận, ngăn kéo bên phải, thông báo nổi.
+// trạng thái trống, tab, nút chọn, hộp thoại xác nhận, ngăn kéo bên phải, thông báo nổi, và icon
+// giải thích (InfoTip) thay cho các câu giải thích dài nằm sẵn trên màn hình.
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from "lucide-react";
 import {
   createContext,
   useCallback,
   useContext,
   useEffect,
+  useId,
   useRef,
   useState,
   type ReactNode,
@@ -20,8 +22,10 @@ export function Panel({
   children,
   flush,
   id,
+  info,
 }: {
   title?: ReactNode;
+  info?: ReactNode;
   sub?: ReactNode;
   tools?: ReactNode;
   children: ReactNode;
@@ -33,6 +37,7 @@ export function Panel({
       {(title || tools) && (
         <header className="panel-head">
           {title && <h2>{title}</h2>}
+          {info && <InfoTip>{info}</InfoTip>}
           {sub && <span className="sub">{sub}</span>}
           {tools && <div className="tools">{tools}</div>}
         </header>
@@ -42,12 +47,14 @@ export function Panel({
   );
 }
 
-export function PageHead({ title, lede, actions, meta }: { title: ReactNode; lede?: ReactNode; actions?: ReactNode; meta?: ReactNode }) {
+export function PageHead({ title, info, actions, meta }: { title: ReactNode; info?: ReactNode; actions?: ReactNode; meta?: ReactNode }) {
   return (
     <div className="page-head">
       <div className="titles">
-        <h1>{title}</h1>
-        {lede && <p className="lede">{lede}</p>}
+        <div className="title-row">
+          <h1>{title}</h1>
+          {info && <InfoTip>{info}</InfoTip>}
+        </div>
         {meta}
       </div>
       {actions && <div className="actions">{actions}</div>}
@@ -67,7 +74,7 @@ export function Skeleton({ height = 16, width = "100%" }: { height?: number; wid
 export function Loading({ rows = 3 }: { rows?: number }) {
   const { t } = useI18n();
   return (
-    <div className="stack" style={{ gap: 10, padding: 4 }} role="status" aria-label={t("common.state.loading")}>
+    <div className="stack" style={{ gap: 12, padding: 6 }} role="status" aria-label={t("common.state.loading")}>
       {Array.from({ length: rows }, (_, i) => (
         <Skeleton key={i} height={18} width={`${90 - i * 12}%`} />
       ))}
@@ -92,7 +99,7 @@ export function ErrorBox({ error }: { error: ApiError | null | undefined }) {
   const reasons = (error.details?.reasons as { message: string }[] | undefined) ?? [];
   return (
     <div className="alert" role="alert">
-      <XCircle size={16} />
+      <XCircle size={20} />
       <div>
         <strong>{locale === "en" ? t(`errors.${error.code}`) : error.message}</strong>
         {locale === "en" && <div className="detail">{error.message}</div>}
@@ -111,7 +118,7 @@ export function ErrorBox({ error }: { error: ApiError | null | undefined }) {
 export function Note({ kind = "info", children }: { kind?: "info" | "warn"; children: ReactNode }) {
   return (
     <div className={`alert ${kind}`}>
-      {kind === "warn" ? <AlertTriangle size={16} /> : <Info size={16} />}
+      {kind === "warn" ? <AlertTriangle size={20} /> : <Info size={20} />}
       <div>{children}</div>
     </div>
   );
@@ -248,11 +255,13 @@ export function Confirm({
 
 export function Drawer({
   title,
+  info,
   onClose,
   children,
   foot,
 }: {
   title: ReactNode;
+  info?: ReactNode;
   onClose: () => void;
   children: ReactNode;
   foot?: ReactNode;
@@ -263,15 +272,99 @@ export function Drawer({
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <aside className="drawer" role="dialog" aria-modal="true">
         <header className="drawer-head">
-          <h2 className="grow">{title}</h2>
+          <h2>{title}</h2>
+          {info && <InfoTip>{info}</InfoTip>}
+          <span className="grow" />
           <button className="btn ghost icon" onClick={onClose} aria-label={t("common.action.close")}>
-            <X size={16} />
+            <X size={20} />
           </button>
         </header>
         <div className="drawer-body">{children}</div>
         {foot && <footer className="drawer-foot">{foot}</footer>}
       </aside>
     </div>
+  );
+}
+
+// ------------------------------------------------------------------ icon giải thích
+
+const TIP_WIDTH = 320;
+const TIP_MARGIN = 16;
+
+/**
+ * Icon tròn chữ "i" kèm khung giải thích ngắn: hiện khi rê chuột, khi tab tới bằng bàn phím hoặc
+ * khi chạm vào (màn hình cảm ứng); đóng khi chuột rời đi, bấm ra ngoài, cuộn trang hoặc nhấn Esc.
+ * Khung đặt cố định theo màn hình nên không bị panel hay bảng cắt mất, và tự lật lên trên hoặc
+ * sang trái khi gần mép. Icon là ``span`` có vai trò nút (không phải ``button``) để đặt được trong
+ * ``<label>`` mà không làm nhãn trỏ nhầm sang nó.
+ */
+export function InfoTip({ children, label }: { children: ReactNode; label?: string }) {
+  const { t } = useI18n();
+  const id = useId();
+  const ref = useRef<HTMLSpanElement>(null);
+  const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number; width: number } | null>(null);
+
+  const show = () => {
+    const rect = ref.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = Math.min(TIP_WIDTH, window.innerWidth - 2 * TIP_MARGIN);
+    const left = Math.min(Math.max(rect.left - 10, TIP_MARGIN), window.innerWidth - width - TIP_MARGIN);
+    const below = rect.bottom + 180 < window.innerHeight;
+    setPos(below ? { left, top: rect.bottom + 8, width } : { left, bottom: window.innerHeight - rect.top + 8, width });
+  };
+  const hide = () => setPos(null);
+
+  useEffect(() => {
+    if (!pos) return;
+    const onDown = (event: Event) => {
+      if (!ref.current?.contains(event.target as Node)) hide();
+    };
+    const onKey = (event: KeyboardEvent) => event.key === "Escape" && hide();
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", hide, true);
+    window.addEventListener("resize", hide);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", hide, true);
+      window.removeEventListener("resize", hide);
+    };
+  }, [pos]);
+
+  return (
+    <span ref={ref} className="infotip" onMouseEnter={show} onMouseLeave={hide}>
+      <span
+        role="button"
+        tabIndex={0}
+        className="infotip-btn"
+        aria-label={label ?? t("common.info")}
+        aria-expanded={pos != null}
+        aria-describedby={pos ? id : undefined}
+        onClick={(event) => {
+          // Trong <label>: không để cú bấm chuyển sang ô nhập của nhãn.
+          event.preventDefault();
+          event.stopPropagation();
+          show();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            if (pos) hide();
+            else show();
+          }
+        }}
+        onFocus={(event) => event.currentTarget.matches(":focus-visible") && show()}
+        onBlur={hide}
+      >
+        <Info size={17} aria-hidden="true" />
+      </span>
+      {pos && (
+        <span role="tooltip" id={id} className="infotip-pop" style={pos}>
+          {children}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -299,7 +392,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       <div className="toasts" aria-live="polite">
         {toasts.map((toast) => (
           <div key={toast.id} className={`toast ${toast.kind}`} role={toast.kind === "bad" ? "alert" : "status"}>
-            {toast.kind === "ok" ? <CheckCircle2 size={17} /> : <XCircle size={17} />}
+            {toast.kind === "ok" ? <CheckCircle2 size={21} /> : <XCircle size={21} />}
             <div className="grow">
               <div>{toast.title}</div>
               {toast.detail && <div className="detail">{toast.detail}</div>}
@@ -320,6 +413,14 @@ export function useToast() {
 export function yesNo(value: boolean | null | undefined, t: (key: string) => string): string {
   if (value === null || value === undefined) return t("common.field.unknown");
   return t(value ? "common.field.yes" : "common.field.no");
+}
+
+/** Số nguyên lớn viết gọn: 1 250 000 → "1.25M", 30 000 → "30k". */
+export function count(value: number | null | undefined): string {
+  if (value == null) return "–";
+  if (value >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
+  if (value >= 1e4) return `${Math.round(value / 1e3)}k`;
+  return String(value);
 }
 
 export function fixed(value: number | null | undefined, digits = 2): string {
@@ -348,7 +449,9 @@ export function duration(seconds: number | null | undefined): string {
   if (seconds === null || seconds === undefined) return "–";
   if (seconds < 60) return `${seconds.toFixed(0)} s`;
   if (seconds < 3600) return `${(seconds / 60).toFixed(1)} min`;
-  return `${Math.floor(seconds / 3600)} h ${Math.round((seconds % 3600) / 60)} min`;
+  // Làm tròn ra phút trước rồi mới tách giờ, để không ra "1 h 60 min".
+  const minutes = Math.round(seconds / 60);
+  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
 }
 
 /** Thời gian đã qua kể từ một mốc, dạng ngắn theo ngôn ngữ đang dùng. */

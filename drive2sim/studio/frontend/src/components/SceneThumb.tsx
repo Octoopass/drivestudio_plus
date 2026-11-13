@@ -9,7 +9,7 @@ export function SceneThumb({ sceneId, frame = 0 }: { sceneId: string; frame?: nu
   if (url) return <img src={url} alt="" loading="lazy" />;
   return (
     <div style={{ display: "grid", placeItems: "center", height: "100%", color: "var(--faint)" }}>
-      {images.data && <ImageOff size={20} />}
+      {images.data && <ImageOff size={25} />}
     </div>
   );
 }

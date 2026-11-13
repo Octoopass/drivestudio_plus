@@ -27,25 +27,25 @@ export function ActivityDrawer({ onClose }: { onClose: () => void }) {
 
   return (
     <Drawer title={t("nav.activity.title")} onClose={onClose}>
-      <section className="stack" style={{ gap: 8 }}>
+      <section className="stack" style={{ gap: 10 }}>
         <h3>{t("activity.runs.title")}</h3>
         {runs.length === 0 && <p className="muted">{t("activity.runs.none")}</p>}
         {runs.map((run) => {
           const progress = live.progress[run.run_id];
           return (
-            <div key={run.run_id} className="panel" style={{ padding: "10px 12px" }}>
+            <div key={run.run_id} className="panel" style={{ padding: "12px 15px" }}>
               <div className="row">
                 <a href={href({ page: "run", runId: run.run_id })} onClick={onClose} className="id grow ellipsis">
                   {run.run_id}
                 </a>
                 <Status value={live.statuses[run.run_id] ?? run.status} />
                 <button className="btn sm danger" onClick={() => cancel(run.run_id)}>
-                  <Square size={12} />
+                  <Square size={15} />
                   {t("run.action.cancel")}
                 </button>
               </div>
               {progress && (
-                <div className="stack" style={{ gap: 4, marginTop: 8 }}>
+                <div className="stack" style={{ gap: 6, marginTop: 10 }}>
                   <div className="small muted ellipsis">
                     {progress.stage_id} {progress.message}
                   </div>
@@ -58,13 +58,13 @@ export function ActivityDrawer({ onClose }: { onClose: () => void }) {
           );
         })}
       </section>
-      <section className="stack" style={{ gap: 8 }}>
+      <section className="stack" style={{ gap: 10 }}>
         <h3>{t("activity.jobs.title")}</h3>
         {live.jobs.length === 0 ? (
           <Empty title={t("activity.jobs.none")} />
         ) : (
           live.jobs.map((job) => (
-            <div key={job.job_id} className="panel" style={{ padding: "10px 12px" }}>
+            <div key={job.job_id} className="panel" style={{ padding: "12px 15px" }}>
               <div className="row">
                 <span className="grow ellipsis">{job.label}</span>
                 <Status value={job.status} />
@@ -73,11 +73,11 @@ export function ActivityDrawer({ onClose }: { onClose: () => void }) {
                 {t(`activity.kind.${job.kind}`)}, {ago(job.created_at, locale)}
               </div>
               {(job.status === "queued" || job.status === "running") && (
-                <div className="progress indeterminate" style={{ marginTop: 8 }}>
+                <div className="progress indeterminate" style={{ marginTop: 10 }}>
                   <i />
                 </div>
               )}
-              {job.error && <div className="small" style={{ color: "var(--stop)", marginTop: 6 }}>{job.error}</div>}
+              {job.error && <div className="small" style={{ color: "var(--stop)", marginTop: 8 }}>{job.error}</div>}
               {job.status === "succeeded" && job.result && (
                 <a
                   className="small"

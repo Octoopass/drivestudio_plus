@@ -3,6 +3,7 @@
 import type { Manifest } from "./generated/manifest";
 import type { RunRecord } from "./generated/run";
 import type { Summary } from "./generated/summary";
+import type { EnvRecord } from "./generated/env";
 import type { ValidationReport } from "./generated/report";
 
 export type { Approach } from "./generated/approach";
@@ -10,6 +11,7 @@ export type { Manifest } from "./generated/manifest";
 export type { RunRecord, StageRecord } from "./generated/run";
 export type { Split } from "./generated/split";
 export type { Summary } from "./generated/summary";
+export type { EnvRecord, Machine } from "./generated/env";
 
 export interface List<T> {
   items: T[];
@@ -32,6 +34,7 @@ export type OptionValue = boolean | number | string;
 export interface CheckResult {
   approach_id: string;
   preset: string | null;
+  quick: boolean;
   options: Record<string, OptionValue>;
   lidar_usage: string[];
   stages: { stage_id: string; params: Record<string, unknown>; cache_hit: boolean }[];
@@ -40,6 +43,7 @@ export interface CheckResult {
 
 export interface RunDetail extends RunRecord {
   summary: Summary | null;
+  env: EnvRecord | null;
   run_dir: string;
 }
 
@@ -60,14 +64,28 @@ export interface ReportRow {
   split_id: string;
   approach_id: string;
   options: Record<string, OptionValue>;
+  quick: boolean;
   status: string;
   psnr: number | null;
   ssim: number | null;
   lpips: number | null;
+  avg_error: number | null;
   human_psnr: number | null;
   vehicle_psnr: number | null;
+  dynamic_psnr: number | null;
+  occupied_psnr: number | null;
+  num_iters: number | null;
   train_time_s: number | null;
+  recon_time_s: number | null;
   peak_vram_mb: number | null;
+  render_fps: number | null;
+  num_gaussians: number | null;
+  ply_gaussians: number | null;
+  ply_size_mb: number | null;
+  preview_gaussians: number | null;
+  preview_size_mb: number | null;
+  gpu: string | null;
+  stage_times: Record<string, { seconds: number; reused: boolean }>;
 }
 
 /** Sự kiện SSE của engine (CONTRACTS mục 11.4). */

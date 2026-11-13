@@ -13,10 +13,14 @@ export type Ssim = number;
 export type Lpips = number;
 export type HumanPsnr = number | null;
 export type VehiclePsnr = number | null;
+export type DynamicPsnr = number | null;
 export type OccupiedPsnr = number | null;
 export type TrainTimeS = number | null;
 export type PeakVramMb = number | null;
 export type NumGaussians = number | null;
+export type NumIters = number | null;
+export type RenderFps = number | null;
+export type RenderResolution = string | null;
 
 /**
  * Schema của file ``summary.json``: tóm tắt kết quả đánh giá của một run.
@@ -29,10 +33,15 @@ export type NumGaussians = number | null;
  *     split_id: Split đã đánh giá.
  *     overall: Metric trên mọi camera.
  *     per_camera: ``camera_id`` → metric của camera đó.
- *     train_time_s: Thời gian train, giây; để trống nếu stage đánh giá không biết (thời gian
- *         của từng stage luôn có trong ``run.json``).
+ *     train_time_s: Thời gian train thực, giây: chỉ tính các bước train, cộng qua các lần chạy
+ *         tiếp, không tính lúc dừng, nạp checkpoint, đánh giá hay lưu file; để trống nếu không
+ *         biết.
  *     peak_vram_mb: VRAM cao nhất khi train, megabyte; để trống nếu không biết.
- *     num_gaussians: Số Gaussian của model cuối; để trống nếu không đọc được.
+ *     num_gaussians: Số Gaussian của cả model cuối (mọi node); để trống nếu không đọc được.
+ *     num_iters: Số iteration đã train (thêm từ ``d2s-summary/0.3``).
+ *     render_fps: Tốc độ render khi đánh giá, khung mỗi giây, chỉ tính thời gian model vẽ ảnh
+ *         (thêm từ ``d2s-summary/0.3``).
+ *     render_resolution: Độ phân giải ảnh khi đo ``render_fps``, dạng ``<rộng>x<cao>``.
  */
 export interface Summary {
   schema_version: SchemaVersion;
@@ -43,6 +52,9 @@ export interface Summary {
   train_time_s?: TrainTimeS;
   peak_vram_mb?: PeakVramMb;
   num_gaussians?: NumGaussians;
+  num_iters?: NumIters;
+  render_fps?: RenderFps;
+  render_resolution?: RenderResolution;
 }
 /**
  * Protocol đánh giá đã dùng cho một run (SPEC mục 9).
@@ -81,7 +93,10 @@ export interface LpipsSetting {
  *     lpips: LPIPS.
  *     human_psnr: PSNR trong vùng người; chỉ có khi cảnh có box.
  *     vehicle_psnr: PSNR trong vùng xe; chỉ có khi cảnh có box.
- *     occupied_psnr: PSNR trong vùng vật động; chỉ có khi cảnh có box.
+ *     dynamic_psnr: PSNR trong vùng vật động (mọi người và xe, ``masked_psnr`` của
+ *         DriveStudio); chỉ có khi cảnh có box (thêm từ ``d2s-summary/0.3``).
+ *     occupied_psnr: PSNR trong vùng không phải bầu trời (``Non-Sky PSNR`` của DriveStudio);
+ *         chỉ có khi cảnh có mask bầu trời.
  */
 export interface Metrics {
   psnr: Psnr;
@@ -89,6 +104,7 @@ export interface Metrics {
   lpips: Lpips;
   human_psnr?: HumanPsnr;
   vehicle_psnr?: VehiclePsnr;
+  dynamic_psnr?: DynamicPsnr;
   occupied_psnr?: OccupiedPsnr;
 }
 export interface PerCamera {

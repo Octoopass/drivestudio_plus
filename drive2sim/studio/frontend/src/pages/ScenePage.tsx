@@ -5,7 +5,7 @@ import { Pause, Play, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { asApiError, del, post, seg, useApi, type ApiError } from "../api/client";
 import type { FrameImages, List, RunRecord, SceneDetail, Split } from "../api/types";
-import { ago, Confirm, Empty, ErrorBox, Loading, PageHead, Panel, Status, Tabs, useToast, yesNo } from "../components/ui";
+import { ago, Confirm, Empty, ErrorBox, InfoTip, Loading, PageHead, Panel, Status, Tabs, useToast, yesNo } from "../components/ui";
 import { useI18n } from "../i18n";
 import { useLive } from "../live";
 import { go, href } from "../router";
@@ -71,14 +71,14 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
         actions={
           <>
             <button className="btn ghost icon" onClick={() => setDeleting(true)} title={t("scene.action.delete")} aria-label={t("scene.action.delete")}>
-              <Trash2 size={16} />
+              <Trash2 size={20} />
             </button>
             <button className="btn" onClick={revalidate}>
-              <RefreshCw size={15} />
+              <RefreshCw size={19} />
               {t("scene.action.validate")}
             </button>
             <a className="btn primary" href={href({ page: "new", sceneId })}>
-              <Play size={15} />
+              <Play size={19} />
               {t("nav.menu.new_run")}
             </a>
           </>
@@ -130,7 +130,7 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
             (!validation ? (
               <Empty title={t("scene.checks.none")} action={<button className="btn" onClick={revalidate}>{t("scene.action.validate")}</button>} />
             ) : (
-              <div className="stack" style={{ gap: 10 }}>
+              <div className="stack" style={{ gap: 12 }}>
                 <p>{t("scene.checks.summary", { errors: validation.summary.errors, warnings: validation.summary.warnings })}</p>
                 <div className="table-wrap">
                   <table>
@@ -227,12 +227,12 @@ function Frames({ sceneId, numFrames, splits }: { sceneId: string; numFrames: nu
   };
 
   return (
-    <div className="stack" style={{ gap: 12 }} onKeyDown={onKey}>
-      <div className="row wrap" style={{ gap: 12 }}>
+    <div className="stack" style={{ gap: 15 }} onKeyDown={onKey}>
+      <div className="row wrap" style={{ gap: 15 }}>
         <button className="btn icon" onClick={() => setPlaying((p) => !p)} aria-label={t(playing ? "scene.frames.pause" : "scene.frames.play")}>
-          {playing ? <Pause size={15} /> : <Play size={15} />}
+          {playing ? <Pause size={19} /> : <Play size={19} />}
         </button>
-        <div className="grow stack" style={{ gap: 4, minWidth: 220 }}>
+        <div className="grow stack" style={{ gap: 6, minWidth: 276 }}>
           <div
             className="timeline"
             onClick={(e) => {
@@ -250,11 +250,11 @@ function Frames({ sceneId, numFrames, splits }: { sceneId: string; numFrames: nu
           </div>
           <input type="range" min={0} max={last} value={frame} onChange={(e) => setFrame(Number(e.target.value))} aria-label={t("scene.frames.frame", { frame, last })} />
         </div>
-        <span className="dense nowrap" style={{ minWidth: 90 }}>
+        <span className="dense nowrap" style={{ minWidth: 113 }}>
           {t("scene.frames.frame", { frame, last })}
-          {kind && <span className={`tag ${kind === "test" ? "warn" : ""}`} style={{ marginLeft: 6 }}>{kind}</span>}
+          {kind && <span className={`tag ${kind === "test" ? "warn" : ""}`} style={{ marginLeft: 8 }}>{kind}</span>}
         </span>
-        <label className="field" style={{ minWidth: 180 }}>
+        <label className="field" style={{ minWidth: 227 }}>
           <span>{t("scene.frames.split")}</span>
           <select value={splitId} onChange={(e) => setSplitId(e.target.value)}>
             <option value="">{t("scene.frames.none")}</option>
@@ -268,7 +268,7 @@ function Frames({ sceneId, numFrames, splits }: { sceneId: string; numFrames: nu
         <div className="legend">
           <span><i style={{ background: "var(--line-strong)" }} />{t("scene.frames.train")}</span>
           <span><i style={{ background: "var(--accent)" }} />{t("scene.frames.test")}</span>
-          <span className="faint">{t("scene.frames.keys")}</span>
+          <InfoTip label={t("scene.frames.keys_label")}>{t("scene.frames.keys")}</InfoTip>
         </div>
       )}
       <div className="frames">
@@ -304,31 +304,33 @@ function Splits({ sceneId, cameras, splits, onChange }: { sceneId: string; camer
 
   return (
     <div className="grid-2">
-      <div className="stack" style={{ gap: 8 }}>
+      <div className="stack" style={{ gap: 10 }}>
         <h3>{t("scene.splits.title")}</h3>
         {splits.length === 0 && <p className="muted">{t("scene.splits.none")}</p>}
         {splits.map((id) => (
-          <div key={id} className="row panel" style={{ padding: "8px 10px" }}>
+          <div key={id} className="row panel" style={{ padding: "10px 12px" }}>
             <span className="id grow ellipsis">{id}</span>
             <a className="btn sm" href={href({ page: "new", sceneId, splitId: id })}>
-              <Play size={12} />
+              <Play size={15} />
               {t("scene.splits.run")}
             </a>
             <a className="btn sm ghost" href={href({ page: "compare", sceneId, splitId: id })}>
               {t("nav.menu.compare")}
             </a>
             <button className="btn sm ghost icon" onClick={() => setDeleting(id)} aria-label={t("scene.splits.delete", { split: id })}>
-              <Trash2 size={13} />
+              <Trash2 size={16} />
             </button>
           </div>
         ))}
       </div>
       <Panel title={t("scene.splits.new")}>
-        <div className="stack" style={{ gap: 12 }}>
-          <label className="field" style={{ maxWidth: 200 }}>
-            <span>{t("scene.splits.every")}</span>
+        <div className="stack" style={{ gap: 15 }}>
+          <label className="field" style={{ maxWidth: 252 }}>
+            <span>
+              {t("scene.splits.every")}
+              <InfoTip>{t("scene.splits.every_hint", { n: every })}</InfoTip>
+            </span>
             <input type="number" min={1} value={every} onChange={(e) => setEvery(Number(e.target.value))} />
-            <span className="hint">{t("scene.splits.every_hint", { n: every })}</span>
           </label>
           <div className="field">
             <span>{t("scene.splits.cameras")}</span>

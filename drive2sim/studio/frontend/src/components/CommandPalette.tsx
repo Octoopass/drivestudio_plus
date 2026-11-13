@@ -36,19 +36,19 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 
   const items = useMemo<Item[]>(() => {
     const all: Item[] = [
-      ...PAGES.map((p) => ({ id: p.key, label: t(p.key), kind: t("palette.kind.page"), icon: <Navigation size={15} />, route: p.route })),
+      ...PAGES.map((p) => ({ id: p.key, label: t(p.key), kind: t("palette.kind.page"), icon: <Navigation size={19} />, route: p.route })),
       ...(scenes.data?.items ?? []).map((m) => ({
         id: m.scene_id,
         label: m.scene_id,
         kind: t("palette.kind.scene"),
-        icon: <Boxes size={15} />,
+        icon: <Boxes size={19} />,
         route: { page: "scene", sceneId: m.scene_id } as Route,
       })),
       ...(runs.data?.items ?? []).map((r) => ({
         id: r.run_id,
         label: `${r.run_id}`,
         kind: `${t("palette.kind.run")} ${t(`common.status.${r.status}`)}`,
-        icon: <ListChecks size={15} />,
+        icon: <ListChecks size={19} />,
         route: { page: "run", runId: r.run_id } as Route,
       })),
     ];
@@ -101,7 +101,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
                 {item.icon}
                 <span className="ellipsis">{item.label}</span>
                 <span className="kind">{item.kind}</span>
-                {index === cursor && <CornerDownLeft size={13} className="faint" />}
+                {index === cursor && <CornerDownLeft size={16} className="faint" />}
               </li>
             ))}
           </ul>
