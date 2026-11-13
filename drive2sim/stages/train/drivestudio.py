@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 from typing import ClassVar, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from drive2sim import paths
 from drive2sim.core.schema import Manifest, Split, parse_strategy
@@ -87,7 +87,7 @@ class TrainDrivestudioParams(BaseModel):
     campose: bool = False
     fastgs: bool = False
     dataset: Optional[str] = None
-    num_iters: Optional[int] = None
+    num_iters: Optional[int] = Field(default=None, ge=1)
     seed: int = 0
     overrides: dict[str, object] = {}
 
