@@ -10,6 +10,10 @@ smpl_models/
 /data/
 /cache/
 /runs/
+# cổng của lần `make studio`/`make dev` gần nhất
+/.d2s-studio-ports.env
+# dữ liệu mẫu của `make demo`
+/.demo/
 kaggle.json
 data/waymo
 data/pandaset

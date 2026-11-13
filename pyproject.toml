@@ -17,6 +17,8 @@ d2s = "drive2sim.cli.main:main"
 dev = ["pytest>=7", "httpx>=0.24"]
 # Studio: API (CONTRACTS mục 11) và lệnh d2s studio.
 studio = ["fastapi>=0.110", "uvicorn>=0.29"]
+# Chạy run trên Kaggle: tool gọi lệnh kaggle (đã kiểm cờ với Kaggle CLI 2.2.5).
+kaggle = ["kaggle>=2.2,<3"]
 # Heavy dependencies (PyTorch, gsplat-geer, ...) are installed from requirements.txt.
 
 [tool.setuptools.packages.find]
@@ -54,3 +56,5 @@ convention = "google"
 # Hàm test đặt tên mô tả rõ hành vi nên không bắt buộc docstring (AGENTS.md mục 4.3).
 "tests/**" = ["D103"]
 "**/__init__.py" = ["D104"]
+# Dữ liệu mẫu viết thành bảng, mỗi mục một dòng cho dễ đọc và sửa.
+"drive2sim/scripts/make_demo.py" = ["E501"]
