@@ -287,7 +287,7 @@
   "viewer.drop.text": "Kéo thả .ply, .spz, .splat, .ksplat, .sog vào đây. File chỉ đọc trong trình duyệt.",
   "viewer.drop.button": "Chọn file",
   "viewer.field.up": "Trục lên của dữ liệu",
-  "viewer.field.up_hint": "DriveStudio: Z+. 3DGS từ COLMAP: thường Y−.",
+  "viewer.field.up_hint": "Run của tool: Z+ (hệ DriveStudio). File kéo thả: đọc từ file nếu tool xuất ra, không thì tự đoán từ hình dạng cảnh (mặt đất phẳng, nhà và cây mọc lên); đổi tay nếu cảnh bị lật. 3DGS từ COLMAP thường là Y−.",
   "viewer.field.sh": "Bậc màu theo góc nhìn",
   "viewer.field.sh_hint": "Giảm nếu máy xem bị giật.",
   "viewer.help": "Kéo chuột trái để xoay, chuột phải để dời, cuộn để phóng.",
@@ -518,5 +518,9 @@
   "scene.splits.range": "Đoạn khung",
   "scene.splits.range_hint": "Khung đầu và khung cuối dùng cho split, tính cả hai đầu (0 tới {last}). Mặc định cả cảnh. Chọn đoạn ngắn để chạy thử nhanh hơn.",
   "scene.splits.range_first": "Khung đầu",
-  "scene.splits.range_last": "Khung cuối"
+  "scene.splits.range_last": "Khung cuối",
+  "viewer.field.camera": "Camera gốc",
+  "viewer.field.camera_hint": "Pose và góc nhìn của các camera lúc quay, cùng hệ toạ độ với cảnh. Mở cảnh ở đúng góc của video; bật bám camera thì khi phát, góc nhìn đi theo camera từng khung.",
+  "viewer.camera.go": "Về góc camera",
+  "viewer.camera.follow": "Bám camera khi phát"
 }

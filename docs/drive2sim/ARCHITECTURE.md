@@ -306,6 +306,11 @@ Route, thân, lỗi và sự kiện SSE quy định ở CONTRACTS mục 11; API 
 - *PLY* là định dạng file của 3DGS gốc: 59–62 số thực 32 bit mỗi Gaussian, khoảng 240 byte, nên 3 triệu Gaussian là khoảng 720 MB. `drive2sim/recon/tools/export_ply.py` của repo xuất đúng định dạng này trong hệ world; export gốc của DriveStudio (`drive2sim/recon/utils/misc.py:50`) co toạ độ vào hộp đơn vị.
 - *SPZ* (Niantic) lưu cùng thông tin nhưng làm tròn rồi nén ZSTD; README của SPZ ghi file thường nhỏ hơn PLY khoảng 10 lần. Vị trí là số nguyên 24 bit, mặc định 12 bit phần lẻ (`load-spz.cc`): độ phân giải khoảng 0,24 mm, phạm vi ±2048 m. SH bậc 1 còn 5 bit, bậc cao hơn còn 4 bit.
 
+**Hệ toạ độ và góc nhìn ban đầu.**
+- Hệ world của DriveStudio có trục Z hướng lên, đơn vị mét; three.js lấy Y lên. Trang Xem 3D xoay cả cảnh để trục lên của file trùng Y. Trục lên lấy theo thứ tự: dòng `comment drive2sim up=...` trong header PLY (mọi PLY tool xuất có dòng này, CONTRACTS mục 7); file khác thì đoán: lấy 90% điểm gần trung vị nhất, tìm trục ít trải nhất (PCA, là pháp tuyến mặt đường), làm tròn về trục gần nhất, chiều lên là chiều từ đỉnh mật độ (mặt đường) về phía đuôi dài hơn (cây, nhà). Người xem đổi được trong ô "Trục lên".
+- Khung nhìn bao lấy phần lõi cảnh: hộp từ phân vị 2% tới 98% của tâm splat, nên vài Gaussian bay xa (nền trời, nhiễu) không làm camera lùi ra xa hàng trăm mét.
+- Run có `cameras.json` thì trang mở ở đúng pose camera gốc (ưu tiên camera trước), khung 0, cùng góc nhìn với video; có nút về góc camera và tuỳ chọn bám camera khi phát.
+
 **Lý do.** Mở được kết quả trên máy không có GPU CUDA, ví dụ laptop khi bàn giao.
 
 **Ưu điểm.** Không cần worker; xoay mượt; giữ màu theo góc nhìn; xe đổi pose theo khung nên phát lại được quỹ đạo.
@@ -614,6 +619,7 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (thư mục DriveStudio
 | Tầng dữ liệu: `source inspect`; `scene ingest` cho nuScenes (gọi script có sẵn, sinh manifest); kiểm tra cấu trúc | Xong trong code; có test với dữ liệu giả; **chưa chạy thật** (cần nuScenes và `nuscenes-devkit`) | |
 | Stage `export.preview` (`recon/tools/export_preview.py`: nền, từng xe, pose theo khung) | Xong trong code; test với lệnh giả; **chưa chạy thật** (cần checkpoint và PyTorch) | |
 | Viewer chính (mục 2.12) trong Studio: trang Xem 3D, mode Render GPU kiểm tra máy rồi bật `tools/viewer.py --host 127.0.0.1` cho một run và nhúng vào trang (`studio/api/gpu_viewer.py`) | Xong trong code; test với viewer giả; **chưa chạy thật** (cần checkpoint thật) | |
+| Xem 3D đúng hệ toạ độ (mục 2.13): PLY của tool ghi trục lên trong header, file ngoài tự đoán trục lên, khung nhìn bao phần lõi cảnh, mở ở pose camera gốc từ `cameras.json` | Xong; đã thử trong trình duyệt với một `scene.ply` thật từ nơi khác (đoán ra Z−, cảnh đứng thẳng) và run mẫu; `cameras.json` do `train.py` ghi **chưa chạy thật** (cần GPU), nên chỉ run train sau thay đổi này mới có góc camera gốc | |
 | Bộ kiểm tra: chiếu LiDAR lên ảnh | Chưa làm; báo cáo ghi mục `projection.not_run` | |
 | `scene ingest` cho Waymo, Argoverse 2, KITTI, nuPlan, PandaSet, PhysicalAI (converter chung, nhận dạng từng dataset) | Xong trong code; có test với dữ liệu giả; **chưa chạy thật** (cần dữ liệu và devkit của từng dataset) | |
 | `sim/` (L2–L4) | Chưa làm | |

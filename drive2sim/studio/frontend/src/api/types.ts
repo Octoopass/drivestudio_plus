@@ -154,6 +154,8 @@ export interface Splats {
     poses_url: string | null;
   } | null;
   ply: string | null;
+  /** cameras.json: pose và thông số camera gốc theo khung, cùng hệ toạ độ với các file trên. */
+  cameras: string | null;
 }
 
 export interface ActorPoses {

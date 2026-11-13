@@ -287,7 +287,7 @@
   "viewer.drop.text": "Drop .ply, .spz, .splat, .ksplat or .sog here. Files stay in the browser.",
   "viewer.drop.button": "Choose file",
   "viewer.field.up": "Up axis of the data",
-  "viewer.field.up_hint": "DriveStudio: Z+. 3DGS from COLMAP: usually Y−.",
+  "viewer.field.up_hint": "Runs from this tool: Z+ (DriveStudio frame). Dropped files: read from the file when this tool exported it, otherwise guessed from the scene's shape (flat ground, buildings and trees rising); change it by hand if the scene is upside down. COLMAP 3DGS is usually Y−.",
   "viewer.field.sh": "View-dependent colour (SH)",
   "viewer.field.sh_hint": "Lower it if the view stutters.",
   "viewer.help": "Left-drag to orbit, right-drag to pan, scroll to zoom.",
@@ -518,5 +518,9 @@
   "scene.splits.range": "Frame range",
   "scene.splits.range_hint": "First and last frame of the split, inclusive (0 to {last}). Default: the whole scene. A short range makes trial runs faster.",
   "scene.splits.range_first": "First frame",
-  "scene.splits.range_last": "Last frame"
+  "scene.splits.range_last": "Last frame",
+  "viewer.field.camera": "Source camera",
+  "viewer.field.camera_hint": "Poses and field of view of the recording cameras, in the scene's coordinate frame. The scene opens at the video's viewpoint; with follow on, the view tracks the camera frame by frame while playing.",
+  "viewer.camera.go": "Go to camera",
+  "viewer.camera.follow": "Follow camera while playing"
 }

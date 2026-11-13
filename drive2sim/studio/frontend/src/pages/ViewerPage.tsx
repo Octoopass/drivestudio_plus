@@ -6,14 +6,28 @@
 //   DriveStudio (viser, POST /api/runs/{id}/gpu-viewer) và trang nhúng nó; viewer vẽ từ checkpoint
 //   bằng renderer gốc nên đủ mọi phần của model.
 // File kéo thả (.ply, .spz, .splat, .ksplat, .sog) chỉ đọc trong trình duyệt, không gửi lên server.
-import { Box, CheckCircle2, Crosshair, FileUp, Pause, Play, Power, XCircle } from "lucide-react";
+import { Box, CheckCircle2, Crosshair, FileUp, Pause, Play, Power, XCircle, Video as VideoIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, asApiError, del, post, preferredVideo, seg, useApi, type ApiError } from "../api/client";
 import type { ActorPoses, List, RunRecord, Splats, Video } from "../api/types";
 import { ErrorBox, InfoTip, Note, PageHead, Segmented } from "../components/ui";
 import { useI18n } from "../i18n";
 import { go } from "../router";
-import { SplatViewer, type SplatSource, type UpAxis } from "../viewer/engine";
+import { SplatViewer, type SceneCamera, type SplatSource, type UpAxis } from "../viewer/engine";
+
+/** Trục lên ghi trong phần đầu file PLY do tool xuất ("comment drive2sim up=+z ..."), nếu có. */
+async function headerUpAxis(picked: File): Promise<UpAxis | null> {
+  const head = await picked.slice(0, 65536).text();
+  const match = /comment drive2sim up=([+-])([xyz])/.exec(head);
+  if (!match) return null;
+  return (match[1] === "-" ? `-${match[2]}` : match[2]) as UpAxis;
+}
+
+/** Camera mở mặc định: camera trước (tên có "front" hoặc "0"), không thì camera đầu tiên. */
+function defaultCamera(cameras: SceneCamera[]): number {
+  const index = cameras.findIndex((camera) => /front|^0$|_0$/i.test(camera.name));
+  return index >= 0 ? index : 0;
+}
 
 const ACCEPT = ".ply,.spz,.splat,.ksplat,.sog,.zip";
 type Source = "preview" | "ply" | "video" | "gpu" | "file";
@@ -44,6 +58,10 @@ export function ViewerPage({ runId }: { runId?: string }) {
   const [videoUrl, setVideoUrl] = useState<string>("");
   const [file, setFile] = useState<File | null>(null);
   const [up, setUp] = useState<UpAxis>("z");
+  // Camera gốc của run (cameras.json): mở đúng góc của video, nút về góc camera, bám camera khi phát.
+  const [cameras, setCameras] = useState<SceneCamera[] | null>(null);
+  const [cameraIndex, setCameraIndex] = useState(0);
+  const [follow, setFollow] = useState(false);
   const [sh, setSh] = useState(3);
   const [progress, setProgress] = useState<number | null>(null);
   const [count, setCount] = useState<number | null>(null);
@@ -85,6 +103,12 @@ export function ViewerPage({ runId }: { runId?: string }) {
       let sources: SplatSource[] = [];
       let actorIds: string[] = [];
       let loadedPoses: ActorPoses | null = null;
+      let loadedCameras: SceneCamera[] | null = null;
+      if (source !== "file" && splats.data?.cameras) {
+        loadedCameras = await api<{ cameras: SceneCamera[] }>(splats.data.cameras)
+          .then((data) => data.cameras)
+          .catch(() => null);
+      }
       if (source === "file" && file) {
         sources = [{ name: file.name, bytes: await file.arrayBuffer() }];
       } else if (source === "ply" && splats.data?.ply) {
@@ -99,6 +123,20 @@ export function ViewerPage({ runId }: { runId?: string }) {
       if (!sources.length) return;
       const total = await v.load(sources, actorIds, (fraction) => alive && setProgress(fraction));
       if (!alive || total === null) return;
+      // Trục lên: file của tool ghi sẵn trong phần đầu PLY; run của tool là hệ DriveStudio (Z+);
+      // file lạ thì đoán từ hình dạng cảnh (mặt đất phẳng, nhà và cây mọc lên).
+      const axis: UpAxis =
+        source === "file" && file ? ((await headerUpAxis(file)) ?? v.estimateUpAxis() ?? "-y") : "z";
+      if (!alive) return;
+      v.setUpAxis(axis);
+      setUp(axis);
+      setCameras(loadedCameras);
+      if (loadedCameras?.length) {
+        const index = defaultCamera(loadedCameras);
+        setCameraIndex(index);
+        const camera = loadedCameras[index];
+        v.setCameraPose(camera.c2w[0], camera.K[0][4], camera.height);
+      }
       v.setMaxSh(shRef.current);
       setCount(total);
       setProgress(null);
@@ -142,8 +180,20 @@ export function ViewerPage({ runId }: { runId?: string }) {
     if (!picked) return;
     setFile(picked);
     setSource("file");
-    setUp("-y");
+    setCameras(null);
+    setFollow(false);
   };
+
+  // Về đúng góc của camera gốc ở khung đang xem; khi "bám camera", tự đi theo khung lúc phát.
+  const camera = cameras?.[cameraIndex];
+  const goToCamera = (at: number = frame) => {
+    if (!camera) return;
+    const index = Math.min(at, camera.c2w.length - 1);
+    viewer.current?.setCameraPose(camera.c2w[index], camera.K[index][4], camera.height);
+  };
+  useEffect(() => {
+    if (follow) goToCamera(frame);
+  }, [frame, follow, cameraIndex]); // goToCamera đọc state mới nhất mỗi lần render
 
   const preview = splats.data?.preview;
   const splatMode = !!source && SPLAT_SOURCES.includes(source);
@@ -237,11 +287,39 @@ export function ViewerPage({ runId }: { runId?: string }) {
               onChange={setUp}
               options={[
                 { value: "z", label: "Z+" },
-                { value: "-y", label: "Y−" },
+                { value: "-z", label: "Z−" },
                 { value: "y", label: "Y+" },
+                { value: "-y", label: "Y−" },
+                { value: "x", label: "X+" },
+                { value: "-x", label: "X−" },
               ]}
             />
           </div>
+          {cameras && cameras.length > 0 && (
+            <div className="field">
+              <span>
+                {t("viewer.field.camera")}
+                <InfoTip>{t("viewer.field.camera_hint")}</InfoTip>
+              </span>
+              <div className="row wrap" style={{ gap: 8 }}>
+                <select value={cameraIndex} onChange={(e) => setCameraIndex(Number(e.target.value))} aria-label={t("viewer.field.camera")}>
+                  {cameras.map((item, index) => (
+                    <option key={item.name} value={index}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+                <button className="btn sm" onClick={() => goToCamera()}>
+                  <VideoIcon size={15} />
+                  {t("viewer.camera.go")}
+                </button>
+              </div>
+              <label className="chip-check">
+                <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
+                {t("viewer.camera.follow")}
+              </label>
+            </div>
+          )}
           <div className="field">
             <span>
               {t("viewer.field.sh")}
