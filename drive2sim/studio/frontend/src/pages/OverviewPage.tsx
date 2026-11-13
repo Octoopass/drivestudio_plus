@@ -7,7 +7,7 @@ import type { CacheList, List, Manifest, ReportRow, RunRecord } from "../api/typ
 import { IngestDrawer } from "../components/IngestDrawer";
 import { ago, bytes, Empty, fixed, Loading, PageHead, Panel, Status } from "../components/ui";
 import { useI18n } from "../i18n";
-import { isComparable } from "../metrics";
+import { BetterArrow, isComparable } from "../metrics";
 import { useLive } from "../live";
 import { go, href } from "../router";
 import { SceneCard } from "./ScenesPage";
@@ -29,16 +29,17 @@ export function OverviewPage() {
     failed: all.filter((r) => r.status === "failed").length,
   };
 
-  // Run tốt nhất (PSNR cao nhất) của mỗi cặp cảnh và split.
+  // Run tốt nhất của mỗi cặp cảnh và split, theo Avg (gộp PSNR, SSIM, LPIPS; thấp là tốt) như
+  // cột xếp hạng mặc định của trang So sánh.
   const leaders = useMemo(() => {
     const best = new Map<string, ReportRow>();
     for (const row of report.data?.items ?? []) {
-      if (row.psnr == null || !isComparable(row)) continue;
+      if (row.avg_error == null || !isComparable(row)) continue;
       const key = `${row.scene_id}/${row.split_id}`;
       const current = best.get(key);
-      if (!current || (current.psnr ?? 0) < row.psnr) best.set(key, row);
+      if (!current || (current.avg_error ?? Infinity) > row.avg_error) best.set(key, row);
     }
-    return [...best.values()].sort((a, b) => (b.psnr ?? 0) - (a.psnr ?? 0)).slice(0, 6);
+    return [...best.values()].sort((a, b) => (a.avg_error ?? 0) - (b.avg_error ?? 0)).slice(0, 6);
   }, [report.data]);
 
   return (
@@ -62,22 +63,22 @@ export function OverviewPage() {
 
       <section className="panel">
         <div className="stat-row">
-          <div className="stat">
+          <a className="stat stat-link" href={href({ page: "scenes" })}>
             <div className="label">{t("overview.stat.scenes")}</div>
             <div className="value">{scenes.data?.total ?? "–"}</div>
-          </div>
-          <div className="stat">
+          </a>
+          <a className="stat stat-link" href={href({ page: "runs", status: "succeeded" })}>
             <div className="label">{t("overview.stat.succeeded")}</div>
             <div className="value">{counts.succeeded}</div>
-          </div>
-          <div className="stat">
+          </a>
+          <a className="stat stat-link" href={href({ page: "runs", status: "failed" })}>
             <div className="label">{t("overview.stat.failed")}</div>
             <div className="value" style={{ color: counts.failed ? "var(--stop)" : undefined }}>{counts.failed}</div>
-          </div>
-          <div className="stat">
+          </a>
+          <a className="stat stat-link" href={href({ page: "storage" })}>
             <div className="label">{t("overview.stat.cache")}</div>
             <div className="value">{cache.data ? bytes(cache.data.size_bytes) : "–"}</div>
-          </div>
+          </a>
         </div>
       </section>
 
@@ -117,8 +118,8 @@ export function OverviewPage() {
                   <tr>
                     <th>{t("runs.table.scene")}</th>
                     <th>{t("runs.table.approach")}</th>
-                    <th className="num">PSNR</th>
-                    <th className="num">SSIM</th>
+                    <th className="num">Avg <BetterArrow better="low" /></th>
+                    <th className="num">PSNR <BetterArrow better="high" /></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -129,8 +130,8 @@ export function OverviewPage() {
                         <div className="small faint">{row.split_id}</div>
                       </td>
                       <td>{row.approach_id}</td>
+                      <td className="num">{fixed(row.avg_error, 4)}</td>
                       <td className="num">{fixed(row.psnr)}</td>
-                      <td className="num">{fixed(row.ssim, 3)}</td>
                     </tr>
                   ))}
                 </tbody>

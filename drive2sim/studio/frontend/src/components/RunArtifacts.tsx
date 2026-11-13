@@ -2,7 +2,7 @@
 // giữa các run) và các file ở đó, lấy từ GET /api/runs/{id}/artifacts. Nút thư mục mở đúng chỗ đó
 // trong trình quản lý file của máy chạy Studio (POST /api/reveal); nút chép đưa đường dẫn đầy đủ vào
 // clipboard, dùng khi Studio chạy trên máy khác (SSH) hoặc máy không có giao diện.
-import { Copy, File, Folder, FolderOpen, ExternalLink } from "lucide-react";
+import { Copy, ExternalLink, File, Folder, FolderOpen, RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
 import { asApiError, post, seg, useApi } from "../api/client";
 import { useI18n } from "../i18n";
@@ -35,7 +35,10 @@ interface Artifacts {
 // File xem được ngay trong trình duyệt qua /files/.
 const VIEWABLE = /\.(mp4|png|jpe?g|json|txt|yaml|log)$/i;
 
-export function RunArtifacts({ runId }: { runId: string }) {
+// Stage export → loại xuất của POST /api/runs/{id}/export.
+const REEXPORT: Record<string, "ply" | "preview"> = { "export.ply_world": "ply", "export.preview": "preview" };
+
+export function RunArtifacts({ runId, onReexport }: { runId: string; onReexport?: (kind: "ply" | "preview") => void }) {
   const { t } = useI18n();
   const toast = useToast();
   const data = useApi<Artifacts>(`/api/runs/${seg(runId)}/artifacts`);
@@ -91,6 +94,15 @@ export function RunArtifacts({ runId }: { runId: string }) {
             {stage.location === "cache" && <InfoTip>{t("artifacts.cache_hint")}</InfoTip>}
             <span className="grow" />
             {stage.path && <span className="small muted">{bytes(stage.size_bytes)}</span>}
+            {onReexport && REEXPORT[stage.stage_id] && (
+              <span className="row" style={{ gap: 2 }}>
+                <button className="btn sm ghost" onClick={() => onReexport(REEXPORT[stage.stage_id])}>
+                  <RefreshCw size={15} />
+                  {t("artifacts.reexport")}
+                </button>
+                <InfoTip>{t("run.action.reexport_hint")}</InfoTip>
+              </span>
+            )}
             {stage.path && stage.path_abs && actions(stage.path, stage.path_abs, stage.stage_id)}
           </header>
           {stage.path ? (

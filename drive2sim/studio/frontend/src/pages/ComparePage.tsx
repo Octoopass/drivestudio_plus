@@ -8,12 +8,13 @@
 // - Biểu đồ: chất lượng theo thời gian train, VRAM, tốc độ render, số Gaussian (nối các run trên
 //   đường Pareto); PSNR theo vùng; phân rã thời gian dựng cảnh; đường cong train.
 // - Video của hai run đặt cạnh nhau, phát đồng bộ.
-import { ArrowDownWideNarrow, ArrowUpNarrowWide, ChevronDown, ChevronsUpDown, ChevronUp, Download, Pause, Play, AlertTriangle } from "lucide-react";
+import { ArrowDownWideNarrow, ArrowUpNarrowWide, ChevronDown, ChevronsUpDown, ChevronUp, Download, Pause, Play } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, preferredVideo, seg, useApi } from "../api/client";
 import type { List, Manifest, ReportRow, SceneDetail, Video } from "../api/types";
 import { GroupedBarChart, Legend, MultiLineChart, ScatterChart, seriesColor, StackedBarChart, type Point } from "../components/charts";
-import { duration, Empty, ErrorBox, InfoTip, Loading, optionsText, PageHead, Panel, Segmented, Tabs, turbo } from "../components/ui";
+import { duration, Empty, ErrorBox, InfoTip, Loading, PageHead, Panel, Segmented, Tabs, turbo } from "../components/ui";
+import { ConfigText } from "../components/ConfigText";
 import { useI18n } from "../i18n";
 import { BetterArrow, isComparable, SUMMARY_GROUP, visibleGroups, type MetricDef, type MetricKey } from "../metrics";
 import { go, href } from "../router";
@@ -51,12 +52,12 @@ function Heat({ text, value, values, better }: { text: string; value: number | n
   );
 }
 
-/** Dấu tam giác cảnh báo cạnh tiêu đề cột hoặc biểu đồ; rê chuột để đọc lý do. */
+/** Dấu tam giác cảnh báo cạnh tiêu đề cột hoặc biểu đồ; bấm hoặc rê chuột để đọc lý do. */
 function WarnMark({ text }: { text: string }) {
   return (
-    <span className="warn-mark" title={text} aria-label={text}>
-      <AlertTriangle size={15} />
-    </span>
+    <InfoTip warn label={text}>
+      {text}
+    </InfoTip>
   );
 }
 
@@ -189,9 +190,9 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
               </InfoTip>
             </span>
             {softwares.length > 1 && (
-              <span className="tag warn row" style={{ gap: 4 }} title={t("compare.mixed_software", { versions: softwares.join(" | ") })}>
-                <AlertTriangle size={14} />
+              <span className="tag warn row" style={{ gap: 4 }}>
                 {t("compare.mixed_software_tag", { count: softwares.length })}
+                <InfoTip warn>{t("compare.mixed_software", { versions: softwares.join(" | ") })}</InfoTip>
               </span>
             )}
             <span className="grow" />
@@ -290,7 +291,9 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
                       </div>
                     </td>
                     {!currentSplit && !grouped && <td className="small nowrap">{row.split_id}</td>}
-                    <td className="small muted" style={{ maxWidth: 260 }}>{optionsText(row.options) || "–"}</td>
+                    <td className="small muted" style={{ maxWidth: 260 }}>
+                      <ConfigText approachId={row.approach_id} options={row.options} preset={row.preset} />
+                    </td>
                     {group.metrics.map((metric) => (
                       <td key={metric.key} className={metric.key === "gpu" ? "small nowrap" : sort.key === metric.key ? "num sorted-col" : "num"}>
                         <Heat text={metric.format(row)} value={metric.value(row)} values={block.rows.map((r) => metric.value(r)).filter((v): v is number => v != null)} better={metric.better} />

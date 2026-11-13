@@ -64,6 +64,7 @@ export interface ReportRow {
   split_id: string;
   approach_id: string;
   options: Record<string, OptionValue>;
+  preset: string | null;
   quick: boolean;
   status: string;
   psnr: number | null;

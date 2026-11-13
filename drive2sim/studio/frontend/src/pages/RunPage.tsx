@@ -1,6 +1,6 @@
 // Một run: trạng thái và hành động ở đầu trang (huỷ, chạy tiếp, xuất, xem 3D, Kaggle, xoá); làn
 // stage cập nhật trực tiếp qua SSE; các tab kết quả, metric trong lúc train, stage, video, log, Kaggle.
-import { Box, Cloud, CloudDownload, CloudUpload, Download, RotateCcw, Square, Trash2, Zap } from "lucide-react";
+import { Box, Cloud, CloudDownload, CloudUpload, Download, RotateCcw, Square, Trash2, Zap, Trophy, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { asApiError, del, post, seg, useApi } from "../api/client";
 import type { EnvRecord, KaggleStatus, List, ReportRow, RunDetail, RunEvent, RunLog, Splats, Video } from "../api/types";
@@ -8,6 +8,7 @@ import { LineChart, type Point } from "../components/charts";
 import { RunArtifacts } from "../components/RunArtifacts";
 import { StageRoad } from "../components/StageRoad";
 import { ago, Confirm, count, duration, Empty, ErrorBox, fixed, InfoTip, Loading, Note, optionsText, PageHead, Status, Tabs, useToast } from "../components/ui";
+import { ConfigText } from "../components/ConfigText";
 import { useI18n } from "../i18n";
 import { useLive } from "../live";
 import { BetterArrow, visibleGroups } from "../metrics";
@@ -76,6 +77,8 @@ export function RunPage({ runId }: { runId: string }) {
   );
   const [logStage, setLogStage] = useState("__engine__");
   const [deleting, setDeleting] = useState(false);
+  // Tên đường cong: nhãn dịch nếu có (psnr, loss...), không thì giữ tên metric stage gửi lên.
+  const curveLabel = (name: string) => (t(`run.curve.${name}`) === `run.curve.${name}` ? name : t(`run.curve.${name}`));
   const refresh = () => {
     run.reload();
     log.reload();
@@ -127,9 +130,10 @@ export function RunPage({ runId }: { runId: string }) {
             <div className="row wrap" style={{ gap: 12 }}>
               <Status value={status} />
               {data.approach.quick && (
-                <span className="tag warn" title={t("run.quick_hint")}>
+                <span className="tag warn row" style={{ gap: 4 }}>
                   <Zap size={15} />
                   {t("run.quick")}
+                  <InfoTip>{t("run.quick_hint")}</InfoTip>
                 </span>
               )}
               {data.executor === "kaggle" && (
@@ -155,7 +159,9 @@ export function RunPage({ runId }: { runId: string }) {
               </div>
               <div>
                 <dt>{t("run.facts.options")}</dt>
-                <dd>{optionsText(data.approach.options ?? {}) || "–"}</dd>
+                <dd>
+                  <ConfigText approachId={data.approach.approach_id} options={data.approach.options ?? {}} preset={data.approach.preset} />
+                </dd>
               </div>
               <div>
                 <dt>{t("run.facts.machine")}</dt>
@@ -192,26 +198,30 @@ export function RunPage({ runId }: { runId: string }) {
             )}
             {status === "succeeded" && (
               <>
-                {/* Run thường đã có cả hai (stage mặc định của approach); khi đó nút chỉ để xuất lại,
-                    ví dụ sau khi stage export lỗi hay code export vừa sửa, nên làm mờ đi. */}
-                <button
-                  className={`btn${splats.data?.ply ? " ghost" : ""}`}
-                  title={splats.data?.ply ? t("run.action.reexport_hint") : undefined}
-                  onClick={() => action(t("run.toast.export", { kind: "PLY" }), `${base}/export`, { kind: "ply" })}
-                >
-                  <Download size={19} />
-                  {t(splats.data?.ply ? "run.action.reexport_ply" : "run.action.export_ply")}
-                </button>
-                <button
-                  className={`btn${splats.data?.preview ? " ghost" : ""}`}
-                  title={splats.data?.preview ? t("run.action.reexport_hint") : undefined}
-                  onClick={() => action(t("run.toast.export", { kind: "preview" }), `${base}/export`, { kind: "preview" })}
-                >
-                  <Download size={19} />
-                  {t(splats.data?.preview ? "run.action.reexport_preview" : "run.action.export_preview")}
-                </button>
+                {/* Đã có file thì nút xuất lại nằm ở stage export trong tab Artifact (hiếm khi cần);
+                    ở đây chỉ hiện nút cho file chưa có. */}
+                {!splats.data?.ply && (
+                  <button className="btn" onClick={() => action(t("run.toast.export", { kind: "PLY" }), `${base}/export`, { kind: "ply" })}>
+                    <Download size={19} />
+                    {t("run.action.export_ply")}
+                  </button>
+                )}
+                {!splats.data?.preview && (
+                  <button className="btn" onClick={() => action(t("run.toast.export", { kind: "preview" }), `${base}/export`, { kind: "preview" })}>
+                    <Download size={19} />
+                    {t("run.action.export_preview")}
+                  </button>
+                )}
               </>
             )}
+            <a className="btn ghost" href={href({ page: "compare", sceneId: data.scene_id, splitId: data.split_id })}>
+              <Trophy size={18} />
+              {t("run.action.compare")}
+            </a>
+            <a className="btn ghost" href={href({ page: "new", sceneId: data.scene_id, splitId: data.split_id })}>
+              <Plus size={18} />
+              {t("run.action.new_on_split")}
+            </a>
             <a className={`btn${hasSplats ? " primary" : ""}`} href={href({ page: "viewer", runId })} aria-disabled={!hasSplats}>
               <Box size={19} />
               {t("run.action.view3d")}
@@ -308,7 +318,7 @@ export function RunPage({ runId }: { runId: string }) {
                     <table>
                       <thead>
                         <tr>
-                          <th>camera</th>
+                          <th>{t("common.camera")}</th>
                           <th className="num">PSNR</th>
                           <th className="num">SSIM</th>
                           <th className="num">LPIPS</th>
@@ -340,7 +350,7 @@ export function RunPage({ runId }: { runId: string }) {
                         <b className="grow">{t(`run.curve.${name}`)}</b>
                         <span className="dense muted">{name === "gaussians" ? count(points[points.length - 1].y) : points[points.length - 1].y.toFixed(name === "loss" ? 4 : 2)}</span>
                       </figcaption>
-                      <LineChart points={points} label={t(`run.curve.${name}`)} xLabel={t("run.curve.step")} />
+                      <LineChart points={points} label={curveLabel(name)} xLabel={t("run.curve.step")} />
                     </figure>
                   ))}
                 </div>
@@ -354,10 +364,10 @@ export function RunPage({ runId }: { runId: string }) {
                 {Object.entries(live.metrics).map(([name, points]) => (
                   <figure key={name} style={{ margin: 0 }}>
                     <figcaption className="row">
-                      <b className="grow">{name}</b>
+                      <b className="grow">{curveLabel(name)}</b>
                       <span className="dense muted">{points[points.length - 1].y.toFixed(4)}</span>
                     </figcaption>
-                    <LineChart points={points} label={name} xLabel="step" />
+                    <LineChart points={points} label={t(`run.curve.${name}`)} xLabel={t("run.curve.step")} />
                   </figure>
                 ))}
               </div>
@@ -384,8 +394,9 @@ export function RunPage({ runId }: { runId: string }) {
                       <td className="small muted">{s.cache_hit ? t("run.stages.reused") : ""}</td>
                       <td className="num">
                         {s.cache_hit ? (
-                          <span className="muted" title={t("run.stages.original_hint")}>
+                          <span className="muted row" style={{ gap: 2, justifyContent: "flex-end" }}>
                             {s.reused_duration_s ? t("run.stages.original", { time: duration(s.reused_duration_s) }) : "–"}
+                            <InfoTip>{t("run.stages.original_hint")}</InfoTip>
                           </span>
                         ) : (
                           duration(s.duration_s)
@@ -400,7 +411,14 @@ export function RunPage({ runId }: { runId: string }) {
             </div>
           )}
 
-          {tab === "artifacts" && <RunArtifacts runId={runId} />}
+          {tab === "artifacts" && <RunArtifacts
+              runId={runId}
+              onReexport={
+                status === "succeeded"
+                  ? (kind) => action(t("run.toast.export", { kind: kind === "ply" ? "PLY" : "preview" }), `${base}/export`, { kind })
+                  : undefined
+              }
+            />}
 
           {tab === "videos" &&
             ((videos.data?.items ?? []).length === 0 ? (

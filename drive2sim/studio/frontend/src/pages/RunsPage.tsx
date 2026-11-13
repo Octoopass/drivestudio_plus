@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { asApiError, del, post, seg, useApi } from "../api/client";
 import type { List, Manifest, RunRecord } from "../api/types";
 import { ago, Confirm, Empty, ErrorBox, Loading, optionsText, PageHead, Segmented, Status, useToast } from "../components/ui";
+import { ConfigText } from "../components/ConfigText";
 import { useI18n } from "../i18n";
 import { useLive } from "../live";
 import { go, href } from "../router";
@@ -115,7 +116,9 @@ export function RunsPage({ sceneId = "", status = "all" }: { sceneId?: string; s
                       </td>
                       <td className="ellipsis" style={{ maxWidth: 276 }}>{run.scene_id}</td>
                       <td>{run.split_id}</td>
-                      <td className="small muted" style={{ maxWidth: 327 }}>{optionsText(run.approach.options ?? {}) || "–"}</td>
+                      <td className="small muted" style={{ maxWidth: 327 }}>
+                        <ConfigText approachId={run.approach.approach_id} options={run.approach.options ?? {}} preset={run.approach.preset} />
+                      </td>
                       <td>
                         <Status value={run.status} />
                         {run.status === "running" && (

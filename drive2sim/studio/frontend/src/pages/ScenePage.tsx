@@ -1,7 +1,7 @@
 // Một cảnh: dữ kiện chính và hành động ở đầu trang; các tab ảnh đồng bộ của mọi camera (kéo thanh
 // thời gian, phím trái/phải, nút phát), split (tạo, xoá, chạy), camera, báo cáo kiểm tra, và các
 // run trên cảnh.
-import { Pause, Play, RefreshCw, Trash2 } from "lucide-react";
+import { Pause, Play, RefreshCw, Trash2, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { asApiError, del, post, seg, useApi, type ApiError } from "../api/client";
 import type { FrameImages, List, RunRecord, SceneDetail, Split } from "../api/types";
@@ -77,10 +77,18 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
               <RefreshCw size={19} />
               {t("scene.action.validate")}
             </button>
-            <a className="btn primary" href={href({ page: "new", sceneId })}>
-              <Play size={19} />
-              {t("nav.menu.new_run")}
-            </a>
+            {/* Cảnh chưa có split thì chưa chạy được: việc tiếp theo là tạo split. */}
+            {splits.length === 0 ? (
+              <button className="btn primary" onClick={() => setTab("splits")}>
+                <Plus size={19} />
+                {t("scene.action.create_split")}
+              </button>
+            ) : (
+              <a className="btn primary" href={href({ page: "new", sceneId })}>
+                <Play size={19} />
+                {t("nav.menu.new_run")}
+              </a>
+            )}
           </>
         }
       />
@@ -106,7 +114,7 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
                 <thead>
                   <tr>
                     <th>#</th>
-                    <th>camera_id</th>
+                    <th>{t("common.camera")}</th>
                     <th>{t("scene.cameras.model")}</th>
                     <th>{t("scene.cameras.resolution")}</th>
                     <th>{t("scene.cameras.shutter")}</th>

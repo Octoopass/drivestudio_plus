@@ -303,7 +303,7 @@ const TIP_MARGIN = 16;
  * sang trái khi gần mép. Icon là ``span`` có vai trò nút (không phải ``button``) để đặt được trong
  * ``<label>`` mà không làm nhãn trỏ nhầm sang nó.
  */
-export function InfoTip({ children, label }: { children: ReactNode; label?: string }) {
+export function InfoTip({ children, label, warn }: { children: ReactNode; label?: string; warn?: boolean }) {
   const { t } = useI18n();
   const id = useId();
   const ref = useRef<HTMLSpanElement>(null);
@@ -338,7 +338,7 @@ export function InfoTip({ children, label }: { children: ReactNode; label?: stri
   }, [pos]);
 
   return (
-    <span ref={ref} className="infotip" onMouseEnter={show} onMouseLeave={hide}>
+    <span ref={ref} className={`infotip${warn ? " warn" : ""}`} onMouseEnter={show} onMouseLeave={hide}>
       <span
         role="button"
         tabIndex={0}
@@ -362,7 +362,7 @@ export function InfoTip({ children, label }: { children: ReactNode; label?: stri
         onFocus={(event) => event.currentTarget.matches(":focus-visible") && show()}
         onBlur={hide}
       >
-        <Info size={17} aria-hidden="true" />
+        {warn ? <AlertTriangle size={15} aria-hidden="true" /> : <Info size={17} aria-hidden="true" />}
       </span>
       {pos && (
         <span role="tooltip" id={id} className="infotip-pop" style={pos}>
