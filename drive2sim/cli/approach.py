@@ -176,7 +176,11 @@ def check_approach(args: argparse.Namespace) -> int:
     ]
     options = ", ".join(f"{name}={format_value(value)}" for name, value in plan.options.items())
     # Môi trường Python của máy này (chỉ có ý nghĩa khi chạy trên máy; Kaggle cài trong notebook).
-    env = environment_check(load_approach(plan.approach_id).codebase)
+    env = environment_check(
+        load_approach(plan.approach_id).codebase,
+        needs_smpl="prep.smpl" in [stage.stage_id for stage in plan.stages],
+        workdir_root=workdir.root,
+    )
     env_lines = []
     if env["env"] and env["level"] != "ok":
         problems = [
