@@ -14,6 +14,7 @@ import argparse
 from drive2sim.cli.output import emit, format_table, format_value, parse_set
 from drive2sim.core.schema import Split
 from drive2sim.engine.approaches import list_approach_ids, load_approach
+from drive2sim.engine.environment import environment_check
 from drive2sim.engine.resolve import QUICK_NUM_ITERS, Plan, resolve
 from drive2sim.engine.run import preview_reuse
 from drive2sim.engine.stage import Scene
@@ -174,12 +175,27 @@ def check_approach(args: argparse.Namespace) -> int:
         for index, (stage, hit) in enumerate(zip(plan.stages, reused))
     ]
     options = ", ".join(f"{name}={format_value(value)}" for name, value in plan.options.items())
+    # Môi trường Python của máy này (chỉ có ý nghĩa khi chạy trên máy; Kaggle cài trong notebook).
+    env = environment_check(load_approach(plan.approach_id).codebase)
+    env_lines = []
+    if env["env"] and env["level"] != "ok":
+        problems = [
+            f"{c['id']} {c['found'] or 'chưa có'}"
+            + (f" (cần {c['expected']})" if c["expected"] else "")
+            for c in env["checks"]
+            if c["level"] != "ok"
+        ]
+        env_lines.append(
+            f"môi trường {env['env']} trên máy này: {', '.join(problems)}; "
+            f"cài bằng {env['install']} (chạy trên Kaggle thì notebook tự cài)"
+        )
     text = "\n".join(
         [
             f"approach {plan.approach_id} chạy được trên {scene.scene_id}, split {split.split_id}",
             f"cấu hình: {options or '(không có)'}",
             f"LiDAR dùng ở: {', '.join(plan.lidar_usage) or 'không dùng'}",
             *(["chạy thử nhanh: metric không so được với run đủ iteration"] if plan.quick else []),
+            *env_lines,
             format_table(["#", "stage", "", "tham số"], rows),
         ]
     )
@@ -193,6 +209,7 @@ def check_approach(args: argparse.Namespace) -> int:
             {"stage_id": stage.stage_id, "params": stage.params, "cache_hit": hit}
             for stage, hit in zip(plan.stages, reused)
         ],
+        "environment": env,
     }
     emit(args, data, text)
     return 0
