@@ -355,7 +355,8 @@ def kernel_state(workdir: Workdir, run_id: str, client: Optional[KaggleClient] =
     """Trạng thái notebook của một run.
 
     Returns:
-        Nội dung ``kaggle.json`` cộng ``status`` (trạng thái Kaggle).
+        Nội dung ``kaggle.json`` cộng ``status`` (trạng thái Kaggle, ``None`` nếu không hỏi được)
+        và ``status_error`` (lý do không hỏi được, hoặc ``None``).
 
     Raises:
         KaggleError: Nếu run chưa đẩy lên Kaggle.
@@ -364,7 +365,13 @@ def kernel_state(workdir: Workdir, run_id: str, client: Optional[KaggleClient] =
     state = load_state(workdir.find_run(run_id))
     if state is None:
         raise KaggleError(f"run {run_id} chưa đẩy lên Kaggle; chạy d2s kaggle push {run_id}")
-    return {**asdict(state), "status": client.kernel_status(state.kernel)}
+    # Không hỏi được Kaggle (chưa cài lệnh, hết hạn khoá, mất mạng) vẫn trả thông tin đã lưu trong
+    # kaggle.json, để Studio còn hiện notebook nào, đẩy lúc nào và cho tải kết quả về.
+    try:
+        status, error = client.kernel_status(state.kernel), None
+    except KaggleError as failure:
+        status, error = None, str(failure)
+    return {**asdict(state), "status": status, "status_error": error}
 
 
 STAGES_DIR = "stages"

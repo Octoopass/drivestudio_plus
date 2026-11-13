@@ -320,3 +320,22 @@ def test_wait_dataset_ready_polls_until_ready() -> None:
     client.dataset_status = lambda slug: "pending"  # type: ignore[method-assign]
     with pytest.raises(KaggleError, match="vẫn đang xử lý"):
         executor.wait_dataset_ready(client, "alice/d2s-x", timeout_s=20, sleep=lambda s: None)
+
+
+def test_kernel_state_survives_cli_failure(setup: tuple[Workdir, FakeKaggle]) -> None:
+    """Không hỏi được Kaggle vẫn trả thông tin đã lưu, để Studio còn hiện và cho tải về."""
+    workdir, fake = setup
+    run_dir = workdir.find_run(RUN_ID)
+    state = {
+        "username": "alice", "kernel": "alice/d2s-x-1", "attempt": 1, "dataset": "alice/d",
+        "commit": "abc", "pushed_utc": "2026-11-13T10:00:00+00:00", "pulled_utc": None,
+    }  # fmt: skip
+    (run_dir / D2S_DIR / "kaggle.json").write_text(json.dumps(state))
+
+    def broken(slug: str) -> str:
+        raise KaggleError("401 Unauthorized")
+
+    fake.kernel_status = broken  # type: ignore[method-assign]
+    result = executor.kernel_state(workdir, RUN_ID, client=fake)
+    assert result["kernel"] == "alice/d2s-x-1" and result["status"] is None
+    assert "401" in result["status_error"]
