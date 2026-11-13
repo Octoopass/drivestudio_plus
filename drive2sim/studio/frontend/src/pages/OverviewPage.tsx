@@ -22,7 +22,8 @@ export function OverviewPage() {
   const [adding, setAdding] = useState(false);
 
   const all = runs.data?.items ?? [];
-  const active = all.filter((r) => (live.statuses[r.run_id] ?? r.status) === "running" || r.status === "pending");
+  // "Đang chạy" ở mọi chỗ của Studio = run đang chạy + run đang chờ (cùng cách đếm với menu).
+  const active = all.filter((r) => ["running", "pending"].includes(live.statuses[r.run_id] ?? r.status));
   const counts = {
     succeeded: all.filter((r) => r.status === "succeeded").length,
     failed: all.filter((r) => r.status === "failed").length,
@@ -66,10 +67,6 @@ export function OverviewPage() {
             <div className="value">{scenes.data?.total ?? "–"}</div>
           </div>
           <div className="stat">
-            <div className="label">{t("overview.stat.running")}</div>
-            <div className="value" style={{ color: active.length ? "var(--info)" : undefined }}>{active.length}</div>
-          </div>
-          <div className="stat">
             <div className="label">{t("overview.stat.succeeded")}</div>
             <div className="value">{counts.succeeded}</div>
           </div>
@@ -85,7 +82,7 @@ export function OverviewPage() {
       </section>
 
       <div className="grid-2">
-        <Panel title={t("overview.active.title")} sub={active.length ? t("overview.active.count", { count: active.length }) : undefined} flush>
+        <Panel title={t("overview.active.title")} flush>
           {!runs.data && <div className="panel-body"><Loading /></div>}
           {runs.data && active.length === 0 && (
             <Empty title={t("overview.active.none")} action={<a className="btn" href={href({ page: "new" })}>{t("nav.menu.new_run")}</a>} />

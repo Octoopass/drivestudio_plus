@@ -14,7 +14,7 @@ export function ActivityDrawer({ onClose }: { onClose: () => void }) {
   const toast = useToast();
   const running = useApi<List<RunRecord>>(`/api/runs?status=running&_=${live.tick}`);
   const pending = useApi<List<RunRecord>>(`/api/runs?status=pending&_=${live.tick}`);
-  const runs = [...(running.data?.items ?? []), ...(pending.data?.items ?? []).filter((r) => r.executor === "local")];
+  const runs = [...(running.data?.items ?? []), ...(pending.data?.items ?? [])];
 
   const cancel = async (runId: string) => {
     try {

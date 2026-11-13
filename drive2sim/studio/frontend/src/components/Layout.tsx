@@ -116,9 +116,11 @@ export function Layout({ route, children }: { route: Route; children: ReactNode 
   const [theme, nextTheme] = useTheme();
   const [palette, setPalette] = useState(false);
   const [activity, setActivity] = useState(false);
+  // "Đang chạy" = đang chạy + đang chờ, cùng cách đếm với trang Tổng quan và ngăn Hoạt động.
   const running = useApi<List<RunRecord>>(`/api/runs?status=running&_=${live.tick}`);
+  const pending = useApi<List<RunRecord>>(`/api/runs?status=pending&_=${live.tick}`);
   const studio = useApi<{ workdir: string; demo: boolean }>("/api/studio");
-  const runningCount = running.data?.total ?? 0;
+  const runningCount = (running.data?.total ?? 0) + (pending.data?.total ?? 0);
   const activeJobs = live.jobs.filter((job) => job.status === "queued" || job.status === "running").length;
   const busy = runningCount + activeJobs;
 
