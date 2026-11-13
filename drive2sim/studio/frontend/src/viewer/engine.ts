@@ -127,13 +127,8 @@ export class SplatViewer {
   // Spark sắp xếp splat không đồng bộ sau khi camera đổi, nên giữ vẽ thêm một lúc để bản sắp
   // xếp mới kịp hiện. Đứng yên thì không tốn GPU, trang không bị giật.
   private renderUntil = 0;
-  // Máy chậm (card tích hợp): lúc camera đang chuyển động vẽ ở độ phân giải thấp hơn cho mượt,
-  // dừng lại thì vẽ một khung đủ nét. Quyết định "chậm" theo thời gian khung đo được.
+  // Luôn vẽ đủ độ phân giải màn hình: ưu tiên nét, không hạ độ phân giải lúc chuyển động.
   private basePixelRatio = Math.min(window.devicePixelRatio, 2);
-  private frameMs = 16;
-  private lastRender = 0;
-  private lowRes = false;
-  private moving = false;
   private raycaster = new THREE.Raycaster();
   /** Gọi khi người xem nhấp đúp bay tới một điểm (trang tắt "bám camera" để camera không bị kéo về). */
   onFly?: () => void;
@@ -157,7 +152,7 @@ export class SplatViewer {
     this.controls.addEventListener("start", () => {
       this.flight = null;
     });
-    this.controls.addEventListener("change", () => this.invalidate(true));
+    this.controls.addEventListener("change", () => this.invalidate());
     this.setUpAxis("z");
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(host);
@@ -166,41 +161,16 @@ export class SplatViewer {
     this.renderer.setAnimationLoop(() => this.frame());
   }
 
-  /** Yêu cầu vẽ lại; `motion` là camera hoặc vật đang chuyển động (vẽ độ phân giải thấp nếu máy chậm). */
-  invalidate(motion = false): void {
+  /** Yêu cầu vẽ lại trong 0,8 giây tới. */
+  invalidate(): void {
     this.renderUntil = performance.now() + 800;
-    if (motion) this.moving = true;
   }
 
   private frame(): void {
-    const now = performance.now();
-    if (this.flight) this.invalidate(true);
-    if (this.controls.update()) this.invalidate(true);
+    if (this.flight) this.invalidate();
+    if (this.controls.update()) this.invalidate();
     this.stepFlight();
-    if (now > this.renderUntil) {
-      // Vừa dừng chuyển động: vẽ một khung đủ nét rồi nghỉ.
-      this.lastRender = 0;
-      if (this.moving) {
-        this.moving = false;
-        this.setResolution(false);
-        this.renderer.render(this.scene, this.camera);
-      }
-      return;
-    }
-    this.setResolution(this.moving && this.frameMs > 28);
-    this.renderer.render(this.scene, this.camera);
-    // Đo bằng khoảng cách giữa hai khung hình liên tiếp có vẽ (GPU chạy không đồng bộ nên thời gian
-    // gọi render() không nói lên gì). Chỉ đo khi vẽ đủ nét, để khung vẽ thấp không làm máy "nhanh
-    // lên" rồi bật lại độ nét cao.
-    if (!this.lowRes && this.lastRender > 0) this.frameMs = this.frameMs * 0.7 + (now - this.lastRender) * 0.3;
-    this.lastRender = now;
-  }
-
-  private setResolution(low: boolean): void {
-    if (low === this.lowRes) return;
-    this.lowRes = low;
-    this.renderer.setPixelRatio(low ? this.basePixelRatio * 0.6 : this.basePixelRatio);
-    this.resize();
+    if (performance.now() <= this.renderUntil) this.renderer.render(this.scene, this.camera);
   }
 
   /** Nhấp đúp vào cảnh: tìm splat trúng tia từ chuột rồi bay tới gần điểm đó. */
@@ -386,7 +356,7 @@ export class SplatViewer {
         mesh.matrixWorldNeedsUpdate = true;
       }
     });
-    this.invalidate(alpha > 0);
+    this.invalidate();
   }
 
   /**
@@ -440,7 +410,7 @@ export class SplatViewer {
     // Tâm xoay đặt trước mặt camera 10 m, để kéo chuột thì xoay quanh cảnh trước mặt.
     this.controls.target.copy(position).add(new THREE.Vector3(0, 0, -10).applyQuaternion(quaternion));
     this.controls.update();
-    this.invalidate(alpha > 0);
+    this.invalidate();
   }
 
   dispose(): void {
