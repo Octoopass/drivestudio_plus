@@ -2,6 +2,7 @@
 // trạng thái trống, tab, nút chọn, hộp thoại xác nhận, ngăn kéo bên phải, thông báo nổi, và icon
 // giải thích (InfoTip) thay cho các câu giải thích dài nằm sẵn trên màn hình.
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from "lucide-react";
+import { EmptySign } from "./Illustration";
 import {
   createContext,
   useCallback,
@@ -88,6 +89,7 @@ export function Loading({ rows = 3 }: { rows?: number }) {
 export function Empty({ title, children, action }: { title: ReactNode; children?: ReactNode; action?: ReactNode }) {
   return (
     <div className="empty">
+      <EmptySign />
       <h3>{title}</h3>
       {children}
       {action}

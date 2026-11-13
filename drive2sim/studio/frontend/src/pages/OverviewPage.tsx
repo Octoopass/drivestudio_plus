@@ -4,6 +4,7 @@ import { Play, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useApi } from "../api/client";
 import type { CacheList, List, Manifest, ReportRow, RunRecord } from "../api/types";
+import { RoadScene } from "../components/Illustration";
 import { IngestDrawer } from "../components/IngestDrawer";
 import { ago, bytes, Empty, fixed, Loading, PageHead, Panel, Status } from "../components/ui";
 import { useI18n } from "../i18n";
@@ -44,6 +45,7 @@ export function OverviewPage() {
 
   return (
     <div className="page">
+      <div className="hero">
       <PageHead
         title={t("overview.page.title")}
         info={t("overview.page.lede")}
@@ -60,6 +62,8 @@ export function OverviewPage() {
           </>
         }
       />
+      <RoadScene width={340} />
+      </div>
 
       <section className="panel">
         <div className="stat-row">

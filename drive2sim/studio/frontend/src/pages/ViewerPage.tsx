@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, asApiError, del, post, preferredVideo, seg, useApi, type ApiError } from "../api/client";
 import type { ActorPoses, List, RunRecord, Splats, Video } from "../api/types";
 import { ErrorBox, InfoTip, Note, PageHead, Segmented } from "../components/ui";
+import { RoadScene } from "../components/Illustration";
 import { useI18n } from "../i18n";
 import { go } from "../router";
 import { SplatViewer, type SceneCamera, type SplatSource, type UpAxis } from "../viewer/engine";
@@ -348,6 +349,9 @@ export function ViewerPage({ runId }: { runId?: string }) {
               setPickFile(e.dataTransfer.files[0] ?? null);
             }}
           >
+            <div className="launch-illo">
+              <RoadScene width={300} />
+            </div>
             <h3>{t("viewer.launch.file_title")}</h3>
             <div className="drop">
               <FileUp size={29} />
