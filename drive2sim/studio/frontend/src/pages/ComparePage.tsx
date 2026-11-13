@@ -132,6 +132,9 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
   // Bảng có run chạy trên nhiều GPU: cột phụ thuộc phần cứng có dấu cảnh báo nhỏ ở tiêu đề.
   const gpus = [...new Set(rows.map((r) => r.gpu).filter((g): g is string => !!g))];
   const mixedGpu = gpus.length > 1;
+  // Bảng có run chạy bằng phiên bản PyTorch hoặc gsplat khác nhau: mọi metric có thể lệch dù cùng
+  // cấu hình, nên cảnh báo một lần ở thanh trên bảng (không gắn vào từng cột).
+  const softwares = [...new Set(rows.map((r) => r.software).filter((v): v is string => !!v))];
 
   return (
     <div className="page">
@@ -185,6 +188,12 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
                 {t(group.hint)} {t("compare.arrows")}
               </InfoTip>
             </span>
+            {softwares.length > 1 && (
+              <span className="tag warn row" style={{ gap: 4 }} title={t("compare.mixed_software", { versions: softwares.join(" | ") })}>
+                <AlertTriangle size={14} />
+                {t("compare.mixed_software_tag", { count: softwares.length })}
+              </span>
+            )}
             <span className="grow" />
             {!currentSplit && splits.length > 1 && (
               <Segmented<"mixed" | "split">

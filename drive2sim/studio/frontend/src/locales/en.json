@@ -510,5 +510,18 @@
   "viewer.gpu.start": "Start GPU viewer",
   "viewer.gpu.stop": "Stop GPU viewer",
   "viewer.gpu.starting": "Loading the checkpoint and scene data onto the GPU, usually a few tens of seconds…",
-  "viewer.gpu.exited": "The GPU viewer stopped (code {code}). The end of its log is below."
+  "viewer.gpu.exited": "The GPU viewer stopped (code {code}). The end of its log is below.",
+  "compare.mixed_software_tag": "{count} library versions",
+  "compare.mixed_software": "Runs in this table used different library versions ({versions}). A different PyTorch or gsplat version can shift metrics, time and Gaussian counts even with the same configuration, so small gaps between runs may come from versions rather than the approach. See each run's versions on its run page.",
+  "new.env.ok": "The {env} environment on this machine has the expected versions",
+  "new.env.warn": "The {env} environment on this machine has different versions: the run works, but results may differ from other runs",
+  "new.env.missing": "This machine lacks the {env} environment: the run will fail at the train step",
+  "new.env.check.gpu": "NVIDIA GPU",
+  "new.env.check.pytorch": "PyTorch",
+  "new.env.check.cuda": "PyTorch CUDA",
+  "new.env.check.gsplat": "gsplat",
+  "new.env.none": "not installed",
+  "new.env.expected": "needs {version}",
+  "new.env.install": "Install with",
+  "new.env.install_hint": "Create the conda env from {file}, run this script inside it, then reopen Studio with that env's Python. It takes a while because gsplat-geer, nvdiffrast and pytorch3d are built. Kaggle notebooks install it themselves."
 }

@@ -85,6 +85,7 @@ export interface ReportRow {
   preview_gaussians: number | null;
   preview_size_mb: number | null;
   gpu: string | null;
+  software: string | null;
   stage_times: Record<string, { seconds: number; reused: boolean }>;
 }
 

@@ -1,7 +1,7 @@
 // Chạy mới (SPEC mục 5 bước 4–5): chọn cảnh, split, approach, preset và các mục cấu hình; chọn chạy trên
 // máy hay trên Kaggle, train đầy đủ hay thử nhanh. Mỗi lần đổi lựa chọn, gọi /check để biết lựa chọn nào bị khoá (gạch và ghi
 // lý do) và vẽ trước làn stage sẽ chạy, stage nào dùng lại cache. Bấm chạy thì mở màn hình run.
-import { Cloud, Cpu, Database, Play, Zap } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Cloud, Cpu, Database, Play, XCircle, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { asApiError, post, seg, useApi, type ApiError } from "../api/client";
 import type { Approach, CheckResult, List, Manifest, OptionValue, RunRecord, SceneDetail } from "../api/types";
@@ -368,6 +368,7 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
                   ]}
                 />
               </div>
+              {executor === "local" && approachId && <LocalEnvironment approachId={approachId} />}
               {executor === "kaggle" && <KaggleSetup onStatus={setKaggleStatus} />}
               {executor === "kaggle" && kaggleStatus && !kaggleStatus.ready && <Note kind="warn">{t("kaggle.setup.start_warning")}</Note>}
               {cached > 0 && (
@@ -386,5 +387,53 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
         </aside>
       </div>
     </div>
+  );
+}
+
+interface EnvironmentCheck {
+  env: string | null;
+  file: string | null;
+  install: string | null;
+  level: "ok" | "warn" | "missing";
+  checks: { id: string; level: "ok" | "warn" | "missing"; found: string | null; expected: string | null }[];
+}
+
+/** Chạy trên máy này: môi trường Python có đúng phiên bản approach cần không (GET .../environment). */
+function LocalEnvironment({ approachId }: { approachId: string }) {
+  const { t } = useI18n();
+  const env = useApi<EnvironmentCheck>(`/api/approaches/${seg(approachId)}/environment`);
+  if (!env.data || !env.data.env) return null;
+  const data = env.data;
+  if (data.level === "ok") {
+    return (
+      <div className="row small muted" style={{ gap: 6 }}>
+        <CheckCircle2 size={16} className="ok-ink" />
+        {t("new.env.ok", { env: data.env ?? "" })}
+      </div>
+    );
+  }
+  return (
+    <Note kind="warn">
+      <div className="stack" style={{ gap: 6 }}>
+        <b>{t(data.level === "missing" ? "new.env.missing" : "new.env.warn", { env: data.env ?? "" })}</b>
+        <ul className="env-list">
+          {data.checks
+            .filter((c) => c.level !== "ok")
+            .map((c) => (
+              <li key={c.id}>
+                {c.level === "missing" ? <XCircle size={15} className="bad-ink" /> : <AlertTriangle size={15} />}
+                <span>
+                  {t(`new.env.check.${c.id}`)}: {c.found ?? t("new.env.none")}
+                  {c.expected && <span className="muted"> ({t("new.env.expected", { version: c.expected })})</span>}
+                </span>
+              </li>
+            ))}
+        </ul>
+        <span className="small">
+          {t("new.env.install")} <code>{data.install}</code>
+          <InfoTip>{t("new.env.install_hint", { file: data.file ?? "" })}</InfoTip>
+        </span>
+      </div>
+    </Note>
   );
 }

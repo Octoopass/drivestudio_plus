@@ -510,5 +510,18 @@
   "viewer.gpu.start": "Bật viewer GPU",
   "viewer.gpu.stop": "Tắt viewer GPU",
   "viewer.gpu.starting": "Đang nạp checkpoint và dữ liệu cảnh lên GPU, thường mất vài chục giây…",
-  "viewer.gpu.exited": "Viewer GPU đã dừng (mã {code}). Phần cuối log ở dưới."
+  "viewer.gpu.exited": "Viewer GPU đã dừng (mã {code}). Phần cuối log ở dưới.",
+  "compare.mixed_software_tag": "{count} bộ phiên bản",
+  "compare.mixed_software": "Run trong bảng chạy bằng phiên bản thư viện khác nhau ({versions}). Khác phiên bản PyTorch hay gsplat có thể làm metric, thời gian và số Gaussian lệch đi dù cùng cấu hình, nên chênh lệch nhỏ giữa các run có thể do phiên bản chứ không do approach. Xem phiên bản của từng run ở trang run.",
+  "new.env.ok": "Môi trường {env} trên máy này đúng phiên bản",
+  "new.env.warn": "Môi trường {env} trên máy này khác phiên bản: vẫn chạy được, nhưng kết quả có thể lệch so với run khác",
+  "new.env.missing": "Máy này thiếu môi trường {env}: run sẽ lỗi khi tới bước train",
+  "new.env.check.gpu": "GPU NVIDIA",
+  "new.env.check.pytorch": "PyTorch",
+  "new.env.check.cuda": "CUDA của PyTorch",
+  "new.env.check.gsplat": "gsplat",
+  "new.env.none": "chưa có",
+  "new.env.expected": "cần {version}",
+  "new.env.install": "Cài bằng",
+  "new.env.install_hint": "Tạo conda env bằng {file} rồi chạy script này trong env đó, sau đó mở lại Studio bằng Python của env. Mất khá lâu vì phải build gsplat-geer, nvdiffrast, pytorch3d. Chạy trên Kaggle thì notebook tự cài, không cần bước này."
 }
