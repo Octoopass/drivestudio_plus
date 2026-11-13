@@ -292,11 +292,15 @@ def test_preview_stage_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
         (output_dir / "preview.json").write_text(json.dumps(preview))
 
     monkeypatch.setattr(export_preview, "run_logged", fake_run)
+    # cameras.json của train được chép theo, để viewer mở ở đúng góc camera của video
+    (tmp_path / "m").mkdir()
+    (tmp_path / "m" / "cameras.json").write_text('{"cameras": []}')
     stage = export_preview.ExportPreviewStage()
     params = export_preview.ExportPreviewParams()
     assert stage.run(FakeContext(output_dir), {"model": tmp_path / "m"}, params) == {
         "preview": output_dir
     }
+    assert (output_dir / "cameras.json").is_file()
     assert commands[0][commands[0].index("--source_run") + 1] == "runs/s/omnire/r1"
     with pytest.raises(ValueError):
         stage.run(FakeContext(output_dir), {"model": tmp_path / "m"}, params)

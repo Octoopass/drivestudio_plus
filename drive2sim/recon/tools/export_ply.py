@@ -38,6 +38,9 @@ def gaussians_from_state(sd):
     return dict(means=means, scales=scales, quats=quats, f_dc=f_dc, f_rest=f_rest, opac=opac)
 
 
+PLY_COMMENT = "drive2sim up=+z frame=drivestudio_world units=m"
+
+
 def write_ply(g, path):
     n = len(g["means"])
     cols = [g["means"], torch.zeros(n, 3), g["f_dc"], g["f_rest"], g["opac"], g["scales"], g["quats"]]
@@ -48,7 +51,8 @@ def write_ply(g, path):
     arr = np.empty(n, dtype=[(k, "f4") for k in names])
     for i, k in enumerate(names):
         arr[k] = data[:, i]
-    PlyData([PlyElement.describe(arr, "vertex")]).write(path)
+    # drive2sim: tag the frame so viewers (Studio's 3D page) pick the right up axis on import.
+    PlyData([PlyElement.describe(arr, "vertex")], comments=[PLY_COMMENT]).write(path)
 
 
 def main():

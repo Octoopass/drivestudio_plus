@@ -344,11 +344,12 @@ runs/<scene_id>/<approach_id>/<run_id>/
         │   ├── checkpoint_resume.pth    # model + optimizer + grad scaler; xoá khi train xong
         │   ├── checkpoint_final.pth
         │   ├── train_stats.json         # thời gian train thực, VRAM, số Gaussian, iteration; ghi cùng mỗi checkpoint
+│   ├── cameras.json             # pose và nội tham số camera gốc theo khung (mục 7)
         │   ├── log.txt                  # stdout và stderr của train.py
         │   ├── artifact.json
         │   └── done
         ├── eval.standard/               # summary.json, artifact.json, done
-        └── export.ply_world/            # scene.ply, scene.json, artifact.json, done
+        └── export.ply_world/            # scene.ply, scene.json, cameras.json, artifact.json, done
 ```
 
 Gốc thư mục run chỉ có `d2s/`, nên file của tool không trùng tên với file của codebase.
@@ -465,10 +466,12 @@ runs/.../<run_id>/d2s/stages/export.preview/
 ├── preview.json
 ├── background.ply               # Gaussian của nền tĩnh, hệ world
 ├── actors/<track_id>.ply        # Gaussian của từng xe (actor rigid), hệ của box
-└── actor_poses.json
+├── actor_poses.json
+└── cameras.json                 # chép từ stage train, nếu có
 ```
 
-- File `.ply` theo định dạng PLY của 3DGS gốc: `x, y, z`, `f_dc_*`, `f_rest_*`, `opacity`, `scale_*`, `rot_*`.
+- File `.ply` theo định dạng PLY của 3DGS gốc: `x, y, z`, `f_dc_*`, `f_rest_*`, `opacity`, `scale_*`, `rot_*`. Mọi PLY do tool xuất (`scene.ply`, `background.ply`, `actors/*.ply`) có dòng header `comment drive2sim up=+z frame=drivestudio_world units=m`; trang Xem 3D đọc dòng này để biết trục lên. PLY từ nơi khác không có dòng này thì trang đoán trục lên từ mặt đường (mục 2.13 của ARCHITECTURE).
+- `cameras.json`: `{"frame": "drivestudio_world", "convention": "opencv", "units": "metres", "cameras": [{"name", "width", "height", "c2w": [F khung][16 số theo hàng], "K": [F khung][9 số theo hàng]}]}`. `c2w` theo quy ước OpenCV (x phải, y xuống, z nhìn tới). Do `train.py` ghi ngay sau khi nạp dữ liệu; `export.ply_world` và `export.preview` chép sang thư mục của mình. Run train trước khi có file này thì không có; trang Xem 3D khi đó mở ở góc nhìn bao quát.
 - `actor_poses.json`: `{"track_ids": [K tên], "T_object_world": [F khung][K xe]}`; mỗi phần tử là ma trận 4x4 viết thành 16 số theo hàng (đưa điểm từ hệ của xe sang `world`), hoặc `null` khi xe không có mặt ở khung đó. Khung đánh số theo thứ tự khung của DriveStudio (checkpoint không lưu mốc thời gian). Dùng JSON thay `.npz` để trình duyệt đọc thẳng, không cần numpy ở Studio; 200 khung × 30 xe khoảng 1 MB.
 - `track_id` của xe là `rigid_<chỉ số>`, của người và vật biến dạng là `smpl_<chỉ số>`, `deformable_<chỉ số>`, theo thứ tự instance trong checkpoint.
 - Do stage `export.preview` ghi (`drive2sim/recon/tools/export_preview.py`); nằm trong danh sách stage mặc định của OmniRe và Street GS, sau `export.ply_world`; run cũ hoặc approach khác thì thêm bằng `d2s export preview <run_id>` hay nút trên trang run. `GET /api/runs/{run_id}/splats` trả đường dẫn các file này và `scene.ply`.
@@ -757,7 +760,7 @@ Route đã có (`drive2sim/studio/api/routes/`):
 | `GET /api/runs/{run_id}/curve` | Đường cong train đọc từ `metrics.json` của stage `train.*` (mục 6.1): `{"stage_id", "series": {"psnr", "loss", "gaussians": [[bước, giá trị], ...]}}`; PSNR trên ảnh train, tổng các loss, tổng số Gaussian; tối đa 400 điểm mỗi đường | |
 | `POST /api/reveal` | Thân: `path` (tương đối với thư mục làm việc). Mở thư mục đó (với file: thư mục chứa file) trong trình quản lý file của máy chạy Studio; đường dẫn ra ngoài thư mục làm việc, không tồn tại, hoặc máy không có giao diện đồ hoạ thì `409` kèm lý do | |
 | `POST /api/pick-folder` | Thân: `start` (tuỳ chọn, thư mục mở sẵn). Mở hộp thoại chọn thư mục của hệ điều hành trên máy chạy Studio (Linux: `zenity` hoặc `kdialog`; macOS: `osascript`; Windows: PowerShell) và chờ người dùng chọn; trả `{"path"}` là đường dẫn tuyệt đối, hoặc `null` nếu người dùng đóng hộp thoại. Máy không có giao diện đồ hoạ hoặc thiếu công cụ thì `409` kèm lý do. Dùng ở form nạp cảnh, vì trình duyệt không cho trang web biết đường dẫn thật của thư mục | |
-| `GET /api/runs/{run_id}/splats` | `{"preview", "ply"}`: gói xem trước (`preview.json` cộng `background_url`, `actor_urls`, `poses_url`) nếu đã chạy `export.preview`, và url của `scene.ply` | |
+| `GET /api/runs/{run_id}/splats` | `{"preview", "ply", "cameras"}`: gói xem trước (`preview.json` cộng `background_url`, `actor_urls`, `poses_url`) nếu đã chạy `export.preview`, url của `scene.ply`, và url của `cameras.json` (lấy ở `export.preview`, rồi `export.ply_world`, rồi `train.*`; `null` nếu không có) | |
 | `GET /api/runs/{run_id}/render-check` | `{"ready", "checks": [{"id", "ok", "value"}]}`: máy chạy Studio có render được run này bằng GPU không. `id` theo thứ tự: `gpu` (nvidia-smi; kèm `memory_mb`), `pytorch` (gói đã cài), `cuda` (PyTorch thấy GPU, hỏi trong tiến trình con), `gsplat`, `checkpoint` (`checkpoint_final.pth` của stage `train.*`); `value` là thứ đã thấy hoặc lý do lỗi. Chỉ kiểm tra, không nạp model | |
 | `GET /api/approaches/{approach_id}/environment` | Môi trường Python của máy chạy Studio có đúng môi trường approach cần không (theo `codebase`; dòng DriveStudio cần `main`): `{"env", "file", "install", "level": "ok" \| "warn" \| "missing", "checks": [{"id", "level", "found", "expected"}]}` với `id` là `gpu`, `pytorch`, `cuda`, `gsplat`, và `smpl_model` khi approach có stage `prep.smpl` (file `SMPL_NEUTRAL.pkl` tìm theo biến `D2S_SMPL_MODEL`, `<thư mục làm việc>/smpl_models/`, `<repo>/smpl_models/`, rồi dataset gắn dưới `/kaggle/input`). `warn`: khác phiên bản, vẫn chạy được nhưng kết quả có thể lệch; `missing`: run sẽ lỗi. Chỉ cho run chạy trên máy này; notebook Kaggle tự cài. `env` là `null` khi codebase không cần môi trường GPU | `approach check` (khoá `environment`) |
 | `POST /api/runs/{run_id}/gpu-viewer`, `GET /api/gpu-viewer`, `DELETE /api/gpu-viewer` | Bật, xem, tắt viewer GPU (`drive2sim/recon/tools/viewer.py --host 127.0.0.1`) cho một run; mỗi lúc một viewer, bật run khác thì viewer cũ tắt. Trước khi bật, Studio dựng lại cảnh ảo trong `d2s/viewer/scene_view/` từ thư mục cảnh và cache trên máy (mask, SMPL), và ghi `d2s/viewer/config.yaml` là `config.yaml` của stage train với `data.data_root` trỏ vào đó (run tải từ Kaggle có đường dẫn Kaggle). Trạng thái `{"state": "stopped" \| "starting" \| "running" \| "exited", "run_id", "url", "exit_code", "log"}`; máy chưa đủ điều kiện hoặc run chưa có checkpoint thì `409` | |

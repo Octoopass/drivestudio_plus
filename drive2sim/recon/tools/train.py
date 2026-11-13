@@ -137,12 +137,40 @@ def save_train_stats(log_dir: str, trainer, step: int, train_time_s: float, peak
         json.dump(stats, f, indent=2)
     os.replace(tmp, os.path.join(log_dir, TRAIN_STATS))
 
+CAMERAS_FILE = "cameras.json"
+
+
+def save_cameras(log_dir: str, dataset) -> None:
+    """drive2sim: write every camera's per-frame pose and intrinsics in the training world frame.
+
+    Same world frame as the checkpoint, scene.ply and the preview package, so a viewer can open
+    a reconstruction at exactly the viewpoint of the rendered videos. Poses are camera-to-world in
+    the OpenCV convention (x right, y down, z forward), 16 numbers row-major; intrinsics are for an
+    image of width x height pixels (the loaded size).
+    """
+    cameras = []
+    for cam in dataset.pixel_source.camera_data.values():
+        c2w = cam.cam_to_worlds.detach().cpu().reshape(-1, 16).tolist()
+        K = cam.intrinsics.detach().cpu().reshape(-1, 9).tolist()
+        cameras.append({
+            "name": str(cam.cam_name),
+            "width": int(cam.WIDTH),
+            "height": int(cam.HEIGHT),
+            "c2w": [[round(v, 6) for v in row] for row in c2w],
+            "K": [[round(v, 4) for v in row] for row in K],
+        })
+    payload = {"frame": "drivestudio_world", "convention": "opencv", "units": "metres", "cameras": cameras}
+    with open(os.path.join(log_dir, CAMERAS_FILE), "w") as f:
+        json.dump(payload, f)
+
+
 def main(args):
     cfg = setup(args)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # build dataset
     dataset = DrivingDataset(data_cfg=cfg.data)
+    save_cameras(cfg.log_dir, dataset)
 
     # setup trainer
     trainer = import_str(cfg.trainer.type)(

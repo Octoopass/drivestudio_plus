@@ -25,7 +25,7 @@ from drive2sim.core import files
 from drive2sim.core.schema import Preview
 from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import Stage, StageContext
-from drive2sim.stages.commands import LOG_FILE, run_logged
+from drive2sim.stages.commands import LOG_FILE, copy_cameras, run_logged
 from drive2sim.stages.train.drivestudio import FINAL_CHECKPOINT
 
 PREVIEW_FILE = "preview.json"
@@ -108,4 +108,5 @@ class ExportPreviewStage(Stage):
             if not (ctx.output_dir / name).is_file():
                 raise RuntimeError(f"export_preview.py xong nhưng không có {name}")
         files.load(ctx.output_dir / PREVIEW_FILE, Preview)
+        copy_cameras(inputs["model"], ctx.output_dir)
         return {"preview": ctx.output_dir}

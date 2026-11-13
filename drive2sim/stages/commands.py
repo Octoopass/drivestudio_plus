@@ -8,6 +8,7 @@ thất bại.
 """
 
 import os
+import shutil
 import signal
 import subprocess
 from collections.abc import Callable
@@ -92,3 +93,17 @@ def run_logged(
         lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines(True)
         tail = "".join(lines[-TAIL_LINES:])
         raise RuntimeError(f"lệnh thoát với mã {returncode}; cuối {log_path.name}:\n{tail}")
+
+
+CAMERAS_FILE = "cameras.json"
+
+
+def copy_cameras(model_dir: Path, output_dir: Path) -> None:
+    """Chép ``cameras.json`` (pose và thông số camera theo khung, ``train.py`` ghi) sang kết quả.
+
+    Để file xuất (``scene.ply``, gói xem trước) mang theo góc nhìn của các camera gốc: viewer mở
+    cảnh ở đúng góc của video. Run train trước khi có file này thì bỏ qua.
+    """
+    source = model_dir / CAMERAS_FILE
+    if source.is_file():
+        shutil.copy2(source, output_dir / CAMERAS_FILE)

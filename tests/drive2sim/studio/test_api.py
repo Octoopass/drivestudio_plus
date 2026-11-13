@@ -282,7 +282,11 @@ def test_run_lifecycle(client: TestClient) -> None:
     assert client.get("/api/runs", params={"status": "failed"}).json()["total"] == 0
     log = client.get(f"/api/runs/{run_id}/log").json()
     assert log["stages"]["train.toy"] == "train log\n"
-    assert client.get(f"/api/runs/{run_id}/splats").json() == {"preview": None, "ply": None}
+    assert client.get(f"/api/runs/{run_id}/splats").json() == {
+        "preview": None,
+        "ply": None,
+        "cameras": None,
+    }
     preview_dir = (
         Path(client.app.state.studio.workdir.find_run(run_id)) / "d2s/stages/export.preview"
     )

@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import Stage, StageContext
-from drive2sim.stages.commands import LOG_FILE, run_logged
+from drive2sim.stages.commands import LOG_FILE, copy_cameras, run_logged
 from drive2sim.stages.train.drivestudio import FINAL_CHECKPOINT
 
 PLY_FILE = "scene.ply"
@@ -105,4 +105,5 @@ class ExportPlyWorldStage(Stage):
         ply = ctx.output_dir / PLY_FILE
         if not ply.is_file():
             raise RuntimeError(f"export_ply.py xong nhưng không có {PLY_FILE}")
+        copy_cameras(inputs["model"], ctx.output_dir)
         return {"ply": ply}

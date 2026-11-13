@@ -44,6 +44,7 @@ from drive2sim.engine.run import (
     reset_stage,
     run_is_active,
 )
+from drive2sim.stages.commands import CAMERAS_FILE
 from drive2sim.studio.api.events import stream_events
 from drive2sim.studio.api.routes import kaggle
 from drive2sim.studio.api.routes.approaches import PlanBody, plan_from_body
@@ -341,7 +342,8 @@ def run_splats(run_id: str, request: Request) -> dict:
         ``{"preview": {...} | null, "ply": url | null}``. ``preview`` (khi đã chạy
         ``export.preview``) gồm nội dung ``preview.json`` cộng ``background_url``,
         ``actor_urls`` (``track_id`` → url) và ``poses_url``; ``ply`` là ``scene.ply`` của
-        ``export.ply_world``.
+        ``export.ply_world``; ``cameras`` là url của ``cameras.json`` (pose, thông số camera theo
+        khung, cùng hệ toạ độ với các file trên), ``null`` nếu chưa có.
     """
     run_dir, _ = _load(request, run_id)
     workdir = state_of(request).workdir
@@ -363,4 +365,22 @@ def run_splats(run_id: str, request: Request) -> dict:
             },
             "poses_url": url(preview_dir / "actor_poses.json"),
         }
-    return {"preview": preview, "ply": url(stages_dir / "export.ply_world" / "scene.ply")}
+    # Pose và thông số camera theo khung (train.py ghi, stage xuất chép theo): để mở cảnh ở đúng
+    # góc của video. Lấy ở gói xem trước, rồi scene.ply, rồi thư mục train.
+    cameras = next(
+        (
+            found
+            for found in (
+                url(preview_dir / CAMERAS_FILE),
+                url(stages_dir / "export.ply_world" / CAMERAS_FILE),
+                *(url(path) for path in sorted(stages_dir.glob(f"train.*/{CAMERAS_FILE}"))),
+            )
+            if found
+        ),
+        None,
+    )
+    return {
+        "preview": preview,
+        "ply": url(stages_dir / "export.ply_world" / "scene.ply"),
+        "cameras": cameras,
+    }

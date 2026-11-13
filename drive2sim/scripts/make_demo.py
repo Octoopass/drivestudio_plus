@@ -168,6 +168,21 @@ def street_background() -> list[tuple[float, ...]]:
     return points
 
 
+def demo_cameras(frames: int) -> dict[str, Any]:
+    """Camera trước chạy dọc tim đường (trục x), cao 1,6 m, như cameras.json train.py ghi.
+
+    Pose camera→world theo quy ước OpenCV: x camera = −y world (phải), y camera = −z world
+    (xuống), z camera = +x world (nhìn tới).
+    """
+    width, height, fx = 960, 540, 600.0
+    c2w = [[0, 0, 1, -40 + 1.2 * f, -1, 0, 0, 0, 0, -1, 0, 1.6, 0, 0, 0, 1] for f in range(frames)]
+    K = [[fx, 0, width / 2, 0, fx, height / 2, 0, 0, 1]] * frames
+    return {
+        "frame": "drivestudio_world", "convention": "opencv", "units": "metres",
+        "cameras": [{"name": "CAM_FRONT", "width": width, "height": height, "c2w": c2w, "K": K}],
+    }  # fmt: skip
+
+
 def car(color: tuple[float, float, float]) -> list[tuple[float, ...]]:
     """Một chiếc xe trong hệ toạ độ của chính nó: thân và cabin."""
     return _box((0, 0, 0.75), (4.4, 1.9, 1.1), color, 3000) + _box(
@@ -586,6 +601,7 @@ def make_run(
                 "sh_degree": 0, "rigid_actors": tracks, "box_only_actors": ["smpl_0000", "smpl_0001"],
                 "omitted": ["sky", "per_camera_color", "SMPLNodes", "DeformableNodes"]}  # fmt: skip
         (preview / "preview.json").write_text(json.dumps(info, indent=2))
+        (preview / "cameras.json").write_text(json.dumps(demo_cameras(60)))
         (preview / "done").write_text("2026-11-12T09:00:00Z\n")
 
     if run["executor"] == "kaggle":
