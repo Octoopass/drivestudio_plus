@@ -289,7 +289,6 @@
   "viewer.field.up_hint": "Run của tool: Z+ (hệ DriveStudio). File kéo thả: đọc từ file nếu tool xuất ra, không thì tự đoán từ hình dạng cảnh (mặt đất phẳng, nhà và cây mọc lên); đổi tay nếu cảnh bị lật. 3DGS từ COLMAP thường là Y−.",
   "viewer.field.sh": "Bậc màu theo góc nhìn",
   "viewer.field.sh_hint": "Giảm nếu máy xem bị giật.",
-  "viewer.help": "Kéo chuột trái để xoay, chuột phải để dời, cuộn để phóng, nhấp đúp để bay tới.",
   "viewer.no_webgl": "Trình duyệt này không có WebGL2, nên không vẽ được splat.",
   "viewer.hud.loading": "Đang tải {percent}%",
   "viewer.hud.count": "{count} splat",
@@ -530,7 +529,6 @@
   "viewer.panel.title": "Điều khiển",
   "viewer.panel.collapse": "Thu gọn bảng điều khiển",
   "viewer.panel.expand": "Mở bảng điều khiển",
-  "viewer.panel.drop_hint": "Kéo thả file splat vào cảnh để mở file đó.",
   "viewer.hud.fullscreen": "Toàn màn hình",
   "viewer.hud.exit_fullscreen": "Thoát toàn màn hình",
   "viewer.hud.preparing": "Đang tải thông tin run…"

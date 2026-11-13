@@ -289,7 +289,6 @@
   "viewer.field.up_hint": "Runs from this tool: Z+ (DriveStudio frame). Dropped files: read from the file when this tool exported it, otherwise guessed from the scene's shape (flat ground, buildings and trees rising); change it by hand if the scene is upside down. COLMAP 3DGS is usually Y−.",
   "viewer.field.sh": "View-dependent colour (SH)",
   "viewer.field.sh_hint": "Lower it if the view stutters.",
-  "viewer.help": "Left-drag to orbit, right-drag to pan, scroll to zoom, double-click to fly to a point.",
   "viewer.no_webgl": "This browser has no WebGL2, so splats cannot be drawn.",
   "viewer.hud.loading": "Loading {percent}%",
   "viewer.hud.count": "{count} splats",
@@ -530,7 +529,6 @@
   "viewer.panel.title": "Controls",
   "viewer.panel.collapse": "Collapse controls",
   "viewer.panel.expand": "Show controls",
-  "viewer.panel.drop_hint": "Drop a splat file on the scene to open it.",
   "viewer.hud.fullscreen": "Full screen",
   "viewer.hud.exit_fullscreen": "Exit full screen",
   "viewer.hud.preparing": "Loading run details…"

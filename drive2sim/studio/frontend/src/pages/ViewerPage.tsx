@@ -552,10 +552,8 @@ export function ViewerPage({ runId }: { runId?: string }) {
                 {preview && source === "preview" && (preview.box_only_actors.length > 0 || preview.omitted.length > 0) && (
                   <p className="small muted">{t("viewer.note.omitted", { items: [...preview.omitted, ...preview.box_only_actors.slice(0, 3)].join(", ") })}</p>
                 )}
-                <p className="small faint">{t("viewer.help")}</p>
               </>
             )}
-            <p className="small faint">{t("viewer.panel.drop_hint")}</p>
           </div>
         </aside>
       ) : (
