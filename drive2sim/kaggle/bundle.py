@@ -15,6 +15,7 @@ File này chứa ``write_bundle``, ``read_bundle`` và ``materialize``.
 
 import json
 import shutil
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Optional
 
@@ -30,7 +31,7 @@ def write_bundle(
     run_dir: Path,
     workdir: Workdir,
     scene_dataset: str,
-    resume_kernel: Optional[str] = None,
+    resume_kernels: Sequence[str] = (),
 ) -> dict[str, dict]:
     """Dựng gói job của một run.
 
@@ -38,7 +39,8 @@ def write_bundle(
         run_dir: Thư mục run trên máy.
         workdir: Thư mục làm việc trên máy.
         scene_dataset: Dataset Kaggle chứa cảnh, ví dụ ``alice/d2s-1a2b3c4d``.
-        resume_kernel: Notebook của lần chạy trước, để chạy tiếp từ output của nó.
+        resume_kernels: Các notebook của những lần đẩy trước (mới nhất trước), để chạy tiếp từ
+            output của lần mới nhất có kết quả của run.
 
     Returns:
         ``{tên file: nội dung JSON}``.
@@ -54,7 +56,7 @@ def write_bundle(
             "converter_version": scene.manifest.source.converter_version,
             "kaggle_dataset": scene_dataset,
         },
-        "resume.json": {"kernel": resume_kernel},
+        "resume.json": {"kernels": list(resume_kernels)},
     }
 
 
@@ -78,11 +80,32 @@ def _find_scene(input_root: Path, scene_id: str) -> Path:
     raise FileNotFoundError(f"không thấy cảnh {scene_id} (manifest.yaml) dưới {input_root}")
 
 
-def _find_previous_run(input_root: Path, record: RunRecord) -> Optional[Path]:
-    """Tìm thư mục run của lần chạy trước trong output đã gắn, nếu có."""
+def _resume_kernels(resume: dict) -> list[str]:
+    """Danh sách notebook trong ``resume.json``, mới nhất trước (đọc cả dạng cũ ``kernel``)."""
+    if resume.get("kernels"):
+        return list(resume["kernels"])
+    return [resume["kernel"]] if resume.get("kernel") else []
+
+
+def _find_previous_run(
+    input_root: Path, record: RunRecord, kernels: Sequence[str] = ()
+) -> Optional[Path]:
+    """Tìm thư mục run trong output đã gắn của lần đẩy mới nhất có kết quả của run này.
+
+    Kaggle gắn output của notebook ``<user>/<tên>`` ở ``<input_root>/<tên>/``. Lần đẩy gần nhất có
+    thể không có gì (ví dụ lỗi ngay lúc cài môi trường), nên duyệt theo thứ tự ``kernels`` (mới
+    nhất trước) và lấy lần đầu tiên có ``run.json`` của run; thư mục không thuộc ``kernels`` xét
+    sau cùng.
+    """
     pattern = f"**/runs/{record.scene_id}/{record.approach.approach_id}/{record.run_id}"
     found = [p for p in sorted(input_root.glob(pattern)) if (p / D2S_DIR / RUN_FILE).is_file()]
-    return found[0] if found else None
+    order = [kernel.split("/")[-1] for kernel in kernels]
+
+    def rank(path: Path) -> int:
+        top = path.relative_to(input_root).parts[0]
+        return order.index(top) if top in order else len(order)
+
+    return min(found, key=rank) if found else None
 
 
 def materialize(bundle: dict[str, dict], workdir: Workdir, input_root: Path) -> Path:
@@ -116,7 +139,8 @@ def materialize(bundle: dict[str, dict], workdir: Workdir, input_root: Path) -> 
     split_path.write_text(json.dumps(bundle["split.json"], indent=2), "utf-8")
 
     run_dir = workdir.run_dir(record.scene_id, record.approach.approach_id, record.run_id)
-    previous = _find_previous_run(input_root, record) if bundle["resume.json"]["kernel"] else None
+    kernels = _resume_kernels(bundle["resume.json"])
+    previous = _find_previous_run(input_root, record, kernels) if kernels else None
     if previous is not None and not run_dir.exists():
         shutil.copytree(previous, run_dir, symlinks=True)
         previous_cache = previous.parents[2].parent / "cache" / record.scene_id

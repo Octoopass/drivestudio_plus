@@ -46,7 +46,10 @@ STATE_FILE = "kaggle.json"
 TEMPLATE = paths.PACKAGE_DIR / "kaggle" / "templates" / "run.ipynb"
 STAGING_DIR = ".kaggle"  # trong thư mục làm việc: thư mục tạm khi upload, tải về
 DEFAULT_BRANCH = "drive2sim"
-DEFAULT_ACCELERATOR = "NvidiaTeslaT4"  # machine_shape của Kaggle: GPU T4 x2
+DEFAULT_ACCELERATOR = "NvidiaTeslaT4"
+MAX_RESUME_SOURCES = (
+    5  # số lần đẩy trước được gắn vào notebook mới  # machine_shape của Kaggle: GPU T4 x2
+)
 
 
 @dataclass
@@ -228,7 +231,13 @@ def push_run(
     )
     attempt = previous.attempt + 1 if previous else 1
     kernel = f"{username}/d2s-{_hash8(run_id)}-{attempt}"
-    resume = previous.kernel if previous else None
+    # Gắn output của tối đa MAX_RESUME_SOURCES lần đẩy trước, mới nhất trước: lần gần nhất có thể
+    # lỗi trước khi ghi được gì (ví dụ lúc cài môi trường), khi đó notebook chạy tiếp từ lần cũ hơn
+    # còn kết quả thay vì train lại từ đầu.
+    resume = [
+        f"{username}/d2s-{_hash8(run_id)}-{number}"
+        for number in range(attempt - 1, max(0, attempt - 1 - MAX_RESUME_SOURCES), -1)
+    ]
     bundle = write_bundle(run_dir, workdir, dataset, resume)
 
     with tempfile.TemporaryDirectory(dir=_staging(workdir)) as folder:
@@ -247,7 +256,7 @@ def push_run(
             "machine_shape": accelerator,
             "enable_internet": True,
             "dataset_sources": [dataset],
-            "kernel_sources": [resume] if resume else [],
+            "kernel_sources": resume,
             "competition_sources": [],
         }
         (folder_path / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2))

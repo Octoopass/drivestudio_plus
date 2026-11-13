@@ -156,7 +156,10 @@ def test_push_materialize_pull_and_resume(setup: tuple[Workdir, FakeKaggle]) -> 
     assert pushed["metadata"]["enable_gpu"] and pushed["metadata"]["is_private"]
     assert pushed["metadata"]["machine_shape"] == "NvidiaTeslaT4"
     text = json.dumps(pushed["notebook"])
-    assert "git checkout --quiet c0ffee" in text and "https://x/r.git" in text and "$" not in text
+    assert "git checkout --quiet c0ffee" in text and "https://x/r.git" in text
+    # mọi chỗ giữ chỗ của template đã được điền ($rc, $(nvidia-smi ...) là của bash, giữ nguyên)
+    for name in ("run_id", "commit", "repo_url", "branch", "bundle_json"):
+        assert f"${name}" not in text and f"${{{name}}}" not in text
     assert notebook_bundle(fake, state.kernel)["scene_ref.json"]["kaggle_dataset"] == state.dataset
     assert not (workdir.root / ".kaggle" / "upload").exists() or not any(
         (workdir.root / ".kaggle" / "upload").iterdir()
@@ -240,3 +243,22 @@ def test_client_parses_cli_output(tmp_path: Path) -> None:
         client.username()
     (tmp_path / "kaggle.json").write_text(json.dumps({"username": "bob", "key": "k"}))
     assert client.username() == "bob"
+
+
+def test_resume_picks_newest_attempt_that_has_the_run(tmp_path: Path) -> None:
+    """Lần đẩy gần nhất lỗi trước khi ghi output: chạy tiếp từ lần cũ hơn còn kết quả."""
+    from types import SimpleNamespace
+
+    from drive2sim.kaggle.bundle import _find_previous_run
+
+    record = SimpleNamespace(
+        scene_id=SCENE, run_id=RUN_ID, approach=SimpleNamespace(approach_id="omnire")
+    )
+    for attempt in (1, 2):
+        run = tmp_path / f"d2s-abc-{attempt}" / "runs" / SCENE / "omnire" / RUN_ID / D2S_DIR
+        run.mkdir(parents=True)
+        (run / RUN_FILE).write_text("{}")
+    (tmp_path / "d2s-abc-3").mkdir()  # lần 3 lỗi lúc cài, output trống
+    kernels = ["alice/d2s-abc-3", "alice/d2s-abc-2", "alice/d2s-abc-1"]
+    found = _find_previous_run(tmp_path, record, kernels)  # type: ignore[arg-type]
+    assert found is not None and found.relative_to(tmp_path).parts[0] == "d2s-abc-2"
