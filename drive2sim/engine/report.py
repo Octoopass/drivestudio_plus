@@ -81,6 +81,7 @@ class ReportRow:
     split_id: str
     approach_id: str
     options: dict[str, object] = field(default_factory=dict)
+    preset: Optional[str] = None
     quick: bool = False
     status: str = ""
     psnr: Optional[float] = None
@@ -219,6 +220,7 @@ def report_rows(
             split_id=record.split_id,
             approach_id=record.approach.approach_id,
             options=dict(record.approach.options),
+            preset=record.approach.preset,
             quick=record.approach.quick,
             status=record.status,
             num_iters=iters,
