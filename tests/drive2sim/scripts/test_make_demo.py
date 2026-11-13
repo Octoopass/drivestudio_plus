@@ -35,3 +35,9 @@ def test_make_demo_builds_a_readable_workdir(
     ]
     # chạy lại không có --force thì không ghi đè
     assert make_demo.main([str(tmp_path / "demo")]) == 1
+    # --force không xoá thư mục làm việc thật (không có file DEMO)
+    real = tmp_path / "real"
+    (real / "runs").mkdir(parents=True)
+    (real / "runs" / "keep.txt").write_text("x")
+    assert make_demo.main([str(real), "--force"]) == 1
+    assert (real / "runs" / "keep.txt").is_file()

@@ -674,6 +674,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         if not args.force:
             print(f"{root} đã có dữ liệu; thêm --force để tạo lại", file=sys.stderr)
             return 1
+        # --force chỉ xoá thư mục mẫu do chính script này tạo (có file DEMO); thư mục làm việc
+        # thật không có file đó, nên lỡ trỏ nhầm vào nó cũng không mất dữ liệu.
+        if not (root / DEMO_MARKER).is_file():
+            print(
+                f"{root} không phải thư mục dữ liệu mẫu (thiếu file {DEMO_MARKER}); không xoá",
+                file=sys.stderr,
+            )
+            return 1
         for name in ("data", "runs", "cache"):
             shutil.rmtree(root / name, ignore_errors=True)
     work = Workdir(root)
