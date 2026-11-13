@@ -252,6 +252,46 @@ def create_run(
     return run_dir
 
 
+def plan_cache_keys(
+    plan: Plan, scene: Scene, split: Split, registry: StageRegistry = REGISTRY
+) -> list[Optional[str]]:
+    """Khoá cache mà từng stage của một run sẽ dùng, tính giống hệt lúc chạy thật.
+
+    Args:
+        plan: Kế hoạch đã resolve.
+        scene: Cảnh của run.
+        split: Split của run.
+        registry: Bảng stage.
+
+    Returns:
+        Mỗi stage một khoá, cùng thứ tự với ``plan.stages``; ``None`` cho stage không cache, hoặc
+        stage cache nhận đầu vào từ stage không cache (khoá phụ thuộc ``run_id`` chưa có).
+    """
+    keys: list[Optional[str]] = []
+    for stage in plan.stages:
+        input_keys: list[Optional[str]] = []
+        for source in stage.input_sources.values():
+            if source == SCENE_INPUT:
+                input_keys.append(
+                    input_key_for_scene(scene.scene_id, scene.manifest.source.converter_version)
+                )
+            elif isinstance(source, int):
+                input_keys.append(keys[source])
+            else:
+                input_keys.append(input_key_for_split(split.split_id))
+        key = None
+        if stage.cacheable and None not in input_keys:
+            key = identifiers.make_cache_key(
+                scene.scene_id,
+                stage.stage_id,
+                registry.get(stage.stage_id).version,
+                stage.params,
+                [k for k in input_keys if k is not None],
+            )
+        keys.append(key)
+    return keys
+
+
 def preview_reuse(
     plan: Plan, scene: Scene, split: Split, workdir: Workdir, registry: StageRegistry = REGISTRY
 ) -> list[bool]:
@@ -274,30 +314,8 @@ def preview_reuse(
         Mỗi stage một giá trị, cùng thứ tự với ``plan.stages``: ``True`` nếu sẽ dùng lại cache.
     """
     cache = CacheStore(workdir.cache_dir)
-    keys: list[Optional[str]] = []
-    reused: list[bool] = []
-    for stage in plan.stages:
-        input_keys: list[Optional[str]] = []
-        for source in stage.input_sources.values():
-            if source == SCENE_INPUT:
-                input_keys.append(
-                    input_key_for_scene(scene.scene_id, scene.manifest.source.converter_version)
-                )
-            elif isinstance(source, int):
-                input_keys.append(keys[source])
-            else:
-                input_keys.append(input_key_for_split(split.split_id))
-        key = None
-        if stage.cacheable and None not in input_keys:
-            key = identifiers.make_cache_key(
-                scene.scene_id,
-                stage.stage_id,
-                registry.get(stage.stage_id).version,
-                stage.params,
-                [k for k in input_keys if k is not None],
-            )
-        keys.append(key)
-        reused.append(key is not None and cache.lookup(key) is not None)
+    keys = plan_cache_keys(plan, scene, split, registry)
+    reused = [key is not None and cache.lookup(key) is not None for key in keys]
     return reused
 
 
