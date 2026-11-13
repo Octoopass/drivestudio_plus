@@ -133,6 +133,10 @@ class GpuViewers:
         self.workdir = workdir
         self.python = python
         self._lock = threading.Lock()
+        # Cả lượt bật (dựng lại cảnh ảo bằng rmtree rồi mkdir, rồi chạy tiến trình) đi một lần một:
+        # bấm "Bật viewer GPU" hai lần nhanh từng làm hai luồng cùng dựng thư mục đó và một bên
+        # lỗi FileExistsError hoặc báo nhầm "không dựng được dữ liệu cảnh".
+        self._start_lock = threading.Lock()
         self._process: Optional[subprocess.Popen] = None
         self._log_file: Optional[IO[str]] = None
         self._run_id: Optional[str] = None
@@ -148,6 +152,10 @@ class GpuViewers:
         Raises:
             GpuViewerError: Nếu máy chưa đủ điều kiện render GPU hoặc run thiếu dữ liệu.
         """
+        with self._start_lock:
+            return self._start(run_id)
+
+    def _start(self, run_id: str) -> dict[str, Any]:
         run_dir = self.workdir.find_run(run_id)
         readiness = render_readiness(run_dir)
         if not readiness["ready"]:
