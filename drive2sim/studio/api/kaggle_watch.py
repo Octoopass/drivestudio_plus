@@ -20,14 +20,16 @@ from typing import Optional
 
 from drive2sim.engine.workdir import Workdir
 from drive2sim.kaggle import executor
-from drive2sim.kaggle.client import KaggleClient
+from drive2sim.kaggle.client import KaggleClient, KaggleError
 from drive2sim.studio.api.jobs import BackgroundJobs
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_INTERVAL_S = 300
 MAX_INTERVAL_S = 3600
-# Trạng thái notebook đã dừng hẳn (CLI kaggle in tên enum KernelWorkerStatus, viết thường).
-FINISHED = {"complete", "error", "cancelacknowledged", "cancelrequested"}
+# Trạng thái notebook đã dừng hẳn. KaggleClient.kernel_status trả tên enum KernelWorkerStatus viết
+# thường, giữ dấu gạch dưới: CANCEL_ACKNOWLEDGED → "cancel_acknowledged". "cancel_requested" chưa
+# dừng hẳn (output có thể chưa ghi xong), nên chờ tới "cancel_acknowledged".
+FINISHED = {"complete", "error", "cancel_acknowledged"}
 
 
 def watched_runs(workdir: Workdir) -> list[tuple[Path, executor.KaggleState]]:
@@ -87,20 +89,33 @@ class KaggleWatcher:
             ``run_id`` vừa được xếp việc tải.
 
         Raises:
-            KaggleError: Nếu hỏi trạng thái lỗi (để vòng lặp giãn khoảng chờ).
+            KaggleError: Nếu mọi lần hỏi trạng thái đều lỗi (để vòng lặp giãn khoảng chờ); lỗi
+                của một vài notebook chỉ ghi log, các run khác vẫn được xét.
         """
         runs = [(d, s) for d, s in watched_runs(self.workdir) if s.kernel not in self._submitted]
         if not runs:
             return []
         client = self.client_factory()
         queued = []
+        failures: list[KaggleError] = []
         for run_dir, state in runs:
-            if client.kernel_status(state.kernel) not in FINISHED:
+            # Một notebook lỗi khi hỏi (ví dụ đã bị xoá trên Kaggle) không được chặn các run khác.
+            try:
+                status = client.kernel_status(state.kernel)
+            except KaggleError as error:
+                failures.append(error)
+                continue
+            if status not in FINISHED:
                 continue
             run_id = run_dir.name
             self._submitted.add(state.kernel)
             self.jobs.submit("kaggle_pull", f"tự tải {run_id} từ Kaggle", self._pull(run_id))
             queued.append(run_id)
+        # Mọi lần hỏi đều lỗi (mất mạng, khoá API hết hạn, 429): báo lên để giãn khoảng chờ.
+        if failures and len(failures) == len(runs):
+            raise failures[-1]
+        if failures:
+            LOGGER.warning("không hỏi được %d notebook Kaggle: %s", len(failures), failures[-1])
         return queued
 
     def _pull(self, run_id: str) -> Callable[[], str]:

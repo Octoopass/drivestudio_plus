@@ -76,3 +76,27 @@ def test_watch_does_not_call_kaggle_without_runs(tmp_path: Path) -> None:
 
     watcher = KaggleWatcher(Workdir(tmp_path), FakeJobs(), client_factory=no_client)  # type: ignore[arg-type]
     assert watcher.check_once() == []
+
+
+def test_cancelled_notebook_is_pulled_and_errors_do_not_block(tmp_path: Path) -> None:
+    from drive2sim.kaggle.client import KaggleError
+
+    work = Workdir(tmp_path)
+    add_run(work, "run-a", "2026-11-13T10:00:00+00:00", None)
+    add_run(work, "run-b", "2026-11-13T10:00:00+00:00", None)
+
+    class Mixed(FakeClient):
+        def kernel_status(self, slug: str) -> str:
+            """run-a đã bị xoá trên Kaggle; run-b bị huỷ xong."""
+            if slug == "alice/run-a":
+                raise KaggleError("404 Not Found")
+            return "cancel_acknowledged"
+
+    jobs = FakeJobs()
+    watcher = KaggleWatcher(work, jobs, client_factory=lambda: Mixed({}))  # type: ignore[arg-type]
+    assert watcher.check_once() == ["run-b"]
+    # mọi lần hỏi đều lỗi thì báo lên để vòng lặp giãn khoảng chờ
+    only_a = KaggleWatcher(Workdir(tmp_path), FakeJobs(), client_factory=lambda: Mixed({}))  # type: ignore[arg-type]
+    only_a._submitted.add("alice/run-b")
+    with pytest.raises(KaggleError):
+        only_a.check_once()

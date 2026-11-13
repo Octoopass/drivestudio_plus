@@ -524,5 +524,7 @@
   "new.env.expected": "cần {version}",
   "new.env.install": "Cài bằng",
   "new.env.install_hint": "Tạo conda env bằng {file} rồi chạy script này trong env đó, sau đó mở lại Studio bằng Python của env. Mất khá lâu vì phải build gsplat-geer, nvdiffrast, pytorch3d. Chạy trên Kaggle thì notebook tự cài, không cần bước này.",
-  "errors.forbidden": "Không được phép"
+  "errors.forbidden": "Không được phép",
+  "common.status.cancel_requested": "đang huỷ",
+  "common.status.new_script": "mới tạo"
 }

@@ -524,5 +524,7 @@
   "new.env.expected": "needs {version}",
   "new.env.install": "Install with",
   "new.env.install_hint": "Create the conda env from {file}, run this script inside it, then reopen Studio with that env's Python. It takes a while because gsplat-geer, nvdiffrast and pytorch3d are built. Kaggle notebooks install it themselves.",
-  "errors.forbidden": "Forbidden"
+  "errors.forbidden": "Forbidden",
+  "common.status.cancel_requested": "cancelling",
+  "common.status.new_script": "new"
 }

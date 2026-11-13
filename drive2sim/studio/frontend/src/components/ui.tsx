@@ -64,7 +64,10 @@ export function PageHead({ title, info, actions, meta }: { title: ReactNode; inf
 
 export function Status({ value }: { value: string }) {
   const { t } = useI18n();
-  return <span className={`status ${value}`}>{t(`common.status.${value}`)}</span>;
+  // Trạng thái lạ (ví dụ trạng thái mới của Kaggle) thì hiện nguyên giá trị, không hiện tên khoá i18n.
+  const key = `common.status.${value}`;
+  const text = t(key);
+  return <span className={`status ${value}`}>{text === key ? value : text}</span>;
 }
 
 export function Skeleton({ height = 16, width = "100%" }: { height?: number; width?: number | string }) {

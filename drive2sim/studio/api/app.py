@@ -27,6 +27,7 @@ from drive2sim.engine.cache import CacheBusyError
 from drive2sim.engine.housekeeping import InUseError
 from drive2sim.engine.registry import REGISTRY, StageRegistry, load_builtin_stages
 from drive2sim.engine.resolve import BlockedError, ResolveError
+from drive2sim.engine.run import RunActiveError
 from drive2sim.engine.scenes import SplitError, SplitExistsError
 from drive2sim.engine.workdir import Workdir, WorkdirError
 from drive2sim.ingest.dispatch import IngestRequestError
@@ -123,6 +124,10 @@ def _install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(InUseError)
     async def conflict_in_use(request: Request, error: InUseError) -> JSONResponse:
+        return error_response(409, "conflict", str(error))
+
+    @app.exception_handler(RunActiveError)
+    async def conflict_run_active(request: Request, error: RunActiveError) -> JSONResponse:
         return error_response(409, "conflict", str(error))
 
     @app.exception_handler(IngestRequestError)
