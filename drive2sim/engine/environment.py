@@ -12,10 +12,12 @@ File này chứa ``EXPECTED``, ``environment_check``.
 """
 
 import time
+from pathlib import Path
 from typing import Any, Optional
 
 from drive2sim.engine.machine import _gpus, package_versions
 from drive2sim.engine.render_check import _torch_cuda
+from drive2sim.paths import SMPL_MODEL_NAME, find_smpl_model
 
 # Phiên bản của môi trường chính; phải khớp envs/main.yml và envs/install_main.sh (có test kiểm).
 EXPECTED = {"main": {"pytorch": "2.4.1", "cuda": "12.1", "gsplat": "1.5.3"}}
@@ -42,11 +44,16 @@ def _level(found: Optional[str], expected: str) -> str:
     return "ok" if found.split("+")[0] == expected else "warn"
 
 
-def environment_check(codebase: str) -> dict[str, Any]:
+def environment_check(
+    codebase: str, needs_smpl: bool = False, workdir_root: Optional[Path] = None
+) -> dict[str, Any]:
     """Bảng kiểm tra môi trường cho một codebase.
 
     Args:
         codebase: Trường ``codebase`` của file approach, ví dụ ``drivestudio``.
+        needs_smpl: Approach có dựng người bằng SMPL không (có stage ``prep.smpl``); khi đó cần
+            thêm file mô hình SMPL (``drive2sim.paths.find_smpl_model``).
+        workdir_root: Thư mục làm việc, một trong các chỗ tìm file SMPL.
 
     Returns:
         ``{"env": tên hoặc None, "file", "install", "level": "ok" | "warn" | "missing",
@@ -96,6 +103,16 @@ def environment_check(codebase: str) -> dict[str, Any]:
             "expected": expected["gsplat"],
         }
     )
+    if needs_smpl:
+        model = find_smpl_model(workdir_root)
+        checks.append(
+            {
+                "id": "smpl_model",
+                "level": "ok" if model else "missing",
+                "found": str(model) if model else None,
+                "expected": SMPL_MODEL_NAME,
+            }
+        )
     levels = {check["level"] for check in checks}
     level = "missing" if "missing" in levels else "warn" if "warn" in levels else "ok"
     return {

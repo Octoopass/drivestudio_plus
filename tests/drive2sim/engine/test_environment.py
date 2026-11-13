@@ -1,5 +1,6 @@
 """Kiểm tra ``drive2sim/engine/environment.py``: ba mức ok, warn, missing và lệnh cài."""
 
+from pathlib import Path
 from typing import Optional
 
 import pytest
@@ -48,3 +49,23 @@ def test_expected_versions_match_env_files() -> None:
     assert f"torch=={expected['pytorch']}+cu{expected['cuda'].replace('.', '')}" in script
     assert f"GSPLAT_VERSION={expected['gsplat']}" in script
     assert "install_main.sh" in (envs / "main.yml").read_text()
+
+
+def test_smpl_model_lookup_and_check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """OmniRe (có prep.smpl) cần SMPL_NEUTRAL.pkl; tìm theo biến môi trường rồi workdir."""
+    patch_machine(monkeypatch, "2.4.1+cu121", "1.5.3")
+    monkeypatch.delenv("D2S_SMPL_MODEL", raising=False)
+    monkeypatch.setattr(paths, "KAGGLE_INPUT", tmp_path / "no-kaggle")
+    monkeypatch.setattr(paths, "PACKAGE_DIR", tmp_path / "pkg" / "drive2sim")
+    result = environment.environment_check("drivestudio", needs_smpl=True, workdir_root=tmp_path)
+    assert {c["id"]: c["level"] for c in result["checks"]}["smpl_model"] == "missing"
+    model = tmp_path / "smpl_models" / "SMPL_NEUTRAL.pkl"
+    model.parent.mkdir()
+    model.write_bytes(b"x")
+    assert paths.find_smpl_model(tmp_path) == model.resolve()
+    other = tmp_path / "elsewhere.pkl"
+    other.write_bytes(b"x")
+    monkeypatch.setenv("D2S_SMPL_MODEL", str(other))
+    assert paths.find_smpl_model(tmp_path) == other.resolve()
+    result = environment.environment_check("drivestudio", needs_smpl=True, workdir_root=tmp_path)
+    assert result["level"] == "ok"
