@@ -216,32 +216,23 @@ Run the following commands to set up the environment:
 git clone --recursive https://github.com/Octoopass/drivestudio_plus.git
 cd drivestudio_plus
 
-# Create the environment
-conda create -n drivestudio python=3.9 -y
-conda activate drivestudio
-pip install -r requirements.txt
-
-# gsplat: this fork is developed and run with Bosch's gsplat-geer build (gsplat 1.5.3),
-# which contains the standard 3DGS, 3DGUT and 3DGEER renderers.
-git clone --recursive --branch gsplat-geer https://github.com/boschresearch/3dgeer.git third_party/3dgeer
-git -C third_party/3dgeer checkout f15cee2 && git -C third_party/3dgeer submodule update --init --recursive
-pip install ./third_party/3dgeer --no-build-isolation
-# Stock gsplat (pip install git+https://github.com/nerfstudio-project/gsplat.git@v1.3.0) only supports
-# render_mode: default and has not been tested with this fork.
-
-pip install git+https://github.com/facebookresearch/pytorch3d.git
-pip install git+https://github.com/NVlabs/nvdiffrast
-
-# Set up for SMPL Gaussians
-cd third_party/smplx/
-pip install -e .
-cd ../..
+# Create the environment (Python 3.10) and install everything with one script:
+# PyTorch 2.4.1 + CUDA 12.1, requirements.txt, Bosch's gsplat-geer (gsplat 1.5.3, commit f15cee2,
+# with the standard 3DGS, 3DGUT and 3DGEER renderers), nvdiffrast, pytorch3d, smplx and drive2sim.
+# The same script runs in the Kaggle notebooks, so local and Kaggle runs use the same versions.
+# gsplat-geer, nvdiffrast and pytorch3d are built from source: you need the CUDA toolkit (nvcc), and
+# setting TORCH_CUDA_ARCH_LIST to your GPU (e.g. "7.5") makes the build faster.
+conda env create -f envs/main.yml
+conda activate drive2sim
+bash envs/install_main.sh
 ```
 
 Notes for this fork:
 
 - `requirements.txt` now also lists `plyfile` (for `drive2sim/recon/tools/export_ply.py`) and `transformers` (for `drive2sim/recon/preprocess/masks/segformer_hf.py`).
-- If the gsplat-geer build stops with `glm/gtc/type_ptr.hpp: No such file`, the `glm` submodule is empty: clone [glm](https://github.com/g-truc/glm) 1.0.1 into `third_party/3dgeer/gsplat/cuda/csrc/third_party/glm` and install again.
+- `requirements.txt` pins `torch==2.4.1+cu121` (the version gsplat-geer was run with) instead of DriveStudio's `torch==2.0.0+cu117`, drops `xformers` (unused), and uses `numpy==1.23.5` and `open3d==0.17.0` so it also installs on Python 3.11.
+- Stock gsplat (`pip install git+https://github.com/nerfstudio-project/gsplat.git@v1.3.0`) only supports `render_mode: default` and has not been tested with this fork.
+- At commit `f15cee2` the `glm` submodule of gsplat-geer is declared but missing from the tree, which made the build stop with `glm/gtc/type_ptr.hpp: No such file`; `envs/install_main.sh` now fetches glm 1.0.1 into place by itself. If a step fails, fix it and rerun from that step with `bash envs/install_main.sh --from <step>`.
 - Dataset-specific packages are still installed separately, as described in each dataset guide (for example `nuscenes-devkit` for nuScenes, the NCore SDK for PhysicalAI).
 
 ## 📊 Prepare Data

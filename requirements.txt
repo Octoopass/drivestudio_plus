@@ -1,8 +1,10 @@
 # PyTorch and related libraries
---extra-index-url https://download.pytorch.org/whl/cu117
-torch==2.0.0+cu117
-torchvision==0.15.0+cu117
-xformers==0.0.18
+# drive2sim: môi trường chính là PyTorch 2.4.1 + CUDA 12.1, bản gsplat-geer đã chạy (envs/main.yml,
+# envs/install_main.sh). Bản gốc của DriveStudio là torch 2.0.0+cu117 với gsplat 1.3.0; bỏ xformers
+# vì code không dùng.
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.4.1+cu121
+torchvision==0.19.1+cu121
 timm==0.9.5
 pytorch_msssim==1.0.0
 
@@ -20,10 +22,10 @@ imageio-ffmpeg
 scikit-image==0.20.0
 opencv-python
 
-open3d==0.16.0
+open3d==0.17.0          # 0.16.0 không có bản cho Python 3.11 (Kaggle)
 pyquaternion==0.9.9
 chumpy
-numpy==1.23.1
+numpy==1.23.5           # 1.23.1 không có bản cho Python 3.11 (Kaggle)
 kornia==0.7.2
 
 tqdm

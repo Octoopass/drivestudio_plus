@@ -239,7 +239,7 @@ NCore vẫn dùng ở hai chỗ: là **một nguồn vào** (PhysicalAI, CARLA g
 - Mọi approach dòng DriveStudio dùng chung một môi trường của repo, với gsplat-geer. gsplat-geer có đủ ba renderer.
 - Codebase ngoài (NuRec, feed-forward...) chạy trong môi trường riêng, gọi qua tiến trình con: tool chạy `d2s-worker` trong môi trường đó, đưa vào file job JSON, đọc lại file kết quả JSON, nhận tiến độ qua stdout (CONTRACTS mục 9).
 - Tiến trình Studio không nạp model. Render cho viewer và server chạy trong một tiến trình worker riêng, giữ sống suốt phiên.
-- Mỗi môi trường mô tả bằng một file trong `envs/`: `main.yml` cho môi trường chính, `<codebase>.yml` cho codebase ngoài. File ghi phiên bản Python, PyTorch, CUDA và thư viện, để dựng lại bằng một lệnh, kể cả trong notebook Kaggle. `requirements.txt` hiện có chỉ liệt kê thư viện pip, không ghi được phiên bản Python hay CUDA. `envs/main.yml` sẽ viết sau lần chạy thử đầu tiên trên Kaggle, dựa trên môi trường thật sự chạy được.
+- Mỗi môi trường mô tả bằng một file trong `envs/`: `main.yml` cho môi trường chính, `<codebase>.yml` cho codebase ngoài. Môi trường chính đã có: `envs/main.yml` chỉ dựng Python 3.10 bằng conda, còn mọi gói Python cài bằng `envs/install_main.sh` (PyTorch 2.4.1 + CUDA 12.1, `requirements.txt`, gsplat-geer commit `f15cee2`, nvdiffrast, pytorch3d, smplx, tool). Notebook Kaggle chạy đúng script đó với Python của Kaggle, nên máy cá nhân và Kaggle cùng phiên bản. Phiên bản chốt trong script khớp `EXPECTED` của `drive2sim/engine/environment.py` (có test kiểm); Studio và `d2s approach check` dùng nó để báo môi trường máy này đúng, khác phiên bản (vẫn chạy, kết quả có thể lệch) hay thiếu.
 
 **Lý do.** Các codebase thường không cài chung được. Ví dụ đã kiểm: DriveStudio gốc cài `gsplat` 1.3.0 với `torch==2.0.0+cu117`; gsplat-geer cũng tên `gsplat` nhưng bản 1.5.3, và README của nó (`app/README.md`) ghi đã chạy với CUDA 12.1 và PyTorch 2.4.1. Hai bản cùng tên không nằm chung một môi trường được.
 
@@ -247,7 +247,7 @@ NCore vẫn dùng ở hai chỗ: là **một nguồn vào** (PhysicalAI, CARLA g
 
 **Nhược điểm.**
 - Mỗi môi trường tốn vài GB ổ đĩa.
-- Phiên bản PyTorch thật sự của môi trường chính chưa chốt (mục 8).
+- Đã chọn PyTorch 2.4.1 + CUDA 12.1 theo gsplat-geer; chưa xác nhận bằng một run thật trên Kaggle (mục 8 câu 1). Notebook Kaggle build gsplat-geer, nvdiffrast, pytorch3d mỗi phiên, tốn vài chục phút GPU; lưu sẵn bản đã build là việc sau.
 
 ### 2.10 API của Studio: FastAPI và Server-Sent Events, chỉ nghe trên `127.0.0.1`
 
@@ -383,7 +383,7 @@ drivestudio_plus/                          branch drive2sim
 │   ├── scripts/               (khung)     công cụ phát triển chạy một lần
 │   └── cli/                               main.py, output.py; source.py, scene.py, split.py, approach.py, run.py, report.py, export.py, cache.py, kaggle.py, studio.py, schema.py
 ├── third_party/                           smplx (pip -e, import smplx); Humans4D (submodule, import hmr2); ncore (submodule, tag v19.9.0: converter NCore)
-├── envs/                      (khung)     file môi trường: main.yml, <codebase>.yml (mục 2.9)
+├── envs/                                  main.yml (conda: Python 3.10), install_main.sh (cài môi trường chính, dùng chung cho Kaggle) (mục 2.9)
 └── tests/drive2sim/           (khung)     cùng cây thư mục với drive2sim/; fixtures/
 ```
 
@@ -609,7 +609,7 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (thư mục DriveStudio
 | Studio giao diện làm lại: tổng quan (việc đang chạy, dẫn đầu theo PSNR, run gần đây), thêm cảnh từ thư mục gốc (ingest nền), xoá cảnh, split, run, kiểm tra lại cảnh, huỷ và chạy tiếp từ danh sách, xuất PLY và gói xem trước, Kaggle (trạng thái, đẩy, tải), lưu trữ (cache, dọn cache có xem trước), xem 3D bằng Spark (gói xem trước có phát lại xe theo khung, `scene.ply`, kéo thả file splat trên máy), tìm nhanh, thông báo nổi | Xong; đã xem bằng trình duyệt trên dữ liệu mẫu và splat tổng hợp (không phải dữ liệu thật) | |
 | Studio còn thiếu: sơ đồ rig nhìn từ trên xuống và quỹ đạo xe trên bản đồ 2D (cần đọc extrinsics, pose theo cách lưu của từng dataset); depth và tách lớp; xuất hình cho báo cáo (mới có CSV); viewer chế độ chính viser (`studio/viz`, mục 2.12); hiện người và vật biến dạng bằng box trong viewer Spark; nhóm E | Chưa làm | |
 | Kaggle (`kaggle/`): upload cảnh, notebook có gói job, đẩy, trạng thái, tải về, chạy tiếp qua output notebook trước; `run start --executor kaggle`; Studio `/api/kaggle` | Xong trong code; test với Kaggle giả; cờ lệnh `kaggle` đã kiểm với Kaggle CLI 2.2.5; **chưa chạy thật** | |
-| `envs/main.yml`, ô cài phụ thuộc trong notebook Kaggle | Chưa chốt; cần trả lời mục 8 câu 1 | |
+| `envs/main.yml`, `envs/install_main.sh`, ô cài phụ thuộc trong notebook Kaggle dùng chung script; kiểm tra môi trường (`engine/environment.py`, `GET /api/approaches/{id}/environment`, `d2s approach check`) | Đã cài thử trên máy cá nhân (Quadro T2000, CUDA toolkit 12.8); notebook Kaggle **chưa chạy thử** | |
 | Stage `prep.masks_segformer`, `prep.smpl` (cache, thư mục cảnh ảo); đầu vào tuỳ chọn của stage; approach `omnire`, `streetgs` có stage prep | Xong trong code; có test với script giả; **chưa chạy thật** (cần GPU, `transformers`, `hmr2`) | |
 | Tầng dữ liệu: `source inspect`; `scene ingest` cho nuScenes (gọi script có sẵn, sinh manifest); kiểm tra cấu trúc | Xong trong code; có test với dữ liệu giả; **chưa chạy thật** (cần nuScenes và `nuscenes-devkit`) | |
 | Stage `export.preview` (`recon/tools/export_preview.py`: nền, từng xe, pose theo khung) | Xong trong code; test với lệnh giả; **chưa chạy thật** (cần checkpoint và PyTorch) | |
@@ -634,7 +634,7 @@ Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiề
 | Render nằm lẫn trong viewer và trainer | `drive2sim/recon/tools/viewer.py` (2523 dòng), `drive2sim/recon/trainers/base.py` (1125 dòng) | Tách hàm render dùng riêng cho `sim/` |
 | Export không có sky, SMPL, vật biến dạng; SH của xe không xoay theo xe | `drive2sim/recon/tools/export_ply.py` | Ghi rõ giới hạn; mở rộng cho `export.preview` |
 | Chưa có test cho `drive2sim/recon/` (`core/` đã có 60 test) | `drive2sim/recon/` | `tests/drive2sim/recon/`, bắt đầu bằng kiểm tra hồi quy của loader |
-| Phiên bản PyTorch chưa khớp: `requirements.txt` ghi `torch==2.0.0+cu117`, gsplat-geer ghi đã chạy với 2.4.1 | `requirements.txt` | Hỏi teammate; chốt một môi trường |
+| Phiên bản PyTorch chưa khớp: `requirements.txt` ghi `torch==2.0.0+cu117`, gsplat-geer ghi đã chạy với 2.4.1 | `requirements.txt` | Đã sửa: `requirements.txt` ghi `torch==2.4.1+cu121`, bỏ `xformers` (không dùng), `numpy 1.23.5` và `open3d 0.17.0` (bản 1.23.1 và 0.16.0 không có cho Python 3.11 của Kaggle) |
 
 ### 7.3 Nguyên tắc khi refactor
 
@@ -658,9 +658,9 @@ Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiề
 
 ## 8. Câu hỏi mở
 
-1. Phiên bản PyTorch và CUDA của môi trường chính. Teammate đã train trên Kaggle T4 bằng `drivestudio_plus`, nhưng chưa rõ phiên bản PyTorch thực tế: `requirements.txt` ghi `torch==2.0.0+cu117`, README của gsplat-geer ghi đã chạy với 2.4.1, còn Kaggle có sẵn một bản PyTorch riêng. Cần lấy `torch.__version__`, `torch.version.cuda` từ notebook của teammate, hoặc tự xác định ở lần chạy thử đầu tiên.
+1. Phiên bản PyTorch và CUDA của môi trường chính. Đã chọn PyTorch 2.4.1 + CUDA 12.1 (bản gsplat-geer ghi đã chạy) và ghi vào `requirements.txt`, `envs/install_main.sh`. Còn phải xác nhận ở lần chạy thật đầu tiên trên Kaggle, và hỏi teammate bản PyTorch đã dùng khi train trên Kaggle T4 trước đây.
 2. Chế độ `default` của gsplat-geer có cho kết quả giống DriveStudio gốc chạy gsplat 1.3.0 không. Nếu cần baseline đúng DriveStudio gốc thì thêm một môi trường riêng.
-3. Cách đóng gói môi trường (`envs/`): conda, venv hay container.
+3. Cách đóng gói môi trường (`envs/`): hiện dùng conda cho Python và một script pip dùng chung với Kaggle. Còn mở: có lưu sẵn bản đã build (wheel hoặc container) để Kaggle khỏi build lại mỗi phiên không.
 4. AD stack và tiêu chí chấm điểm ở mức L4 (SPEC mục 14).
 5. Định dạng dữ liệu của mentor.
 

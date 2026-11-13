@@ -1,0 +1,16 @@
+# Môi trường chính của drive2sim (ARCHITECTURE mục 2.9): mọi approach dòng DriveStudio.
+# conda chỉ dựng Python; mọi gói Python cài bằng envs/install_main.sh, để máy cá nhân và notebook
+# Kaggle (không dùng conda) cài cùng một cách, cùng phiên bản:
+#
+#   conda env create -f envs/main.yml
+#   conda activate drive2sim
+#   bash envs/install_main.sh
+#
+# Python 3.10: chạy được mọi pin trong requirements.txt; notebook Kaggle dùng Python của Kaggle
+# (3.11 khi viết), requirements.txt đã chọn bản có cho cả hai.
+name: drive2sim
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
