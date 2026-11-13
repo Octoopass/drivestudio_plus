@@ -471,7 +471,7 @@ def make_run(
         "executor": spec.get("executor", "local"),
         "status": status,
         "created_utc": spec["created"],
-        "lidar_usage": [],
+        "lidar_usage": ["train.drivestudio"],  # như engine ghi: train khởi tạo Gaussian từ LiDAR
         "stages": stages,
     }
     files.dump(RunRecord.model_validate(run), run_dir / "d2s" / "run.json")
