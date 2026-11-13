@@ -58,6 +58,19 @@ def test_approach_ok() -> None:
     assert approach.options["campose"].choices == [False, True]
 
 
+def test_approach_display_text() -> None:
+    def add_text(data: dict) -> None:
+        data["options"]["campose"].update(
+            label="CamPose", help="tự chỉnh pose", labels=["Tắt", "Bật"]
+        )
+        data["preset_help"] = {name: "mô tả" for name in data["presets"]}
+        data["groups"] = {"speedup": {"label": "Thuật toán phụ trợ"}}
+        data["options"]["campose"].update(group="speedup", descriptions=["tắt", "bật"])
+
+    approach = Approach.model_validate(modified(APPROACH, add_text))
+    assert approach.options["campose"].labels == ["Tắt", "Bật"]
+
+
 @pytest.mark.parametrize(
     "change",
     [
@@ -80,6 +93,10 @@ def test_approach_ok() -> None:
         lambda data: data.update(extra_key=1),
         lambda data: data.update(schema_version="d2s-approach/1.0"),
         lambda data: data.update(schema_version="d2s-run/0.1"),
+        lambda data: data["options"]["campose"].update(labels=["chỉ một nhãn"]),
+        lambda data: data.update(preset_help={"missing_preset": "mô tả"}),
+        lambda data: data["options"]["campose"].update(descriptions=["chỉ một"]),
+        lambda data: data["options"]["campose"].update(group="missing_group"),
     ],
 )
 def test_approach_rejects(change: Callable[[dict], None]) -> None:

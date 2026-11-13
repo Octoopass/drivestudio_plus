@@ -74,7 +74,7 @@ def _check(pattern: "re.Pattern[str]", value: str, what: str) -> str:
 
 
 def check_snake_case(value: str, what: str = "name") -> str:
-    """Kiểm tra tên dạng ``snake_case`` (approach_id, split_id, tên ô chọn, tên preset).
+    """Kiểm tra tên dạng ``snake_case`` (approach_id, split_id, tên mục cấu hình, tên preset).
 
     Args:
         value: Tên cần kiểm tra.

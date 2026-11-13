@@ -95,11 +95,11 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "manifest": "d2s-manifest/1.0",
     "split": "d2s-split/0.1",
     "report": "d2s-report/0.1",
-    "approach": "d2s-approach/0.1",
-    "artifact": "d2s-artifact/0.1",
-    "run": "d2s-run/0.2",
-    "summary": "d2s-summary/0.2",
-    "env": "d2s-env/0.1",
+    "approach": "d2s-approach/0.2",
+    "artifact": "d2s-artifact/0.2",
+    "run": "d2s-run/0.3",
+    "summary": "d2s-summary/0.3",
+    "env": "d2s-env/0.2",
     "preview": "d2s-preview/0.1",
     "job": "d2s-job/0.1",
     "result": "d2s-result/0.1",
@@ -602,7 +602,7 @@ def contains_value(choices: list[object], value: object) -> bool:
     """Kiểm tra ``value`` có trong ``choices``, so sánh cả kiểu.
 
     Toán tử ``in`` của Python coi ``True == 1`` và ``False == 0``; hàm này thì không, để giá trị
-    ``1`` không bị nhận nhầm là lựa chọn ``true`` của một ô bật/tắt.
+    ``1`` không bị nhận nhầm là lựa chọn ``true`` của một mục cấu hình bật/tắt.
 
     Args:
         choices: Danh sách lựa chọn.
@@ -615,13 +615,13 @@ def contains_value(choices: list[object], value: object) -> bool:
 
 
 def option_reference(value: object) -> Optional[str]:
-    """Lấy tên ô chọn nếu ``value`` là chỗ giữ chỗ ``${options.<tên>}``.
+    """Lấy tên mục cấu hình nếu ``value`` là chỗ giữ chỗ ``${options.<tên>}``.
 
     Args:
         value: Giá trị bất kỳ trong file approach.
 
     Returns:
-        Tên ô chọn, hoặc ``None`` nếu ``value`` không phải chỗ giữ chỗ.
+        Tên mục cấu hình, hoặc ``None`` nếu ``value`` không phải chỗ giữ chỗ.
     """
     if isinstance(value, str):
         match = OPTION_REFERENCE_RE.match(value)
@@ -631,18 +631,31 @@ def option_reference(value: object) -> Optional[str]:
 
 
 class OptionSpec(StrictModel):
-    """Một ô chọn của approach: các lựa chọn thay thế được cho nhau và giá trị mặc định.
+    """Một mục cấu hình của approach: các lựa chọn thay thế được cho nhau và giá trị mặc định.
 
-    Ví dụ ô ``renderer`` có ``choices: [3dgs, 3dgut, 3dgeer]``. ``default`` có thể là ``"auto"``:
-    engine lấy lựa chọn đầu tiên không bị khoá theo dữ liệu (CONTRACTS mục 4.2).
+    Ví dụ mục cấu hình ``renderer`` có ``choices: [3dgs, 3dgut, 3dgeer]``. ``default`` có thể là
+    ``"auto"``: engine lấy lựa chọn đầu tiên không bị khoá theo dữ liệu (CONTRACTS mục 4.2).
 
     Attributes:
         choices: Các lựa chọn, ít nhất một, không trùng; thứ tự là thứ tự ưu tiên của ``auto``.
         default: Giá trị mặc định: một lựa chọn trong ``choices``, hoặc ``"auto"``.
+        label: Tên hiển thị của mục cấu hình trên Studio, ví dụ ``Renderer``; trống thì dùng tên
+            mục cấu hình.
+        help: Giải thích ngắn mục này làm gì, hiện trong icon (i) cạnh tên mục cấu hình.
+        labels: Tên hiển thị của từng lựa chọn, cùng thứ tự với ``choices``; trống thì hiện giá
+            trị (thêm từ ``d2s-approach/0.2``, cùng ``label``, ``help``).
+        descriptions: Giải thích từng lựa chọn, cùng thứ tự với ``choices``; hiện trong icon (i).
+        group: Nhóm của mục cấu hình trong ``Approach.groups``; Studio hiện các mục cấu hình theo
+            nhóm.
     """
 
     choices: list[OptionValue] = Field(min_length=1)
     default: OptionValue
+    label: Optional[str] = None
+    help: Optional[str] = None
+    labels: list[str] = []
+    descriptions: list[str] = []
+    group: Optional[str] = None
 
     @model_validator(mode="after")
     def _validate_default(self) -> "OptionSpec":
@@ -655,18 +668,35 @@ class OptionSpec(StrictModel):
             raise ValueError("choices must be unique")
         if self.default != "auto" and not contains_value(self.choices, self.default):
             raise ValueError(f"default {self.default!r} is not one of the choices and not 'auto'")
+        if self.labels and len(self.labels) != len(self.choices):
+            raise ValueError("labels must have one entry per choice")
+        if self.descriptions and len(self.descriptions) != len(self.choices):
+            raise ValueError("descriptions must have one entry per choice")
         return self
+
+
+class OptionGroup(StrictModel):
+    """Một nhóm mục cấu hình hiện chung một mục trên Studio, ví dụ nhóm thuật toán phụ trợ.
+
+    Attributes:
+        label: Tên nhóm.
+        help: Giải thích nhóm, hiện trong icon (i) cạnh tên nhóm.
+    """
+
+    label: str
+    help: Optional[str] = None
 
 
 class Constraint(StrictModel):
     """Một tổ hợp lựa chọn không hợp lệ trong approach.
 
-    Khi mọi ô trong ``when`` có đúng giá trị đó thì cấm mọi giá trị trong ``forbid``. Ví dụ
-    ``when: {renderer: 3dgeer}, forbid: {campose: true}`` vì 3DGEER không tối ưu được pose camera.
+    Khi mọi mục cấu hình trong ``when`` có đúng giá trị đó thì cấm mọi giá trị trong ``forbid``. Ví
+    dụ ``when: {renderer: 3dgeer}, forbid: {campose: true}`` vì 3DGEER không tối ưu được pose
+    camera.
 
     Attributes:
-        when: Ô → giá trị làm ràng buộc có hiệu lực.
-        forbid: Ô → giá trị bị cấm khi ``when`` khớp.
+        when: Mục → giá trị làm ràng buộc có hiệu lực.
+        forbid: Mục → giá trị bị cấm khi ``when`` khớp.
         reason: Lý do bằng tiếng Việt, hiện cho người dùng khi tổ hợp bị khoá.
     """
 
@@ -679,8 +709,8 @@ class StageEntry(StrictModel):
     """Một bước trong danh sách ``stages`` của approach.
 
     Attributes:
-        stage: ``stage_id`` (ví dụ ``prep.select``) hoặc chỗ giữ chỗ ``${options.<ô>}``; chỗ giữ
-            chỗ được thay bằng lựa chọn của ô trước khi chạy.
+        stage: ``stage_id`` (ví dụ ``prep.select``) hoặc chỗ giữ chỗ ``${options.<mục>}``; chỗ giữ
+            chỗ được thay bằng lựa chọn của mục cấu hình trước khi chạy.
         params: Tham số cho stage; giá trị cũng có thể là chỗ giữ chỗ.
     """
 
@@ -691,9 +721,9 @@ class StageEntry(StrictModel):
 class Approach(VersionedFile):
     """Schema của file khai báo approach ``drive2sim/approaches/<approach_id>.yaml``.
 
-    Approach là một cách dựng cảnh: danh sách stage chạy lần lượt, có ô chọn, ràng buộc và
+    Approach là một cách dựng cảnh: danh sách stage chạy lần lượt, có mục cấu hình, ràng buộc và
     preset (CONTRACTS mục 4.1). Schema kiểm tra cả sự nhất quán bên trong file: preset và ràng
-    buộc chỉ dùng ô và lựa chọn có thật, chỗ giữ chỗ trỏ tới ô có thật.
+    buộc chỉ dùng mục cấu hình và lựa chọn có thật, chỗ giữ chỗ trỏ tới mục cấu hình có thật.
 
     Attributes:
         approach_id: Định danh ``snake_case``, ví dụ ``omnire``.
@@ -703,9 +733,11 @@ class Approach(VersionedFile):
         track: ``pinhole`` hoặc ``fisheye``.
         level: Mức năng lực cao nhất đạt được, ``L1``–``L4``.
         requires: Điều kiện dữ liệu.
-        options: Tên ô → ô chọn.
+        options: Tên mục → mục cấu hình.
         constraints: Các tổ hợp không hợp lệ.
-        presets: Tên preset → giá trị của các ô khác mặc định.
+        presets: Tên preset → giá trị của các mục cấu hình khác mặc định.
+        preset_help: Tên preset → mô tả ngắn hiện trên Studio (thêm từ ``d2s-approach/0.2``).
+        groups: Tên nhóm → nhóm mục cấu hình, theo thứ tự hiện trên Studio; chỉ để hiển thị.
         stages: Các bước theo thứ tự chạy, ít nhất một.
     """
 
@@ -720,6 +752,8 @@ class Approach(VersionedFile):
     options: dict[str, OptionSpec] = {}
     constraints: list[Constraint] = []
     presets: dict[str, dict[str, OptionValue]] = {}
+    preset_help: dict[str, str] = {}
+    groups: dict[str, OptionGroup] = {}
     stages: list[StageEntry] = Field(min_length=1)
 
     @field_validator("approach_id")
@@ -745,14 +779,15 @@ class Approach(VersionedFile):
         return value
 
     def _check_assignment(self, where: str, values: dict[str, Any]) -> None:
-        """Kiểm tra mỗi cặp ô–giá trị trỏ tới ô có thật và lựa chọn có thật.
+        """Kiểm tra mỗi cặp mục–giá trị trỏ tới mục cấu hình có thật và lựa chọn có thật.
 
         Args:
             where: Vị trí trong file, dùng trong thông báo lỗi.
-            values: Các cặp tên ô và giá trị.
+            values: Các cặp tên mục cấu hình và giá trị.
 
         Raises:
-            ValueError: Nếu ô không tồn tại hoặc giá trị không phải một lựa chọn của ô.
+            ValueError: Nếu mục cấu hình không tồn tại hoặc giá trị không phải một lựa chọn của mục
+                cấu hình.
         """
         for option_name, value in values.items():
             if option_name not in self.options:
@@ -761,9 +796,9 @@ class Approach(VersionedFile):
                 raise ValueError(f"{where}: {value!r} is not a choice of option {option_name!r}")
 
     def _check_stage_entry(self, index: int, entry: StageEntry) -> None:
-        """Kiểm tra một bước: ``stage_id`` hợp lệ, chỗ giữ chỗ trỏ tới ô có thật.
+        """Kiểm tra một bước: ``stage_id`` hợp lệ, chỗ giữ chỗ trỏ tới mục cấu hình có thật.
 
-        Nếu ``stage`` là chỗ giữ chỗ thì mọi lựa chọn của ô đó phải là ``stage_id``.
+        Nếu ``stage`` là chỗ giữ chỗ thì mọi lựa chọn của mục cấu hình đó phải là ``stage_id``.
 
         Args:
             index: Vị trí của bước trong danh sách.
@@ -796,8 +831,8 @@ class Approach(VersionedFile):
     def _validate_consistency(self) -> "Approach":
         """Kiểm tra các phần của file approach nhất quán với nhau.
 
-        Gồm: tên ô và tên preset dạng ``snake_case``; ràng buộc và preset chỉ dùng ô và lựa chọn
-        có thật; mỗi bước trong ``stages`` hợp lệ (``_check_stage_entry``).
+        Gồm: tên mục cấu hình và tên preset dạng ``snake_case``; ràng buộc và preset chỉ dùng mục
+        cấu hình và lựa chọn có thật; mỗi bước trong ``stages`` hợp lệ (``_check_stage_entry``).
 
         Raises:
             ValueError: Nếu một phần không hợp lệ; thông báo nêu vị trí trong file.
@@ -811,6 +846,12 @@ class Approach(VersionedFile):
             self._check_assignment(f"constraints[{index}].forbid", constraint.forbid)
         for preset_name, values in self.presets.items():
             self._check_assignment(f"presets.{preset_name}", values)
+        unknown = set(self.preset_help) - set(self.presets)
+        if unknown:
+            raise ValueError(f"preset_help: unknown preset {sorted(unknown)[0]!r}")
+        for option_name, spec in self.options.items():
+            if spec.group is not None and spec.group not in self.groups:
+                raise ValueError(f"options.{option_name}.group: unknown group {spec.group!r}")
         for index, entry in enumerate(self.stages):
             self._check_stage_entry(index, entry)
         return self
@@ -848,6 +889,9 @@ class ArtifactRecord(VersionedFile):
         created_utc: Thời điểm tạo.
         files: Các file trong thư mục, đường dẫn tương đối với thư mục đó.
         meta: Thông tin thêm tuỳ stage, ví dụ tên model đã dùng.
+        duration_s: Thời gian stage chạy để tạo ra kết quả này, giây; run sau dùng lại kết quả
+            từ cache tính thời gian này vào tổng thời gian dựng cảnh (thêm từ
+            ``d2s-artifact/0.2``).
     """
 
     FILE_KIND: ClassVar[str] = "artifact"
@@ -859,6 +903,7 @@ class ArtifactRecord(VersionedFile):
     created_utc: datetime
     files: list[str] = []
     meta: dict[str, Any] = {}
+    duration_s: Optional[float] = Field(default=None, ge=0)
 
 
 # ---------------------------------------------------------------- run (CONTRACTS 6.2–6.4)
@@ -871,14 +916,18 @@ class RunApproach(StrictModel):
         approach_id: Approach đã chạy.
         version: Phiên bản file approach lúc tạo run.
         preset: Preset đã chọn, nếu có.
-        options: Giá trị cụ thể của mọi ô, kể cả ô để ``auto``; Studio lọc và so sánh run theo
-            trường này.
+        options: Giá trị cụ thể của mọi mục cấu hình, kể cả mục để ``auto``; Studio lọc và so sánh
+            run theo trường này.
+        quick: ``True`` nếu là run chạy thử nhanh (``--quick``): train ít iteration để kiểm tra
+            approach chạy được từ đầu tới cuối; metric không so được với run đủ iteration
+            (thêm từ ``d2s-run/0.3``).
     """
 
     approach_id: str
     version: Version
     preset: Optional[str] = None
     options: dict[str, OptionValue] = {}
+    quick: bool = False
 
 
 class StageRecord(StrictModel):
@@ -889,8 +938,12 @@ class StageRecord(StrictModel):
         status: ``pending``, ``running``, ``succeeded``, ``failed`` hoặc ``cancelled``.
         cache_hit: ``True`` nếu dùng lại kết quả có sẵn trong cache.
         cache_key: Khoá cache với stage có cache; ``None`` với stage khác.
-        duration_s: Thời gian chạy, giây; ``0`` khi dùng lại kết quả cũ.
-        peak_vram_mb: VRAM cao nhất, megabyte; ``0`` khi dùng lại kết quả cũ hoặc không đo được.
+        duration_s: Thời gian máy thực sự chạy stage này trong run, giây, cộng dồn qua các lần
+            chạy tiếp; ``0`` khi dùng lại kết quả cũ.
+        reused_duration_s: Khi dùng lại kết quả từ cache: thời gian lần chạy gốc đã tạo ra kết
+            quả đó (đọc từ ``artifact.json``); ``None`` nếu không dùng lại hoặc không biết.
+        peak_vram_mb: VRAM cao nhất, megabyte, lấy lớn nhất qua các lần chạy; ``0`` khi dùng
+            lại kết quả cũ hoặc không đo được.
         params: Tham số đã gộp, để chạy tiếp đúng như lúc tạo run (thêm từ ``d2s-run/0.2``).
         error: Lỗi nếu stage ``failed``.
     """
@@ -900,6 +953,7 @@ class StageRecord(StrictModel):
     cache_hit: bool = False
     cache_key: Optional[CacheKey] = None
     duration_s: float = Field(default=0, ge=0)
+    reused_duration_s: Optional[float] = Field(default=None, ge=0)
     peak_vram_mb: int = Field(default=0, ge=0)
     params: dict[str, Any] = {}
     error: Optional[ErrorInfo] = None
@@ -1003,7 +1057,10 @@ class Metrics(StrictModel):
         lpips: LPIPS.
         human_psnr: PSNR trong vùng người; chỉ có khi cảnh có box.
         vehicle_psnr: PSNR trong vùng xe; chỉ có khi cảnh có box.
-        occupied_psnr: PSNR trong vùng vật động; chỉ có khi cảnh có box.
+        dynamic_psnr: PSNR trong vùng vật động (mọi người và xe, ``masked_psnr`` của
+            DriveStudio); chỉ có khi cảnh có box (thêm từ ``d2s-summary/0.3``).
+        occupied_psnr: PSNR trong vùng không phải bầu trời (``Non-Sky PSNR`` của DriveStudio);
+            chỉ có khi cảnh có mask bầu trời.
     """
 
     psnr: float
@@ -1011,6 +1068,7 @@ class Metrics(StrictModel):
     lpips: float
     human_psnr: Optional[float] = None
     vehicle_psnr: Optional[float] = None
+    dynamic_psnr: Optional[float] = None
     occupied_psnr: Optional[float] = None
 
 
@@ -1025,10 +1083,15 @@ class Summary(VersionedFile):
         split_id: Split đã đánh giá.
         overall: Metric trên mọi camera.
         per_camera: ``camera_id`` → metric của camera đó.
-        train_time_s: Thời gian train, giây; để trống nếu stage đánh giá không biết (thời gian
-            của từng stage luôn có trong ``run.json``).
+        train_time_s: Thời gian train thực, giây: chỉ tính các bước train, cộng qua các lần chạy
+            tiếp, không tính lúc dừng, nạp checkpoint, đánh giá hay lưu file; để trống nếu không
+            biết.
         peak_vram_mb: VRAM cao nhất khi train, megabyte; để trống nếu không biết.
-        num_gaussians: Số Gaussian của model cuối; để trống nếu không đọc được.
+        num_gaussians: Số Gaussian của cả model cuối (mọi node); để trống nếu không đọc được.
+        num_iters: Số iteration đã train (thêm từ ``d2s-summary/0.3``).
+        render_fps: Tốc độ render khi đánh giá, khung mỗi giây, chỉ tính thời gian model vẽ ảnh
+            (thêm từ ``d2s-summary/0.3``).
+        render_resolution: Độ phân giải ảnh khi đo ``render_fps``, dạng ``<rộng>x<cao>``.
     """
 
     FILE_KIND: ClassVar[str] = "summary"
@@ -1039,12 +1102,46 @@ class Summary(VersionedFile):
     train_time_s: Optional[float] = Field(default=None, ge=0)
     peak_vram_mb: Optional[int] = Field(default=None, ge=0)
     num_gaussians: Optional[int] = Field(default=None, ge=0)
+    num_iters: Optional[int] = Field(default=None, ge=0)
+    render_fps: Optional[float] = Field(default=None, ge=0)
+    render_resolution: Optional[str] = None
+
+
+class Machine(StrictModel):
+    """Cấu hình phần cứng của một máy đã chạy run (CONTRACTS mục 6.4).
+
+    Thời gian, VRAM và FPS chỉ so được giữa các run chạy trên cùng loại máy, nên mỗi run ghi lại
+    máy đã chạy nó. Trường nào không đọc được thì để trống.
+
+    Attributes:
+        cpu: Tên CPU, ví dụ ``Intel(R) Xeon(R) CPU @ 2.00GHz``.
+        cpu_cores: Số luồng CPU.
+        ram_gb: Dung lượng RAM, GB.
+        gpu: Tên GPU, ví dụ ``Tesla T4``; ``None`` nếu không có GPU NVIDIA.
+        gpu_count: Số GPU.
+        gpu_memory_mb: VRAM của mỗi GPU, megabyte.
+        gpu_driver: Phiên bản driver NVIDIA.
+        os: Hệ điều hành.
+        first_seen_utc: Lần đầu máy này chạy run.
+    """
+
+    cpu: Optional[str] = None
+    cpu_cores: Optional[int] = None
+    ram_gb: Optional[float] = None
+    gpu: Optional[str] = None
+    gpu_count: int = 0
+    gpu_memory_mb: Optional[int] = None
+    gpu_driver: Optional[str] = None
+    os: Optional[str] = None
+    first_seen_utc: Optional[datetime] = None
 
 
 class EnvRecord(VersionedFile):
     """Schema của file ``d2s/env.json``: môi trường đã chạy run, để chạy lại được (SPEC mục 11).
 
-    Trường nào không xác định được thì bỏ trống (CONTRACTS mục 6.4).
+    Engine ghi file khi tạo run (chưa có máy nào) và cập nhật mỗi lần bắt đầu chạy hoặc chạy tiếp,
+    trên đúng máy chạy: với run Kaggle là máy của notebook, không phải máy đã tạo run. Trường nào
+    không xác định được thì bỏ trống (CONTRACTS mục 6.4).
 
     Attributes:
         code_commit: Commit của code, hoặc ``unknown``.
@@ -1052,9 +1149,11 @@ class EnvRecord(VersionedFile):
         pytorch: Phiên bản PyTorch.
         cuda: Phiên bản CUDA mà PyTorch dùng.
         gsplat: Phiên bản gsplat.
-        gpu: Tên GPU.
+        gpu: Tên GPU của máy chạy gần nhất.
         seed: Seed ngẫu nhiên.
         executor: Nơi chạy, ``local`` hoặc ``kaggle``.
+        machines: Các máy đã chạy run, theo thứ tự; run chạy tiếp trên máy khác (ví dụ phiên
+            Kaggle mới được cấp GPU khác) có nhiều máy (thêm từ ``d2s-env/0.2``).
     """
 
     FILE_KIND: ClassVar[str] = "env"
@@ -1066,6 +1165,7 @@ class EnvRecord(VersionedFile):
     gpu: Optional[str] = None
     seed: Optional[int] = None
     executor: Executor
+    machines: list[Machine] = []
 
 
 # ---------------------------------------------------------------- gói xem trước (CONTRACTS 7)
