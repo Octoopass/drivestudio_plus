@@ -2,7 +2,7 @@
 
 File này chứa:
 - ``register``: thêm các lệnh ``approach list``, ``approach show``, ``approach check``.
-- ``list_approaches``, ``show_approach``: liệt kê và xem ô chọn, preset, ràng buộc, stage.
+- ``list_approaches``, ``show_approach``: liệt kê và xem mục cấu hình, preset, ràng buộc, stage.
 - ``check_approach``: chạy đúng bước kiểm tra mà ``d2s run start`` sẽ chạy, rồi in danh sách stage
   sẽ chạy và stage nào dùng lại cache, mà không chạy gì (CONTRACTS mục 10.4).
 - ``resolve_from_args``: đọc cảnh, split, approach và ``--set`` rồi gọi ``resolve``; ``d2s run
@@ -14,7 +14,7 @@ import argparse
 from drive2sim.cli.output import emit, format_table, format_value, parse_set
 from drive2sim.core.schema import Split
 from drive2sim.engine.approaches import list_approach_ids, load_approach
-from drive2sim.engine.resolve import Plan, resolve
+from drive2sim.engine.resolve import QUICK_NUM_ITERS, Plan, resolve
 from drive2sim.engine.run import preview_reuse
 from drive2sim.engine.stage import Scene
 from drive2sim.engine.workdir import Workdir
@@ -36,7 +36,15 @@ def add_plan_arguments(parser: argparse.ArgumentParser) -> None:
         action="append",
         default=[],
         metavar="KHOÁ=GIÁ_TRỊ",
-        help="đặt ô chọn (renderer=3dgeer) hoặc tham số stage (train.drivestudio.num_iters=1000)",
+        help=(
+            "đặt cấu hình approach (renderer=3dgeer) "
+            "hoặc tham số stage (train.drivestudio.num_iters=1000)"
+        ),
+    )
+    parser.add_argument(
+        "--quick",
+        action="store_true",
+        help=f"chạy thử nhanh: train {QUICK_NUM_ITERS} iteration để kiểm tra approach chạy được",
     )
 
 
@@ -55,7 +63,9 @@ def register(
     actions.add_parser("list", parents=[common], help="liệt kê approach").set_defaults(
         handler=list_approaches
     )
-    show = actions.add_parser("show", parents=[common], help="xem ô chọn, preset, stage")
+    show = actions.add_parser(
+        "show", parents=[common], help="xem cấu hình approach, preset, stage"
+    )
     show.add_argument("approach_id")
     show.set_defaults(handler=show_approach)
     check = actions.add_parser(
@@ -85,7 +95,7 @@ def list_approaches(args: argparse.Namespace) -> int:
 
 
 def show_approach(args: argparse.Namespace) -> int:
-    """In ô chọn, preset, ràng buộc và các stage của một approach.
+    """In mục cấu hình, preset, ràng buộc và các stage của một approach.
 
     Args:
         args: Tham số dòng lệnh, có ``approach_id``.
@@ -95,7 +105,7 @@ def show_approach(args: argparse.Namespace) -> int:
     """
     approach = load_approach(args.approach_id)
     lines = [f"{approach.approach_id}: {approach.name} (track {approach.track}, {approach.level})"]
-    lines.append("ô chọn:")
+    lines.append("cấu hình approach:")
     for name, spec in approach.options.items():
         choices = ", ".join(format_value(choice) for choice in spec.choices)
         lines.append(f"  {name}: {choices} (mặc định {format_value(spec.default)})")
@@ -120,7 +130,7 @@ def resolve_from_args(args: argparse.Namespace) -> tuple[Workdir, Scene, Split, 
 
     Args:
         args: Tham số dòng lệnh có ``approach_id``, ``scene_id``, ``split_id``, ``preset``,
-            ``sets``, ``workdir``.
+            ``sets``, ``quick``, ``workdir``.
 
     Returns:
         Bộ ``(thư mục làm việc, cảnh, split, plan)``.
@@ -128,7 +138,7 @@ def resolve_from_args(args: argparse.Namespace) -> tuple[Workdir, Scene, Split, 
     Raises:
         WorkdirError: Nếu cảnh, split hoặc approach không có.
         UsageError: Nếu một ``--set`` sai dạng.
-        ResolveError: Nếu preset, ô, giá trị hoặc tham số không tồn tại.
+        ResolveError: Nếu preset, mục cấu hình, giá trị hoặc tham số không tồn tại.
         BlockedError: Nếu dữ liệu hoặc tổ hợp lựa chọn không cho chạy.
     """
     workdir = Workdir.from_env(args.workdir)
@@ -143,6 +153,7 @@ def resolve_from_args(args: argparse.Namespace) -> tuple[Workdir, Scene, Split, 
         preset=args.preset,
         option_values=options,  # type: ignore[arg-type]
         stage_params=stage_params,
+        quick=args.quick,
     )
     return workdir, scene, split, plan
 
@@ -166,14 +177,16 @@ def check_approach(args: argparse.Namespace) -> int:
     text = "\n".join(
         [
             f"approach {plan.approach_id} chạy được trên {scene.scene_id}, split {split.split_id}",
-            f"ô chọn: {options or '(không có)'}",
+            f"cấu hình: {options or '(không có)'}",
             f"LiDAR dùng ở: {', '.join(plan.lidar_usage) or 'không dùng'}",
+            *(["chạy thử nhanh: metric không so được với run đủ iteration"] if plan.quick else []),
             format_table(["#", "stage", "", "tham số"], rows),
         ]
     )
     data = {
         "approach_id": plan.approach_id,
         "preset": plan.preset,
+        "quick": plan.quick,
         "options": plan.options,
         "lidar_usage": plan.lidar_usage,
         "stages": [

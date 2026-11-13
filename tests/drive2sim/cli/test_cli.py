@@ -6,7 +6,8 @@ File này dựng một thư mục làm việc tạm có một cảnh mẫu, mộ
 - ``split create/list/show`` ghi và đọc split, đặt tên mặc định theo CONTRACTS mục 10.1, từ
   chối tên trùng và camera không có;
 - ``approach check`` in danh sách stage và stage nào dùng lại cache;
-- ``run start/status/list/resume`` chạy trọn một run giả; ``--set`` đổi được ô và tham số stage;
+- ``run start/status/list/resume`` chạy trọn một run giả; ``--set`` đổi được mục cấu hình và
+  tham số stage;
 - ``approach check omnire`` chạy được trên cảnh mẫu với ba stage bọc DriveStudio;
 - mã thoát và lỗi dạng JSON: ``2`` khi sai giá trị, ``3`` khi bị khoá, ``1``
   khi không tìm thấy cảnh hoặc chọn Kaggle;
@@ -249,9 +250,17 @@ def test_exit_codes(workdir: Path, split_id: str, capsys: pytest.CaptureFixture)
         "train.drivestudio",
         "eval.standard",
         "export.ply_world",
+        "export.preview",
     ]
+    code, data = run_json(capsys, "approach", "check", "omnire", *base, "--quick")
+    assert code == 0 and data["quick"] is True
+    train = next(s for s in data["stages"] if s["stage_id"] == "train.drivestudio")
+    assert train["params"]["num_iters"] == 3000
+    # toy không có stage nào nhận num_iters
+    code, data = run_json(capsys, "run", "start", "toy", *base, "--quick")
+    assert code == 2 and data["error"]["code"] == "invalid_request"
     code, data = run_json(capsys, "run", "start", "toy", *base, "--executor", "kaggle")
-    assert code == 1
+    assert code == 1 and data["error"]["code"] == "kaggle_failed"
     code, data = run_json(capsys, "scene", "show", "nuscenes_scene-9999")
     assert code == 1 and data["error"]["code"] == "not_found"
     assert main(["run", "bogus"]) == 2

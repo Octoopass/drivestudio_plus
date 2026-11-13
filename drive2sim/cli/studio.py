@@ -29,6 +29,12 @@ def register(
     """
     parser = subparsers.add_parser("studio", parents=[common], help="bật Studio trên 127.0.0.1")
     parser.add_argument("--port", type=int, default=8000, help="cổng; mặc định 8000")
+    parser.add_argument(
+        "--kaggle-watch-minutes",
+        type=float,
+        default=5,
+        help="cứ chừng ấy phút hỏi trạng thái run trên Kaggle, xong thì tự tải về; 0 để tắt",
+    )
     parser.set_defaults(handler=run_studio)
 
 
@@ -36,7 +42,7 @@ def run_studio(args: argparse.Namespace) -> int:
     """Chạy Studio cho tới khi người dùng bấm Ctrl-C.
 
     Args:
-        args: Tham số dòng lệnh, có ``port`` và ``workdir``.
+        args: Tham số dòng lệnh, có ``port``, ``workdir`` và ``kaggle_watch_minutes``.
 
     Returns:
         Mã thoát ``0`` khi server dừng.
@@ -66,5 +72,7 @@ def run_studio(args: argparse.Namespace) -> int:
                 "conflict",
             ) from None
     info(args, f"Studio ở http://{HOST}:{args.port} (thư mục làm việc {workdir.root})")
-    uvicorn.run(create_app(workdir), host=HOST, port=args.port, log_level="warning")
+    watch = args.kaggle_watch_minutes * 60 if args.kaggle_watch_minutes > 0 else None
+    app = create_app(workdir, kaggle_watch_s=watch)
+    uvicorn.run(app, host=HOST, port=args.port, log_level="warning")
     return 0

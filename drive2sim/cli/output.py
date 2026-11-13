@@ -151,9 +151,9 @@ def parse_value(raw: str) -> object:
 
 
 def parse_set(pairs: Sequence[str]) -> tuple[dict[str, object], dict[str, dict[str, object]]]:
-    """Tách các ``--set`` thành lựa chọn cho ô và tham số cho stage.
+    """Tách các ``--set`` thành lựa chọn cho mục cấu hình và tham số cho stage.
 
-    Khoá không có dấu chấm là tên ô (``--set renderer=3dgeer``). Khoá có dấu chấm là
+    Khoá không có dấu chấm là tên mục cấu hình (``--set renderer=3dgeer``). Khoá có dấu chấm là
     ``<stage_id>.<tham số>`` (``--set train.drivestudio.num_iters=1000``); phần sau dấu chấm cuối
     là tên tham số.
 
@@ -162,7 +162,7 @@ def parse_set(pairs: Sequence[str]) -> tuple[dict[str, object], dict[str, dict[s
             sau đè giá trị trước.
 
     Returns:
-        Bộ ``(tên ô → giá trị, stage_id → {tham số → giá trị})``.
+        Bộ ``(tên mục cấu hình → giá trị, stage_id → {tham số → giá trị})``.
 
     Raises:
         UsageError: Nếu một chuỗi không có dấu ``=`` hoặc khoá rỗng.

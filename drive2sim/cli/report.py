@@ -64,6 +64,6 @@ def report(args: argparse.Namespace) -> int:
         ]
         for r in rows
     ]
-    headers = ["run_id", "split", "approach", "ô chọn", "PSNR", "SSIM", "LPIPS", "phút", "VRAM"]
+    headers = ["run_id", "split", "approach", "cấu hình", "PSNR", "SSIM", "LPIPS", "phút", "VRAM"]
     emit(args, [asdict(r) for r in rows], format_table(headers, table))
     return 0
