@@ -282,7 +282,6 @@
   "viewer.page.lede": "Xem cảnh đã dựng của một run theo bốn chế độ (gói xem trước, cảnh tĩnh, video, render GPU), hoặc kéo thả một file splat trên máy.",
   "viewer.field.run": "Run",
   "viewer.field.source": "Chế độ xem",
-  "viewer.note.omitted": "Không có trong gói: {items}",
   "viewer.drop.text": "Kéo thả .ply, .spz, .splat, .ksplat, .sog vào đây. File chỉ đọc trong trình duyệt.",
   "viewer.drop.button": "Chọn file",
   "viewer.field.up": "Trục lên của dữ liệu",

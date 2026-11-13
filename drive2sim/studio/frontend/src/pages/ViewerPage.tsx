@@ -276,7 +276,6 @@ export function ViewerPage({ runId }: { runId?: string }) {
     return () => cancelAnimationFrame(handle);
   }, [playing, poses]);
 
-  const preview = splats.data?.preview;
   const splatMode = !!source && SPLAT_SOURCES.includes(source);
   const loading = !!runId && !source && !splats.error;
   const videoItems = videos.data?.items ?? [];
@@ -549,9 +548,6 @@ export function ViewerPage({ runId }: { runId?: string }) {
                   </span>
                   <Segmented<number> label={t("viewer.field.sh")} value={sh} onChange={setSh} options={[0, 1, 2, 3].map((n) => ({ value: n, label: String(n) }))} />
                 </div>
-                {preview && source === "preview" && (preview.box_only_actors.length > 0 || preview.omitted.length > 0) && (
-                  <p className="small muted">{t("viewer.note.omitted", { items: [...preview.omitted, ...preview.box_only_actors.slice(0, 3)].join(", ") })}</p>
-                )}
               </>
             )}
           </div>

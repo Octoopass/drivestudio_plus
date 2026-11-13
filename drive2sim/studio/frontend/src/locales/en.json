@@ -282,7 +282,6 @@
   "viewer.page.lede": "View a run's reconstructed scene in four modes (preview package, static scene, video, GPU render), or drop a splat file from this machine.",
   "viewer.field.run": "Run",
   "viewer.field.source": "View mode",
-  "viewer.note.omitted": "Not in the package: {items}",
   "viewer.drop.text": "Drop .ply, .spz, .splat, .ksplat or .sog here. Files stay in the browser.",
   "viewer.drop.button": "Choose file",
   "viewer.field.up": "Up axis of the data",
