@@ -213,6 +213,9 @@ def main(args):
     # a checkpoint is written after its step has finished, so a resumed run starts one step later
     start_step = trainer.step + 1 if args.resume_from is not None else trainer.step
     all_iters = np.arange(start_step, trainer.num_iters + 1)
+    # drive2sim: resuming after the last step (training finished but the final evaluation was
+    # interrupted) leaves all_iters empty; keep `step` defined so the evaluation below still runs.
+    step = start_step - 1
 
     # drive2sim: count only the time spent in training steps (not visualisation, error caching,
     # checkpoint saving, start-up or the final evaluation); a resumed run continues from the time
@@ -347,22 +350,24 @@ def main(args):
         )
         if do_save:  
             peak_vram_mb = max(peak_vram_mb, torch.cuda.max_memory_allocated() // (1024 * 1024))
-            save_train_stats(cfg.log_dir, trainer, step, train_time_s, peak_vram_mb)
             trainer.save_checkpoint(
                 log_dir=cfg.log_dir,
                 save_only_model=True,
                 is_final=step == trainer.num_iters,
             )
-            resume_ckpt = os.path.join(cfg.log_dir, RESUME_CHECKPOINT)
-            if step < trainer.num_iters:
-                # full checkpoint (model + optimizer), overwritten at every save, for --resume_from
-                trainer.save_checkpoint(
-                    log_dir=cfg.log_dir,
-                    save_only_model=False,
-                    name=RESUME_CHECKPOINT,
-                )
-            elif os.path.exists(resume_ckpt):
-                os.remove(resume_ckpt)   # training finished; checkpoint_final.pth is kept
+            # drive2sim: full checkpoint (model + optimizer), overwritten at every save, for
+            # --resume_from. Also written at the last step and only removed after the final
+            # evaluation: if the session ends during evaluation, the rerun resumes past the last
+            # step and only evaluates, instead of training again from step 0.
+            trainer.save_checkpoint(
+                log_dir=cfg.log_dir,
+                save_only_model=False,
+                name=RESUME_CHECKPOINT,
+            )
+            # Stats after the checkpoints: a cut between the two can only leave the stats one
+            # save behind (that interval's time is missing), never ahead of the checkpoint (the
+            # interval would be counted twice on resume).
+            save_train_stats(cfg.log_dir, trainer, step, train_time_s, peak_vram_mb)
         
         #----------------------------------------------------------------------------
         #------------------------    Cache Image Error    ---------------------------
@@ -407,6 +412,10 @@ def main(args):
         render_keys=render_keys,
         args=args,
     )
+    # drive2sim: training and evaluation are done; checkpoint_final.pth is kept.
+    resume_ckpt = os.path.join(cfg.log_dir, RESUME_CHECKPOINT)
+    if os.path.exists(resume_ckpt):
+        os.remove(resume_ckpt)
     
     if args.enable_viewer:
         print("Viewer running... Ctrl+C to exit.")
