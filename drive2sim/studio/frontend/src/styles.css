@@ -1,6 +1,6 @@
 /* Studio: công cụ của một nhóm tái dựng cảnh lái xe. Phong cách "minh hoạ hiện đại":
-   - Giao diện sáng là mặc định: nền trắng, xám trung tính, bo góc lớn, bóng mềm. Giao diện tối là
-     đen trung tính, cùng bộ màu nhấn.
+   - Giao diện sáng là mặc định: trắng thuần, panel phân biệt bằng viền; giao diện tối đen thuần,
+     cùng bộ màu nhấn.
    - Hai màu nhấn, mỗi màu một việc: xanh ngọc đậm cho hành động và mục đang chọn; vàng vạch đường
      cho thứ đang chuyển động (stage đang chạy, tiến độ), logo và minh hoạ. Không dùng vàng cho chữ.
    - Màu trạng thái: xanh lá xong, xanh dương đang chạy, đỏ lỗi, cam cảnh báo.
@@ -13,13 +13,13 @@
 :root {
   --bg: #ffffff;
   --panel: #ffffff;
-  --raised: #f4f4f5;
-  --sunken: #ececee;
-  --line: #e4e4e7;
-  --line-strong: #cfcfd4;
-  --text: #111113;
-  --muted: #5c5c66;
-  --faint: #8e8e96;
+  --raised: #f7f7f7;
+  --sunken: #f2f2f2;
+  --line: #e6e6e6;
+  --line-strong: #cfcfcf;
+  --text: #000000;
+  --muted: #555555;
+  --faint: #8a8a8a;
   --accent: #0f7a85;
   --accent-ink: #0f7a85;
   --accent-soft: #e0f1f2;
@@ -30,11 +30,11 @@
   --stop: #d9484c;
   --warn: #d98a0d;
   --idle: #8b98a7;
-  --sky: #eef0f3;
-  --sky-deep: #d9dde3;
-  --hill: #b9c4bf;
-  --hill-far: #d8dfdc;
-  --asphalt: #3a3a40;
+  --sky: #f2f2f2;
+  --sky-deep: #dcdcdc;
+  --hill: #c4c4c4;
+  --hill-far: #dedede;
+  --asphalt: #333333;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
   --shadow-soft: 0 1px 6px rgba(0, 0, 0, 0.05);
   --font: "Be Vietnam Pro", system-ui, sans-serif;
@@ -45,15 +45,15 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #0b0b0d;
-  --panel: #151518;
-  --raised: #1f1f24;
-  --sunken: #0b0b0d;
-  --line: #27272c;
-  --line-strong: #3a3a41;
-  --text: #f2f2f4;
-  --muted: #a3a3ad;
-  --faint: #76767f;
+  --bg: #000000;
+  --panel: #000000;
+  --raised: #141414;
+  --sunken: #0a0a0a;
+  --line: #262626;
+  --line-strong: #3a3a3a;
+  --text: #ffffff;
+  --muted: #a6a6a6;
+  --faint: #767676;
   --accent: #3eb8c2;
   --accent-ink: #5fcbd4;
   --accent-soft: #15302f;
@@ -64,27 +64,27 @@
   --stop: #ff6b6b;
   --warn: #ffb454;
   --idle: #7c8a9c;
-  --sky: #232329;
-  --sky-deep: #2a2a31;
-  --hill: #3d3d45;
-  --hill-far: #27272c;
-  --asphalt: #37373e;
-  --shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
-  --shadow-soft: 0 2px 10px rgba(0, 0, 0, 0.25);
+  --sky: #1a1a1a;
+  --sky-deep: #2a2a2a;
+  --hill: #3a3a3a;
+  --hill-far: #262626;
+  --asphalt: #333333;
+  --shadow: 0 0 0 1px #262626, 0 14px 40px rgba(0, 0, 0, 0.6);
+  --shadow-soft: none;
   color-scheme: dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0b0b0d;
-    --panel: #151518;
-    --raised: #1f1f24;
-    --sunken: #0b0b0d;
-    --line: #27272c;
-    --line-strong: #3a3a41;
-    --text: #f2f2f4;
-    --muted: #a3a3ad;
-    --faint: #76767f;
+    --bg: #000000;
+    --panel: #000000;
+    --raised: #141414;
+    --sunken: #0a0a0a;
+    --line: #262626;
+    --line-strong: #3a3a3a;
+    --text: #ffffff;
+    --muted: #a6a6a6;
+    --faint: #767676;
     --accent: #3eb8c2;
     --accent-ink: #5fcbd4;
     --accent-soft: #15302f;
@@ -95,13 +95,13 @@
     --stop: #ff6b6b;
     --warn: #ffb454;
     --idle: #7c8a9c;
-    --sky: #232329;
-    --sky-deep: #2a2a31;
-    --hill: #3d3d45;
-    --hill-far: #27272c;
-    --asphalt: #37373e;
-    --shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
-    --shadow-soft: 0 2px 10px rgba(0, 0, 0, 0.25);
+    --sky: #1a1a1a;
+    --sky-deep: #2a2a2a;
+    --hill: #3a3a3a;
+    --hill-far: #262626;
+    --asphalt: #333333;
+    --shadow: 0 0 0 1px #262626, 0 14px 40px rgba(0, 0, 0, 0.6);
+    --shadow-soft: none;
     color-scheme: dark;
   }
 }
