@@ -559,6 +559,10 @@ class _Runner:
             return self._execute_stages(wiring, cache, artifact_dirs, artifact_keys)
         finally:
             pid_file.unlink(missing_ok=True)
+            # Yêu cầu huỷ chỉ dành cho lần chạy này. Còn sót (huỷ lúc stage cuối không kiểm tra
+            # huỷ và vẫn xong, hoặc stage lỗi trước khi kịp đọc) thì lần chạy sau (xuất lại, chạy
+            # tiếp) bị huỷ ngay mà không rõ lý do.
+            (self.run_dir / D2S_DIR / CANCEL_FILE).unlink(missing_ok=True)
 
     def _execute_stages(
         self,
@@ -575,9 +579,15 @@ class _Runner:
             stage_id = stage_record.stage_id
             if (self.run_dir / D2S_DIR / CANCEL_FILE).exists():
                 return self.cancel(None)
-            cls = self.registry.get(stage_id)
-            # Kiểm tra lại tham số: code của stage có thể đã đổi từ lúc tạo run.
-            stage_record.params = validate_params(stage_id, stage_record.params, self.registry)
+            # Kiểm tra lại tham số: code của stage có thể đã đổi từ lúc tạo run. Lỗi ở đây (stage
+            # không còn, tham số không hợp lệ) phải kết thúc run ở "failed": nếu để lỗi bay ra
+            # ngoài, run.json kẹt ở "running" mà không còn tiến trình nào chạy.
+            try:
+                cls = self.registry.get(stage_id)
+                stage_record.params = validate_params(stage_id, stage_record.params, self.registry)
+            except Exception as error:
+                self.fail_stage(stage_record, error, time.monotonic())
+                return self.record
             inputs: dict[str, Path] = {}
             input_keys: list[str] = []
             for input_name, source in wiring[index].items():
@@ -609,9 +619,13 @@ class _Runner:
                             raise
                         output_dir = cache.commit(partial)
                         ran = True
-                    elif stage_record.cache_key != key:
+                    elif stage_record.cache_key != key or stage_record.status != "succeeded":
+                        # Kết quả cache do tiến trình khác ghi: kể cả khi lần trước của chính
+                        # stage này lỗi với cùng khoá (ví dụ CacheBusyError trong lúc tiến trình
+                        # kia đang ghi), giờ là dùng lại cache; bỏ lỗi cũ của lần thử trước.
                         stage_record.cache_key, stage_record.cache_hit = key, True
                         stage_record.reused_duration_s = _artifact_duration(output_dir)
+                        stage_record.error = None
                     artifact_keys[index] = key
                 else:
                     output_dir = self.run_dir / D2S_DIR / "stages" / stage_id
@@ -783,7 +797,14 @@ def list_runs(workdir: Workdir, scene_id: Optional[str] = None) -> list[RunRecor
         Các run, sắp theo ``run_id`` giảm dần (``run_id`` bắt đầu bằng thời điểm tạo).
     """
     pattern = f"{scene_id or '*'}/*/*/{D2S_DIR}/{RUN_FILE}"
-    records = [files.load(path, RunRecord) for path in workdir.runs_dir.glob(pattern)]
+    records = []
+    for path in workdir.runs_dir.glob(pattern):
+        # Một run.json hỏng (sửa tay, tải Kaggle dở, schema khác) chỉ bỏ qua run đó; trước đây
+        # nó làm hỏng mọi danh sách run, bảng so sánh và dọn cache.
+        try:
+            records.append(files.load(path, RunRecord))
+        except (OSError, ValueError) as error:
+            sys.stderr.write(f"bỏ qua {path}: {error}\n")
     return sorted(records, key=lambda record: record.run_id, reverse=True)
 
 
@@ -912,6 +933,11 @@ def reset_stage(run_dir: Path, stage_id: str, registry: StageRegistry = REGISTRY
         stage.error = None
         if not cls.cacheable:
             shutil.rmtree(run_dir / D2S_DIR / "stages" / stage_id, ignore_errors=True)
+            # Kết quả cũ bị xoá và chạy lại từ đầu: đo lại thời gian và VRAM. Không đặt lại thì
+            # finish_stage cộng thời gian mới vào thời gian cũ (cộng dồn chỉ dành cho stage bị
+            # ngắt rồi chạy tiếp, CONTRACTS mục 6.2), và mỗi lần xuất lại "Dựng cảnh" tăng lên.
+            stage.duration_s = 0
+            stage.peak_vram_mb = 0
     else:
         record.stages.append(
             StageRecord(

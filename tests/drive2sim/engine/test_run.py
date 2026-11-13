@@ -352,9 +352,13 @@ def test_reset_stage_reruns_only_that_stage(workdir: Workdir) -> None:
     run_dir = new_run(workdir, registry)
     execute_run(run_dir, workdir, registry)
     reset_stage(run_dir, "train.toy", registry)
+    first = files.load(run_dir / "d2s" / "run.json", RunRecord).stages[1].duration_s
     record = execute_run(run_dir, workdir, registry)
     assert record.status == "succeeded"
     assert CALLS == {"init.toy": 1, "train.toy": 2}
+    # chạy lại từ đầu thì đo lại, không cộng dồn với lần trước (mỗi lần xuất lại không làm tăng
+    # thời gian dựng cảnh)
+    assert record.stages[1].duration_s < first * 1.9 + 0.05
 
 
 def test_pid_from_another_machine_is_not_active(workdir: Workdir) -> None:
@@ -374,3 +378,37 @@ def test_execute_refuses_a_run_already_running(workdir: Workdir) -> None:
     (run_dir / "d2s" / "pid").write_text(f"{os.getpid()} {platform.node()}\n")
     with pytest.raises(RunActiveError):
         execute_run(run_dir, workdir, registry=registry)
+
+
+def test_broken_run_json_does_not_break_listing(workdir: Workdir) -> None:
+    from drive2sim.engine.run import list_runs
+
+    registry = make_registry()
+    good = new_run(workdir, registry)
+    bad = workdir.runs_dir / MANIFEST["scene_id"] / "toy" / "20260101-000000-toy-dead" / "d2s"
+    bad.mkdir(parents=True)
+    (bad / "run.json").write_text("{not json")
+    assert [r.run_id for r in list_runs(workdir)] == [good.name]
+
+
+def test_cancel_file_does_not_outlive_the_run(workdir: Workdir) -> None:
+    registry = make_registry()
+    run_dir = new_run(workdir, registry)
+    execute_run(run_dir, workdir, registry)
+    (run_dir / "d2s" / "cancel").write_text("late\n")  # huỷ đến muộn, sau khi stage cuối xong
+    reset_stage(run_dir, "train.toy", registry)
+    assert execute_run(run_dir, workdir, registry).status == "cancelled"
+    assert not (run_dir / "d2s" / "cancel").exists()
+    reset_stage(run_dir, "train.toy", registry)
+    assert execute_run(run_dir, workdir, registry).status == "succeeded"
+
+
+def test_invalid_params_fail_the_run_instead_of_leaving_it_running(workdir: Workdir) -> None:
+    registry = make_registry()
+    run_dir = new_run(workdir, registry)
+    record = files.load(run_dir / "d2s" / "run.json", RunRecord)
+    record.stages[1].params = {"not_a_param": 1}  # code của stage đã đổi từ lúc tạo run
+    files.dump(record, run_dir / "d2s" / "run.json")
+    result = execute_run(run_dir, workdir, registry)
+    assert result.status == "failed" and result.stages[1].status == "failed"
+    assert files.load(run_dir / "d2s" / "run.json", RunRecord).status == "failed"
