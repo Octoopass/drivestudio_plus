@@ -613,6 +613,7 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (thư mục DriveStudio
 | Stage `prep.masks_segformer`, `prep.smpl` (cache, thư mục cảnh ảo); đầu vào tuỳ chọn của stage; approach `omnire`, `streetgs` có stage prep | Xong trong code; có test với script giả; **chưa chạy thật** (cần GPU, `transformers`, `hmr2`) | |
 | Tầng dữ liệu: `source inspect`; `scene ingest` cho nuScenes (gọi script có sẵn, sinh manifest); kiểm tra cấu trúc | Xong trong code; có test với dữ liệu giả; **chưa chạy thật** (cần nuScenes và `nuscenes-devkit`) | |
 | Stage `export.preview` (`recon/tools/export_preview.py`: nền, từng xe, pose theo khung) | Xong trong code; test với lệnh giả; **chưa chạy thật** (cần checkpoint và PyTorch) | |
+| Viewer chính (mục 2.12) trong Studio: trang Xem 3D, mode Render GPU kiểm tra máy rồi bật `tools/viewer.py --host 127.0.0.1` cho một run và nhúng vào trang (`studio/api/gpu_viewer.py`) | Xong trong code; test với viewer giả; **chưa chạy thật** (cần checkpoint thật) | |
 | Bộ kiểm tra: chiếu LiDAR lên ảnh | Chưa làm; báo cáo ghi mục `projection.not_run` | |
 | `scene ingest` cho Waymo, Argoverse 2, KITTI, nuPlan, PandaSet, PhysicalAI (converter chung, nhận dạng từng dataset) | Xong trong code; có test với dữ liệu giả; **chưa chạy thật** (cần dữ liệu và devkit của từng dataset) | |
 | `sim/` (L2–L4) | Chưa làm | |

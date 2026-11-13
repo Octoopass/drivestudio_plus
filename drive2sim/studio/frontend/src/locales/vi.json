@@ -487,7 +487,7 @@
   "viewer.mode.video.sub": "Video đã render theo camera gốc",
   "viewer.mode.video.missing": "Run chưa có video",
   "viewer.mode.gpu": "Render GPU",
-  "viewer.mode.gpu.sub": "Đầy đủ, vẽ trực tiếp trên máy này",
+  "viewer.mode.gpu.sub": "Đầy đủ, vẽ trực tiếp bằng GPU máy này",
   "viewer.mode.gpu.missing": "",
   "viewer.field.video": "Video",
   "viewer.gpu.title": "Render GPU trên máy chạy Studio",
@@ -502,10 +502,13 @@
   "viewer.gpu.fix.cuda": "PyTorch chưa cài hoặc không thấy GPU (bản PyTorch không có CUDA, hoặc driver quá cũ)",
   "viewer.gpu.fix.gsplat": "chưa cài gsplat-geer trong môi trường Python của tool",
   "viewer.gpu.fix.checkpoint": "không có checkpoint_final.pth; run chạy trên Kaggle thì cần d2s kaggle pull",
-  "viewer.gpu.ready": "Máy đủ điều kiện. Phần render trực tiếp trong Studio chưa làm; bước này hiện chỉ kiểm tra máy.",
   "viewer.gpu.not_ready": "Máy chưa đủ điều kiện để render GPU. Sửa các mục có dấu X rồi bấm Kiểm tra lại. Trong lúc đó, xem đầy đủ qua mode Video.",
   "viewer.gpu.recheck": "Kiểm tra lại",
   "run.action.reexport_ply": "Xuất lại PLY",
   "run.action.reexport_preview": "Xuất lại gói xem trước",
-  "run.action.reexport_hint": "Run đã có file này. Chỉ cần xuất lại khi stage export lỗi, file bị xoá, hoặc code export vừa sửa."
+  "run.action.reexport_hint": "Run đã có file này. Chỉ cần xuất lại khi stage export lỗi, file bị xoá, hoặc code export vừa sửa.",
+  "viewer.gpu.start": "Bật viewer GPU",
+  "viewer.gpu.stop": "Tắt viewer GPU",
+  "viewer.gpu.starting": "Đang nạp checkpoint và dữ liệu cảnh lên GPU, thường mất vài chục giây…",
+  "viewer.gpu.exited": "Viewer GPU đã dừng (mã {code}). Phần cuối log ở dưới."
 }

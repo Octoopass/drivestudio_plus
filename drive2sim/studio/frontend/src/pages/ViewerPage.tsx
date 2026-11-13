@@ -2,12 +2,13 @@
 // - Gói xem trước: Spark vẽ trong trình duyệt nền tĩnh và từng xe, phát lại xe theo khung.
 // - Cảnh tĩnh: Spark vẽ scene.ply của run.
 // - Video: phát các video MP4 mà stage train đã render theo camera gốc (đầy đủ mọi phần của model).
-// - Render GPU: renderer của DriveStudio vẽ từ checkpoint trên máy chạy Studio; hiện mới có bước
-//   kiểm tra máy (GET /api/runs/{id}/render-check), phần render trực tiếp chưa làm.
+// - Render GPU: kiểm tra máy (GET /api/runs/{id}/render-check), rồi Studio bật viewer GPU của
+//   DriveStudio (viser, POST /api/runs/{id}/gpu-viewer) và trang nhúng nó; viewer vẽ từ checkpoint
+//   bằng renderer gốc nên đủ mọi phần của model.
 // File kéo thả (.ply, .spz, .splat, .ksplat, .sog) chỉ đọc trong trình duyệt, không gửi lên server.
-import { Box, CheckCircle2, Crosshair, FileUp, Pause, Play, XCircle } from "lucide-react";
+import { Box, CheckCircle2, Crosshair, FileUp, Pause, Play, Power, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { api, seg, useApi } from "../api/client";
+import { api, asApiError, del, post, seg, useApi, type ApiError } from "../api/client";
 import type { ActorPoses, List, RunRecord, Splats, Video } from "../api/types";
 import { ErrorBox, InfoTip, Note, PageHead, Segmented } from "../components/ui";
 import { useI18n } from "../i18n";
@@ -17,6 +18,14 @@ import { SplatViewer, type SplatSource, type UpAxis } from "../viewer/engine";
 const ACCEPT = ".ply,.spz,.splat,.ksplat,.sog,.zip";
 type Source = "preview" | "ply" | "video" | "gpu" | "file";
 const SPLAT_SOURCES: Source[] = ["preview", "ply", "file"];
+
+interface GpuViewerStatus {
+  state: "stopped" | "starting" | "running" | "exited";
+  run_id: string | null;
+  url: string | null;
+  exit_code: number | null;
+  log: string;
+}
 
 interface RenderCheck {
   ready: boolean;
@@ -304,10 +313,48 @@ export function ViewerPage({ runId }: { runId?: string }) {
   );
 }
 
-/** Mode Render GPU: các điều kiện máy chạy Studio phải có, cái nào thiếu thì ghi cách sửa. */
+/** Mode Render GPU: kiểm tra máy; đủ điều kiện thì bật viewer GPU và nhúng nó vào khung xem. */
 function RenderCheckPanel({ runId }: { runId: string }) {
   const { t } = useI18n();
   const check = useApi<RenderCheck>(`/api/runs/${seg(runId)}/render-check`);
+  const [viewer, setViewer] = useState<GpuViewerStatus | null>(null);
+  const [error, setError] = useState<ApiError | null>(null);
+  const mine = viewer && viewer.run_id === runId ? viewer : null;
+
+  // Hỏi trạng thái viewer: lần đầu, rồi mỗi giây khi đang khởi động.
+  useEffect(() => {
+    let alive = true;
+    const poll = () => api<GpuViewerStatus>("/api/gpu-viewer").then((v) => alive && setViewer(v)).catch(() => undefined);
+    void poll();
+    if (mine?.state !== "starting") return () => void (alive = false);
+    const timer = window.setInterval(poll, 1000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [mine?.state]);
+
+  const start = async () => {
+    setError(null);
+    try {
+      setViewer(await post<GpuViewerStatus>(`/api/runs/${seg(runId)}/gpu-viewer`, {}));
+    } catch (err) {
+      setError(asApiError(err));
+    }
+  };
+  const stop = async () => setViewer(await del<GpuViewerStatus>("/api/gpu-viewer"));
+
+  if (mine?.state === "running" && mine.url) {
+    return (
+      <div className="gpu-frame">
+        <iframe src={mine.url} title={t("viewer.mode.gpu")} />
+        <button className="btn sm gpu-stop" onClick={() => void stop()}>
+          <Power size={16} />
+          {t("viewer.gpu.stop")}
+        </button>
+      </div>
+    );
+  }
   return (
     <div className="box render-check">
       <strong>{t("viewer.gpu.title")}</strong>
@@ -326,10 +373,34 @@ function RenderCheckPanel({ runId }: { runId: string }) {
               </li>
             ))}
           </ul>
-          <Note kind={check.data.ready ? "info" : "warn"}>{t(check.data.ready ? "viewer.gpu.ready" : "viewer.gpu.not_ready")}</Note>
-          <button className="btn sm" onClick={check.reload}>
-            {t("viewer.gpu.recheck")}
-          </button>
+          <ErrorBox error={error} />
+          {mine?.state === "starting" && <Note kind="info">{t("viewer.gpu.starting")}</Note>}
+          {mine?.state === "exited" && (
+            <>
+              <Note kind="warn">{t("viewer.gpu.exited", { code: mine.exit_code ?? "?" })}</Note>
+              {mine.log && <pre className="log small">{mine.log}</pre>}
+            </>
+          )}
+          {check.data.ready ? (
+            <div className="row" style={{ gap: 8 }}>
+              <button className="btn primary" onClick={() => void start()} disabled={mine?.state === "starting"}>
+                <Power size={17} />
+                {t("viewer.gpu.start")}
+              </button>
+              {mine?.state === "starting" && (
+                <button className="btn" onClick={() => void stop()}>
+                  {t("viewer.gpu.stop")}
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              <Note kind="warn">{t("viewer.gpu.not_ready")}</Note>
+              <button className="btn sm" onClick={check.reload}>
+                {t("viewer.gpu.recheck")}
+              </button>
+            </>
+          )}
         </>
       )}
     </div>

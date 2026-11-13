@@ -33,6 +33,7 @@ from drive2sim.ingest.dispatch import IngestRequestError
 from drive2sim.kaggle.client import KaggleError
 from drive2sim.kaggle.setup import CredentialExistsError
 from drive2sim.studio.api.events import EventBroker
+from drive2sim.studio.api.gpu_viewer import GpuViewerError, GpuViewers
 from drive2sim.studio.api.jobs import BackgroundJobs, RunQueue
 from drive2sim.studio.api.kaggle_watch import KaggleWatcher
 from drive2sim.studio.api.picker import PickerError, pick_folder
@@ -161,6 +162,7 @@ def create_app(
         yield
         if watcher is not None:
             watcher.stop()
+        gpu_viewers.stop()
         app.state.studio.queue.shutdown()
         app.state.studio.jobs.shutdown()
 
@@ -174,6 +176,7 @@ def create_app(
     app.state.studio = StudioState(
         workdir, broker, RunQueue(workdir, broker, registry), registry, BackgroundJobs(workdir)
     )
+    gpu_viewers = GpuViewers(workdir)
     _install_error_handlers(app)
     for module in (sources, scenes, approaches, runs, report, cache, kaggle):
         app.include_router(module.router)
@@ -211,6 +214,30 @@ def create_app(
             return {"path": pick_folder(body.start)}
         except PickerError as error:
             raise HTTPException(409, str(error)) from None
+
+    @app.post("/api/runs/{run_id}/gpu-viewer")
+    def start_gpu_viewer(run_id: str) -> dict:
+        """Bật viewer GPU của DriveStudio cho run (tắt viewer đang chạy nếu có).
+
+        Returns:
+            Trạng thái viewer như ``GET /api/gpu-viewer``; máy chưa đủ điều kiện hoặc run thiếu
+            checkpoint thì ``409`` kèm lý do.
+        """
+        try:
+            return gpu_viewers.start(run_id)
+        except GpuViewerError as error:
+            raise HTTPException(409, str(error)) from None
+
+    @app.get("/api/gpu-viewer")
+    def gpu_viewer_status() -> dict:
+        """Trạng thái viewer GPU: ``state``, ``run_id``, ``url`` khi đã sẵn sàng, phần cuối log."""
+        return gpu_viewers.status()
+
+    @app.delete("/api/gpu-viewer")
+    def stop_gpu_viewer() -> dict:
+        """Tắt viewer GPU đang chạy."""
+        gpu_viewers.stop()
+        return gpu_viewers.status()
 
     @app.get("/api/studio")
     def studio_info() -> dict:
