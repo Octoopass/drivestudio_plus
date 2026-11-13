@@ -1,5 +1,6 @@
 from drive2sim.paths import CONFIGS_DIR
 from omegaconf import OmegaConf
+import json
 import numpy as np
 import os
 import time
@@ -106,6 +107,35 @@ def setup(args):
 
 # full checkpoint (model + optimizer state) written at every save, used to resume a run
 RESUME_CHECKPOINT = "checkpoint_resume.pth"
+# drive2sim: training statistics read by eval.standard (CONTRACTS 6.1). Written together with every
+# checkpoint so that, after a resume, the counted time matches the steps that were kept.
+TRAIN_STATS = "train_stats.json"
+
+
+def load_train_stats(log_dir: str) -> dict:
+    """Stats saved with the checkpoint we resume from; empty for a fresh run."""
+    path = os.path.join(log_dir, TRAIN_STATS)
+    if not os.path.exists(path):
+        return {}
+    with open(path) as f:
+        return json.load(f)
+
+
+def save_train_stats(log_dir: str, trainer, step: int, train_time_s: float, peak_vram_mb: int) -> None:
+    """Write train time (training steps only), peak VRAM, Gaussian count and iterations."""
+    per_node = {k: int(v) for k, v in trainer.get_gaussian_count().items()}
+    stats = {
+        "step": int(step),
+        "num_iters": int(trainer.num_iters),
+        "train_time_s": round(train_time_s, 3),
+        "peak_vram_mb": int(peak_vram_mb),
+        "num_gaussians": sum(per_node.values()),
+        "gaussians_per_node": per_node,
+    }
+    tmp = os.path.join(log_dir, TRAIN_STATS + ".tmp")
+    with open(tmp, "w") as f:
+        json.dump(stats, f, indent=2)
+    os.replace(tmp, os.path.join(log_dir, TRAIN_STATS))
 
 def main(args):
     cfg = setup(args)
@@ -183,6 +213,14 @@ def main(args):
     # a checkpoint is written after its step has finished, so a resumed run starts one step later
     start_step = trainer.step + 1 if args.resume_from is not None else trainer.step
     all_iters = np.arange(start_step, trainer.num_iters + 1)
+
+    # drive2sim: count only the time spent in training steps (not visualisation, error caching,
+    # checkpoint saving, start-up or the final evaluation); a resumed run continues from the time
+    # stored with its checkpoint.
+    previous = load_train_stats(cfg.log_dir) if args.resume_from is not None else {}
+    train_time_s = float(previous.get("train_time_s", 0.0))
+    peak_vram_mb = int(previous.get("peak_vram_mb", 0))
+    torch.cuda.reset_peak_memory_stats()
     
     # DEBUG USE
     # do_evaluation(
@@ -249,6 +287,8 @@ def main(args):
         #----------------------------------------------------------------------------
         #----------------------------  training step  -------------------------------
         # prepare for training
+        torch.cuda.synchronize()
+        step_started = time.perf_counter()
         trainer.set_train()
         trainer.preprocess_per_train_step(step=step)
         trainer.optimizer_zero_grad() # zero grad
@@ -282,6 +322,8 @@ def main(args):
         
         # after training step
         trainer.postprocess_per_train_step(step=step)
+        torch.cuda.synchronize()
+        train_time_s += time.perf_counter() - step_started
         
         #----------------------------------------------------------------------------
         #-------------------------------  logging  ----------------------------------
@@ -304,6 +346,8 @@ def main(args):
             (step % cfg.logging.saveckpt_freq == 0) or (step == trainer.num_iters)
         )
         if do_save:  
+            peak_vram_mb = max(peak_vram_mb, torch.cuda.max_memory_allocated() // (1024 * 1024))
+            save_train_stats(cfg.log_dir, trainer, step, train_time_s, peak_vram_mb)
             trainer.save_checkpoint(
                 log_dir=cfg.log_dir,
                 save_only_model=True,

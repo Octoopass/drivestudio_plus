@@ -78,6 +78,9 @@ def do_evaluation(
                     "human_ssim",
                     "vehicle_psnr",
                     "vehicle_ssim",
+                    "render_fps",  # drive2sim: speed of the model forward pass
+                    "render_width",
+                    "render_height",
                 ]:
                     eval_dict[f"image_metrics/test/{k}"] = v
             if args.enable_wandb:

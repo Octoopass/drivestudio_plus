@@ -1,3 +1,4 @@
+import time
 from typing import Literal, Dict, List, Optional, Callable
 from tqdm import tqdm, trange
 import numpy as np
@@ -118,6 +119,10 @@ def render(
     opacities, sky_masks = [], []
     Background_opacities, RigidNodes_opacities, DeformableNodes_opacities, SMPLNodes_opacities, Dynamic_opacities = [], [], [], [], []
     
+    # drive2sim: render speed, timing only the model forward pass (no metrics, no video writing);
+    # the first frames are skipped because CUDA kernels are still being compiled and cached.
+    fps_warmup, fps_frames, fps_seconds, fps_size = 3, 0, 0.0, None
+
     # misc
     cam_names, cam_ids = [], []
     stream_writers, vis_frame_dict = {}, {}
@@ -151,7 +156,14 @@ def render(
                 if isinstance(v, Tensor):
                     cam_infos[k] = v.cuda(non_blocking=True)
             # render the image
+            torch.cuda.synchronize()
+            forward_started = time.perf_counter()
             results = trainer(image_infos, cam_infos)
+            torch.cuda.synchronize()
+            if frame_idx >= fps_warmup:
+                fps_frames += 1
+                fps_seconds += time.perf_counter() - forward_started
+                fps_size = (int(cam_infos["width"]), int(cam_infos["height"]))
             
             # ------------- clip rgb ------------- #
             for k, v in results.items():
@@ -166,6 +178,10 @@ def render(
 
             # ------------- rgb ------------- #
             rgb = results["rgb"]
+            if compute_metrics:
+                # drive2sim: metrics are measured on 8-bit images (SPEC section 9): the ground truth
+                # is already 8-bit, so quantise the render the same way before comparing.
+                rgb = torch.round(rgb * 255.0) / 255.0
             if "valid_masks" in image_infos:
                 valid = image_infos["valid_masks"].bool()
                 rgb = rgb * valid[..., None]
@@ -401,6 +417,9 @@ def render(
 
     # messy aggregation...
     results_dict = {}
+    if fps_frames > 0 and fps_seconds > 0:
+        results_dict["render_fps"] = fps_frames / fps_seconds
+        results_dict["render_width"], results_dict["render_height"] = fps_size
     results_dict["psnr"] = non_zero_mean(psnrs) if compute_metrics else -1
     results_dict["ssim"] = non_zero_mean(ssim_scores) if compute_metrics else -1
     results_dict["lpips"] = non_zero_mean(lpipss) if compute_metrics else -1
