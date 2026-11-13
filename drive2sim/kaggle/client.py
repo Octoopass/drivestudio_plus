@@ -104,6 +104,20 @@ class KaggleClient:
         result = self._runner(["kaggle", "datasets", "status", slug])
         return result.returncode == 0 and bool(result.stdout.strip())
 
+    def dataset_status(self, slug: str) -> str:
+        """Trạng thái xử lý của dataset, viết thường, ví dụ ``ready``, ``pending``, ``error``.
+
+        Args:
+            slug: Định danh đầy đủ, ví dụ ``alice/d2s-1a2b3c4d``.
+
+        Returns:
+            Dòng trạng thái CLI in ra, viết thường.
+
+        Raises:
+            KaggleError: Nếu lệnh lỗi (ví dụ dataset không tồn tại).
+        """
+        return self._call("datasets", "status", slug).strip().lower()
+
     def create_dataset(self, folder: Path) -> None:
         """Tạo dataset private từ một thư mục có ``dataset-metadata.json``.
 

@@ -26,6 +26,8 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -53,10 +55,10 @@ STATE_FILE = "kaggle.json"
 TEMPLATE = paths.PACKAGE_DIR / "kaggle" / "templates" / "run.ipynb"
 STAGING_DIR = ".kaggle"  # trong thư mục làm việc: thư mục tạm khi upload, tải về
 DEFAULT_BRANCH = "drive2sim"
-DEFAULT_ACCELERATOR = "NvidiaTeslaT4"
-MAX_RESUME_SOURCES = (
-    5  # số lần đẩy trước được gắn vào notebook mới  # machine_shape của Kaggle: GPU T4 x2
-)
+DEFAULT_ACCELERATOR = "NvidiaTeslaT4"  # machine_shape của Kaggle: GPU T4 x2
+MAX_RESUME_SOURCES = 5  # số lần đẩy trước được gắn vào notebook mới
+DATASET_WAIT_S = 900  # chờ Kaggle xử lý xong dataset cảnh vừa upload, tối đa 15 phút
+DATASET_POLL_S = 10
 
 
 @dataclass
@@ -118,22 +120,47 @@ def _git(*args: str) -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
-def code_source() -> tuple[str, str]:
-    """Commit hiện tại và URL của remote ``origin``.
+def _remote_for(url: str) -> Optional[str]:
+    """Tên remote của repo có URL ``url`` (ví dụ ``origin``), nếu có."""
+    for line in _git("remote", "-v").splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] == url:
+            return parts[0]
+    return None
+
+
+def code_source(branch: str = DEFAULT_BRANCH) -> tuple[str, str]:
+    """Commit hiện tại và URL repo mà notebook sẽ clone (``D2S_KAGGLE_REPO`` hoặc ``origin``).
+
+    Notebook chạy ``git clone --branch <branch> <url>`` rồi ``git checkout <commit>``, nên commit
+    phải có trên **đúng remote đó** và remote phải có nhánh ``branch``; có trên một remote khác
+    (ví dụ ``fork``) thì notebook không checkout được.
+
+    Args:
+        branch: Nhánh notebook clone.
 
     Returns:
         ``(commit đầy đủ, url)``.
 
     Raises:
-        KaggleError: Nếu không đọc được git, hoặc commit chưa có trên remote nào (notebook sẽ
-            không clone được).
+        KaggleError: Nếu không đọc được git, remote không có nhánh ``branch``, hoặc commit chưa
+            push lên remote đó.
     """
     commit = _git("rev-parse", "HEAD")
     url = os.environ.get("D2S_KAGGLE_REPO") or _git("remote", "get-url", "origin")
     if not commit or not url:
         raise KaggleError("không đọc được commit hoặc remote origin của repo")
-    if not _git("branch", "-r", "--contains", commit):
-        raise KaggleError(f"commit {commit[:7]} chưa có trên remote; push code trước rồi chạy lại")
+    remote = _remote_for(url)
+    if remote is None:
+        # URL không phải remote nào của repo này: không kiểm tra được, notebook sẽ báo nếu thiếu.
+        return commit, url
+    if not _git("rev-parse", "--verify", "--quiet", f"refs/remotes/{remote}/{branch}"):
+        raise KaggleError(f"remote {remote} ({url}) không có nhánh {branch}; push nhánh đó trước")
+    if not _git("branch", "-r", "--contains", commit, "--list", f"{remote}/*"):
+        raise KaggleError(
+            f"commit {commit[:7]} chưa có trên remote {remote} ({url}), repo notebook sẽ clone; "
+            f"git push {remote} {branch} rồi chạy lại"
+        )
     return commit, url
 
 
@@ -148,6 +175,7 @@ def _ensure_scene_dataset(
     """
     slug = f"{username}/d2s-{_hash8(f'{scene_id}@{converter_version}')}"
     if client.dataset_exists(slug):
+        wait_dataset_ready(client, slug)
         return slug
     staging = workdir.root / STAGING_DIR / "upload" / slug.split("/")[1]
     shutil.rmtree(staging, ignore_errors=True)
@@ -173,7 +201,37 @@ def _ensure_scene_dataset(
         client.create_dataset(staging)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
+    wait_dataset_ready(client, slug)
     return slug
+
+
+def wait_dataset_ready(
+    client: KaggleClient,
+    slug: str,
+    timeout_s: float = DATASET_WAIT_S,
+    sleep: Callable[[float], None] = time.sleep,
+) -> None:
+    """Chờ Kaggle xử lý xong dataset (giải nén, lập chỉ mục) trước khi đẩy notebook gắn nó.
+
+    Dataset vừa upload còn ở trạng thái xử lý; notebook chạy ngay lúc đó không thấy cảnh dưới
+    ``/kaggle/input`` và lỗi ở bước tìm cảnh.
+
+    Raises:
+        KaggleError: Nếu Kaggle báo dataset lỗi, hoặc quá ``timeout_s`` vẫn chưa xong.
+    """
+    waited = 0.0
+    while True:
+        status = client.dataset_status(slug)
+        if "ready" in status:
+            return
+        if "error" in status:
+            raise KaggleError(f"Kaggle báo dataset {slug} lỗi khi xử lý: {status}")
+        if waited >= timeout_s:
+            raise KaggleError(
+                f"dataset {slug} vẫn đang xử lý sau {int(timeout_s)} giây ({status}); đẩy lại sau"
+            )
+        sleep(DATASET_POLL_S)
+        waited += DATASET_POLL_S
 
 
 def build_notebook(bundle: dict, run_id: str, commit: str, repo_url: str, branch: str) -> str:
@@ -231,7 +289,7 @@ def push_run(
         if status in ("queued", "running", "new", "new_script", "cancel_requested"):
             raise KaggleError(f"notebook {previous.kernel} còn đang {status}; chờ xong rồi đẩy")
     username = client.username()
-    commit, repo_url = code_source()
+    commit, repo_url = code_source(branch)
     scene = workdir.load_scene(record.scene_id)
     dataset = _ensure_scene_dataset(
         client, workdir, username, record.scene_id, scene.manifest.source.converter_version

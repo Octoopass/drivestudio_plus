@@ -55,6 +55,10 @@ class FakeKaggle(KaggleClient):
         """Dataset đã tạo trong bộ nhớ chưa."""
         return slug in self.datasets
 
+    def dataset_status(self, slug: str) -> str:
+        """Dataset giả xử lý xong ngay."""
+        return "ready"
+
     def create_dataset(self, folder: Path) -> None:
         """Nhớ dataset và chép nó vào thư mục input giả."""
         slug = json.loads((folder / "dataset-metadata.json").read_text())["id"]
@@ -140,7 +144,9 @@ def no_kaggle_cli(command: list[str]) -> subprocess.CompletedProcess:
 @pytest.fixture()
 def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Workdir, FakeKaggle]:
     monkeypatch.setattr(
-        executor, "code_source", lambda: ("c0ffee" * 6 + "abcd", "https://x/r.git")
+        executor,
+        "code_source",
+        lambda branch="drive2sim": ("c0ffee" * 6 + "abcd", "https://x/r.git"),
     )
     return make_workdir(tmp_path / "work"), FakeKaggle(tmp_path / "kaggle")
 
@@ -274,3 +280,37 @@ def test_pull_does_not_copy_process_files(tmp_path: Path) -> None:
     executor._merge_d2s(local, remote)
     assert (local / "log.txt").is_file()
     assert not (local / "pid").exists() and not (local / "cancel").exists()
+
+
+def test_code_source_requires_commit_on_the_cloned_remote(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Commit chỉ có trên remote khác (ví dụ fork) thì notebook không checkout được."""
+    url = "https://github.com/team/repo.git"
+    answers = {
+        ("rev-parse", "HEAD"): "abc1234def",
+        ("remote", "get-url", "origin"): url,
+        ("remote", "-v"): f"fork\thttps://github.com/me/repo.git (fetch)\norigin\t{url} (fetch)",
+        ("rev-parse", "--verify", "--quiet", "refs/remotes/origin/drive2sim"): "abc",
+        ("branch", "-r", "--contains", "abc1234def", "--list", "origin/*"): "",
+    }
+    monkeypatch.delenv("D2S_KAGGLE_REPO", raising=False)
+    monkeypatch.setattr(executor, "_git", lambda *args: answers.get(args, ""))
+    with pytest.raises(KaggleError, match="chưa có trên remote origin"):
+        executor.code_source("drive2sim")
+    answers[("branch", "-r", "--contains", "abc1234def", "--list", "origin/*")] = (
+        "origin/drive2sim"
+    )
+    assert executor.code_source("drive2sim") == ("abc1234def", url)
+    with pytest.raises(KaggleError, match="không có nhánh main"):
+        executor.code_source("main")
+
+
+def test_wait_dataset_ready_polls_until_ready() -> None:
+    states = iter(["pending", "pending", "ready"])
+    client = FakeKaggle.__new__(FakeKaggle)
+    client.dataset_status = lambda slug: next(states)  # type: ignore[method-assign]
+    sleeps: list[float] = []
+    executor.wait_dataset_ready(client, "alice/d2s-x", sleep=sleeps.append)
+    assert len(sleeps) == 2
+    client.dataset_status = lambda slug: "pending"  # type: ignore[method-assign]
+    with pytest.raises(KaggleError, match="vẫn đang xử lý"):
+        executor.wait_dataset_ready(client, "alice/d2s-x", timeout_s=20, sleep=lambda s: None)
