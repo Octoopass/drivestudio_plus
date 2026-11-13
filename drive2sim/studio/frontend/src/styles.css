@@ -1,6 +1,6 @@
 /* Studio: công cụ của một nhóm tái dựng cảnh lái xe. Phong cách "minh hoạ hiện đại":
-   - Giao diện sáng là mặc định: nền sương sáng xám xanh, panel trắng bo góc lớn, bóng mềm. Giao
-     diện tối là hoàng hôn ấm, cùng bộ màu nhấn.
+   - Giao diện sáng là mặc định: nền trắng, xám trung tính, bo góc lớn, bóng mềm. Giao diện tối là
+     đen trung tính, cùng bộ màu nhấn.
    - Hai màu nhấn, mỗi màu một việc: xanh ngọc đậm cho hành động và mục đang chọn; vàng vạch đường
      cho thứ đang chuyển động (stage đang chạy, tiến độ), logo và minh hoạ. Không dùng vàng cho chữ.
    - Màu trạng thái: xanh lá xong, xanh dương đang chạy, đỏ lỗi, cam cảnh báo.
@@ -11,15 +11,15 @@
    - Minh hoạ phẳng (components/Illustration.tsx) ở Tổng quan, màn chọn nguồn 3D, trạng thái trống. */
 
 :root {
-  --bg: #eef2f6;
+  --bg: #ffffff;
   --panel: #ffffff;
-  --raised: #f3f6f9;
-  --sunken: #e6ebf1;
-  --line: #dde4ec;
-  --line-strong: #c2cdd9;
-  --text: #1c2733;
-  --muted: #5b6b7c;
-  --faint: #8c99a8;
+  --raised: #f4f4f5;
+  --sunken: #ececee;
+  --line: #e4e4e7;
+  --line-strong: #cfcfd4;
+  --text: #111113;
+  --muted: #5c5c66;
+  --faint: #8e8e96;
   --accent: #0f7a85;
   --accent-ink: #0f7a85;
   --accent-soft: #e0f1f2;
@@ -30,13 +30,13 @@
   --stop: #d9484c;
   --warn: #d98a0d;
   --idle: #8b98a7;
-  --sky: #d7e8f3;
-  --sky-deep: #b9d4e6;
-  --hill: #9ccab8;
-  --hill-far: #c4e0d4;
-  --asphalt: #3b4654;
-  --shadow: 0 10px 30px rgba(28, 39, 51, 0.1);
-  --shadow-soft: 0 2px 10px rgba(28, 39, 51, 0.05);
+  --sky: #eef0f3;
+  --sky-deep: #d9dde3;
+  --hill: #b9c4bf;
+  --hill-far: #d8dfdc;
+  --asphalt: #3a3a40;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  --shadow-soft: 0 1px 6px rgba(0, 0, 0, 0.05);
   --font: "Be Vietnam Pro", system-ui, sans-serif;
   --font-dense: "Be Vietnam Pro", system-ui, sans-serif;
   --font-code: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, monospace;
@@ -45,18 +45,18 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #161b24;
-  --panel: #1e2530;
-  --raised: #273040;
-  --sunken: #11161e;
-  --line: #2c3645;
-  --line-strong: #3c4858;
-  --text: #edf1f5;
-  --muted: #a7b3c1;
-  --faint: #76838f;
+  --bg: #0b0b0d;
+  --panel: #151518;
+  --raised: #1f1f24;
+  --sunken: #0b0b0d;
+  --line: #27272c;
+  --line-strong: #3a3a41;
+  --text: #f2f2f4;
+  --muted: #a3a3ad;
+  --faint: #76767f;
   --accent: #3eb8c2;
   --accent-ink: #5fcbd4;
-  --accent-soft: #1b3a40;
+  --accent-soft: #15302f;
   --on-accent: #0f1a1c;
   --lane: #f2b01e;
   --go: #3fc48f;
@@ -64,11 +64,11 @@
   --stop: #ff6b6b;
   --warn: #ffb454;
   --idle: #7c8a9c;
-  --sky: #233449;
-  --sky-deep: #1b2a3c;
-  --hill: #2f5d55;
-  --hill-far: #27404a;
-  --asphalt: #2a333f;
+  --sky: #232329;
+  --sky-deep: #2a2a31;
+  --hill: #3d3d45;
+  --hill-far: #27272c;
+  --asphalt: #37373e;
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
   --shadow-soft: 0 2px 10px rgba(0, 0, 0, 0.25);
   color-scheme: dark;
@@ -76,18 +76,18 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #161b24;
-    --panel: #1e2530;
-    --raised: #273040;
-    --sunken: #11161e;
-    --line: #2c3645;
-    --line-strong: #3c4858;
-    --text: #edf1f5;
-    --muted: #a7b3c1;
-    --faint: #76838f;
+    --bg: #0b0b0d;
+    --panel: #151518;
+    --raised: #1f1f24;
+    --sunken: #0b0b0d;
+    --line: #27272c;
+    --line-strong: #3a3a41;
+    --text: #f2f2f4;
+    --muted: #a3a3ad;
+    --faint: #76767f;
     --accent: #3eb8c2;
     --accent-ink: #5fcbd4;
-    --accent-soft: #1b3a40;
+    --accent-soft: #15302f;
     --on-accent: #0f1a1c;
     --lane: #f2b01e;
     --go: #3fc48f;
@@ -95,11 +95,11 @@
     --stop: #ff6b6b;
     --warn: #ffb454;
     --idle: #7c8a9c;
-    --sky: #233449;
-    --sky-deep: #1b2a3c;
-    --hill: #2f5d55;
-    --hill-far: #27404a;
-    --asphalt: #2a333f;
+    --sky: #232329;
+    --sky-deep: #2a2a31;
+    --hill: #3d3d45;
+    --hill-far: #27272c;
+    --asphalt: #37373e;
     --shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
     --shadow-soft: 0 2px 10px rgba(0, 0, 0, 0.25);
     color-scheme: dark;
@@ -686,7 +686,7 @@ th button.sorted .sort-icon { color: var(--accent-ink); opacity: 1; }
 .illo-sign-ring { stroke: var(--panel); stroke-width: 2.5; }
 
 /* Hero Tổng quan: tiêu đề và hai nút bên trái, minh hoạ đường phố bên phải, nền trời nhạt. */
-.hero { display: flex; align-items: center; gap: 24px; padding: 22px 28px; border-radius: 20px; background: linear-gradient(100deg, var(--panel) 0%, var(--panel) 45%, var(--sky) 100%); border: 1px solid var(--line); box-shadow: var(--shadow-soft); }
+.hero { display: flex; align-items: center; gap: 24px; padding: 22px 28px; border-radius: 20px; background: var(--raised); border: 1px solid var(--line); box-shadow: var(--shadow-soft); }
 .hero .page-head { flex: 1; min-width: 0; }
 .hero .illo { margin-right: -8px; }
 @media (max-width: 1081px) { .hero .illo { display: none; } }
