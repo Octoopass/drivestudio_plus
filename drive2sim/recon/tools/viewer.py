@@ -1514,6 +1514,7 @@ def create_gsplat_viewer(
     camera_snap_options: Tuple[str, ...] = (),
     camera_snap_getter: Optional[Callable[[str, int], dict]] = None,
     camera_snap_setter: Optional[Callable[[str], None]] = None,
+    host: str = "0.0.0.0",
 ):
     num_frames = int(num_frames or getattr(trainer, "num_timesteps", 1))
     trainer_frame = getattr(trainer, "cur_frame", 0)
@@ -1526,7 +1527,8 @@ def create_gsplat_viewer(
         with state_lock:
             return int(current_frame)
 
-    server = viser.ViserServer(port=port, verbose=False)
+    # drive2sim: host chọn được; Studio truyền 127.0.0.1 để cảnh không lộ ra mạng LAN.
+    server = viser.ViserServer(host=host, port=port, verbose=False)
     if initial_camera is not None:
         server.initial_camera.position = initial_camera["position"]
         server.initial_camera.look_at = initial_camera["look_at"]
@@ -2481,6 +2483,7 @@ def main(local_rank: int, world_rank, world_size: int, args):
     create_gsplat_viewer(
         trainer,
         port=args.port,
+        host=args.host,
         output_dir=args.output_dir,
         mode="rendering",
         num_frames=num_frames,
@@ -2517,6 +2520,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--port", type=int, default=8080, help="port for the viewer server"
+    )
+    parser.add_argument(
+        "--host", type=str, default="0.0.0.0", help="address to listen on (drive2sim Studio: 127.0.0.1)"
     )
     
     args = parser.parse_args()
