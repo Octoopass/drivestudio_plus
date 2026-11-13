@@ -37,7 +37,14 @@ from drive2sim.core import files
 from drive2sim.core.schema import EnvRecord, RunRecord
 from drive2sim.engine.cache import PARTIAL_SUFFIX
 from drive2sim.engine.machine import same_machine
-from drive2sim.engine.run import D2S_DIR, ENV_FILE, RUN_FILE, run_is_active
+from drive2sim.engine.run import (
+    CANCEL_FILE,
+    D2S_DIR,
+    ENV_FILE,
+    PID_FILE,
+    RUN_FILE,
+    run_is_active,
+)
 from drive2sim.engine.workdir import Workdir
 from drive2sim.kaggle.bundle import write_bundle
 from drive2sim.kaggle.client import KaggleClient, KaggleError
@@ -221,7 +228,7 @@ def push_run(
     previous = load_state(run_dir)
     if previous is not None:
         status = client.kernel_status(previous.kernel)
-        if status in ("queued", "running", "new"):
+        if status in ("queued", "running", "new", "new_script", "cancel_requested"):
             raise KaggleError(f"notebook {previous.kernel} còn đang {status}; chờ xong rồi đẩy")
     username = client.username()
     commit, repo_url = code_source()
@@ -335,7 +342,9 @@ def _merge_d2s(local: Path, remote: Path) -> list[str]:
         if stage.stage_id not in remote_ids and (local / STAGES_DIR / stage.stage_id).is_dir()
     ]
     for item in remote.iterdir():
-        if item.name == STATE_FILE:
+        # pid, cancel: trạng thái tiến trình của phiên Kaggle (pid còn sót khi phiên bị ngắt),
+        # không có nghĩa gì trên máy này; chép về thì run bị coi là đang chạy mãi.
+        if item.name in (STATE_FILE, PID_FILE, CANCEL_FILE):
             continue
         target = local / item.name
         if item.name == STAGES_DIR and item.is_dir() and target.is_dir():

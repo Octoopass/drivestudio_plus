@@ -262,3 +262,15 @@ def test_resume_picks_newest_attempt_that_has_the_run(tmp_path: Path) -> None:
     kernels = ["alice/d2s-abc-3", "alice/d2s-abc-2", "alice/d2s-abc-1"]
     found = _find_previous_run(tmp_path, record, kernels)  # type: ignore[arg-type]
     assert found is not None and found.relative_to(tmp_path).parts[0] == "d2s-abc-2"
+
+
+def test_pull_does_not_copy_process_files(tmp_path: Path) -> None:
+    """Pid và cancel của phiên Kaggle không được chép về: run sẽ bị coi là đang chạy mãi."""
+    local, remote = tmp_path / "local", tmp_path / "remote"
+    local.mkdir()
+    remote.mkdir()
+    for name in ("pid", "cancel", "log.txt"):
+        (remote / name).write_text("42 kaggle-host\n")
+    executor._merge_d2s(local, remote)
+    assert (local / "log.txt").is_file()
+    assert not (local / "pid").exists() and not (local / "cancel").exists()
