@@ -70,7 +70,13 @@ ENV_FILE = "env.json"
 DONE_FILE = "done"
 LOG_FILE = "log.txt"
 CANCEL_FILE = "cancel"  # có file này trong d2s/ nghĩa là người dùng yêu cầu huỷ run
-PID_FILE = "pid"  # pid của tiến trình đang chạy run; không có nghĩa là run không chạy
+# "<pid> <tên máy>" của tiến trình đang chạy run; có file chưa chắc run còn chạy (run_is_active)
+PID_FILE = "pid"
+
+
+class RunActiveError(RuntimeError):
+    """Run đang được một tiến trình khác chạy; không chạy thêm lần nữa cùng lúc."""
+
 
 # Nhận một sự kiện dạng {"event": ..., "run_id": ..., ...} như SSE (CONTRACTS mục 11.4).
 EventSink = Callable[[dict[str, object]], None]
@@ -544,7 +550,11 @@ class _Runner:
         artifact_keys: list[Optional[str]] = [None] * len(stage_ids)
 
         pid_file = self.run_dir / D2S_DIR / PID_FILE
-        pid_file.write_text(str(os.getpid()))
+        # Hai tiến trình cùng chạy một run (Studio và lệnh d2s, hay hai lệnh) sẽ cùng ghi
+        # run.json và thư mục stage; tiến trình xong trước còn xoá file pid của tiến trình kia.
+        if run_is_active(self.run_dir):
+            raise RunActiveError(f"run {self.record.run_id} đang chạy ở tiến trình khác")
+        pid_file.write_text(f"{os.getpid()} {platform.node()}\n")
         try:
             return self._execute_stages(wiring, cache, artifact_dirs, artifact_keys)
         finally:
@@ -825,8 +835,14 @@ def run_is_active(run_dir: Path) -> bool:
     """
     pid_file = Path(run_dir) / D2S_DIR / PID_FILE
     try:
-        pid = int(pid_file.read_text())
-    except (OSError, ValueError):
+        fields = pid_file.read_text().split()
+        pid = int(fields[0])
+    except (OSError, ValueError, IndexError):
+        return False
+    # File pid ghi trên máy khác (ví dụ notebook Kaggle bị ngắt rồi output được tải về): pid đó
+    # không nói gì về máy này; trước đây nó trùng một tiến trình bất kỳ ở đây và run bị coi là
+    # đang chạy mãi.
+    if len(fields) > 1 and fields[1] != platform.node():
         return False
     try:
         os.kill(pid, 0)

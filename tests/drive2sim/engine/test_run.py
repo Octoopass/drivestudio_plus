@@ -15,6 +15,7 @@ một thư mục làm việc tạm, và kiểm tra:
 import copy
 import json
 import os
+import platform
 import sys
 import time
 from pathlib import Path
@@ -28,6 +29,7 @@ from drive2sim.engine.cache import CacheBusyError, CacheStore
 from drive2sim.engine.registry import StageRegistry
 from drive2sim.engine.resolve import resolve
 from drive2sim.engine.run import (
+    RunActiveError,
     create_run,
     execute_run,
     request_cancel,
@@ -353,3 +355,22 @@ def test_reset_stage_reruns_only_that_stage(workdir: Workdir) -> None:
     record = execute_run(run_dir, workdir, registry)
     assert record.status == "succeeded"
     assert CALLS == {"init.toy": 1, "train.toy": 2}
+
+
+def test_pid_from_another_machine_is_not_active(workdir: Workdir) -> None:
+    """File pid kéo về từ Kaggle (máy khác) không làm run bị coi là đang chạy."""
+    run_dir = new_run(workdir, make_registry())
+    pid_file = run_dir / "d2s" / "pid"
+    pid_file.write_text(f"{os.getpid()} {platform.node()}\n")
+    assert run_is_active(run_dir)  # đúng máy này, tiến trình còn sống
+    pid_file.write_text(f"{os.getpid()} kaggle-host\n")
+    assert not run_is_active(run_dir)
+
+
+def test_execute_refuses_a_run_already_running(workdir: Workdir) -> None:
+    """Hai tiến trình không được chạy cùng một run."""
+    registry = make_registry()
+    run_dir = new_run(workdir, registry)
+    (run_dir / "d2s" / "pid").write_text(f"{os.getpid()} {platform.node()}\n")
+    with pytest.raises(RunActiveError):
+        execute_run(run_dir, workdir, registry=registry)
