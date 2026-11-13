@@ -143,10 +143,10 @@ Approach khai báo các `strategy` mà codebase của nó hỗ trợ (`requires.
 
 ### 4.1 File khai báo
 
-`drive2sim/approaches/<approach_id>.yaml`. Approach là danh sách stage chạy lần lượt; các khâu thay thế được cho nhau là *ô chọn*, quyết định trước khi chạy (`ARCHITECTURE.md` mục 2.5).
+`drive2sim/approaches/<approach_id>.yaml`. Approach là danh sách stage chạy lần lượt; các khâu thay thế được cho nhau là *mục cấu hình*, quyết định trước khi chạy (`ARCHITECTURE.md` mục 2.5).
 
 ```yaml
-schema_version: d2s-approach/0.1
+schema_version: d2s-approach/0.2
 approach_id: omnire
 name: "OmniRe"
 version: 0.1.0
@@ -158,7 +158,11 @@ requires:
   cuboids: required                # required | optional | none
   split_strategies: [every_nth_frame]
 
-options:                           # ô chọn
+groups:                            # nhóm mục cấu hình trên Studio, theo thứ tự hiện (tuỳ chọn)
+  core: {label: "Cách dựng"}
+  speedup: {label: "Thuật toán phụ trợ", help: "Thuật toán gắn thêm vào quá trình train"}
+
+options:                           # mục cấu hình
   init:
     choices: [init.lidar, init.depth]
     default: auto                  # auto: có LiDAR → init.lidar, không có → init.depth
@@ -168,19 +172,28 @@ options:                           # ô chọn
   campose:
     choices: [false, true]
     default: false
-  fastgs:
+    label: "CamPose"               # tên hiển thị trên Studio (tuỳ chọn)
+    help: "Cho model tự chỉnh lại vị trí và hướng camera trong lúc train."   # icon (i) cạnh tên mục cấu hình
+    labels: ["Tắt", "Bật"]         # tên của từng lựa chọn, cùng thứ tự với choices
+    descriptions: ["Dùng nguyên pose của dataset", "Học thêm độ lệch pose cho từng ảnh"]
+    group: core
+  fastgs:                          # thuật toán phụ trợ: mỗi thuật toán là một mục bật/tắt riêng
     choices: [false, true]
     default: false
+    group: speedup
 
 constraints:                       # tổ hợp không hợp lệ
   - when: {renderer: 3dgeer}
     forbid: {campose: true}
     reason: "3DGEER không tối ưu được pose camera"
 
-presets:                           # tổ hợp đặt sẵn; chỉ ghi các ô khác giá trị mặc định
+presets:                           # tổ hợp đặt sẵn; chỉ ghi các mục cấu hình khác giá trị mặc định
   paper: {init: init.lidar}
   no_lidar: {init: init.depth}
   fisheye: {renderer: 3dgeer}
+
+preset_help:                       # mô tả ngắn của preset, hiện trên Studio (tuỳ chọn)
+  paper: "Cấu hình gốc của DriveStudio"
 
 stages:                            # chạy lần lượt; ${...} được thay trước khi chạy
   - {stage: prep.select, params: {downscale: 2}}
@@ -199,7 +212,9 @@ stages:                            # chạy lần lượt; ${...} được thay 
 ```
 
 - Một stage dùng được artifact của bất kỳ stage nào đứng trước. Engine nối theo kiểu artifact: stage cần `points_init` nhận artifact `points_init` gần nhất phía trước.
-- `${options.<tên ô>}` được thay bằng lựa chọn cụ thể trước khi chạy. Sau khi thay, danh sách stage là cố định; không có điều kiện, nhánh song song hay vòng lặp lúc đang chạy.
+- `${options.<tên mục>}` được thay bằng lựa chọn cụ thể trước khi chạy. Sau khi thay, danh sách stage là cố định; không có điều kiện, nhánh song song hay vòng lặp lúc đang chạy.
+- `groups`, và `label`, `help`, `labels`, `descriptions`, `group` của mục cấu hình, và `preset_help` chỉ dùng để hiển thị (thêm từ `0.2`; file `0.1` vẫn đọc được). Studio hiện các mục cấu hình theo nhóm; giải thích của mục cấu hình, của từng lựa chọn, của preset và lý do một lựa chọn bị khoá nằm trong icon (i), không hiện thành dòng chữ trên trang. Thuật toán phụ trợ (FastGS, và sau này các thuật toán tăng tốc khác) đặt mỗi thuật toán thành một mục cấu hình bật/tắt riêng trong nhóm `speedup`; tổ hợp chưa có file config thì khai báo trong `constraints`. Viết tiếng Việt như `reason` của ràng buộc. Thêm approach hay lựa chọn mới không cần sửa Studio: thiếu các trường này thì Studio hiện tên mục cấu hình và giá trị thô.
+- Preset chỉ là cách điền nhanh các mục cấu hình. `run.json` ghi tên preset (`approach.preset`) chỉ khi cấu hình cuối đúng bằng preset đó; người dùng chọn preset rồi chỉnh một mục cấu hình khác đi (Studio, hoặc `--preset` kèm `--set` ở CLI) thì `preset` là `null`. Studio làm mờ lựa chọn vi phạm ràng buộc với các mục cấu hình đang chọn, kèm mục cấu hình cần đổi và `reason`.
 - Tham số cuối cùng của một stage được gộp theo thứ tự: mặc định của stage → `params` trong file → preset → lựa chọn của người dùng (Studio hoặc `--set` của CLI).
 - `train.drivestudio` chọn **một file config có sẵn** trong `drive2sim/configs/methods/` theo bốn tham số `method`, `renderer`, `campose`, `fastgs` (bảng `CONFIG_FILES` trong `drive2sim/stages/train/drivestudio.py`), không tự sửa tham số train. Ví dụ `streetgs` + `3dgeer` + `fastgs: true` dùng `streetgs_geer_fastgs.yaml`. Tổ hợp chưa có file config bị từ chối khi kiểm tra tham số, và file approach khai báo `constraints` để Studio, CLI khoá sẵn các tổ hợp đó.
 
@@ -214,12 +229,12 @@ Engine kiểm tra trước khi chạy. Approach hoặc một lựa chọn bị k
 - tổ hợp lựa chọn vi phạm một mục trong `constraints`.
 
 Studio và CLI dùng chung bước kiểm tra này (`drive2sim/engine/resolve.py`). Quy tắc chi tiết:
-- Giá trị của ô gộp theo thứ tự: `default` → preset → lựa chọn của người dùng. Ô còn `auto` lấy lựa chọn **đầu tiên** trong `choices` không bị khoá vì dữ liệu, nên thứ tự `choices` là thứ tự ưu tiên.
+- Giá trị của mục cấu hình gộp theo thứ tự: `default` → preset → lựa chọn của người dùng. Mục còn `auto` lấy lựa chọn **đầu tiên** trong `choices` không bị khoá vì dữ liệu, nên thứ tự `choices` là thứ tự ưu tiên.
 - Stage có `uses_lidar: true` nghĩa là **cần** LiDAR; lựa chọn là stage đó bị khoá khi `available.lidar` là `false`.
 - Một ràng buộc bị vi phạm khi mọi cặp trong `when` và mọi cặp trong `forbid` đều khớp với lựa chọn. So sánh cả kiểu: `1` không khớp `true`.
 - Mô hình `ideal_pinhole` trong manifest được coi là `opencv_pinhole` khi so với `camera_models`.
-- Engine gom **mọi** lý do bị khoá rồi báo một lần (mã lỗi `blocked`, mã thoát `3`). Preset, ô, giá trị hay tham số stage không tồn tại, stage chưa đăng ký, hoặc một đầu vào artifact không có stage nào phía trước tạo ra, là lỗi yêu cầu (`invalid_request`, mã thoát `2`).
-- Studio lấy danh sách lựa chọn bị khoá theo từng ô để làm mờ, kèm lý do, trước khi người dùng bấm chạy.
+- Engine gom **mọi** lý do bị khoá rồi báo một lần (mã lỗi `blocked`, mã thoát `3`). Preset, mục cấu hình, giá trị hay tham số stage không tồn tại, stage chưa đăng ký, hoặc một đầu vào artifact không có stage nào phía trước tạo ra, là lỗi yêu cầu (`invalid_request`, mã thoát `2`).
+- Studio lấy danh sách lựa chọn bị khoá theo từng mục cấu hình để làm mờ, kèm lý do, trước khi người dùng bấm chạy.
 
 ### 4.3 Khai báo dùng LiDAR
 
@@ -273,7 +288,7 @@ Riêng `train.*`: chạy tiếp bằng `checkpoint_resume.pth` (model, optimizer
 
 ```json
 {
-  "schema_version": "d2s-artifact/0.1",
+  "schema_version": "d2s-artifact/0.2",
   "artifact_type": "masks",
   "cache_key": "nuscenes_scene-0061/prep.masks_segformer@0.1.0-4f1c9a0e",
   "producer": {"stage_id": "prep.masks_segformer", "version": "0.1.0", "code_commit": "286ad9b"},
@@ -281,9 +296,12 @@ Riêng `train.*`: chạy tiếp bằng `checkpoint_resume.pth` (model, optimizer
   "inputs": ["scene:nuscenes_scene-0061"],
   "created_utc": "2026-11-12T08:10:00Z",
   "files": ["sky_masks"],
-  "meta": {"model": "nvidia/segformer-b5-finetuned-cityscapes-1024-1024"}
+  "meta": {"model": "nvidia/segformer-b5-finetuned-cityscapes-1024-1024"},
+  "duration_s": 810.4
 }
 ```
+
+- `duration_s`: thời gian stage chạy để tạo ra kết quả này. Run sau dùng lại kết quả từ cache chép số này vào `stages[].reused_duration_s` của `run.json` (mục 6.2), để tính tổng thời gian dựng cảnh. Thêm từ `0.2`; cache tạo trước đó không có trường này.
 
 ### 5.4 Loại artifact
 
@@ -325,6 +343,7 @@ runs/<scene_id>/<approach_id>/<run_id>/
         │   ├── checkpoint_<bước>.pth     # chỉ model, sau mỗi lần lưu
         │   ├── checkpoint_resume.pth    # model + optimizer + grad scaler; xoá khi train xong
         │   ├── checkpoint_final.pth
+        │   ├── train_stats.json         # thời gian train thực, VRAM, số Gaussian, iteration; ghi cùng mỗi checkpoint
         │   ├── log.txt                  # stdout và stderr của train.py
         │   ├── artifact.json
         │   └── done
@@ -340,11 +359,11 @@ Huỷ run (`d2s run cancel`, `POST /api/runs/{run_id}/cancel`) chỉ ghi file `c
 
 ```json
 {
-  "schema_version": "d2s-run/0.2",
+  "schema_version": "d2s-run/0.3",
   "run_id": "20261112-081000-omnire-a1b2",
   "scene_id": "nuscenes_scene-0061",
   "split_id": "every8_allcams",
-  "approach": {"approach_id": "omnire", "version": "0.1.0", "preset": "no_lidar",
+  "approach": {"approach_id": "omnire", "version": "0.1.0", "preset": "no_lidar", "quick": false,
                "options": {"init": "init.depth", "renderer": "3dgs", "campose": false, "fastgs": false}},
   "level": "L1",
   "executor": "kaggle",
@@ -365,11 +384,14 @@ Huỷ run (`d2s run cancel`, `POST /api/runs/{run_id}/cancel`) chỉ ghi file `c
 ```
 
 - `status` lấy một trong: `pending`, `running`, `succeeded`, `failed`, `cancelled`.
-- `approach.options` ghi lựa chọn đã quyết định cho mọi ô, kể cả ô để `auto`. Studio lọc và so sánh run theo trường này.
+- `approach.options` ghi lựa chọn đã quyết định cho mọi mục cấu hình, kể cả mục để `auto`. Studio lọc và so sánh run theo trường này.
 - `stages[].params` ghi tham số đã gộp và đã điền mặc định của từng stage. `d2s run resume` chạy tiếp theo đúng các tham số này, không đọc lại file approach (file có thể đã bị sửa).
 - `stages[].error` chỉ có khi stage `failed`, cùng hình dạng lỗi với API (mục 11.3). Traceback đầy đủ nằm trong `d2s/log.txt`.
-- Stage dùng lại kết quả cũ (cache hoặc file `done`) có `duration_s` và `peak_vram_mb` bằng 0. Khi chạy tiếp, stage đã `succeeded` từ lần trước giữ nguyên số đo cũ.
-- Thay đổi từ `0.1`: thêm `created_utc`, `stages[].params`, `stages[].error`; file `0.1` vẫn đọc được.
+- `duration_s` là thời gian máy thực sự chạy stage trong run này. Stage bị ngắt (huỷ, lỗi, hết phiên Kaggle) rồi chạy tiếp thì **cộng dồn** thời gian mọi lần chạy; `peak_vram_mb` lấy lớn nhất qua các lần. Stage đã `succeeded` từ lần trước giữ nguyên số đo cũ.
+- Stage dùng lại kết quả cũ (cache hoặc file `done`) có `duration_s` và `peak_vram_mb` bằng 0. Khi dùng lại từ cache, `reused_duration_s` ghi thời gian của lần chạy gốc (đọc từ `artifact.json`, mục 5.3), để tổng thời gian dựng cảnh không phụ thuộc run nào chạy trước.
+- `peak_vram_mb` do engine đo chỉ thấy bộ nhớ GPU của tiến trình engine, nên bằng 0 với stage chạy một tiến trình con (`prep.*`, `train.drivestudio`, `export.ply_world`). VRAM của train lấy từ `train_stats.json` qua `summary.json` (mục 6.3).
+- `approach.quick` là `true` với run chạy thử nhanh (`--quick`): mọi stage có tham số `num_iters` train 3000 iteration, trừ khi người dùng tự đặt `num_iters` bằng `--set`. Run này để kiểm tra approach chạy hết từ đầu tới cuối; metric không so được với run đủ iteration, nên Studio gắn nhãn "thử nhanh" và không đưa run này vào bảng so sánh.
+- Thay đổi từ `0.1`: thêm `created_utc`, `stages[].params`, `stages[].error`. Thay đổi từ `0.2`: thêm `approach.quick`, `stages[].reused_duration_s`; `duration_s` cộng dồn khi chạy tiếp. File `0.1`, `0.2` vẫn đọc được.
 
 ### 6.3 `summary.json`
 
@@ -377,42 +399,61 @@ Tóm tắt metric theo protocol của SPEC mục 9, do `eval.standard` ghi vào 
 
 ```json
 {
-  "schema_version": "d2s-summary/0.2",
-  "protocol": {"version": "0.1", "image_dtype": "uint8", "resolution": "downscale_when_loading=[2, 2, 2], downscale=1",
+  "schema_version": "d2s-summary/0.3",
+  "protocol": {"version": "0.2", "image_dtype": "uint8", "resolution": "downscale_when_loading=[2, 2, 2], downscale=1",
                "lpips": {"net": "alex", "package": "torchmetrics", "package_version": "0.10.3"}},
   "split_id": "every8_allcams",
   "overall": {"psnr": 27.1, "ssim": 0.83, "lpips": 0.21,
-              "human_psnr": 23.4, "vehicle_psnr": 24.0, "occupied_psnr": 26.2},
+              "human_psnr": 23.4, "vehicle_psnr": 24.0, "dynamic_psnr": 23.6, "occupied_psnr": 26.2},
   "per_camera": {"CAM_FRONT": {"psnr": 28.0, "ssim": 0.85, "lpips": 0.19}},
-  "train_time_s": 4380,
+  "train_time_s": 4105,
   "peak_vram_mb": 7400,
-  "num_gaussians": 360000
+  "num_gaussians": 1280000,
+  "num_iters": 30000,
+  "render_fps": 38.6,
+  "render_resolution": "800x450"
 }
 ```
 
 Các con số trong ví dụ chỉ minh hoạ định dạng. Metric vùng người, vùng xe chỉ có khi cảnh có box.
 
-- `train_time_s`, `peak_vram_mb`, `num_gaussians` để trống (`null`) khi stage đánh giá không biết. Với `train.drivestudio`, thời gian và VRAM của từng stage luôn có trong `run.json`; số Gaussian chưa đọc được khi không nạp checkpoint.
+- Cách đo (`protocol.version` `0.2`): cuối `train.py`, sau bước train cuối, model vẽ lại mọi ảnh của tập test; ảnh render được làm tròn về 8 bit như ảnh gốc rồi so với ảnh camera từng ảnh một, sau đó lấy trung bình. PSNR là `−10·log10(MSE)` trên điểm ảnh hợp lệ; SSIM dùng `skimage.metrics.structural_similarity`; LPIPS dùng `torchmetrics` với backbone `alex`. `eval.standard` chỉ đọc kết quả này, không đo lại. Thay đổi từ `0.1`: `0.1` so ảnh render ở dạng số thực.
+- Metric theo vùng (lấy từ metric test của DriveStudio): `human_psnr` vùng người (gồm cả xe đạp, xe máy vì người ngồi trên đó đổi dáng), `vehicle_psnr` vùng xe, `dynamic_psnr` vùng mọi vật động (`masked_psnr` của DriveStudio), `occupied_psnr` vùng **không phải bầu trời** (`Non-Sky PSNR`, không phải vùng vật động). Vùng người, xe, vật động là hình chữ nhật bao quanh box 3D chiếu lên ảnh.
+- `train_time_s`, `peak_vram_mb`, `num_gaussians`, `num_iters` đọc từ `train_stats.json` mà `train.py` ghi cùng mỗi checkpoint. `train_time_s` là **thời gian train thực**: chỉ tính các bước train (lấy batch, forward, backward, cập nhật), không tính lúc khởi động, nạp checkpoint, vẽ ảnh kiểm tra, lưu checkpoint hay đánh giá cuối; chạy tiếp từ checkpoint thì cộng tiếp từ số đã lưu cùng checkpoint đó, nên các bước bị làm lại sau khi ngắt không bị tính hai lần. `num_gaussians` là tổng mọi node của model (nền, xe, người, vật biến dạng).
+- `render_fps`: số khung chia cho thời gian model vẽ ảnh tập test (chỉ tính lời gọi model, có đồng bộ GPU, bỏ 3 khung đầu), ở độ phân giải `render_resolution`. FPS phụ thuộc GPU; tên GPU nằm trong `env.json`.
+- Các trường trên để trống (`null`) khi không có số liệu, ví dụ model train bằng `train.py` cũ chưa ghi `train_stats.json`.
 - `per_camera` để trống với DriveStudio, vì `train.py` không tách metric theo camera.
-- Thay đổi từ `0.1`: ba trường trên thành tuỳ chọn.
+- Thay đổi từ `0.1`: `train_time_s`, `peak_vram_mb`, `num_gaussians` thành tuỳ chọn. Thay đổi từ `0.2`: thêm `dynamic_psnr`, `num_iters`, `render_fps`, `render_resolution`; `occupied_psnr` ghi đúng nghĩa là vùng không phải bầu trời.
 
 ### 6.4 `d2s/env.json`
 
+Môi trường và **máy** đã chạy run. Thời gian train, VRAM và FPS phụ thuộc phần cứng, nên chỉ so được giữa các run chạy trên cùng loại GPU; Studio hiện GPU ở trang run và trong bảng so sánh, và đánh dấu cảnh báo ở tiêu đề các cột thời gian, VRAM, FPS khi bảng có run trên nhiều GPU.
+
 ```json
 {
-  "schema_version": "d2s-env/0.1",
+  "schema_version": "d2s-env/0.2",
   "code_commit": "7851701",
   "python": "3.9.19",
-  "pytorch": "2.4.1",
-  "cuda": "12.1",
-  "gsplat": "1.5.3",
+  "pytorch": "2.0.0+cu117",
+  "cuda": "11.7",
+  "gsplat": "1.3.0",
   "gpu": "Tesla T4",
   "seed": 0,
-  "executor": "kaggle"
+  "executor": "kaggle",
+  "machines": [
+    {"cpu": "Intel(R) Xeon(R) CPU @ 2.00GHz", "cpu_cores": 4, "ram_gb": 31.4,
+     "gpu": "Tesla T4", "gpu_count": 1, "gpu_memory_mb": 15360, "gpu_driver": "535.104.05",
+     "os": "Linux 6.6.56+", "first_seen_utc": "2026-11-12T08:10:05Z"}
+  ]
 }
 ```
 
 Các giá trị trong ví dụ chỉ minh hoạ định dạng. Trường nào không xác định được thì bỏ trống.
+
+- Engine ghi file khi tạo run (`machines` rỗng) rồi cập nhật **mỗi lần bắt đầu chạy hoặc chạy tiếp**, trên đúng máy chạy. Với run Kaggle đó là máy của notebook, không phải máy đã tạo run.
+- `machines`: các máy đã chạy run theo thứ tự; chạy tiếp trên máy có cấu hình khác (ví dụ phiên Kaggle mới được cấp GPU khác) thì thêm một máy. `gpu` ở ngoài là GPU của máy chạy gần nhất.
+- Cách đọc, không cần nạp PyTorch: CPU từ `/proc/cpuinfo`, RAM từ `/proc/meminfo`, GPU (tên, VRAM, driver, số GPU) từ `nvidia-smi`; phiên bản `pytorch`, `gsplat` từ metadata gói đã cài, `cuda` từ đuôi phiên bản PyTorch (`+cu117` → `11.7`).
+- Thay đổi từ `0.1`: thêm `machines`; các trường phiên bản và `gpu` ghi lúc chạy thay vì lúc tạo run.
 
 ## 7. Gói xem trước
 
@@ -430,7 +471,7 @@ runs/.../<run_id>/d2s/stages/export.preview/
 - File `.ply` theo định dạng PLY của 3DGS gốc: `x, y, z`, `f_dc_*`, `f_rest_*`, `opacity`, `scale_*`, `rot_*`.
 - `actor_poses.json`: `{"track_ids": [K tên], "T_object_world": [F khung][K xe]}`; mỗi phần tử là ma trận 4x4 viết thành 16 số theo hàng (đưa điểm từ hệ của xe sang `world`), hoặc `null` khi xe không có mặt ở khung đó. Khung đánh số theo thứ tự khung của DriveStudio (checkpoint không lưu mốc thời gian). Dùng JSON thay `.npz` để trình duyệt đọc thẳng, không cần numpy ở Studio; 200 khung × 30 xe khoảng 1 MB.
 - `track_id` của xe là `rigid_<chỉ số>`, của người và vật biến dạng là `smpl_<chỉ số>`, `deformable_<chỉ số>`, theo thứ tự instance trong checkpoint.
-- Do stage `export.preview` ghi (`drive2sim/recon/tools/export_preview.py`); không nằm trong approach mặc định, thêm bằng `d2s export preview <run_id>`. `GET /api/runs/{run_id}/splats` trả đường dẫn các file này và `scene.ply`.
+- Do stage `export.preview` ghi (`drive2sim/recon/tools/export_preview.py`); nằm trong danh sách stage mặc định của OmniRe và Street GS, sau `export.ply_world`; run cũ hoặc approach khác thì thêm bằng `d2s export preview <run_id>` hay nút trên trang run. `GET /api/runs/{run_id}/splats` trả đường dẫn các file này và `scene.ply`.
 
 ```json
 {
@@ -569,7 +610,7 @@ bundle/
 - **Notebook** `<người dùng>/d2s-<hash8 của run_id>-<lần đẩy>`, private, có GPU (`machine_shape` mặc định `NvidiaTeslaT4`, đổi bằng `--accelerator`) và internet. Notebook in phiên bản GPU và PyTorch, cài phụ thuộc (giữ PyTorch có sẵn), rồi chạy `d2s kaggle run bundle/ --workdir /kaggle/working --input-root /kaggle/input`.
 - `d2s kaggle run` tìm cảnh dưới `--input-root` theo `manifest.yaml` (không giả định đường dẫn gắn của Kaggle), dựng `data/<scene_id>/` bằng symlink tới từng mục của cảnh, ghi `splits/` mới, rồi chạy run như `run resume`. Kết quả ở `/kaggle/working/runs/` và `/kaggle/working/cache/` theo đúng cấu trúc mục 5 và 6; ô cuối notebook xoá `data/` và mọi symlink để output chỉ còn kết quả.
 - **Chạy tiếp**: phiên bị ngắt thì `d2s kaggle pull` rồi `d2s kaggle push` lần nữa. Lần đẩy sau gắn output của notebook trước (`kernel_sources`) và ghi tên nó vào `resume.json`; `d2s kaggle run` chép run và cache trong output đó vào thư mục làm việc trước khi chạy, nên stage đã xong không chạy lại và `train.drivestudio` chạy tiếp từ `checkpoint_resume.pth`.
-- `d2s kaggle pull` tải output, thay nội dung `d2s/` của run bằng bản trên Kaggle (giữ `kaggle.json`), chép thêm các kết quả cache máy chưa có.
+- `d2s kaggle pull` tải output rồi ghép vào `d2s/` của run: mỗi stage có trong bản Kaggle thay stage cùng tên trên máy; stage chỉ có trên máy (ví dụ `export.preview` chạy trên máy sau lần tải trước) được giữ lại và nối vào cuối `run.json`; `env.json` lấy theo Kaggle cộng các máy chỉ có trên máy; `kaggle.json` giữ nguyên. Chép thêm các kết quả cache máy chưa có, không ghi đè cache đã có. Từ chối khi run đang chạy trên máy.
 
 Chưa chạy thật: cờ của lệnh `kaggle` đã kiểm với Kaggle CLI 2.2.5, còn ô cài phụ thuộc trong notebook phụ thuộc câu hỏi mở về phiên bản PyTorch (ARCHITECTURE mục 8).
 
@@ -581,8 +622,8 @@ Chưa chạy thật: cờ của lệnh `kaggle` đã kiểm với Kaggle CLI 2.2
 |---|---|---|
 | `scene_id` | `<dataset>_<sequence_id>`; chỉ gồm `a-z 0-9 _ -`, chữ thường | `nuscenes_scene-0061`, `waymo_10017090168044687777` |
 | `split_id` | `every<N>_<nhóm camera>` với chiến lược `every_nth_frame:N`; `custom_<tên>` với chiến lược `custom`. Nhóm camera: `allcams` (mọi camera trong manifest), `front1` / `front3` (camera trước và hai bên), hoặc `<k>cams` (k camera theo thứ tự trong manifest) | `every8_allcams`, `every10_front3`, `custom_night_a` |
-| `approach_id` | `snake_case`, tên method, không chứa lựa chọn của ô | `omnire`, `streetgs` |
-| Tên ô chọn | `snake_case`, danh từ ngắn | `init`, `renderer`, `campose`, `fastgs` |
+| `approach_id` | `snake_case`, tên method, không chứa lựa chọn của mục cấu hình | `omnire`, `streetgs` |
+| Tên mục cấu hình | `snake_case`, danh từ ngắn | `init`, `renderer`, `campose`, `fastgs` |
 | Tên preset | `snake_case`, mô tả mục đích | `paper`, `no_lidar`, `fisheye` |
 | `stage_id` | `<nhóm>.<tên>`; nhóm là một trong `prep`, `init`, `train`, `eval`, `render`, `export`; tên là `snake_case` | `prep.masks_segformer`, `init.depth`, `export.ply_world` |
 | `run_id` | `<YYYYMMDD-HHMMSS>-<approach_id>-<4 ký tự hex>` | `20261112-081000-omnire-a1b2` |
@@ -609,12 +650,12 @@ Chưa chạy thật: cờ của lệnh `kaggle` đã kiểm với Kaggle CLI 2.2
 - `snake_case` cho mọi khoá trong YAML, JSON và tham số stage.
 - Hậu tố đơn vị bắt buộc khi trường có đơn vị: `_us` (micro giây), `_s` (giây), `_m` (mét), `_mb` (megabyte), `_px` (pixel). Góc lưu bằng radian, không hậu tố; độ chỉ dùng trong giao diện, hậu tố `_deg`.
 - Phép biến đổi: `T_<a>_<b>` theo quy ước NCore (mục 1), ví dụ `T_camera_world`, `T_object_world`.
-- Boolean: tính từ hoặc dạng `uses_`, `has_`: `cacheable`, `uses_lidar`, `has_cuboids`. Ô chọn bật/tắt dùng `true` / `false`.
+- Boolean: tính từ hoặc dạng `uses_`, `has_`: `cacheable`, `uses_lidar`, `has_cuboids`. Mục cấu hình bật/tắt dùng `true` / `false`.
 - Giá trị liệt kê: chữ thường `snake_case`; mô hình camera: `opencv_pinhole`, `opencv_fisheye`, `ftheta`; renderer: `3dgs`, `3dgut`, `3dgeer` (engine đổi sang `render_mode` của DriveStudio: `default`, `ut`, `geer`).
 - Định danh trong tham chiếu: `scene_id`, `split_id`, `approach_id`, `stage_id`, `run_id`, `cache_key`; không dùng `id` trơn trong file có nhiều loại định danh.
 - Thời điểm tuyệt đối: chuỗi ISO 8601 theo UTC, kết thúc bằng `Z`, tên trường kết thúc bằng `_utc` (`created_utc`). Thời điểm trong dữ liệu cảm biến vẫn là số nguyên micro giây `_us` (mục 1).
 - Đường dẫn trong file JSON/YAML do tool ghi: **tương đối với `D2S_WORKDIR`**, dùng dấu `/`, không bắt đầu bằng `/` hay `./` (`runs/nuscenes_scene-0061/...`). Nhờ vậy chép cả thư mục làm việc sang máy khác là dùng được (`ARCHITECTURE.md` mục 2.6). Đường dẫn tuyệt đối chỉ xuất hiện trong log.
-- Giá trị `--set <khoá>=<giá trị>` và giá trị ô chọn từ CLI được phân tích như YAML: `true`/`false` thành boolean, `10` thành số nguyên, `0.5` thành số thực, `a,b,c` thành danh sách chuỗi, phần còn lại là chuỗi; muốn giữ chuỗi `"10"` thì đặt trong ngoặc kép. Sau khi phân tích, giá trị được kiểm tra theo `Params` của stage hoặc `choices` của ô; sai kiểu là lỗi mã thoát `2`.
+- Giá trị `--set <khoá>=<giá trị>` và giá trị mục cấu hình từ CLI được phân tích như YAML: `true`/`false` thành boolean, `10` thành số nguyên, `0.5` thành số thực, `a,b,c` thành danh sách chuỗi, phần còn lại là chuỗi; muốn giữ chuỗi `"10"` thì đặt trong ngoặc kép. Sau khi phân tích, giá trị được kiểm tra theo `Params` của stage hoặc `choices` của mục cấu hình; sai kiểu là lỗi mã thoát `2`.
 - Số thực trong metric ghi đủ độ chính xác của `float32` (tối đa 7 chữ số có nghĩa), không làm tròn thêm; giá trị không tính được ghi `null`, không ghi `NaN`.
 
 ### 10.4 CLI
@@ -630,9 +671,9 @@ Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dà
 | `d2s scene delete <scene_id>` | Xoá dữ liệu chuẩn, split, cache và run của cảnh; hỏi xác nhận |
 | `d2s split create <scene_id> --strategy every_nth_frame:8 [--cameras <id,...>] [--frame-range <đầu>,<cuối>] [--split <split_id>]` | Tạo split; mặc định mọi camera và cả cảnh, tên theo mục 10.1 |
 | `d2s split list <scene_id>` / `d2s split show <scene_id> <split_id>` / `d2s split delete <scene_id> <split_id>` | Liệt kê, xem, xoá split |
-| `d2s approach list` / `d2s approach show <approach_id>` | Liệt kê approach; xem ô chọn, preset, ràng buộc |
-| `d2s approach check <approach_id> --scene <scene_id> --split <split_id> [--preset <tên>] [--set <ô>=<giá trị>]...` | Kiểm tra điều kiện và in danh sách stage sẽ chạy, stage nào dùng lại cache |
-| `d2s run start <approach_id> --scene <scene_id> --split <split_id> [--preset <tên>] [--set <ô>=<giá trị>]... [--executor local\|kaggle]` | Chạy |
+| `d2s approach list` / `d2s approach show <approach_id>` | Liệt kê approach; xem mục cấu hình, preset, ràng buộc |
+| `d2s approach check <approach_id> --scene <scene_id> --split <split_id> [--preset <tên>] [--set <mục>=<giá trị>]... [--quick]` | Kiểm tra điều kiện và in danh sách stage sẽ chạy, stage nào dùng lại cache |
+| `d2s run start <approach_id> --scene <scene_id> --split <split_id> [--preset <tên>] [--set <mục>=<giá trị>]... [--quick] [--executor local\|kaggle]` | Chạy; `--quick` là chạy thử nhanh 3000 iteration (mục 6.2) |
 | `d2s run resume <run_id>` | Chạy tiếp từ stage dở |
 | `d2s run status <run_id>` / `d2s run list [--scene <scene_id>]` / `d2s run cancel <run_id>` / `d2s run delete <run_id>` | Theo dõi, liệt kê, huỷ, xoá thư mục run |
 | `d2s kaggle push <run_id> [--branch <branch>] [--accelerator <GPU>]` / `d2s kaggle status <run_id>` / `d2s kaggle pull <run_id>` | Đẩy run lên Kaggle (lần sau chạy tiếp), xem trạng thái notebook, tải kết quả về (mục 9.2); `push` do `run start --executor kaggle` tự gọi |
@@ -640,7 +681,7 @@ Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dà
 | `d2s report <run_id>...` | Bảng so sánh nhiều run |
 | `d2s export ply <run_id>` / `d2s export preview <run_id>` | Chạy lại stage export cho một run |
 | `d2s cache list [--scene <scene_id>]` / `d2s cache gc [--scene <scene_id>]` | Xem, dọn cache |
-| `d2s studio [--port <số>]` | Bật Studio |
+| `d2s studio [--port <số>] [--kaggle-watch-minutes <phút>]` | Bật Studio. Studio cứ `--kaggle-watch-minutes` phút (mặc định 5; `0` để tắt) hỏi trạng thái notebook của các run đã đẩy lên Kaggle mà chưa tải kết quả lần đẩy mới nhất; notebook xong (thành công, lỗi, huỷ) thì tự xếp việc `kaggle_pull` như nút "Tải kết quả về". Không có run nào cần theo dõi thì không gọi Kaggle; hỏi lỗi thì khoảng chờ nhân đôi, tối đa 1 giờ |
 | `d2s serve <run_id> [--port <số>]` | Bật server gRPC cho một run (L4) |
 
 Quy tắc chung:
@@ -649,7 +690,7 @@ Quy tắc chung:
 - Tuỳ chọn chung cho mọi lệnh: `--workdir <thư mục>` (ưu tiên hơn `D2S_WORKDIR`), `--json`, `--verbose` / `--quiet`, `--yes` (bỏ hỏi xác nhận), `--help`; viết **sau** tên lệnh (`d2s run list --json`). `d2s --version` in phiên bản tool.
 - **Không dùng cờ ngắn** (`-s`, `-v`), trừ `-h` cho `--help`. Tuỳ chọn dài đọc là hiểu, không phải tra bảng; thêm cờ ngắn sau này không phá gì vì chỉ là bí danh.
 - Tham số danh sách: một chuỗi cách nhau bằng dấu phẩy, không có khoảng trắng (`--cameras CAM_FRONT,CAM_BACK`). Chỉ `--set` lặp lại tuỳ chọn, vì mỗi lần là một cặp khoá và giá trị.
-- `--set <ô>=<giá trị>` lặp lại được, dùng cho cả ô chọn và tham số stage (`--set train.drivestudio.num_iters=10000`). Kiểu giá trị theo mục 10.3.
+- `--set <mục>=<giá trị>` lặp lại được, dùng cho cả mục cấu hình và tham số stage (`--set train.drivestudio.num_iters=10000`). Kiểu giá trị theo mục 10.3.
 - Lệnh xoá (`scene delete`, `split delete`, `run delete`, `cache gc`) hỏi xác nhận, in ra những gì sẽ xoá trước; `--yes` bỏ hỏi. Lệnh xoá không xoá gì ngoài `D2S_WORKDIR`.
 - Kết quả có cấu trúc (bảng khi không có `--json`, JSON khi có) đi ra **stdout**; log, tiến độ và cảnh báo đi ra **stderr**. Nhờ vậy `d2s run list --json | jq` luôn nhận JSON sạch. `--json` in một đối tượng hoặc một mảng JSON, trường `snake_case`, cùng tên với file trong CONTRACTS.
 - Thông báo lỗi bằng tiếng Việt (mục 10.6), một dòng đầu nói việc gì hỏng, các dòng sau nói vì sao và làm gì tiếp; kèm `error.code` như API (mục 11.3) khi có `--json`.
@@ -705,15 +746,23 @@ Route đã có (`drive2sim/studio/api/routes/`):
 | `GET /api/scenes/{scene_id}/frames/{frame_index}` | `{"frame_index", "images": [{"camera_id", "url"}]}` cho lưới ảnh đồng bộ; `url` là `null` khi thiếu ảnh | |
 | `GET`, `POST /api/scenes/{scene_id}/splits`, `GET .../splits/{split_id}` | Liệt kê, tạo, xem split; thân của `POST`: `strategy`, `cameras`, `frame_range`, `split_id` | `split list`, `split create`, `split show` |
 | `GET /api/approaches`, `GET /api/approaches/{approach_id}` | Đọc file approach | `approach list`, `approach show` |
-| `POST /api/approaches/{approach_id}/check` | Thân: `scene_id`, `split_id`, `preset`, `options`, `stage_params`. Trả `options` đã quyết định, `lidar_usage`, `stages` (kèm `cache_hit`) và `blocked_choices` (ô → lựa chọn bị khoá kèm lý do) để giao diện làm mờ | `approach check` |
+| `POST /api/approaches/{approach_id}/check` | Thân: `scene_id`, `split_id`, `preset`, `options`, `stage_params`, `quick`. Trả `quick`, `options` đã quyết định, `lidar_usage`, `stages` (kèm `cache_hit`) và `blocked_choices` (mục → lựa chọn bị khoá kèm lý do) để giao diện làm mờ | `approach check` |
 | `POST /api/runs` | Thân như `check` cộng `approach_id`, `executor`; tạo run, xếp vào hàng đợi chạy nền (`local`) hoặc đẩy lên Kaggle ở nền (`kaggle`) | `run start` |
 | `GET /api/runs`, `GET /api/runs/{run_id}` | Liệt kê (lọc `scene_id`, `status`); `run.json` cộng `summary` và `run_dir` | `run list`, `run status` |
 | `POST /api/runs/{run_id}/resume` | Chạy tiếp; `409` nếu run đang chạy | `run resume` |
 | `GET /api/runs/{run_id}/events`, `GET /api/events` | Sự kiện SSE (mục 11.4) | |
 | `GET /api/runs/{run_id}/log` | `{"engine": <d2s/log.txt>, "stages": {stage_id: <200 dòng cuối log.txt>}}` | |
 | `GET /api/runs/{run_id}/videos` | Video MP4 trong thư mục run: `{"name", "stage_id", "url"}` | |
+| `GET /api/runs/{run_id}/artifacts` | Nơi lưu kết quả của từng stage: `{"run_dir", "run_dir_abs", "files" (file của tool trong `d2s/`), "stages": [{"stage_id", "status", "location": "run" \| "cache", "path", "path_abs", "size_bytes", "files": [{"name", "is_dir", "size_bytes", "path"}]}]}`; `path` tương đối với thư mục làm việc. Run chạy trên Kaggle sau `kaggle pull` cũng nằm ở đây (mục 9.2) | |
+| `GET /api/runs/{run_id}/curve` | Đường cong train đọc từ `metrics.json` của stage `train.*` (mục 6.1): `{"stage_id", "series": {"psnr", "loss", "gaussians": [[bước, giá trị], ...]}}`; PSNR trên ảnh train, tổng các loss, tổng số Gaussian; tối đa 400 điểm mỗi đường | |
+| `POST /api/reveal` | Thân: `path` (tương đối với thư mục làm việc). Mở thư mục đó (với file: thư mục chứa file) trong trình quản lý file của máy chạy Studio; đường dẫn ra ngoài thư mục làm việc, không tồn tại, hoặc máy không có giao diện đồ hoạ thì `409` kèm lý do | |
+| `POST /api/pick-folder` | Thân: `start` (tuỳ chọn, thư mục mở sẵn). Mở hộp thoại chọn thư mục của hệ điều hành trên máy chạy Studio (Linux: `zenity` hoặc `kdialog`; macOS: `osascript`; Windows: PowerShell) và chờ người dùng chọn; trả `{"path"}` là đường dẫn tuyệt đối, hoặc `null` nếu người dùng đóng hộp thoại. Máy không có giao diện đồ hoạ hoặc thiếu công cụ thì `409` kèm lý do. Dùng ở form nạp cảnh, vì trình duyệt không cho trang web biết đường dẫn thật của thư mục | |
 | `GET /api/runs/{run_id}/splats` | `{"preview", "ply"}`: gói xem trước (`preview.json` cộng `background_url`, `actor_urls`, `poses_url`) nếu đã chạy `export.preview`, và url của `scene.ply` | |
-| `GET /api/report` | Bảng so sánh (lọc `scene_id`, `split_id`, `run_id` lặp lại được); `?format=csv` để xuất | `report` |
+| `GET /api/runs/{run_id}/render-check` | `{"ready", "checks": [{"id", "ok", "value"}]}`: máy chạy Studio có render được run này bằng GPU không. `id` theo thứ tự: `gpu` (nvidia-smi; kèm `memory_mb`), `pytorch` (gói đã cài), `cuda` (PyTorch thấy GPU, hỏi trong tiến trình con), `gsplat`, `checkpoint` (`checkpoint_final.pth` của stage `train.*`); `value` là thứ đã thấy hoặc lý do lỗi. Chỉ kiểm tra, không nạp model | |
+| `GET /api/kaggle/setup/status` | Kiểm tra trước khi chạy trên Kaggle: `cli` (lệnh `kaggle` đã cài, phiên bản), `credentials` (khoá lấy từ `env`, `access_token`, `kaggle.json` hay `oauth`; thư mục cấu hình), `account` (đăng nhập được không, tên), `gpu` (giờ GPU đã dùng, còn lại, tổng, lúc làm mới; từ `kaggle quota`), `code` (commit đã push chưa, có thay đổi chưa commit không), và `ready` | |
+| `POST /api/kaggle/setup/token` | Thân: `token`, `username` (chỉ với khoá kiểu cũ), `replace`. Ghi khoá vào thư mục cấu hình của Kaggle CLI (`KAGGLE_CONFIG_DIR` hoặc `~/.kaggle`), quyền `600`: token `KGAT_...` vào `access_token`, khoá cũ vào `kaggle.json`. Không trả lại khoá; khoá sai dạng `400`, đã có khoá mà `replace` là `false` thì `409` | |
+| `GET /api/studio` | `{"workdir", "demo"}`: thư mục làm việc, và `demo` là `true` khi đó là thư mục dữ liệu mẫu (có file `DEMO`, do `drive2sim/scripts/make_demo.py` tạo); Studio hiện nhãn "Dữ liệu mẫu" | |
+| `GET /api/report` | Bảng so sánh (lọc `scene_id`, `split_id`, `run_id` lặp lại được); mỗi dòng có metric của `summary.json`, `avg_error` (chỉ số gộp của Mip-NeRF: trung bình nhân của `10^(−PSNR/10)`, `√(1 − SSIM)`, LPIPS; thấp là tốt), cờ `quick`, `num_iters`, `train_time_s` (train thực), `recon_time_s` (tổng thời gian các stage từ đầu tới khi xuất xong `scene.ply`, stage dùng lại cache tính thời gian gốc), `render_fps`, `num_gaussians` (cả model), `ply_gaussians` và `ply_size_mb` (của `scene.ply`), `preview_gaussians` và `preview_size_mb` (tổng mọi file của gói xem trước), `occupied_psnr`, `gpu`, và `stage_times` (`stage_id` → `{"seconds", "reused"}`, stage dùng lại cache tính thời gian gốc; không có trong CSV); `?format=csv` để xuất | `report` |
 | `POST /api/sources/inspect` | Thân `{"path"}`; kết quả nhận dạng như `source inspect --json`; `404` nếu không có thư mục | `source inspect` |
 | `POST /api/sources/ingest` | Thân `path`, `source_type`, `version`, `sequence`, `scene_id`, `interpolate_n`; chọn chuỗi ngay (`400` kèm các lựa chọn nếu thiếu), rồi ingest nền; trả `202` kèm việc | `scene ingest` |
 | `GET /api/jobs`, `GET /api/jobs/{job_id}` | Việc nền (ingest, đẩy và tải Kaggle): `job_id`, `kind` (`ingest`, `kaggle_push`, `kaggle_pull`), `label`, `status` (`queued`, `running`, `succeeded`, `failed`), `result` (`scene_id` hoặc `run_id`), `error`; giữ trong bộ nhớ tới khi tắt Studio | |
@@ -741,7 +790,7 @@ Run chạy nền **lần lượt từng run** trong một luồng (`drive2sim/st
 Mọi lỗi trả về cùng một hình dạng, HTTP status theo loại:
 
 ```json
-{"error": {"code": "blocked", "message": "Approach omnire bị khoá: cảnh không có LiDAR mà ô init là init.lidar", "details": {"option": "init", "choice": "init.lidar"}}}
+{"error": {"code": "blocked", "message": "Approach omnire bị khoá: cảnh không có LiDAR mà mục cấu hình init là init.lidar", "details": {"option": "init", "choice": "init.lidar"}}}
 ```
 
 | HTTP | `error.code` | Khi nào | Mã thoát CLI tương ứng |

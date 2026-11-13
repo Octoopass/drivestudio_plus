@@ -171,18 +171,22 @@ def make_cache_key(
 
 - Test đặt ở `tests/drive2sim/<cùng đường dẫn với code>/test_<module>.py`, dùng `pytest`.
 - Code mới có test đi kèm; sửa lỗi thì thêm test tái hiện lỗi đó.
-- Chạy test: `.venv/bin/python -m pytest` (môi trường nhẹ ở local, cài bằng `pip install -e ".[dev,studio]"`).
-- Trước khi commit: `uvx ruff format drive2sim tests`, `uvx ruff check drive2sim tests`, rồi chạy test.
-- Kiểm tra Python 3.9: `uv run --python 3.9 --no-project --with "pydantic>=2.5,<3" --with "pyyaml>=6" --with "pytest>=7" --with "fastapi>=0.110" --with "httpx>=0.24" python -m pytest -q`.
+- Các lệnh dưới đây có sẵn trong `Makefile` ở gốc repo; gõ `make` để xem danh sách.
+- Chạy test: `.venv/bin/python -m pytest` hoặc `make test` (môi trường nhẹ ở local, cài bằng `pip install -e ".[dev,studio]"` hoặc `make setup`).
+- Test không được gọi Kaggle thật: `tests/drive2sim/conftest.py` chặn lệnh `kaggle` cho mọi test; test cần Kaggle thì truyền runner giả.
+- Test không được mở cửa sổ trên máy: `conftest.py` bỏ `DISPLAY` và `WAYLAND_DISPLAY` cho mọi test, nên `/api/reveal` và `/api/pick-folder` báo máy không có giao diện; test cần giao diện thì tự đặt biến và patch lệnh chạy.
+- Trước khi commit: `uvx ruff format drive2sim tests`, `uvx ruff check drive2sim tests`, rồi chạy test (`make check` làm cả ba).
+- Kiểm tra Python 3.9 (`make test-py39`): `uv run --python 3.9 --no-project --with "pydantic>=2.5,<3" --with "pyyaml>=6" --with "pytest>=7" --with "fastapi>=0.110" --with "httpx>=0.24" python -m pytest -q`.
 - Thay đổi hành vi ở `drive2sim/recon/` không chạy được trên máy không có GPU: ghi rõ "chưa chạy thật" trong commit và docs, rồi kiểm tra hồi quy trên Kaggle (train lại cùng cảnh, so PSNR) theo `ARCHITECTURE.md` mục 7.3 và 10.
 
 ### 5.1 Giao diện Studio
 
 - Mã ở `drive2sim/studio/frontend/` (Vite + React + TypeScript). Cài một lần: `npm install` trong thư mục đó.
-- Sửa schema trong `drive2sim/core/schema.py` thì chạy `npm run types` (cần lệnh `d2s` trên PATH) để sinh lại `src/api/generated/`; không sửa tay các file đó.
-- Sửa mã giao diện thì chạy `npm run build` (kiểm tra kiểu rồi build) và **commit cả `dist/`** trong cùng commit, vì người dùng chạy bản đã build, không cần Node.js.
+- Sửa schema trong `drive2sim/core/schema.py` thì chạy `npm run types` (cần lệnh `d2s` trên PATH; `make types` tự thêm `.venv/bin`) để sinh lại `src/api/generated/`; không sửa tay các file đó.
+- Sửa mã giao diện thì chạy `npm run build` hoặc `make build` (kiểm tra kiểu rồi build) và **commit cả `dist/`** trong cùng commit, vì người dùng chạy bản đã build, không cần Node.js.
 - Chuỗi giao diện đặt trong `src/locales/vi.json` và `en.json`, thêm khoá ở cả hai file (CONTRACTS mục 10.6).
-- Xem thử: `d2s studio --workdir <thư mục có dữ liệu>` rồi mở `http://127.0.0.1:8000`; khi sửa giao diện, `npm run dev` cho tự tải lại (chuyển `/api` sang server đang chạy ở cổng 8000).
+- Xem thử: `make studio WORKDIR=<thư mục có dữ liệu>` (hoặc `d2s studio --workdir ...`) rồi mở địa chỉ được in ra; khi sửa giao diện, `make dev` bật cả Studio và Vite tự tải lại. Hai lệnh tự chọn cổng trống bắt đầu từ `API_PORT=8000`, `WEB_PORT=5173`; Vite chuyển `/api` sang cổng Studio qua biến `D2S_STUDIO_PORT`. `make status` xem cổng đang chạy, `make down` dừng lần chạy gần nhất.
+- Dữ liệu mẫu để xem giao diện khi chưa có kết quả thật: thêm `DEMO=1` (`make dev DEMO=1`, `make studio DEMO=1`, hay `make demo`). Dữ liệu giả do `python -m drive2sim.scripts.make_demo` tạo một lần ở `.demo/` (git-ignore) và được giữ lại; bỏ `DEMO=1` là về dữ liệu thật, `FORCE=1` để tạo lại. Studio hiện nhãn "Dữ liệu mẫu" trên thanh trên; lệnh `kaggle` được thay bằng lệnh giả nên tab Kaggle không gửi gì lên Kaggle. Thêm loại kết quả mới vào tool thì thêm cả vào dữ liệu mẫu.
 
 ## 6. Branch và commit
 

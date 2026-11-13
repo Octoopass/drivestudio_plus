@@ -17,7 +17,7 @@ Repo gồm bốn tầng:
 │ ingest/<nguồn> ──► data/<scene>/ : thư mục DriveStudio + manifest.yaml + validation.json │
 │ (7 dataset, CARLA, mentor, COLMAP; mỗi cảnh chạy một lần, không phụ thuộc approach)   │
 └───────────────────────────────────────┬───────────────────────────────────────────────┘
-┌─ 2. PIPELINE (approach = danh sách stage, có ô chọn và preset) ───────────────────────┐
+┌─ 2. PIPELINE (approach = danh sách stage, có mục cấu hình và preset) ───────────────────────┐
 │  prep.*  ──►  init.*  ──►  train.*  ──►  eval.standard  ──►  render.*  ──►  export.*  │
 │  select       lidar        drivestudio   (một protocol      videos        ply_world   │
 │  undistort    depth        external:X    cho mọi approach)                preview     │
@@ -55,7 +55,7 @@ Mỗi quyết định gồm: giải thích công cụ hoặc khái niệm, lý d
 | 2.2 | Dùng thư mục cảnh của DriveStudio (như script có sẵn ghi ra) cộng manifest làm định dạng dữ liệu chuẩn; NCore là nguồn vào và định dạng xuất |
 | 2.3 | Tách ingest (chung cho mọi approach) khỏi các stage chuẩn bị riêng cho approach |
 | 2.4 | Giữ loader riêng của từng dataset; gộp khi có điều kiện |
-| 2.5 | Approach là danh sách stage chạy tuyến tính, có ô chọn, ràng buộc và preset |
+| 2.5 | Approach là danh sách stage chạy tuyến tính, có mục cấu hình, ràng buộc và preset |
 | 2.6 | Lưu trạng thái bằng thư mục, không dùng cơ sở dữ liệu |
 | 2.7 | Cache chỉ cho stage dùng chung (`prep.*`, `init.*`), khoá đọc được |
 | 2.8 | Train trên Kaggle qua một executor riêng |
@@ -137,7 +137,7 @@ NCore vẫn dùng ở hai chỗ: là **một nguồn vào** (PhysicalAI, CARLA g
 **Lý do.**
 - Mọi approach bắt đầu từ cùng một dữ liệu, nên so sánh công bằng.
 - Thử approach thứ hai trên cùng cảnh không phải ingest lại.
-- Có manifest sau ingest thì mới khoá đúng approach, ô chọn không chạy được.
+- Có manifest sau ingest thì mới khoá đúng approach, mục cấu hình không chạy được.
 
 **Ưu điểm.** Kết quả của stage chuẩn bị được cache và dùng chung (mục 2.7).
 
@@ -158,32 +158,32 @@ NCore vẫn dùng ở hai chỗ: là **một nguồn vào** (PhysicalAI, CARLA g
 
 **Cách gộp khi tới lúc.** Một loader chung từ mã có sẵn, cộng một bảng quy ước nhỏ cho từng dataset (cách lưu pose, gốc toạ độ, trục camera, hệ số méo, danh sách camera); dữ liệu trên đĩa và script tiền xử lý giữ nguyên; PhysicalAI giữ loader riêng vì khác quá nhiều. Kiểm tra bằng cách cho loader cũ và loader chung đọc cùng một cảnh giả theo khung của từng dataset rồi so từng giá trị (pose, intrinsics, đường dẫn ảnh, box); cần môi trường test có PyTorch bản CPU. Loader cũ chỉ xoá khi phép so khớp hoàn toàn.
 
-### 2.5 Approach là danh sách stage, có ô chọn, ràng buộc và preset
+### 2.5 Approach là danh sách stage, có mục cấu hình, ràng buộc và preset
 
 **Khái niệm.**
 - *Stage* là một lớp Python đăng ký theo tên (ví dụ `init.depth`), khai báo phiên bản, tham số, kiểu artifact vào và ra, có dùng LiDAR không, có được cache không (CONTRACTS mục 5.1).
-- *Approach* là file `drive2sim/approaches/<id>.yaml` gồm: danh sách stage chạy lần lượt; *ô chọn* (`options`) cho những khâu thay thế được cho nhau; *ràng buộc* (`constraints`) giữa các ô; *preset* là tổ hợp ô đặt sẵn; cùng track, mức năng lực, điều kiện dữ liệu (CONTRACTS mục 4).
+- *Approach* là file `drive2sim/approaches/<id>.yaml` gồm: danh sách stage chạy lần lượt; *mục cấu hình* (`options`) cho những khâu thay thế được cho nhau; *ràng buộc* (`constraints`) giữa các mục cấu hình; *preset* là tổ hợp cấu hình đặt sẵn; cùng track, mức năng lực, điều kiện dữ liệu (CONTRACTS mục 4).
 - *Tuyến tính*: các stage chạy đúng thứ tự trong file, mỗi lần một stage. Một stage dùng được kết quả của bất kỳ stage nào đứng trước. Không có điều kiện, nhánh song song hay vòng lặp lúc đang chạy.
-- *Ô chọn* được quyết định **trước khi chạy** (người dùng chọn trên Studio hoặc CLI, hoặc engine tự chọn theo manifest với giá trị `auto`). Sau khi thay ô bằng lựa chọn cụ thể, danh sách stage là cố định.
+- *Mục cấu hình* được quyết định **trước khi chạy** (người dùng chọn trên Studio hoặc CLI, hoặc engine tự chọn theo manifest với giá trị `auto`). Sau khi thay mục cấu hình bằng lựa chọn cụ thể, danh sách stage là cố định.
 
 **Lý do.**
 - Các approach của dự án khác nhau đúng ở từng khâu: khởi tạo (LiDAR, depth, SLAM), renderer (3DGS, 3DGUT, 3DGEER), luật densify (mặc định, FastGS), CamPose, có bước feed-forward hay không. Stage biến mỗi khâu thành một mảnh thay được.
-- Ô chọn tránh nhân file: 2 cách khởi tạo × 3 renderer × FastGS bật/tắt là 12 tổ hợp nhưng vẫn là một approach. Thí nghiệm "chỉ đổi một khâu rồi so" là đổi một ô.
-- Mọi nhu cầu hiện có đều làm được mà không cần rẽ nhánh: điều kiện chuyển thành ô chọn `auto` hoặc khoá theo manifest; so sánh song song chuyển thành nhiều run dùng chung cache; vòng lặp đặt trong một stage.
+- Mục cấu hình tránh nhân file: 2 cách khởi tạo × 3 renderer × FastGS bật/tắt là 12 tổ hợp nhưng vẫn là một approach. Thí nghiệm "chỉ đổi một khâu rồi so" là đổi một mục cấu hình.
+- Mọi nhu cầu hiện có đều làm được mà không cần rẽ nhánh: điều kiện chuyển thành mục cấu hình `auto` hoặc khoá theo manifest; so sánh song song chuyển thành nhiều run dùng chung cache; vòng lặp đặt trong một stage.
 
-**Quy tắc dùng ô chọn.**
-1. Ô chọn chỉ dành cho khâu thay thế được cho nhau: khởi tạo, renderer, luật densify, CamPose, độ phân giải. Method khác nhau (OmniRe so với Street GS) hoặc codebase khác nhau là approach riêng.
+**Quy tắc dùng mục cấu hình.**
+1. Mục cấu hình chỉ dành cho khâu thay thế được cho nhau: khởi tạo, renderer, luật densify, CamPose, độ phân giải. Method khác nhau (OmniRe so với Street GS) hoặc codebase khác nhau là approach riêng.
 2. Tổ hợp không hợp lệ phải khai báo trong `constraints`, kèm lý do; Studio và CLI khoá tổ hợp đó.
 
 **Ưu điểm.**
 - Thay một khâu không đụng khâu khác; mỗi stage test riêng được.
-- Thêm approach mới chủ yếu là ghép stage có sẵn; thêm một lựa chọn mới (ví dụ `init.slam`) là thêm một giá trị vào ô.
-- Studio so sánh được theo từng ô, vì `run.json` ghi lại lựa chọn.
+- Thêm approach mới chủ yếu là ghép stage có sẵn; thêm một lựa chọn mới (ví dụ `init.slam`) là thêm một giá trị vào mục cấu hình.
+- Studio so sánh được theo từng mục cấu hình, vì `run.json` ghi lại lựa chọn.
 
 **Nhược điểm.**
-- Phải viết engine nhỏ (registry, thay ô, kiểm tra ràng buộc, chạy tuần tự, đánh dấu done).
+- Phải viết engine nhỏ (registry, thay mục cấu hình, kiểm tra ràng buộc, chạy tuần tự, đánh dấu done).
 - Phải tách khởi tạo và đánh giá ra khỏi `drive2sim/recon/tools/train.py` và trainer của DriveStudio (mục 7.2).
-- File approach có ô chọn khó đọc hơn một file cố định: phải nhìn cả ô, giá trị mặc định và preset.
+- File approach có mục cấu hình khó đọc hơn một file cố định: phải nhìn cả mục cấu hình, giá trị mặc định và preset.
 - Nếu sau này cần rẽ nhánh lúc đang chạy thì phải nâng engine lên kiểu đồ thị; các stage đã viết vẫn dùng lại được vì chỉ khai báo đầu vào và đầu ra.
 
 ### 2.6 Lưu trạng thái bằng thư mục, không dùng cơ sở dữ liệu
@@ -271,7 +271,7 @@ Route, thân, lỗi và sự kiện SSE quy định ở CONTRACTS mục 11; API 
 
 **Nhược điểm.** Phát triển cần Node.js; hai ngôn ngữ nên kiểu dữ liệu phải giữ khớp, ví dụ sinh kiểu TypeScript từ JSON Schema.
 
-**Cách làm đã chọn.** Bản build (`drive2sim/studio/frontend/dist/`, có font Barlow kèm bộ chữ tiếng Việt) được commit và đóng gói theo package, nên người dùng không cần Node.js. Kiểu TypeScript của các file trong CONTRACTS sinh tự động bằng `npm run types` (gọi `d2s schema export`) vào `src/api/generated/`. Không dùng thư viện router hay biểu đồ: điều hướng bằng hash URL, biểu đồ vẽ bằng SVG. Phụ thuộc: `react`, `react-dom`, font, `lucide-react` (icon), và cho trang xem 3D `three` cùng `@sparkjsdev/spark` (mục 2.13). Trang xem 3D nạp lười: gói của nó khoảng 3,3 MB (Spark kèm WASM) chỉ tải khi mở trang đó, các trang khác khoảng 350 KB JS. Server trả `Cache-Control: no-cache` cho `index.html`, nên bản build mới có hiệu lực ngay; file trong `assets/` mang hash nên vẫn được cache.
+**Cách làm đã chọn.** Bản build (`drive2sim/studio/frontend/dist/`, có font Be Vietnam Pro kèm bộ chữ tiếng Việt) được commit và đóng gói theo package, nên người dùng không cần Node.js. Kiểu TypeScript của các file trong CONTRACTS sinh tự động bằng `npm run types` (gọi `d2s schema export`) vào `src/api/generated/`. Không dùng thư viện router hay biểu đồ: điều hướng bằng hash URL, biểu đồ vẽ bằng SVG. Phụ thuộc: `react`, `react-dom`, font, `lucide-react` (icon), và cho trang xem 3D `three` cùng `@sparkjsdev/spark` (mục 2.13). Trang xem 3D nạp lười: gói của nó khoảng 3,3 MB (Spark kèm WASM) chỉ tải khi mở trang đó, các trang khác khoảng 350 KB JS. Server trả `Cache-Control: no-cache` cho `index.html`, nên bản build mới có hiệu lực ngay; file trong `assets/` mang hash nên vẫn được cache.
 
 **Bố cục.** Thanh điều hướng trái; thanh trên có đường dẫn trang, nút Hoạt động (run đang chạy kèm tiến độ trực tiếp, việc nền ingest và Kaggle), tìm nhanh `Ctrl+K` (trang, cảnh, run), đổi sáng/tối và ngôn ngữ. Trạng thái trực tiếp dùng chung một kết nối SSE `/api/events` và đọc định kỳ `/api/jobs` (`src/live.tsx`); run xong hoặc lỗi, việc nền xong hoặc lỗi đều có thông báo nổi. Thao tác xoá luôn qua hộp xác nhận liệt kê những gì bị xoá.
 
@@ -406,7 +406,7 @@ Chạy script bằng `python -m`, ví dụ `python -m drive2sim.recon.tools.trai
 | Stage mới | `drive2sim/stages/<nhóm>/` | `<tên>.py`, lớp `<Nhóm><Tên>Stage`, `stage_id` là `<nhóm>.<tên>` | `@register_stage("<nhóm>.<tên>")` trong chính file đó |
 | Loại artifact mới | `drive2sim/core/schema.py` | giá trị mới của `artifact_type` | Bảng CONTRACTS mục 5.4 |
 | Approach mới | `drive2sim/approaches/` | `<approach_id>.yaml` | Tự nạp khi engine khởi động |
-| Lựa chọn mới cho một ô (ví dụ `init.slam`) | Stage mới như trên | | Thêm vào `options.<ô>.choices` của approach |
+| Lựa chọn mới cho một mục cấu hình (ví dụ `init.slam`) | Stage mới như trên | | Thêm vào `options.<mục>.choices` của approach |
 | Method, node, loại Gaussian mới | `drive2sim/recon/models/nodes/` hoặc `drive2sim/recon/models/gaussians/` | `<tên>.py`; lớp theo quy ước sẵn có (`<Tên>Nodes`, `<Tên>Gaussians`) | Config method trong `drive2sim/configs/methods/`; giá trị mới cho tham số `method` của `train.drivestudio` |
 | Loader dữ liệu | `drive2sim/recon/data/loaders/` | Không thêm loader cho nguồn mới: converter ghi theo khung thư mục của một dataset có sẵn (mục 2.4) | |
 | Tiện ích dùng chung của phần tái dựng | `drive2sim/recon/utils/` | `<chủ_đề>.py` | |
@@ -437,7 +437,7 @@ Quy tắc chung:
 
 ### 4.1 core
 
-Schema Pydantic v2 cho manifest, split, artifact, approach (stage, ô chọn, ràng buộc, preset), run, metric (CONTRACTS); phép biến đổi toạ độ theo quy ước NCore; đọc dữ liệu chuẩn qua `nvidia-ncore`. Không nạp model.
+Schema Pydantic v2 cho manifest, split, artifact, approach (stage, mục cấu hình, ràng buộc, preset), run, metric (CONTRACTS); phép biến đổi toạ độ theo quy ước NCore; đọc dữ liệu chuẩn qua `nvidia-ncore`. Không nạp model.
 
 ### 4.2 ingest
 
@@ -489,7 +489,7 @@ Stage `train.drivestudio` train bằng trainer trong `drive2sim/recon/trainers/`
 ### 4.5 engine và approaches
 
 Engine chạy một approach theo các bước:
-1. Đọc file approach; thay preset và lựa chọn của người dùng vào các ô; giá trị `auto` được chọn theo manifest.
+1. Đọc file approach; thay preset và lựa chọn của người dùng vào các mục cấu hình; giá trị `auto` được chọn theo manifest.
 2. Kiểm tra điều kiện dữ liệu (manifest, split) và `constraints`; sai thì dừng, kèm lý do.
 3. Tạo thư mục run, ghi `d2s/run.json` với lựa chọn đã quyết định.
 4. Chạy lần lượt từng stage: stage cacheable có sẵn trong cache thì dùng lại; stage trong run đã có `done` thì bỏ qua.
@@ -499,14 +499,14 @@ Studio và CLI dùng chung bước 1–2 (`engine/resolve.py`), nên chạy từ
 
 Approach dự kiến:
 
-| Approach | Ô chọn | Config DriveStudio dùng làm gốc |
+| Approach | Mục cấu hình | Config DriveStudio dùng làm gốc |
 |---|---|---|
 | `omnire` | `init`: lidar / depth / auto; `renderer`: 3dgs / 3dgut / 3dgeer; `campose`; `fastgs` | `omnire*.yaml` |
 | `streetgs` | như trên | `streetgs*.yaml` |
 
-Các config hiện có của teammate map sang tổ hợp ô:
+Các config hiện có của teammate map sang tổ hợp cấu hình:
 
-| Config hiện có | Tổ hợp ô tương ứng |
+| Config hiện có | Tổ hợp cấu hình tương ứng |
 |---|---|
 | `streetgs_nocampose.yaml` / `omnire_nocampose.yaml` | renderer 3dgs, campose tắt, fastgs tắt |
 | `streetgs_ut.yaml` | renderer 3dgut, campose tắt |
@@ -533,7 +533,7 @@ Xem các stage `export.*` ở mục 4.3.
 ### 4.9 studio
 
 - `api/`: FastAPI phục vụ REST cho cảnh, approach, run, metric; SSE cho tiến độ và log; file tĩnh của frontend, video, ảnh, gói xem trước. Chỉ nghe trên `127.0.0.1`. Hợp đồng ở CONTRACTS mục 11.
-- `frontend/`: Vite + React theo luồng sử dụng ở SPEC mục 5; màn hình chọn approach có preset, ô chọn, lựa chọn bị khoá kèm lý do, và danh sách stage sẽ chạy (stage nào dùng lại cache); video là thẻ `<video>` MP4 H.264, phát đồng bộ nhiều camera; nút của mức approach không đạt thì ẩn.
+- `frontend/`: Vite + React theo luồng sử dụng ở SPEC mục 5; màn hình chọn approach có preset, mục cấu hình, lựa chọn bị khoá kèm lý do, và danh sách stage sẽ chạy (stage nào dùng lại cache); video là thẻ `<video>` MP4 H.264, phát đồng bộ nhiều camera; nút của mức approach không đạt thì ẩn.
 - `viz/`: viser chạy trong tiến trình Studio, nhúng bằng iframe; ảnh và depth lấy từ worker render (mục 2.9). Hai chế độ:
 
 | | Chế độ chính | Chế độ xem trước |
@@ -564,7 +564,7 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (thư mục DriveStudio
                               │
                          d2s split create ──► data/<scene_id>/splits/<split_id>.json
                               │
-<approach_id>.yaml + preset + ô chọn ──engine──► danh sách stage cố định
+<approach_id>.yaml + preset + mục cấu hình ──engine──► danh sách stage cố định
                               │
         prep.* · init.* ──► cache/<scene_id>/<stage_id>@<version>-<hash8>/  (dùng chung)
                               │
@@ -596,7 +596,7 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (thư mục DriveStudio
 | `core`: định danh, schema mọi file trong CONTRACTS (kể cả `job.json`, `result.json`), đọc ghi, split | Xong; 66 test đạt trên Python 3.9 và 3.12; test đọc mọi ví dụ trong CONTRACTS; qua `ruff check` | `9bb7bbc`, `96876ad` |
 | `core`: phép biến đổi toạ độ, mô hình camera | Chưa làm | |
 | `engine`: interface stage và registry | Xong; kiểm tra khai báo stage lúc đăng ký | `35bc590` |
-| `engine`: resolve (ô chọn, preset, `auto`, điều kiện dữ liệu, ràng buộc, nối đầu vào) | Xong | `37d5159` |
+| `engine`: resolve (mục cấu hình, preset, `auto`, điều kiện dữ liệu, ràng buộc, nối đầu vào) | Xong | `37d5159` |
 | `engine`: thư mục làm việc, cache, tạo và chạy run (chạy tiếp, huỷ, ghi lỗi) | Xong; chạy với stage giả; 108 test đạt trên Python 3.9 và 3.12 | |
 | `engine`: huỷ run đang chạy (file `cancel`, dừng nhóm tiến trình con), chạy lại một stage, xoá run, split, cảnh, liệt kê và dọn cache | Xong; test huỷ dùng tiến trình con thật | |
 | Stage bọc DriveStudio: `train.drivestudio`, `eval.standard`, `export.ply_world`; approach `omnire`, `streetgs` | Xong trong code; dựng lệnh có test; **chưa chạy thật** (cần GPU); approach chưa chạy được tới khi có `prep.to_drivestudio` | |
@@ -605,7 +605,7 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (thư mục DriveStudio
 | CLI còn lại: `serve` | Chưa làm; làm cùng `sim/server/` | |
 | Studio API (`studio/api`): cảnh, split, approach (`check` kèm lựa chọn bị khoá), run chạy nền, SSE, log, video, bảng so sánh, `/files/`; lệnh `d2s studio` | Xong; 163 test đạt trên Python 3.9 và 3.12; đã chạy thử server thật | |
 | Studio API: nhận dạng và ingest nền (`/api/sources`, `/api/jobs`), huỷ, xoá, export run, xoá cảnh và split, kiểm tra lại cảnh, cache | Xong; 182 test đạt trên Python 3.9 và 3.12 | |
-| Studio giao diện (`studio/frontend`): nhóm A (tổng quan cảnh, camera, ảnh đồng bộ theo khung, split trên thanh thời gian, báo cáo kiểm tra, tạo split), chạy mới (ô chọn bị khoá kèm lý do, xem trước stage và cache), nhóm B và C (làn đường stage theo SSE, metric, kết quả, video, log, chạy tiếp), nhóm D (bảng xếp hạng, PSNR theo thời gian train và VRAM, CSV, video cạnh nhau); tiếng Việt và tiếng Anh; chế độ sáng, tối; màn hình hẹp | Xong; đã xem bằng trình duyệt trên dữ liệu mẫu (không phải dữ liệu thật) | |
+| Studio giao diện (`studio/frontend`): nhóm A (tổng quan cảnh, camera, ảnh đồng bộ theo khung, split trên thanh thời gian, báo cáo kiểm tra, tạo split), chạy mới (mục cấu hình bị khoá kèm lý do, xem trước stage và cache), nhóm B và C (làn đường stage theo SSE, metric theo năm nhóm, đường cong train, artifact từng stage kèm mở thư mục, video, log, chạy tiếp), nhóm D (một bảng xếp hạng có tab nhóm metric và bộ sắp xếp theo cột, chiều tăng hoặc giảm, biểu đồ PSNR theo thời gian, VRAM, tốc độ render, số Gaussian có đường Pareto, PSNR theo vùng, phân rã thời gian, đường cong train, CSV, video cạnh nhau); tiếng Việt và tiếng Anh; chế độ sáng, tối; màn hình hẹp | Xong; đã xem bằng trình duyệt trên dữ liệu mẫu (không phải dữ liệu thật) | |
 | Studio giao diện làm lại: tổng quan (việc đang chạy, dẫn đầu theo PSNR, run gần đây), thêm cảnh từ thư mục gốc (ingest nền), xoá cảnh, split, run, kiểm tra lại cảnh, huỷ và chạy tiếp từ danh sách, xuất PLY và gói xem trước, Kaggle (trạng thái, đẩy, tải), lưu trữ (cache, dọn cache có xem trước), xem 3D bằng Spark (gói xem trước có phát lại xe theo khung, `scene.ply`, kéo thả file splat trên máy), tìm nhanh, thông báo nổi | Xong; đã xem bằng trình duyệt trên dữ liệu mẫu và splat tổng hợp (không phải dữ liệu thật) | |
 | Studio còn thiếu: sơ đồ rig nhìn từ trên xuống và quỹ đạo xe trên bản đồ 2D (cần đọc extrinsics, pose theo cách lưu của từng dataset); depth và tách lớp; xuất hình cho báo cáo (mới có CSV); viewer chế độ chính viser (`studio/viz`, mục 2.12); hiện người và vật biến dạng bằng box trong viewer Spark; nhóm E | Chưa làm | |
 | Kaggle (`kaggle/`): upload cảnh, notebook có gói job, đẩy, trạng thái, tải về, chạy tiếp qua output notebook trước; `run start --executor kaggle`; Studio `/api/kaggle` | Xong trong code; test với Kaggle giả; cờ lệnh `kaggle` đã kiểm với Kaggle CLI 2.2.5; **chưa chạy thật** | |
@@ -629,7 +629,7 @@ Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiề
 | Đánh giá chạy ở cuối `drive2sim/recon/tools/train.py` | `do_evaluation` trong `drive2sim/recon/tools/train.py`, `drive2sim/recon/tools/eval.py` | Tách thành stage `eval.standard` |
 | Chỉ một kiểu split: test là các khung N, 2N, 3N... với mọi camera; 19 trên 21 config dataset đặt `test_image_stride: 0`, tức không có khung test | `split_train_test` trong `drive2sim/recon/data/driving_dataset.py` | Trước mắt chỉ dùng kiểu `every_nth_frame` (CONTRACTS mục 3.1); sau mới nhận split tuỳ ý |
 | ~~Chạy tiếp hỏng~~ **Đã sửa, chưa chạy thử:** trước đây khi có `--resume_from` thì không lưu checkpoint nữa; checkpoint chỉ có model; nạp optimizer báo `NotImplementedError`; chạy tiếp lặp lại bước đã lưu. Nay mỗi lần lưu ghi thêm `checkpoint_resume.pth` (model, optimizer, grad scaler; ghi đè, ghi qua file tạm rồi đổi tên), chạy tiếp nạp lại optimizer và bắt đầu từ bước sau bước đã lưu; khi train xong thì xoá file này | `drive2sim/recon/tools/train.py`, `drive2sim/recon/trainers/base.py` (`state_dict`, `load_state_dict`, `initialize_optimizer`, `save_checkpoint`) | Chạy thử trên Kaggle: ngắt giữa chừng, chạy tiếp, so với run không ngắt. Số liệu tích luỹ cho densify giữa hai lần refine và trạng thái ngẫu nhiên của bộ lấy mẫu ảnh chưa được lưu |
-| Config chép nguyên file: `streetgs_nocampose.yaml` khác `streetgs.yaml` 9 dòng trên 148; các bản `_ut`, `_geer`, `_fastgs` khác 10–19 dòng | `drive2sim/configs/methods/*.yaml` | Một config gốc cho mỗi method; biến thể chỉ ghi phần khác, ứng với các ô chọn |
+| Config chép nguyên file: `streetgs_nocampose.yaml` khác `streetgs.yaml` 9 dòng trên 148; các bản `_ut`, `_geer`, `_fastgs` khác 10–19 dòng | `drive2sim/configs/methods/*.yaml` | Một config gốc cho mỗi method; biến thể chỉ ghi phần khác, ứng với các mục cấu hình |
 | Render nằm lẫn trong viewer và trainer | `drive2sim/recon/tools/viewer.py` (2523 dòng), `drive2sim/recon/trainers/base.py` (1125 dòng) | Tách hàm render dùng riêng cho `sim/` |
 | Export không có sky, SMPL, vật biến dạng; SH của xe không xoay theo xe | `drive2sim/recon/tools/export_ply.py` | Ghi rõ giới hạn; mở rộng cho `export.preview` |
 | Chưa có test cho `drive2sim/recon/` (`core/` đã có 60 test) | `drive2sim/recon/` | `tests/drive2sim/recon/`, bắt đầu bằng kiểm tra hồi quy của loader |
@@ -646,9 +646,9 @@ Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiề
 
 0. **Di chuyển mã DriveStudio vào `drive2sim/recon/`** (đã làm, ba lượt): đổi chỗ file, sửa import trong mã và chuỗi import trong config, thêm `pyproject.toml`, `drive2sim/paths.py` cho `assets/`; lượt hai tách `preprocess/` khỏi `data/loaders/`, chuyển import tương đối sang tuyệt đối, gom config method vào `configs/methods/`, docs vào `docs/datasets/` và `docs/methods/`; lượt ba chuyển `configs/` vào `drive2sim/configs/`. Sau đó tạo khung thư mục của tool và thêm submodule NCore. Đã kiểm tra tĩnh (mọi import `drive2sim...` và mọi chuỗi import trong config trỏ tới lớp có thật); **chưa chạy thật**.
 1. **Kaggle chạy tiếp được:** sửa chạy tiếp (mục 7.2; đã sửa trong code, chưa chạy thử) và làm `drive2sim/kaggle/`. Chạy được OmniRe trên cảnh nuScenes mini mà teammate đã dùng; đây cũng là lần kiểm tra hành vi của bước 0.
-2. **Engine và stage bọc mã hiện có:** registry, file approach có ô chọn, `train.drivestudio`, `eval.standard`, `render.videos`, `export.ply_world`, `run.json`, CLI `d2s`. Đạt L1 theo thiết kế; Studio nhóm A–D làm song song.
+2. **Engine và stage bọc mã hiện có:** registry, file approach có mục cấu hình, `train.drivestudio`, `eval.standard`, `render.videos`, `export.ply_world`, `run.json`, CLI `d2s`. Đạt L1 theo thiết kế; Studio nhóm A–D làm song song.
 3. **Tầng dữ liệu:** `source inspect`; `scene ingest` cho nuScenes (gọi script có sẵn, sinh `manifest.yaml`); bộ kiểm tra. Sau bước này `d2s run start omnire` chạy trọn đường. Chạy thật trên Kaggle cùng cảnh nuScenes mini mà teammate đã dùng, so PSNR với đường cũ. Rồi stage `prep.masks_segformer`, `prep.smpl` ghi vào cache.
-4. **Tách khởi tạo:** `init.lidar` tách khỏi dataset, rồi `init.depth`. Thí nghiệm có LiDAR so với không LiDAR là đổi ô `init`.
+4. **Tách khởi tạo:** `init.lidar` tách khỏi dataset, rồi `init.depth`. Thí nghiệm có LiDAR so với không LiDAR là đổi mục cấu hình `init`.
 5. **Config kế thừa** thay cho config chép file.
 6. **sim/renderer.py** → L2 và viewer chế độ chính.
 7. **sim/actors.py** → L3.

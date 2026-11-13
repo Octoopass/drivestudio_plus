@@ -29,8 +29,8 @@ Trạng thái: bản nháp, ngày 12/11/2026.
 | Manifest | File đi kèm dữ liệu chuẩn, ghi cảnh có gì và thiếu gì (LiDAR, box, mô hình camera, mask...). |
 | Stage | Một bước xử lý có đầu vào và đầu ra rõ ràng, ví dụ sinh mask, khởi tạo điểm, train, đánh giá, export. |
 | Approach | Một cách dựng cảnh: danh sách stage chạy lần lượt, kèm mức năng lực và điều kiện về dữ liệu. |
-| Ô chọn | Khâu trong approach có nhiều lựa chọn thay thế được cho nhau, ví dụ khởi tạo (LiDAR hay depth), renderer (3DGS, 3DGUT, 3DGEER). Chọn trước khi chạy. |
-| Preset | Tổ hợp ô chọn đặt sẵn, ví dụ `paper`, `no_lidar`. |
+| Cấu hình approach, mục cấu hình | Cấu hình approach gồm các *mục cấu hình*: mỗi mục là một khâu có nhiều lựa chọn thay thế được cho nhau, ví dụ khởi tạo (LiDAR hay depth), renderer (3DGS, 3DGUT, 3DGEER), hay một thuật toán phụ trợ bật/tắt (FastGS). Chọn trước khi chạy. |
+| Cấu hình sẵn (preset) | Bộ giá trị đặt sẵn cho các mục cấu hình, ví dụ `paper`, `no_lidar`. |
 | Chuẩn bị riêng | Các stage lấy bớt, sinh thêm hoặc đổi dạng dữ liệu chuẩn cho vừa một approach (mục 6.3). |
 | Codebase | Mã nguồn tái dựng mà approach chạy trên đó. Lõi là DriveStudio trong repo này; approach từ codebase khác (NuRec, feed-forward...) được bọc lại và chạy trong môi trường riêng. |
 | Track | Loại rig camera: **pinhole** hoặc **fisheye**, thường 4–8 camera (Argoverse 7, nuPlan 8). Hai track xử lý riêng, không trộn camera pinhole và fisheye trong một lần dựng. |
@@ -54,12 +54,12 @@ Nối CARLA, chỉnh actor, chỉnh quỹ đạo actor và chạy thử AD stack
 1. **Input:** chọn thư mục dữ liệu. Tool nhận dạng loại nguồn (dataset nào, CARLA hay dữ liệu riêng) và báo thư mục có gì (`d2s source inspect`).
 2. **Ingest và kiểm tra:** chuyển dữ liệu sang dữ liệu chuẩn (mọi camera, LiDAR, box và pose mà script tiền xử lý của dataset đó giữ lại; ví dụ radar không được giữ); kiểm tra đồng bộ thời gian, calib, mô hình ống kính, FOV, ảnh hỏng hoặc thiếu; ghi manifest và báo cáo kiểm tra. Bước này không phụ thuộc approach và chỉ chạy một lần cho mỗi cảnh.
 3. **Chọn đoạn và split:** chọn đoạn khung cần dựng, tạo split train/test.
-4. **Chọn approach:** chọn approach, rồi chọn preset hoặc chỉnh từng ô chọn. Approach hoặc lựa chọn không chạy được với dữ liệu đang có (ví dụ `init.lidar` khi cảnh không có LiDAR), hoặc tổ hợp không hợp lệ (ví dụ 3DGEER với CamPose bật), bị làm mờ kèm lý do. Màn hình hiện trước danh sách stage sẽ chạy và stage nào dùng lại kết quả cũ.
-5. **Chạy và theo dõi:** chọn nơi chạy (mục 7) rồi theo dõi từng stage. Các stage chuẩn bị riêng (mục 6.3) chạy trước; kết quả của chúng được lưu lại để approach khác dùng chung.
+4. **Chọn approach:** chọn approach, rồi chọn preset hoặc chỉnh từng mục cấu hình. Approach hoặc lựa chọn không chạy được với dữ liệu đang có (ví dụ `init.lidar` khi cảnh không có LiDAR), hoặc tổ hợp không hợp lệ (ví dụ 3DGEER với CamPose bật), bị làm mờ kèm lý do. Màn hình hiện trước danh sách stage sẽ chạy và stage nào dùng lại kết quả cũ.
+5. **Chạy và theo dõi:** chọn nơi chạy (mục 7) và chọn train đầy đủ hay chạy thử nhanh (3000 iteration, để kiểm tra một approach mới chạy được từ đầu tới cuối; metric của run thử nhanh không đưa vào so sánh), rồi theo dõi từng stage. Các stage chuẩn bị riêng (mục 6.3) chạy trước; kết quả của chúng được lưu lại để approach khác dùng chung.
 6. **Studio:** xem và so sánh kết quả (mục 8).
 7. **Xuất và phục vụ:** đóng gói kết quả; với approach đạt L4, bật server gRPC để nối CARLA.
 
-Muốn thử lựa chọn khác thì quay lại bước 4, đổi ô chọn hoặc tham số rồi chạy lại; stage nào không đổi đầu vào thì dùng lại kết quả cũ.
+Muốn thử lựa chọn khác thì quay lại bước 4, đổi mục cấu hình hoặc tham số rồi chạy lại; stage nào không đổi đầu vào thì dùng lại kết quả cũ.
 
 Trên giao diện có thể cho chọn approach sớm để người dùng biết trước, nhưng việc xử lý dữ liệu luôn đi theo thứ tự trên. Mọi bước đều làm được bằng CLI (`d2s <nhóm> <hành động>`, `CONTRACTS.md` mục 10.4), không bắt buộc qua Studio; Studio và CLI dùng chung một bước kiểm tra điều kiện và ràng buộc.
 
@@ -132,15 +132,17 @@ Studio là giao diện web chạy trên máy đang dùng. Nhóm A–D chỉ cầ
 - Trạng thái job khi chạy trên Kaggle.
 
 **C. Kết quả của một run**
-- Bảng metric: PSNR, SSIM, LPIPS trên tập test, tách theo camera; PSNR trong vùng vật động, vùng người, vùng xe nếu cảnh có box; thời gian train, VRAM, số Gaussian.
+- Metric chia năm nhóm, cùng thứ tự ở trang run và trang so sánh: chất lượng ảnh (PSNR, SSIM, LPIPS trên tập test, tách theo camera khi codebase có); chất lượng theo vùng (người, xe, vật động, không phải trời) khi cảnh có box; thời gian (train thực, tổng dựng cảnh, số iteration); tài nguyên và tốc độ (VRAM, tốc độ render, GPU); kích thước model (số Gaussian của model, của file PLY và của gói xem trước, kèm dung lượng).
+- Đường cong train (PSNR trên ảnh train, loss, số Gaussian theo bước), xem được cả khi run đã xong.
+- Danh sách artifact của từng stage (trong thư mục run hay trong cache dùng chung) cùng dung lượng; mở đúng thư mục đó trong trình quản lý file của máy, hoặc chép đường dẫn.
 - Trình phát video theo camera: ảnh gốc, ảnh render, bản đồ sai khác; thanh trượt so sánh; phát đồng bộ tất cả camera.
 - Depth render và tách lớp nền, actor nếu approach xuất ra.
-- Viewer 3DGS: đi trong cảnh, xem quỹ đạo xe, vị trí camera, bật tắt box actor. Có hai chế độ: chế độ chính render bằng renderer của approach (cần GPU CUDA, đúng hoàn toàn với model); chế độ xem trước vẽ ngay trong trình duyệt (không cần GPU CUDA, gần đúng, chỉ camera pinhole). Chi tiết ở `ARCHITECTURE.md` mục 2.12, 2.13 và 4.9.
+- Viewer 3DGS: đi trong cảnh, xem quỹ đạo xe, vị trí camera, bật tắt box actor. Có hai chế độ: chế độ chính render bằng renderer của approach (cần GPU CUDA, đúng hoàn toàn với model); chế độ xem trước vẽ ngay trong trình duyệt (không cần GPU CUDA, gần đúng, chỉ camera pinhole). Trang Xem 3D chia bốn mode cho một run: gói xem trước (trình duyệt vẽ nền và xe chạy theo khung), cảnh tĩnh (`scene.ply`), video (phát video MP4 stage train đã render theo camera gốc, đầy đủ mọi phần nhưng không xoay camera được) và render GPU (chế độ chính). Mode render GPU kiểm tra máy chạy Studio trước (GPU NVIDIA, PyTorch dùng được CUDA, gsplat, checkpoint của run) và ghi rõ mục còn thiếu; phần render trực tiếp chưa làm. Chi tiết ở `ARCHITECTURE.md` mục 2.12, 2.13 và 4.9.
 
 **D. So sánh nhiều run**
-- Bảng xếp hạng các approach trên cùng cảnh và cùng split.
+- Bảng xếp hạng các approach trên cùng cảnh và cùng split: chọn một cảnh (mặc định cảnh của run hoàn thành gần nhất) và một split hoặc mọi split (mặc định mọi split, kèm cột split). Khi xem mọi split có thể chọn trộn chung hoặc gom theo split (mỗi split một khối, xếp hạng và tô màu trong từng khối). Một bảng, chọn nhóm metric bằng tab (tổng hợp gồm metric chính của mỗi nhóm, rồi năm nhóm như trang run); bảng luôn giữ cột run và cấu hình. Metric của hai split khác nhau không so được, nên khi bảng trộn nhiều split (không gom), tiêu đề các cột đo trên ảnh test (chất lượng ảnh, theo vùng) có dấu tam giác cảnh báo; tương tự khi bảng có run chạy trên nhiều GPU, với các cột phụ thuộc phần cứng (thời gian, VRAM, FPS). Biểu đồ theo cùng cách: trộn chung thì vẽ chung (màu theo approach, một đường Pareto) và biểu đồ có PSNR mang dấu cảnh báo; gom theo split thì màu theo split, mỗi split một đường Pareto, cột và đường cong ghi kèm split. Biểu đồ có trục thời gian, VRAM hay FPS mang dấu cảnh báo khi có nhiều GPU. Mỗi nhóm sắp theo một cột của chính nhóm đó, chiều cao → thấp hoặc thấp → cao; mặc định là cột chính của nhóm theo chiều tốt nhất trước (tổng hợp: Avg tăng dần). Chỉ xếp hạng và vẽ biểu đồ các run đã xong và train đầy đủ; run đang chạy, lỗi, bị huỷ hay chạy thử nhanh được ẩn (vẫn xem ở danh sách run).
 - Video của nhiều approach đặt cạnh nhau theo cùng camera, cùng thời điểm.
-- Biểu đồ chất lượng theo thời gian train và theo VRAM.
+- Biểu đồ PSNR theo thời gian train, VRAM, tốc độ render và số Gaussian (đánh dấu các run trên đường Pareto); PSNR theo vùng; phân rã thời gian dựng cảnh theo nhóm stage; đường cong train của nhiều run.
 - Xuất bảng và hình cho báo cáo.
 
 **E. Tính năng theo mức của approach** (cần GPU CUDA)
@@ -153,11 +155,15 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 ## 9. Đánh giá
 
 - Cùng split, cùng độ phân giải, đo trên ảnh 8 bit.
-- PSNR, SSIM, LPIPS; ghi rõ backbone và phiên bản của LPIPS.
+- PSNR, SSIM, LPIPS; ghi rõ backbone và phiên bản của LPIPS. Đo một lần sau khi train xong, trên mọi ảnh của tập test, rồi lấy trung bình.
+- Chỉ số gộp Avg của Mip-NeRF: trung bình nhân của `10^(−PSNR/10)`, `√(1 − SSIM)` và LPIPS (thấp là tốt), dùng để xếp hạng mặc định; không dùng tổng có trọng số tự đặt hay chuẩn hoá theo nhóm run đang so.
 - PSNR trong vùng vật động, vùng người, vùng xe khi cảnh có box.
-- Thời gian train, VRAM cao nhất, số Gaussian.
+- Hai loại thời gian: **thời gian train thực** (chỉ các bước train, cộng qua các lần chạy tiếp, không tính lúc dừng hay nạp lại checkpoint) và **tổng thời gian dựng cảnh** (từ stage chuẩn bị dữ liệu đầu tiên tới khi xuất xong file PLY; stage dùng lại kết quả có sẵn tính thời gian của lần chạy gốc).
+- Số iteration, VRAM cao nhất khi train, tốc độ render (FPS) kèm độ phân giải.
+- Số Gaussian của cả model, số Gaussian và dung lượng của file PLY xuất ra.
+- Cấu hình máy đã chạy run (GPU, VRAM của GPU, driver, CPU, RAM, phiên bản PyTorch và CUDA), vì thời gian, VRAM và tốc độ chỉ so được giữa các run chạy trên cùng loại máy.
 - Với mỗi run, ghi rõ LiDAR được dùng ở stage nào, hoặc không dùng.
-- Ghi rõ các ô chọn đã dùng, để so sánh theo từng khâu.
+- Ghi rõ các mục cấu hình đã dùng, để so sánh theo từng khâu.
 
 ## 10. Kết nối mô phỏng
 
@@ -192,7 +198,7 @@ Thứ tự làm thật (`ARCHITECTURE.md` mục 7.4) là bộ khung trước, t�
 1. Một approach chạy trọn luồng mục 5 ở chế độ Local và chế độ Kaggle; khi phiên Kaggle bị ngắt, lần sau chạy tiếp từ chỗ dở.
 2. Kết quả ghi đúng định dạng chuẩn.
 3. Studio hiện đủ nhóm A–D và ẩn nhóm E với approach chỉ đạt L1.
-4. Thêm một approach thứ hai, và thêm một lựa chọn mới cho một ô, mà không sửa mã của engine, Studio hay server.
+4. Thêm một approach thứ hai, và thêm một lựa chọn mới cho một mục cấu hình, mà không sửa mã của engine, Studio hay server.
 
 ## 14. Câu hỏi mở
 
