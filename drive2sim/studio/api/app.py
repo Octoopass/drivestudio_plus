@@ -12,14 +12,14 @@ File này chứa:
 Lệnh ``d2s studio`` (``drive2sim/cli/studio.py``) chạy app này, chỉ nghe trên ``127.0.0.1``.
 """
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -42,6 +42,45 @@ from drive2sim.studio.api.routes import approaches, cache, kaggle, report, runs,
 from drive2sim.studio.api.state import StudioState
 
 FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+
+
+# Tên máy được phép trong Host và Origin: Studio chỉ phục vụ chính máy này (kể cả qua SSH port
+# forward, trình duyệt vẫn gọi localhost). Vite ở chế độ dev chuyển tiếp nguyên Host của nó.
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+def _hostname(value: str) -> str:
+    """Phần tên máy của ``host[:port]`` hoặc của một URL ``scheme://host[:port]``."""
+    value = value.split("://", 1)[-1].split("/", 1)[0]
+    if value.startswith("["):
+        return value.split("]", 1)[0] + "]"
+    return value.rsplit(":", 1)[0] if ":" in value else value
+
+
+def is_local_request(host: Optional[str], origin: Optional[str], method: str) -> bool:
+    """Request có đến từ chính máy này không (chống DNS rebinding và request chéo trang).
+
+    - ``Host`` phải là tên máy cục bộ: một trang web lạ dùng DNS rebinding trỏ tên miền của nó
+      về 127.0.0.1 thì ``Host`` vẫn là tên miền đó.
+    - Lệnh ghi (POST, DELETE...) có ``Origin`` thì ``Origin`` cũng phải là máy cục bộ: trình duyệt
+      gửi POST "đơn giản" chéo trang mà không hỏi trước (CORS preflight), nên chỉ nghe trên
+      127.0.0.1 không chặn được trang lạ gọi ``/api/runs/.../cancel``.
+
+    Args:
+        host: Header ``Host``.
+        origin: Header ``Origin``, nếu có.
+        method: Phương thức HTTP.
+
+    Returns:
+        ``True`` nếu cho qua.
+    """
+    if not host or _hostname(host) not in LOCAL_HOSTS:
+        return False
+    if method.upper() not in SAFE_METHODS and origin:
+        # "null": trang mở từ file:// hoặc sandbox, không biết từ đâu, nên không cho ghi.
+        return origin != "null" and _hostname(origin) in LOCAL_HOSTS
+    return True
 
 
 def error_response(
@@ -178,6 +217,20 @@ def create_app(
     )
     gpu_viewers = GpuViewers(workdir)
     _install_error_handlers(app)
+
+    @app.middleware("http")
+    async def local_only(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """Từ chối request không đến từ chính máy này (``is_local_request``) bằng ``403``."""
+        if not is_local_request(
+            request.headers.get("host"), request.headers.get("origin"), request.method
+        ):
+            return error_response(
+                403, "forbidden", "Studio chỉ nhận request từ chính máy này (localhost)"
+            )
+        return await call_next(request)
+
     for module in (sources, scenes, approaches, runs, report, cache, kaggle):
         app.include_router(module.router)
 

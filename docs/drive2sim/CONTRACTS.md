@@ -798,6 +798,7 @@ Mọi lỗi trả về cùng một hình dạng, HTTP status theo loại:
 | HTTP | `error.code` | Khi nào | Mã thoát CLI tương ứng |
 |---|---|---|---|
 | 400 | `invalid_request` | Thân hoặc query sai cú pháp, sai kiểu, trường lạ | 2 |
+| 403 | `forbidden` | Request không đến từ chính máy này: `Host` không phải `127.0.0.1`/`localhost`, hoặc lệnh ghi có `Origin` lạ (chống DNS rebinding và request chéo trang) | – |
 | 404 | `not_found` | `scene_id`, `run_id`... không tồn tại | 1 |
 | 409 | `conflict` | Đối tượng đã tồn tại, hoặc run đang chạy mà bị yêu cầu xoá | 1 |
 | 422 | `blocked` | Không thoả điều kiện dữ liệu hoặc `constraints` (mục 4.2) | 3 |

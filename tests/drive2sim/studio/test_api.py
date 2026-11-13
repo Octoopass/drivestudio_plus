@@ -19,6 +19,7 @@ import struct
 import subprocess
 import threading
 from pathlib import Path
+from typing import Optional
 
 import pytest
 from fastapi.testclient import TestClient
@@ -31,7 +32,7 @@ from drive2sim.engine.registry import StageRegistry
 from drive2sim.engine.stage import Stage, StageContext
 from drive2sim.engine.workdir import Workdir
 from drive2sim.kaggle import client as kaggle_client
-from drive2sim.studio.api.app import create_app
+from drive2sim.studio.api.app import create_app, is_local_request
 from drive2sim.studio.api.events import EventBroker, stream_events
 from tests.drive2sim.samples import MANIFEST
 
@@ -165,7 +166,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("KAGGLE_CONFIG_DIR", str(tmp_path / "no-kaggle"))
     monkeypatch.setattr(kaggle_client, "_run_cli", no_kaggle_cli)
     app = create_app(workdir, registry=make_registry(), frontend_dir=None)
-    with TestClient(app) as test_client:
+    with TestClient(app, base_url="http://127.0.0.1") as test_client:
         yield test_client
 
 
@@ -375,7 +376,7 @@ def test_frontend_served_at_root(tmp_path: Path) -> None:
     dist.mkdir()
     (dist / "index.html").write_text("<!doctype html><title>drive2sim Studio</title>")
     app = create_app(Workdir(tmp_path / "work"), registry=make_registry(), frontend_dir=dist)
-    with TestClient(app) as test_client:
+    with TestClient(app, base_url="http://127.0.0.1") as test_client:
         root = test_client.get("/")
         assert "drive2sim Studio" in root.text and root.headers["cache-control"] == "no-cache"
         assert test_client.get("/api/scenes").json() == {"items": [], "total": 0}
@@ -446,3 +447,27 @@ def test_source_inspect_and_ingest_job(
     assert failed["status"] == "failed" and "đã có" in failed["error"]
     assert client.get("/api/jobs").json()["total"] == 2
     assert client.get("/api/jobs/nope").status_code == 404
+
+
+def test_foreign_host_and_origin_rejected(client: TestClient) -> None:
+    assert client.get("/api/studio", headers={"host": "evil.example"}).status_code == 403
+    response = client.post(
+        f"/api/runs/{'20260101-000000-toy-ffff'}/cancel",
+        headers={"origin": "https://evil.example"},
+    )
+    assert response.status_code == 403 and response.json()["error"]["code"] == "forbidden"
+
+
+@pytest.mark.parametrize(
+    ("host", "origin", "method", "allowed"),
+    [
+        ("127.0.0.1:8000", None, "GET", True),
+        ("localhost:5173", "http://localhost:5173", "POST", True),
+        ("evil.example:8000", None, "GET", False),  # DNS rebinding
+        ("127.0.0.1:8000", "https://evil.example", "POST", False),  # POST chéo trang
+        ("127.0.0.1:8000", "https://evil.example", "GET", True),  # đọc chéo trang: CORS chặn
+        ("127.0.0.1:8000", "null", "DELETE", False),
+    ],
+)
+def test_local_request_rule(host: str, origin: Optional[str], method: str, allowed: bool) -> None:
+    assert is_local_request(host, origin, method) is allowed
