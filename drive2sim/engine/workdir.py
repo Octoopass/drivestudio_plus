@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 from drive2sim.core import files
+from drive2sim.core.identifiers import RUN_ID_RE
 from drive2sim.core.schema import Manifest, Split
 from drive2sim.engine.stage import Scene
 
@@ -200,7 +201,13 @@ class Workdir:
         Raises:
             WorkdirError: Nếu không có run nào mang ``run_id`` này.
         """
-        approach_id = run_id.split("-")[2] if run_id.count("-") >= 3 else "*"
+        # run_id đi thẳng vào mẫu glob, nên phải đúng định dạng trước: "..", "." hay "*" sẽ khớp
+        # thư mục cảnh, thư mục approach hoặc một run bất kỳ, và lệnh xoá sẽ xoá nhầm chúng.
+        if not RUN_ID_RE.fullmatch(run_id):
+            raise WorkdirError(
+                f"run_id {run_id!r} không hợp lệ; dạng đúng YYYYMMDD-HHMMSS-<approach>-<4 hex>"
+            )
+        approach_id = run_id.split("-")[2]
         matches = sorted(self.runs_dir.glob(f"*/{approach_id}/{run_id}"))
         if not matches:
             raise WorkdirError(f"không tìm thấy run {run_id} trong {self.runs_dir}")
