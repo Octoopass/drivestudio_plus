@@ -71,6 +71,9 @@ class ReportRow:
             lại cache ghi thời gian lần chạy gốc và ``reused`` là ``True``. Không xuất ra CSV.
         gpu: GPU đã chạy run (từ ``env.json``); nhiều GPU khác nhau qua các lần chạy tiếp thì nối
             bằng ``" + "``. Thời gian, VRAM, FPS chỉ so được giữa các run cùng GPU.
+        software: Phiên bản PyTorch và gsplat đã chạy run (từ ``env.json``), ví dụ
+            ``PyTorch 2.4.1+cu121, gsplat 1.5.3``. Khác phiên bản thì kết quả có thể lệch dù cùng
+            cấu hình, nên trang so sánh cảnh báo khi bảng trộn nhiều bản.
     """
 
     run_id: str
@@ -99,6 +102,7 @@ class ReportRow:
     preview_gaussians: Optional[int] = None
     preview_size_mb: Optional[float] = None
     gpu: Optional[str] = None
+    software: Optional[str] = None
     stage_times: dict[str, dict[str, object]] = field(default_factory=dict)
 
 
@@ -243,6 +247,11 @@ def report_rows(
         if env is not None:
             names = list(dict.fromkeys(m.gpu for m in env.machines if m.gpu))
             row.gpu = " + ".join(names) or env.gpu
+            parts = [
+                f"PyTorch {env.pytorch}" if env.pytorch else "",
+                f"gsplat {env.gsplat}" if env.gsplat else "",
+            ]
+            row.software = ", ".join(part for part in parts if part) or None
         summary = load_summary(run_dir)
         if summary is not None:
             metrics = summary.overall
