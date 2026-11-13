@@ -79,6 +79,7 @@ JobStatus = Literal["succeeded", "failed"]
 ERROR_CODES: tuple[str, ...] = (
     "invalid_request",
     "not_found",
+    "forbidden",
     "conflict",
     "blocked",
     "internal",
