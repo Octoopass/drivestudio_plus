@@ -6,6 +6,7 @@
 #   make studio       # bật Studio từ bản đã build (dist/)
 #   make dev          # bật Studio + Vite tự tải lại khi sửa giao diện
 #   make dev DEMO=1   # như trên nhưng trên dữ liệu mẫu (giả) ở .demo/; bỏ DEMO=1 là về dữ liệu thật
+#   make studio CONDA_ENV=drive2sim  # Studio chạy bằng môi trường GPU (mode Render GPU, run trên máy)
 #   make down         # dừng tiến trình đang giữ cổng của lần `studio`/`dev` gần nhất
 #
 # Quy tắc của file này:
@@ -26,6 +27,13 @@ ROOT       := $(CURDIR)
 VENV       := $(ROOT)/.venv
 PY         := $(VENV)/bin/python
 D2S        := $(VENV)/bin/d2s
+# CONDA_ENV=drive2sim: chạy Studio (studio, dev, demo) bằng d2s của conda env có môi trường GPU
+# (envs/main.yml, envs/install_main.sh), để mode Render GPU và run trên máy này dùng được GPU.
+CONDA_ENV ?=
+ifneq ($(CONDA_ENV),)
+  CONDA_BASE := $(shell conda info --base 2>/dev/null)
+  D2S := $(CONDA_BASE)/envs/$(CONDA_ENV)/bin/d2s
+endif
 FRONTEND   := $(ROOT)/drive2sim/studio/frontend
 PORT_STATE := $(ROOT)/.d2s-studio-ports.env
 LINT_PATHS := drive2sim tests
@@ -103,6 +111,7 @@ help:
 	@echo "  make dev         # bật Studio + Vite dev server (tự tải lại khi sửa giao diện)"
 	@echo "  make demo        # = make studio DEMO=1: Studio trên dữ liệu mẫu (giả) ở .demo/"
 	@echo "                   # DEMO=1 dùng được với studio và dev; FORCE=1 để tạo lại dữ liệu mẫu"
+	@echo "                   # CONDA_ENV=drive2sim: chạy Studio bằng môi trường GPU (envs/install_main.sh)"
 	@echo "  make down        # dừng tiến trình đang giữ cổng của Studio"
 	@echo "  make status      # xem cổng nào đang chạy"
 	@echo "  make clean       # xoá __pycache__, .pytest_cache, .ruff_cache"
