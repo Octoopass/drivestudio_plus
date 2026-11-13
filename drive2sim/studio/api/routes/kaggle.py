@@ -12,12 +12,16 @@ File này chứa:
 - ``POST /api/kaggle/{run_id}/pull``: tải kết quả về; trả ``202`` kèm việc.
 """
 
+from collections.abc import Callable
 from typing import Optional
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from drive2sim.engine.workdir import Workdir
 from drive2sim.kaggle import executor, setup
+from drive2sim.kaggle.client import KaggleError
+from drive2sim.studio.api.jobs import RunQueue
 from drive2sim.studio.api.state import StudioState, state_of
 
 router = APIRouter(prefix="/api/kaggle", tags=["kaggle"])
@@ -99,9 +103,26 @@ def pull(run_id: str, request: Request) -> dict:
     """Tải kết quả của run trên Kaggle về ở nền."""
     state = state_of(request)
     state.workdir.find_run(run_id)
+    return state.jobs.submit(
+        "kaggle_pull", f"tải {run_id} từ Kaggle", pull_work(state.workdir, state.queue, run_id)
+    )
+
+
+def pull_work(workdir: Workdir, queue: RunQueue, run_id: str) -> Callable[[], str]:
+    """Việc tải kết quả Kaggle về, có giữ chỗ run trong lúc ghép.
+
+    Không giữ chỗ thì tải về chạy cùng lúc với xuất lại hay chạy tiếp trên cùng thư mục run, hai
+    bên xoá và ghi đè run.json, thư mục stage của nhau.
+    """
 
     def work() -> str:
-        executor.pull_run(state.workdir, run_id)
+        run_dir = workdir.find_run(run_id)
+        if not queue.claim(run_dir):
+            raise KaggleError(f"run {run_id} đang chạy hoặc xếp hàng trên máy; chờ xong rồi tải")
+        try:
+            executor.pull_run(workdir, run_id)
+        finally:
+            queue.release(run_dir)
         return run_id
 
-    return state.jobs.submit("kaggle_pull", f"tải {run_id} từ Kaggle", work)
+    return work

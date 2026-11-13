@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Optional
 
 from drive2sim.engine.registry import REGISTRY, StageRegistry
-from drive2sim.engine.run import execute_run
+from drive2sim.engine.run import RunActiveError, execute_run
 from drive2sim.engine.workdir import Workdir
 from drive2sim.studio.api.events import EventBroker
 
@@ -45,16 +45,46 @@ class RunQueue:
         self.broker = broker
         self.registry = registry
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="d2s-run")
+        # Run đang xếp hàng, đang chạy, hoặc đang được việc khác giữ (tải Kaggle về). run_is_active
+        # chỉ đúng khi engine đã ghi file pid, nên run chờ trong hàng đợi phải giữ chỗ ở đây: không
+        # thì bấm "chạy tiếp" hai lần, hay xuất lại trong lúc đang tải Kaggle về, sẽ chạy trùng.
+        self._busy: set[str] = set()
+        self._lock = threading.Lock()
 
-    def submit(self, run_dir: Path) -> "Future[None]":
+    def claim(self, run_dir: Path) -> bool:
+        """Giữ chỗ cho một run; ``False`` nếu run đã được giữ (xếp hàng, chạy, đang tải về)."""
+        key = str(Path(run_dir).resolve())
+        with self._lock:
+            if key in self._busy:
+                return False
+            self._busy.add(key)
+            return True
+
+    def release(self, run_dir: Path) -> None:
+        """Trả chỗ của một run đã giữ bằng ``claim``."""
+        with self._lock:
+            self._busy.discard(str(Path(run_dir).resolve()))
+
+    def is_busy(self, run_dir: Path) -> bool:
+        """Run có đang được giữ chỗ không."""
+        with self._lock:
+            return str(Path(run_dir).resolve()) in self._busy
+
+    def submit(self, run_dir: Path, claimed: bool = False) -> "Future[None]":
         """Xếp một run vào hàng đợi.
 
         Args:
             run_dir: Thư mục run đã tạo bằng ``create_run``, hoặc run cần chạy tiếp.
+            claimed: Người gọi đã ``claim`` run này (để sửa run.json trước khi xếp hàng).
 
         Returns:
             ``Future`` xong khi run kết thúc; test dùng để chờ.
+
+        Raises:
+            RunActiveError: Nếu run đã xếp hàng, đang chạy hoặc đang được tải về.
         """
+        if not claimed and not self.claim(run_dir):
+            raise RunActiveError(f"run {Path(run_dir).name} đang xếp hàng hoặc đang được xử lý")
         return self._executor.submit(self._run, Path(run_dir))
 
     def _run(self, run_dir: Path) -> None:
@@ -65,6 +95,17 @@ class RunQueue:
         """
         try:
             execute_run(run_dir, self.workdir, self.registry, sink=self.broker.publish)
+        except RunActiveError as error:
+            # Run được một tiến trình khác (lệnh d2s) chạy: báo, không ghi đè trạng thái của nó.
+            self.broker.publish(
+                {
+                    "event": "log",
+                    "run_id": run_dir.name,
+                    "stage_id": None,
+                    "level": "error",
+                    "message": str(error),
+                }
+            )
         except Exception as error:
             logger.exception("run %s failed outside a stage", run_dir.name)
             self.broker.publish(
@@ -77,6 +118,8 @@ class RunQueue:
                 }
             )
             self.broker.publish({"event": "done", "run_id": run_dir.name, "status": "failed"})
+        finally:
+            self.release(run_dir)
 
     def wait_idle(self, timeout: float = 60.0) -> None:
         """Chờ mọi run đã xếp hàng chạy xong.
@@ -93,8 +136,11 @@ class RunQueue:
         self._executor.submit(lambda: None).result(timeout)
 
     def shutdown(self) -> None:
-        """Dừng nhận run mới và chờ run đang chạy xong; gọi khi tắt Studio."""
-        self._executor.shutdown(wait=True)
+        """Dừng nhận run mới, bỏ các run còn chờ, và chờ run đang chạy xong; gọi khi tắt Studio.
+
+        Run bị bỏ vẫn ở ``pending`` trong ``run.json``, bấm chạy tiếp khi mở lại Studio.
+        """
+        self._executor.shutdown(wait=True, cancel_futures=True)
 
 
 class BackgroundJobs:
@@ -173,5 +219,5 @@ class BackgroundJobs:
         self._executor.submit(lambda: None).result(timeout)
 
     def shutdown(self) -> None:
-        """Chờ việc đang chạy xong; gọi khi tắt Studio."""
-        self._executor.shutdown(wait=True)
+        """Bỏ các việc còn chờ và chờ việc đang chạy xong; gọi khi tắt Studio."""
+        self._executor.shutdown(wait=True, cancel_futures=True)

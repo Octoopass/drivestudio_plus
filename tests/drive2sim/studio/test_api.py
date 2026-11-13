@@ -471,3 +471,24 @@ def test_foreign_host_and_origin_rejected(client: TestClient) -> None:
 )
 def test_local_request_rule(host: str, origin: Optional[str], method: str, allowed: bool) -> None:
     assert is_local_request(host, origin, method) is allowed
+
+
+def test_run_held_by_another_job_is_not_queued_twice(client: TestClient) -> None:
+    """Run đang xếp hàng hoặc đang tải về (giữ chỗ trong hàng đợi): chạy tiếp, xuất lại → 409."""
+    split_id = create_split(client)
+    run_id = client.post(
+        "/api/runs", json={"approach_id": "toy", "scene_id": SCENE, "split_id": split_id}
+    ).json()["run_id"]
+    queue = client.app.state.studio.queue
+    queue.wait_idle()
+    run_dir = client.app.state.studio.workdir.find_run(run_id)
+    assert queue.claim(run_dir)  # ví dụ việc tải Kaggle về đang giữ run
+    try:
+        assert client.post(f"/api/runs/{run_id}/resume").status_code == 409
+        export = client.post(f"/api/runs/{run_id}/export", json={"kind": "ply"})
+        assert export.status_code in (400, 409)  # toy registry không có stage export
+    finally:
+        queue.release(run_dir)
+    assert client.post(f"/api/runs/{run_id}/resume").status_code == 202
+    queue.wait_idle()
+    assert not queue.is_busy(run_dir)  # chạy xong thì trả chỗ

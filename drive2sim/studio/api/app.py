@@ -12,6 +12,7 @@ File này chứa:
 Lệnh ``d2s studio`` (``drive2sim/cli/studio.py``) chạy app này, chỉ nghe trên ``127.0.0.1``.
 """
 
+import atexit
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -201,7 +202,12 @@ def create_app(
         """Bật theo dõi Kaggle khi mở; khi tắt Studio, chờ run đang chạy xong rồi mới thoát."""
         watcher = None
         if kaggle_watch_s:
-            watcher = KaggleWatcher(workdir, app.state.studio.jobs, interval_s=kaggle_watch_s)
+            watcher = KaggleWatcher(
+                workdir,
+                app.state.studio.jobs,
+                interval_s=kaggle_watch_s,
+                queue=app.state.studio.queue,
+            )
             watcher.start()
         yield
         if watcher is not None:
@@ -221,6 +227,9 @@ def create_app(
         workdir, broker, RunQueue(workdir, broker, registry), registry, BackgroundJobs(workdir)
     )
     gpu_viewers = GpuViewers(workdir)
+    # Viewer chạy trong nhóm tiến trình riêng nên không chết theo Studio: Ctrl+C lần hai (bỏ qua
+    # bước dọn dẹp của lifespan) vẫn phải tắt nó, nếu không nó giữ VRAM và cổng.
+    atexit.register(gpu_viewers.stop)
     _install_error_handlers(app)
 
     @app.middleware("http")

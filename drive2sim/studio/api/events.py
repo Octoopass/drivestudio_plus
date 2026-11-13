@@ -16,9 +16,9 @@ import asyncio
 import json
 import threading
 from collections import deque
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union
 
 HISTORY_SIZE = 1000
 KEEPALIVE_S = 15.0
@@ -117,21 +117,24 @@ def format_sse(event: Event, event_id: Optional[int] = None) -> str:
 async def stream_events(
     broker: EventBroker,
     run_id: Optional[str],
-    initial: list[Event],
+    initial: Union[list[Event], Callable[[], list[Event]]],
     last_event_id: Optional[int] = None,
     keepalive_s: float = KEEPALIVE_S,
 ) -> AsyncIterator[str]:
     """Sinh dữ liệu cho một kết nối SSE.
 
-    Gửi các sự kiện ``initial`` (trạng thái hiện tại) trước, để giao diện mở muộn vẫn đúng; rồi
-    các sự kiện bị lỡ; rồi sự kiện mới. Không có sự kiện trong ``keepalive_s`` giây thì gửi dòng
-    ``: keepalive`` để kết nối không bị proxy hoặc port forward cắt. Khi theo dõi một run, kết
-    nối đóng sau sự kiện ``done`` (CONTRACTS mục 11.4).
+    Gửi các sự kiện bị lỡ (khi trình duyệt kết nối lại với ``Last-Event-ID``), rồi ``initial``
+    (trạng thái hiện tại), rồi sự kiện mới. Trạng thái hiện tại đi sau phần bị lỡ để giao diện
+    luôn dừng ở trạng thái mới nhất, kể cả khi lịch sử đã mất (Studio khởi động lại). Nếu
+    ``initial`` là hàm, nó được gọi **sau** khi đăng ký nhận sự kiện, để sự kiện phát ra giữa lúc
+    đọc trạng thái và lúc đăng ký (ví dụ ``done``) không bị lỡ. Không có sự kiện trong
+    ``keepalive_s`` giây thì gửi dòng ``: keepalive`` để kết nối không bị proxy hoặc port forward
+    cắt. Khi theo dõi một run, kết nối đóng sau sự kiện ``done`` (CONTRACTS mục 11.4).
 
     Args:
         broker: Nơi trung chuyển sự kiện.
         run_id: Run cần theo dõi, hoặc ``None`` cho mọi run.
-        initial: Sự kiện gửi ngay khi kết nối, thường là trạng thái hiện tại.
+        initial: Sự kiện trạng thái hiện tại, hoặc hàm trả về chúng (đọc sau khi đăng ký).
         last_event_id: Header ``Last-Event-ID`` của client, nếu có.
         keepalive_s: Khoảng giữa hai dòng giữ kết nối, giây.
 
@@ -140,12 +143,11 @@ async def stream_events(
     """
     subscriber, missed = broker.subscribe(run_id, last_event_id)
     try:
-        for event in initial:
-            yield format_sse(event)
-            if run_id is not None and event.get("event") == "done":
-                return
+        current = initial() if callable(initial) else initial
         for event_id, event in missed:
             yield format_sse(event, event_id)
+        for event in current:
+            yield format_sse(event)
             if run_id is not None and event.get("event") == "done":
                 return
         while True:
@@ -157,5 +159,9 @@ async def stream_events(
             yield format_sse(event, event_id)
             if run_id is not None and event.get("event") == "done":
                 return
+    except asyncio.CancelledError:
+        # Studio đang tắt và cắt các kết nối còn mở (hạn chót của uvicorn): kết thúc luồng như
+        # bình thường thay vì để lỗi in thành traceback "Exception in ASGI application".
+        return
     finally:
         broker.unsubscribe(subscriber)

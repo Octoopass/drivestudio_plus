@@ -85,6 +85,12 @@ def _load(request: Request, run_id: str) -> tuple[Path, RunRecord]:
     return run_dir, files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
 
 
+def _claim(request: Request, run_dir: Path, run_id: str) -> None:
+    """Giữ chỗ cho run trước khi sửa nó, hoặc ``409`` nếu run đang chạy, xếp hàng hay tải về."""
+    if run_is_active(run_dir) or not state_of(request).queue.claim(run_dir):
+        raise HTTPException(409, f"run {run_id} đang chạy, đang xếp hàng hoặc đang tải về")
+
+
 def _tail(path: Path, lines: int = LOG_TAIL_LINES) -> str:
     """Đọc ``lines`` dòng cuối của một file văn bản; trả chuỗi rỗng nếu không có file."""
     if not path.is_file():
@@ -148,9 +154,8 @@ def resume_run(run_id: str, request: Request) -> dict:
         ``run.json`` hiện tại.
     """
     run_dir, record = _load(request, run_id)
-    if run_is_active(run_dir):
-        raise HTTPException(409, f"run {run_id} đang chạy")
-    state_of(request).queue.submit(run_dir)
+    _claim(request, run_dir, run_id)
+    state_of(request).queue.submit(run_dir, claimed=True)
     return record.model_dump(mode="json")
 
 
@@ -176,7 +181,13 @@ def delete_run(run_id: str, request: Request) -> dict:
     Returns:
         ``{"removed": [đường dẫn đã xoá]}``.
     """
-    return {"removed": housekeeping.delete_run(state_of(request).workdir, run_id)}
+    state = state_of(request)
+    run_dir = state.workdir.find_run(run_id)
+    _claim(request, run_dir, run_id)
+    try:
+        return {"removed": housekeeping.delete_run(state.workdir, run_id)}
+    finally:
+        state.queue.release(run_dir)
 
 
 @router.post("/api/runs/{run_id}/export", status_code=202)
@@ -188,13 +199,16 @@ def export_run(run_id: str, body: ExportBody, request: Request) -> dict:
     """
     state = state_of(request)
     run_dir, _ = _load(request, run_id)
-    if run_is_active(run_dir):
-        raise HTTPException(409, f"run {run_id} đang chạy")
     stage_id = EXPORT_STAGES[body.kind]
     if stage_id not in state.registry:
         raise HTTPException(400, f"stage {stage_id} chưa có")
-    record = reset_stage(run_dir, stage_id, state.registry)
-    state.queue.submit(run_dir)
+    _claim(request, run_dir, run_id)
+    try:
+        record = reset_stage(run_dir, stage_id, state.registry)
+    except BaseException:
+        state.queue.release(run_dir)
+        raise
+    state.queue.submit(run_dir, claimed=True)
     return record.model_dump(mode="json")
 
 
@@ -217,10 +231,14 @@ def run_events(
     run_id: str, request: Request, last_event_id: Optional[int] = Header(default=None)
 ) -> StreamingResponse:
     """Phát tiến độ của một run qua SSE; đóng kết nối sau sự kiện ``done``."""
-    _, record = _load(request, run_id)
+    run_dir, _ = _load(request, run_id)
     state = state_of(request)
-    initial = [] if last_event_id is not None else _initial_events(record)
-    stream = stream_events(state.broker, run_id, initial, last_event_id)
+
+    def current() -> list[dict]:
+        # Đọc run.json sau khi stream đã đăng ký nhận sự kiện (xem stream_events).
+        return _initial_events(files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord))
+
+    stream = stream_events(state.broker, run_id, current, last_event_id)
     return StreamingResponse(stream, media_type="text/event-stream")
 
 

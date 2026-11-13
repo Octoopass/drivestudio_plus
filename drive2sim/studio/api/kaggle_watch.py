@@ -21,7 +21,7 @@ from typing import Optional
 from drive2sim.engine.workdir import Workdir
 from drive2sim.kaggle import executor
 from drive2sim.kaggle.client import KaggleClient, KaggleError
-from drive2sim.studio.api.jobs import BackgroundJobs
+from drive2sim.studio.api.jobs import BackgroundJobs, RunQueue
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_INTERVAL_S = 300
@@ -63,6 +63,7 @@ class KaggleWatcher:
         interval_s: Khoảng giữa hai lần hỏi khi mọi thứ bình thường.
         max_interval_s: Khoảng chờ tối đa khi hỏi lỗi liên tiếp.
         client_factory: Tạo ``KaggleClient``; test truyền client giả.
+        queue: Hàng đợi run của Studio, để giữ chỗ run trong lúc tải về.
     """
 
     def __init__(
@@ -72,12 +73,14 @@ class KaggleWatcher:
         interval_s: float = DEFAULT_INTERVAL_S,
         max_interval_s: float = MAX_INTERVAL_S,
         client_factory: Callable[[], KaggleClient] = KaggleClient,
+        queue: Optional["RunQueue"] = None,
     ) -> None:
         self.workdir = workdir
         self.jobs = jobs
         self.interval_s = interval_s
         self.max_interval_s = max(max_interval_s, interval_s)
         self.client_factory = client_factory
+        self.queue = queue
         self._submitted: set[str] = set()  # notebook đã xếp việc tải, không xếp lại
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -119,6 +122,11 @@ class KaggleWatcher:
         return queued
 
     def _pull(self, run_id: str) -> Callable[[], str]:
+        if self.queue is not None:
+            from drive2sim.studio.api.routes.kaggle import pull_work
+
+            return pull_work(self.workdir, self.queue, run_id)
+
         def work() -> str:
             executor.pull_run(self.workdir, run_id)
             return run_id
