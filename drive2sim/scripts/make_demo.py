@@ -462,7 +462,10 @@ def make_run(
     ]
     env = {
         "schema_version": SCHEMA_VERSIONS["env"], "code_commit": "e695d7d", "python": "3.9.19",
-        "pytorch": "2.0.0+cu117", "cuda": "11.7", "gsplat": "1.3.0",
+        # Run trên máy cá nhân (4090) dùng môi trường mới, run trên Kaggle dùng bản cũ: để thấy
+        # cảnh báo trộn phiên bản ở trang so sánh.
+        **({"pytorch": "2.4.1+cu121", "cuda": "12.1", "gsplat": "1.5.3"} if "4090" in spec.get("machines", [])
+           else {"pytorch": "2.0.0+cu117", "cuda": "11.7", "gsplat": "1.3.0"}),
         "gpu": machines[-1]["gpu"], "seed": 0, "executor": run["executor"], "machines": machines,
     }  # fmt: skip
     files.dump(EnvRecord.model_validate(env), run_dir / "d2s" / "env.json")

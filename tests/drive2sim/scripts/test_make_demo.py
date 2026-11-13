@@ -26,6 +26,8 @@ def test_make_demo_builds_a_readable_workdir(
     first = rows["20261112-081000-omnire-a1b2"]
     assert first.psnr == 27.64 and first.recon_time_s and first.ply_gaussians
     assert rows["20261112-093000-omnire-b7c1"].gpu == "Tesla T4 + Tesla P100-PCIE-16GB"
+    assert first.software == "PyTorch 2.0.0+cu117, gsplat 1.3.0"
+    assert rows["20261112-101500-streetgs-c3d4"].software == "PyTorch 2.4.1+cu121, gsplat 1.5.3"
     assert rows["20261112-120500-omnire-d9e0"].quick is True
     stale = [e for e in cache_entries(work) if not e.used_by]
     assert [e.cache_key for e in stale] == [
