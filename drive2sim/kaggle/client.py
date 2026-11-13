@@ -10,7 +10,8 @@ Cần: ``pip install kaggle`` và khoá API (trang Settings của Kaggle, mục 
 File này chứa:
 - ``KaggleError``: lỗi khi gọi Kaggle (chưa cài, chưa đăng nhập, lệnh lỗi).
 - ``KaggleClient``: các thao tác tool cần: tên người dùng, trạng thái và tạo dataset, đẩy
-  notebook, trạng thái notebook, tải output của notebook.
+  notebook, trạng thái notebook, tải output của notebook; phiên bản lệnh, nguồn khoá API và hạn
+  mức GPU cho màn hình thiết lập Kaggle.
 """
 
 import json
@@ -137,6 +138,74 @@ class KaggleClient:
         text = self._call("kernels", "status", slug).strip()
         match = re.search(r'has status "(?:\w+\.)?(\w+)"', text)
         return match.group(1).lower() if match else text
+
+    @property
+    def config_dir(self) -> Path:
+        """Thư mục cấu hình của Kaggle CLI (``KAGGLE_CONFIG_DIR`` hoặc ``~/.kaggle``)."""
+        return self._config_dir
+
+    def version(self) -> Optional[str]:
+        """Phiên bản của lệnh ``kaggle``, ví dụ ``2.2.5``; ``None`` nếu chưa cài hoặc lệnh lỗi."""
+        try:
+            result = self._runner(["kaggle", "--version"])
+        except KaggleError:
+            return None
+        match = re.search(r"(\d+\.\d+(?:\.\d+)?)", result.stdout or "")
+        return match.group(1) if result.returncode == 0 and match else None
+
+    def credential_source(self) -> Optional[str]:
+        """Khoá API đang lấy từ đâu, theo thứ tự Kaggle CLI đọc; ``None`` nếu chưa có khoá.
+
+        Returns:
+            ``env`` (biến môi trường), ``access_token`` (token mới), ``kaggle.json`` (kiểu cũ),
+            ``oauth`` (``kaggle auth login``), hoặc ``None``.
+        """
+        if os.environ.get("KAGGLE_API_TOKEN") or (
+            os.environ.get("KAGGLE_USERNAME") and os.environ.get("KAGGLE_KEY")
+        ):
+            return "env"
+        for name, source in (
+            ("access_token", "access_token"),
+            ("kaggle.json", "kaggle.json"),
+            ("credentials.json", "oauth"),
+        ):
+            if (self._config_dir / name).is_file():
+                return source
+        return None
+
+    def quota(self) -> list[dict[str, object]]:
+        """Hạn mức GPU, TPU của tài khoản trong tuần (``kaggle quota``); cần đăng nhập được.
+
+        Returns:
+            Mỗi tài nguyên một mục ``{"resource", "used_h", "remaining_h", "total_h",
+            "refresh_at"}``; số giờ là số thực.
+
+        Raises:
+            KaggleError: Nếu chưa đăng nhập được hoặc không đọc được kết quả.
+        """
+        text = self._call("quota", "--format", "json")
+        try:
+            rows = json.loads(text)
+        except ValueError:
+            raise KaggleError(
+                f"kaggle quota trả về không đọc được: {text.strip()[:120]}"
+            ) from None
+
+        def hours(value: object) -> Optional[float]:
+            match = re.match(r"^\s*([\d.]+)\s*h?\s*$", str(value))
+            return float(match.group(1)) if match else None
+
+        return [
+            {
+                "resource": str(row.get("resource", "")),
+                "used_h": hours(row.get("used")),
+                "remaining_h": hours(row.get("remaining")),
+                "total_h": hours(row.get("total")),
+                "refresh_at": row.get("refreshAt"),
+            }
+            for row in rows
+            if isinstance(row, dict)
+        ]
 
     def kernel_output(self, slug: str, destination: Path) -> None:
         """Tải output của notebook về ``destination``.

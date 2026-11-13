@@ -5,7 +5,10 @@ Luồng:
    sinh notebook từ ``templates/run.ipynb`` có nhúng gói job, đẩy notebook; Kaggle chạy ngay.
    Ghi ``d2s/kaggle.json`` trong thư mục run để biết notebook nào đang chạy run này.
 2. ``kernel_state``: hỏi trạng thái notebook.
-3. ``pull_run``: tải output, ghép ``runs/`` và ``cache/`` vào thư mục làm việc trên máy.
+3. ``pull_run``: tải output, ghép ``runs/`` và ``cache/`` vào thư mục làm việc trên máy. Bản trên
+   Kaggle thắng ở mọi stage nó có; stage chỉ có trên máy (ví dụ ``export.preview`` chạy trên máy
+   sau lần tải trước) được giữ lại và ghép vào ``run.json``; ``env.json`` giữ cả các máy đã chạy
+   trên máy này.
 
 Phiên Kaggle bị ngắt giữa chừng thì ``pull_run`` rồi ``push_run`` lần nữa: lần đẩy sau gắn output
 của notebook trước làm đầu vào, nên stage đã xong không chạy lại và train chạy tiếp từ
@@ -31,9 +34,10 @@ from typing import Optional
 
 from drive2sim import paths
 from drive2sim.core import files
-from drive2sim.core.schema import RunRecord
+from drive2sim.core.schema import EnvRecord, RunRecord
 from drive2sim.engine.cache import PARTIAL_SUFFIX
-from drive2sim.engine.run import D2S_DIR, RUN_FILE
+from drive2sim.engine.machine import same_machine
+from drive2sim.engine.run import D2S_DIR, ENV_FILE, RUN_FILE, run_is_active
 from drive2sim.engine.workdir import Workdir
 from drive2sim.kaggle.bundle import write_bundle
 from drive2sim.kaggle.client import KaggleClient, KaggleError
@@ -276,20 +280,92 @@ def kernel_state(workdir: Workdir, run_id: str, client: Optional[KaggleClient] =
     return {**asdict(state), "status": client.kernel_status(state.kernel)}
 
 
+STAGES_DIR = "stages"
+
+
+def _load_or_none(path: Path, model: type) -> Optional[object]:
+    """Đọc một file JSON theo schema; thiếu file hoặc file hỏng thì trả ``None``."""
+    try:
+        return files.load(path, model)
+    except (OSError, ValueError):
+        return None
+
+
+def _replace(source: Path, target: Path) -> None:
+    """Chuyển ``source`` vào chỗ ``target``, xoá ``target`` cũ (file hoặc thư mục) nếu có."""
+    if target.is_dir() and not target.is_symlink():
+        shutil.rmtree(target)
+    elif target.exists() or target.is_symlink():
+        target.unlink()
+    shutil.move(str(source), str(target))
+
+
+def _merge_d2s(local: Path, remote: Path) -> list[str]:
+    """Ghép ``d2s/`` tải từ Kaggle vào ``d2s/`` của run trên máy.
+
+    - Mỗi stage có trong bản Kaggle thay stage cùng tên trên máy (bản Kaggle mới hơn).
+    - Stage chỉ có trên máy, đã có thư mục kết quả, được giữ lại: thư mục giữ nguyên, bản ghi của
+      nó nối vào cuối ``run.json`` lấy từ Kaggle.
+    - ``env.json`` lấy từ Kaggle, cộng thêm các máy chỉ có trong bản trên máy.
+    - ``kaggle.json`` trên máy giữ nguyên; các file khác lấy theo bản Kaggle.
+
+    Args:
+        local: ``d2s/`` của run trên máy.
+        remote: ``d2s/`` của run trong output Kaggle (sẽ bị chuyển đi).
+
+    Returns:
+        Các ``stage_id`` chỉ có trên máy đã được giữ lại.
+    """
+    local_record = _load_or_none(local / RUN_FILE, RunRecord)
+    remote_record = _load_or_none(remote / RUN_FILE, RunRecord)
+    local_env = _load_or_none(local / ENV_FILE, EnvRecord)
+    remote_ids = {s.stage_id for s in remote_record.stages} if remote_record else set()
+    kept = [
+        stage
+        for stage in (local_record.stages if local_record else [])
+        if stage.stage_id not in remote_ids and (local / STAGES_DIR / stage.stage_id).is_dir()
+    ]
+    for item in remote.iterdir():
+        if item.name == STATE_FILE:
+            continue
+        target = local / item.name
+        if item.name == STAGES_DIR and item.is_dir() and target.is_dir():
+            for stage_dir in item.iterdir():
+                _replace(stage_dir, target / stage_dir.name)
+            continue
+        _replace(item, target)
+    if kept and remote_record is not None:
+        merged = remote_record.model_copy(update={"stages": [*remote_record.stages, *kept]})
+        files.dump(merged, local / RUN_FILE)
+    env = _load_or_none(local / ENV_FILE, EnvRecord)
+    if local_env is not None and env is not None:
+        extra = [
+            m for m in local_env.machines if not any(same_machine(m, s) for s in env.machines)
+        ]
+        if extra:
+            files.dump(
+                env.model_copy(update={"machines": [*env.machines, *extra]}), local / ENV_FILE
+            )
+    return [stage.stage_id for stage in kept]
+
+
 def pull_run(workdir: Workdir, run_id: str, client: Optional[KaggleClient] = None) -> RunRecord:
     """Tải output của notebook và ghép vào thư mục làm việc.
 
-    Thay nội dung ``d2s/`` của run bằng bản trên Kaggle (giữ ``kaggle.json``); chép thêm các kết
-    quả cache mà máy chưa có.
+    Ghép ``d2s/`` của run theo ``_merge_d2s``: bản Kaggle thắng ở mọi stage nó có, stage chỉ có
+    trên máy được giữ lại. Chép thêm các kết quả cache mà máy chưa có; cache đã có giữ nguyên.
 
     Returns:
         ``run.json`` sau khi ghép.
 
     Raises:
-        KaggleError: Nếu run chưa đẩy lên Kaggle, hoặc output không có run này.
+        KaggleError: Nếu run chưa đẩy lên Kaggle, đang chạy trên máy, hoặc output không có run
+            này.
     """
     client = client or KaggleClient()
     run_dir = workdir.find_run(run_id)
+    if run_is_active(run_dir):
+        raise KaggleError(f"run {run_id} đang chạy trên máy (ví dụ đang xuất); chờ xong rồi tải")
     state = load_state(run_dir)
     if state is None:
         raise KaggleError(f"run {run_id} chưa đẩy lên Kaggle")
@@ -300,16 +376,7 @@ def pull_run(workdir: Workdir, run_id: str, client: Optional[KaggleClient] = Non
         found = [p for p in output.glob(f"**/{relative.as_posix()}") if (p / D2S_DIR).is_dir()]
         if not found:
             raise KaggleError(f"output của {state.kernel} không có {relative}")
-        remote_d2s = found[0] / D2S_DIR
-        for item in remote_d2s.iterdir():
-            if item.name == STATE_FILE:
-                continue
-            target = run_dir / D2S_DIR / item.name
-            if target.is_dir():
-                shutil.rmtree(target)
-            elif target.exists():
-                target.unlink()
-            shutil.move(str(item), str(target))
+        _merge_d2s(run_dir / D2S_DIR, found[0] / D2S_DIR)
         remote_cache = found[0].parents[2].parent / "cache"
         for entry in sorted(remote_cache.glob("*/*")):
             target = workdir.cache_dir / entry.parent.name / entry.name

@@ -5,7 +5,7 @@
 ``cache/``). File này kiểm tra:
 - đẩy lần đầu: upload cảnh một lần, notebook có gói job và đúng commit, ghi ``kaggle.json``;
 - dựng thư mục làm việc trên Kaggle từ gói job (``materialize``), kể cả chạy tiếp từ output cũ;
-- tải về: ghép ``d2s/`` và cache, giữ ``kaggle.json``;
+- tải về: ghép ``d2s/`` và cache, giữ ``kaggle.json`` và stage chỉ có trên máy;
 - đẩy lần hai: chạy tiếp từ notebook trước; từ chối khi notebook trước còn chạy;
 - lệnh CLI ``d2s kaggle status`` và lỗi ``kaggle_failed``.
 """
@@ -186,7 +186,19 @@ def test_push_materialize_pull_and_resume(setup: tuple[Workdir, FakeKaggle]) -> 
     resumed = fake_kaggle_run(fake, second.kernel, "succeeded", state.kernel)
     assert files.load(resumed / D2S_DIR / RUN_FILE, RunRecord).status == "succeeded"
     assert (resumed.parents[3] / "cache" / SCENE / CACHE_KEY).is_dir()
-    assert executor.pull_run(workdir, RUN_ID, client=fake).status == "succeeded"
+    # Giữa hai lần tải, run được xuất thêm trên máy: stage này không có trên Kaggle, tải lần nữa
+    # không được xoá nó.
+    local_d2s = run_dir / D2S_DIR
+    local_record = files.load(local_d2s / RUN_FILE, RunRecord)
+    extra = local_record.stages[-1].model_copy(update={"stage_id": "export.preview"})
+    local_record.stages.append(extra)
+    files.dump(local_record, local_d2s / RUN_FILE)
+    (local_d2s / "stages" / "export.preview").mkdir(parents=True)
+    (local_d2s / "stages" / "export.preview" / "preview.json").write_text("{}")
+    pulled = executor.pull_run(workdir, RUN_ID, client=fake)
+    assert pulled.status == "succeeded"
+    assert pulled.stages[-1].stage_id == "export.preview"
+    assert (local_d2s / "stages" / "export.preview" / "preview.json").is_file()
     with pytest.raises(KaggleError, match="đã xong"):
         executor.push_run(workdir, RUN_ID, client=fake)
 
