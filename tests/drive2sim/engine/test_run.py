@@ -166,13 +166,29 @@ def test_run_succeeds_and_writes_contracts_files(workdir: Workdir) -> None:
     assert {"progress", "metric"} <= set(kinds)
 
 
+def test_quick_flag_written_to_run_json(workdir: Workdir) -> None:
+    scene = workdir.load_scene(MANIFEST["scene_id"])
+    split = workdir.load_split(MANIFEST["scene_id"], SPLIT["split_id"])
+    plan = resolve(
+        Approach.model_validate(APPROACH), scene.manifest, split, registry=make_registry()
+    )
+    plan.quick = True
+    run_dir = create_run(plan, workdir, scene, split)
+    record = files.load(run_dir / "d2s" / "run.json", RunRecord)
+    assert record.approach.quick is True
+    assert record.schema_version == "d2s-run/0.3"
+
+
 def test_cache_shared_between_runs(workdir: Workdir) -> None:
     registry = make_registry()
-    execute_run(new_run(workdir, registry), workdir, registry)
+    first = execute_run(new_run(workdir, registry), workdir, registry)
     record = execute_run(new_run(workdir, registry), workdir, registry)
     assert CALLS == {"init.toy": 1, "train.toy": 2}
     assert record.stages[0].cache_hit is True
     assert record.stages[0].duration_s == 0
+    # run sau ghi thời gian lần chạy gốc, đọc từ artifact.json trong cache
+    original = record.stages[0].reused_duration_s
+    assert original is not None and 0 <= original <= first.stages[0].duration_s
 
 
 def test_cache_key_changes_with_params(workdir: Workdir) -> None:
@@ -197,6 +213,7 @@ def test_failure_then_resume(workdir: Workdir) -> None:
     assert "RuntimeError: boom" in (run_dir / "d2s" / "log.txt").read_text()
     assert not (run_dir / "d2s" / "stages" / "train.toy" / "done").exists()
     init_duration = record.stages[0].duration_s
+    failed_train_duration = record.stages[1].duration_s
 
     BEHAVIOUR.clear()
     record = execute_run(run_dir, workdir, registry)
@@ -205,6 +222,8 @@ def test_failure_then_resume(workdir: Workdir) -> None:
     assert CALLS == {"init.toy": 1, "train.toy": 2}
     # stage đã xong ở lần trước giữ nguyên số đo
     assert record.stages[0].duration_s == init_duration
+    # stage chạy lại cộng dồn thời gian của lần lỗi và lần chạy tiếp
+    assert record.stages[1].duration_s >= failed_train_duration
     assert record.stages[0].cache_hit is False
 
 

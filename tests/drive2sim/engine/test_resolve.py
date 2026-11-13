@@ -1,12 +1,13 @@
 """Kiểm tra bước quyết định danh sách stage trong ``drive2sim/engine/resolve.py``.
 
-File này kiểm tra, trên một approach giả có ô ``init``, ``renderer``, ``campose``:
-- giá trị của ô gộp đúng thứ tự mặc định → preset → lựa chọn của người dùng;
+File này kiểm tra, trên một approach giả có mục cấu hình ``init``, ``renderer``, ``campose``:
+- giá trị của mục cấu hình gộp đúng thứ tự mặc định → preset → lựa chọn của người dùng;
 - ``auto`` chọn ``init.lidar`` khi cảnh có LiDAR và ``init.depth`` khi không có;
 - tham số stage được gộp, kiểm tra, và đầu vào được nối với đúng stage phía trước;
 - các trường hợp bị khoá (thiếu LiDAR, vi phạm ràng buộc, sai track, sai chiến lược split, mô
   hình camera không hỗ trợ) báo ``BlockedError`` kèm đủ mọi lý do;
-- các yêu cầu sai (preset, ô, giá trị, tham số, stage không tồn tại) báo ``ResolveError``.
+- các yêu cầu sai (preset, mục cấu hình, giá trị, tham số, stage không tồn tại) báo
+  ``ResolveError``.
 """
 
 import copy
@@ -19,6 +20,7 @@ from pydantic import BaseModel, ConfigDict
 from drive2sim.core.schema import Approach, Manifest, Split
 from drive2sim.engine.registry import StageRegistry
 from drive2sim.engine.resolve import (
+    QUICK_NUM_ITERS,
     BlockedError,
     Plan,
     ResolveError,
@@ -144,6 +146,34 @@ def test_params_merged_and_inputs_wired() -> None:
     assert train.input_sources == {"points": 0, "split": "split"}
 
 
+def test_preset_name_kept_only_when_configuration_matches() -> None:
+    assert run_resolve(preset="fisheye").preset == "fisheye"
+    # chỉnh lại đúng giá trị của preset: vẫn là preset đó
+    same = run_resolve(preset="fisheye", option_values={"renderer": "3dgeer"})
+    assert same.preset == "fisheye"
+    # chỉnh khác preset: cấu hình không còn là "fisheye"
+    changed = run_resolve(preset="fisheye", option_values={"renderer": "3dgs"})
+    assert changed.preset is None and changed.options["renderer"] == "3dgs"
+
+
+def test_quick_sets_num_iters_unless_user_set_it() -> None:
+    plan = run_resolve(quick=True)
+    assert plan.quick is True
+    assert plan.stages[1].params["num_iters"] == QUICK_NUM_ITERS
+
+    user = {"train.fake": {"num_iters": 500}}
+    plan = run_resolve(quick=True, stage_params=user)
+    assert plan.stages[1].params["num_iters"] == 500
+    assert user == {"train.fake": {"num_iters": 500}}  # không sửa dict của người gọi
+    assert run_resolve().quick is False
+
+
+def test_quick_needs_a_stage_with_num_iters() -> None:
+    approach = {**APPROACH, "stages": [{"stage": "${options.init}"}]}
+    with pytest.raises(ResolveError, match="chạy thử nhanh"):
+        run_resolve(approach=approach, quick=True)
+
+
 def test_explicit_lidar_choice_blocked_without_lidar() -> None:
     with pytest.raises(BlockedError) as info:
         run_resolve(manifest=no_lidar_manifest(), option_values={"init": "init.lidar"})
@@ -186,7 +216,7 @@ def test_track_and_split_strategy_block() -> None:
     "kwargs,match",
     [
         ({"preset": "fast"}, "preset"),
-        ({"option_values": {"color": "red"}}, "không có ô"),
+        ({"option_values": {"color": "red"}}, "không có mục cấu hình"),
         ({"option_values": {"campose": 1}}, "không phải lựa chọn"),
         ({"stage_params": {"train.fake": {"bogus": 1}}}, "tham số"),
         ({"stage_params": {"eval.standard": {"x": 1}}}, "không có trong danh sách"),

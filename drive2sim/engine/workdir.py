@@ -22,6 +22,8 @@ from drive2sim.core.schema import Manifest, Split
 from drive2sim.engine.stage import Scene
 
 WORKDIR_ENV = "D2S_WORKDIR"
+# File đánh dấu thư mục chứa dữ liệu mẫu (giả) do ``drive2sim/scripts/make_demo.py`` tạo.
+DEMO_MARKER = "DEMO"
 
 
 class WorkdirError(LookupError):
@@ -61,6 +63,11 @@ class Workdir:
         if override is not None:
             return cls(override)
         return cls(Path(os.environ.get(WORKDIR_ENV, os.getcwd())))
+
+    @property
+    def is_demo(self) -> bool:
+        """``True`` nếu là thư mục dữ liệu mẫu (có file ``DEMO``); Studio hiện nhãn cảnh báo."""
+        return (self.root / DEMO_MARKER).is_file()
 
     @property
     def data_dir(self) -> Path:

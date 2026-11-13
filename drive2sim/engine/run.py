@@ -58,6 +58,7 @@ from drive2sim.engine.cache import (
     input_key_for_scene,
     input_key_for_split,
 )
+from drive2sim.engine.machine import current_machine, package_versions, same_machine
 from drive2sim.engine.registry import REGISTRY, StageRegistry
 from drive2sim.engine.resolve import Plan, validate_params, wire_inputs
 from drive2sim.engine.stage import SCENE_INPUT, Scene, StageCancelledError
@@ -129,6 +130,18 @@ def _peak_vram_mb() -> int:
     return peak
 
 
+def _artifact_duration(output_dir: Path) -> Optional[float]:
+    """Đọc thời gian lần chạy gốc trong ``artifact.json`` của một kết quả trong cache.
+
+    Returns:
+        Số giây; ``None`` nếu file không ghi (cache tạo trước ``d2s-artifact/0.2``) hoặc lỗi.
+    """
+    try:
+        return files.load(output_dir / ARTIFACT_FILE, ArtifactRecord).duration_s
+    except (OSError, ValueError):
+        return None
+
+
 def _env_record(executor: str) -> EnvRecord:
     """Thu thập thông tin môi trường đang chạy run, để ghi vào ``d2s/env.json``.
 
@@ -141,15 +154,37 @@ def _env_record(executor: str) -> EnvRecord:
     Returns:
         Bản ghi ``env.json``.
     """
-    torch = sys.modules.get("torch")
     return EnvRecord(
         schema_version=SCHEMA_VERSIONS["env"],
         code_commit=code_commit(),
         python=platform.python_version(),
-        pytorch=getattr(torch, "__version__", None),
-        cuda=getattr(getattr(torch, "version", None), "cuda", None),
         executor=executor,
+        **package_versions(),
     )
+
+
+def record_machine(run_dir: Path) -> None:
+    """Cập nhật ``d2s/env.json`` theo máy đang bắt đầu chạy (hoặc chạy tiếp) run.
+
+    Phiên bản code, Python, gói và tên GPU lấy theo máy này; máy chưa có trong ``machines`` thì
+    được thêm vào cuối. Gọi ở đầu ``execute_run``, nên với run Kaggle đây là máy của notebook.
+
+    Args:
+        run_dir: Thư mục run.
+    """
+    path = run_dir / D2S_DIR / ENV_FILE
+    try:
+        previous = files.load(path, EnvRecord)
+    except (OSError, ValueError):
+        previous = None
+    machine = current_machine()
+    env = _env_record(previous.executor if previous else "local")
+    env.seed = previous.seed if previous else None
+    env.machines = list(previous.machines) if previous else []
+    if not any(same_machine(machine, seen) for seen in env.machines):
+        env.machines.append(machine.model_copy(update={"first_seen_utc": _now_utc()}))
+    env.gpu = machine.gpu
+    files.dump(env, path)
 
 
 def create_run(
@@ -162,7 +197,7 @@ def create_run(
 ) -> Path:
     """Tạo thư mục cho một run mới và ghi ``d2s/run.json``, ``d2s/env.json``.
 
-    ``run.json`` lưu đầy đủ lựa chọn của các ô và tham số đã gộp của từng stage, để
+    ``run.json`` lưu đầy đủ lựa chọn của các mục cấu hình và tham số đã gộp của từng stage, để
     ``execute_run`` chạy hoặc chạy tiếp mà không cần đọc lại file approach (file approach có
     thể đã bị sửa sau đó). Hàm này chưa chạy stage nào; gọi ``execute_run`` sau đó.
 
@@ -194,6 +229,7 @@ def create_run(
             version=plan.approach_version,
             preset=plan.preset,
             options=plan.options,
+            quick=plan.quick,
         ),
         level=plan.level,
         executor=executor,
@@ -397,6 +433,7 @@ class _Runner:
         stage_record: StageRecord,
         input_keys: list[str],
         output_paths: dict[str, Path],
+        duration_s: Optional[float] = None,
     ) -> None:
         """Kiểm tra đầu ra stage trả về, rồi ghi ``artifact.json`` mô tả kết quả.
 
@@ -410,6 +447,7 @@ class _Runner:
             stage_record: Bản ghi của stage trong ``run.json``.
             input_keys: Khoá của các đầu vào.
             output_paths: Kết quả ``Stage.run`` trả về: tên đầu ra → đường dẫn.
+            duration_s: Thời gian ``Stage.run`` đã chạy, giây.
 
         Raises:
             RuntimeError: Nếu đầu ra sai tên, không tồn tại, hoặc nằm ngoài ``output_dir``.
@@ -440,6 +478,7 @@ class _Runner:
             inputs=sorted(input_keys),
             created_utc=_now_utc(),
             files=relative_files,
+            duration_s=duration_s,
         )
         files.dump(record, output_dir / ARTIFACT_FILE)
 
@@ -470,9 +509,15 @@ class _Runner:
             self.sink,
             self.run_dir / D2S_DIR / CANCEL_FILE,
         )
+        started = time.monotonic()
         output_paths = cls().run(ctx, inputs, params)
         self.write_artifact(
-            output_dir, stage_record.stage_id, stage_record, input_keys, output_paths
+            output_dir,
+            stage_record.stage_id,
+            stage_record,
+            input_keys,
+            output_paths,
+            round(time.monotonic() - started, 3),
         )
 
     def execute(self) -> RunRecord:
@@ -556,6 +601,7 @@ class _Runner:
                         ran = True
                     elif stage_record.cache_key != key:
                         stage_record.cache_key, stage_record.cache_hit = key, True
+                        stage_record.reused_duration_s = _artifact_duration(output_dir)
                     artifact_keys[index] = key
                 else:
                     output_dir = self.run_dir / D2S_DIR / "stages" / stage_id
@@ -632,12 +678,15 @@ class _Runner:
             stage_record: Stage trong ``run.json``.
             status: Trạng thái cuối.
             started: Thời điểm bắt đầu theo ``time.monotonic``.
-            measured: ``True`` khi stage chạy thật lần này, nên ghi thời gian và VRAM;
-                ``False`` khi dùng lại kết quả cũ, ghi ``0``.
+            measured: ``True`` khi stage chạy thật lần này: cộng thời gian lần này vào
+                ``duration_s`` và giữ VRAM lớn nhất; ``False`` khi dùng lại kết quả cũ: giữ nguyên.
         """
         stage_record.status = status  # type: ignore[assignment]
-        stage_record.duration_s = round(time.monotonic() - started, 3) if measured else 0
-        stage_record.peak_vram_mb = _peak_vram_mb() if measured else 0
+        if measured:
+            # Cộng dồn: một stage bị ngắt rồi chạy tiếp có thời gian của mọi lần chạy.
+            elapsed = time.monotonic() - started
+            stage_record.duration_s = round(stage_record.duration_s + elapsed, 3)
+            stage_record.peak_vram_mb = max(stage_record.peak_vram_mb, _peak_vram_mb())
         self.save()
         self.emit_status(stage_record.stage_id, status)
 
@@ -709,6 +758,7 @@ def execute_run(
         ResolveError: Nếu tham số đã lưu không còn hợp lệ với code hiện tại của stage.
     """
     record = files.load(Path(run_dir) / D2S_DIR / RUN_FILE, RunRecord)
+    record_machine(Path(run_dir))
     return _Runner(Path(run_dir), record, workdir, registry, sink).execute()
 
 
@@ -746,6 +796,18 @@ def load_summary(run_dir: Path) -> Optional[Summary]:
     """
     path = summary_path(run_dir)
     return files.load(path, Summary) if path.is_file() else None
+
+
+def load_env(run_dir: Path) -> Optional[EnvRecord]:
+    """Đọc ``d2s/env.json`` của một run: phiên bản gói và các máy đã chạy run.
+
+    Returns:
+        Bản ghi, hoặc ``None`` nếu không có hoặc đọc lỗi.
+    """
+    try:
+        return files.load(Path(run_dir) / D2S_DIR / ENV_FILE, EnvRecord)
+    except (OSError, ValueError):
+        return None
 
 
 def run_is_active(run_dir: Path) -> bool:
