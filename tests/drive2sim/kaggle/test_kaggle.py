@@ -247,6 +247,20 @@ def test_client_parses_cli_output(tmp_path: Path) -> None:
         return Done(1, "", "401 Unauthorized")
 
     client = KaggleClient(runner=runner, config_dir=tmp_path)  # type: ignore[arg-type]
+    pushed = KaggleClient(
+        runner=lambda command: Done(
+            0, "Kernel version 1 successfully pushed.  Please check progress"
+        ),
+        config_dir=tmp_path,
+    )  # type: ignore[arg-type]
+    pushed.push_kernel(tmp_path)
+    # thoát 0 mà không báo đã đẩy: Kaggle không tạo notebook
+    silent = KaggleClient(
+        runner=lambda command: Done(0, "Kernel push error: Notebook not found"),
+        config_dir=tmp_path,
+    )  # type: ignore[arg-type]
+    with pytest.raises(KaggleError, match="Kernel push error"):
+        silent.push_kernel(tmp_path)
     assert client.kernel_status("alice/d2s-1") == "running"
     assert not client.dataset_exists("alice/d2s-x")
     with pytest.raises(KaggleError, match="401"):

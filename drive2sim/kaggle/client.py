@@ -134,7 +134,12 @@ class KaggleClient:
         Args:
             folder: Thư mục chứa notebook và ``kernel-metadata.json``.
         """
-        self._call("kernels", "push", "-p", str(folder))
+        output = self._call("kernels", "push", "-p", str(folder))
+        # Kaggle CLI 2.2.5 có lúc thoát 0 mà không tạo notebook (in lỗi ra stdout); chỉ tin khi nó
+        # báo đã đẩy.
+        if "successfully pushed" not in output.lower():
+            said = " ".join(output.strip().splitlines()[-3:]) or "(không in gì)"
+            raise KaggleError(f"kaggle kernels push không tạo được notebook: {said}")
 
     def kernel_status(self, slug: str) -> str:
         """Trạng thái của lần chạy mới nhất của notebook.
