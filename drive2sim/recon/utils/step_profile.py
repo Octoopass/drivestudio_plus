@@ -64,6 +64,7 @@ class StepProfiler:
 
     def begin_step(self, step: int) -> None:
         """Gọi đầu mỗi bước train."""
+        step = int(step)  # vòng train có thể đưa numpy.int64; json không ghi được kiểu đó
         if self._prof is None and step in self.profile_at:
             import torch  # trong hàm, để categorize test được ở nơi không có PyTorch
 
@@ -75,6 +76,7 @@ class StepProfiler:
 
     def end_step(self, step: int) -> None:
         """Gọi cuối mỗi bước train, sau khi đã đồng bộ GPU."""
+        step = int(step)
         if self._prof is None or step + 1 < self._start + self.steps:
             return
         prof, self._prof = self._prof, None
