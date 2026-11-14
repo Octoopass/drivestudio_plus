@@ -723,7 +723,7 @@ Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dà
 | `d2s report <run_id>...` | Bảng so sánh nhiều run |
 | `d2s export ply <run_id>` / `d2s export preview <run_id>` | Chạy lại stage export cho một run |
 | `d2s cache list [--scene <scene_id>]` / `d2s cache gc [--scene <scene_id>]` | Xem, dọn cache |
-| `d2s studio [--port <số>] [--kaggle-watch-minutes <phút>]` | Bật Studio. Studio cứ `--kaggle-watch-minutes` phút (mặc định 5; `0` để tắt) hỏi trạng thái notebook của các run đã đẩy lên Kaggle mà chưa tải kết quả lần đẩy mới nhất; notebook xong (thành công, lỗi, huỷ) thì tự xếp việc `kaggle_pull` như nút "Tải kết quả về". Không có run nào cần theo dõi thì không gọi Kaggle; hỏi lỗi thì khoảng chờ nhân đôi, tối đa 1 giờ |
+| `d2s studio [--port <số>] [--kaggle-watch-minutes <phút>] [--colab-watch-minutes <phút>]` | Bật Studio. Studio cứ `--kaggle-watch-minutes` phút (mặc định 5; `0` để tắt) hỏi trạng thái notebook của các run đã đẩy lên Kaggle mà chưa tải kết quả lần đẩy mới nhất; notebook xong (thành công, lỗi, huỷ) thì tự xếp việc `kaggle_pull` như nút "Tải kết quả về". Không có run nào cần theo dõi thì không gọi Kaggle; hỏi lỗi thì khoảng chờ nhân đôi, tối đa 1 giờ. `--colab-watch-minutes` (mặc định 5) làm như vậy với job trên Colab (việc `colab_pull` khi job `succeeded`, `failed` hoặc `died`; phiên mất thì thôi theo dõi run đó) |
 | `d2s serve <run_id> [--port <số>]` | Bật server gRPC cho một run (L4) |
 
 Quy tắc chung:
@@ -765,7 +765,7 @@ FastAPI phục vụ REST và Server-Sent Events, chỉ nghe trên `127.0.0.1` (`
 
 ### 11.1 Route
 
-- Tiền tố `/api/`. Nhóm route trùng nhóm lệnh CLI, viết **số nhiều**: `/api/scenes`, `/api/splits`, `/api/approaches`, `/api/runs`, `/api/cache`, `/api/kaggle`, `/api/report`. Định danh đi trong đường dẫn: `/api/runs/{run_id}`, `/api/scenes/{scene_id}/splits/{split_id}`.
+- Tiền tố `/api/`. Nhóm route trùng nhóm lệnh CLI, viết **số nhiều**: `/api/scenes`, `/api/splits`, `/api/approaches`, `/api/runs`, `/api/cache`, `/api/kaggle`, `/api/colab`, `/api/report`. Định danh đi trong đường dẫn: `/api/runs/{run_id}`, `/api/scenes/{scene_id}/splits/{split_id}`.
 - HTTP verb theo loại hành động:
 
 | Hành động | Verb và đường dẫn | Ví dụ |
@@ -790,7 +790,7 @@ Route đã có (`drive2sim/studio/api/routes/`):
 | `GET`, `POST /api/scenes/{scene_id}/splits`, `GET .../splits/{split_id}` | Liệt kê, tạo, xem split; thân của `POST`: `strategy`, `cameras`, `frame_range`, `split_id` | `split list`, `split create`, `split show` |
 | `GET /api/approaches`, `GET /api/approaches/{approach_id}` | Đọc file approach | `approach list`, `approach show` |
 | `POST /api/approaches/{approach_id}/check` | Thân: `scene_id`, `split_id`, `preset`, `options`, `stage_params`, `quick`. Trả `quick`, `options` đã quyết định, `lidar_usage`, `stages` (kèm `cache_hit`) và `blocked_choices` (mục → lựa chọn bị khoá kèm lý do) để giao diện làm mờ | `approach check` |
-| `POST /api/runs` | Thân như `check` cộng `approach_id`, `executor`; tạo run, xếp vào hàng đợi chạy nền (`local`) hoặc đẩy lên Kaggle ở nền (`kaggle`) | `run start` |
+| `POST /api/runs` | Thân như `check` cộng `approach_id`, `executor`; tạo run, xếp vào hàng đợi chạy nền (`local`), đẩy lên Kaggle ở nền (`kaggle`) hoặc đẩy lên Colab ở nền với phiên `d2s`, GPU T4 (`colab`) | `run start` |
 | `GET /api/runs`, `GET /api/runs/{run_id}` | Liệt kê (lọc `scene_id`, `status`); `run.json` cộng `summary` và `run_dir` | `run list`, `run status` |
 | `POST /api/runs/{run_id}/resume` | Chạy tiếp; `409` nếu run đang chạy | `run resume` |
 | `GET /api/runs/{run_id}/events`, `GET /api/events` | Sự kiện SSE (mục 11.4) | |
@@ -810,9 +810,13 @@ Route đã có (`drive2sim/studio/api/routes/`):
 | `GET /api/report` | Bảng so sánh (lọc `scene_id`, `split_id`, `run_id` lặp lại được); mỗi dòng có `preset` (tên preset của run, hoặc `null`), metric của `summary.json`, `avg_error` (chỉ số gộp của Mip-NeRF: trung bình nhân của `10^(−PSNR/10)`, `√(1 − SSIM)`, LPIPS; thấp là tốt), cờ `quick`, `num_iters`, `train_time_s` (train thực), `recon_time_s` (tổng thời gian các stage từ đầu tới khi xuất xong `scene.ply`, stage dùng lại cache tính thời gian gốc), `render_fps`, `num_gaussians` (cả model), `ply_gaussians` và `ply_size_mb` (của `scene.ply`), `preview_gaussians` và `preview_size_mb` (tổng mọi file của gói xem trước), `occupied_psnr`, `gpu`, `software` (phiên bản PyTorch và gsplat từ `env.json`, ví dụ `PyTorch 2.4.1+cu121, gsplat 1.5.3`), và `stage_times` (`stage_id` → `{"seconds", "reused"}`, stage dùng lại cache tính thời gian gốc; không có trong CSV); `?format=csv` để xuất | `report` |
 | `POST /api/sources/inspect` | Thân `{"path"}`; kết quả nhận dạng như `source inspect --json`; `404` nếu không có thư mục | `source inspect` |
 | `POST /api/sources/ingest` | Thân `path`, `source_type`, `version`, `sequence`, `scene_id`, `interpolate_n`; chọn chuỗi ngay (`400` kèm các lựa chọn nếu thiếu), rồi ingest nền; trả `202` kèm việc | `scene ingest` |
-| `GET /api/jobs`, `GET /api/jobs/{job_id}` | Việc nền (ingest, đẩy và tải Kaggle): `job_id`, `kind` (`ingest`, `kaggle_push`, `kaggle_pull`), `label`, `status` (`queued`, `running`, `succeeded`, `failed`), `result` (`scene_id` hoặc `run_id`), `error`; giữ trong bộ nhớ tới khi tắt Studio | |
+| `GET /api/jobs`, `GET /api/jobs/{job_id}` | Việc nền (ingest, đẩy và tải Kaggle, Colab): `job_id`, `kind` (`ingest`, `kaggle_push`, `kaggle_pull`, `colab_push`, `colab_pull`), `label`, `status` (`queued`, `running`, `succeeded`, `failed`), `result` (`scene_id` hoặc `run_id`), `error`; giữ trong bộ nhớ tới khi tắt Studio | |
 | `GET /api/kaggle/{run_id}` | `kaggle.json` của run cộng `status` của notebook | `kaggle status` |
 | `POST /api/kaggle/{run_id}/push`, `POST /api/kaggle/{run_id}/pull` | Đẩy, tải ở nền; trả `202` kèm việc | `kaggle push`, `kaggle pull` |
+| `GET /api/colab/setup/status` | Kiểm tra trước khi chạy trên Colab: `cli` (lệnh `colab` đã cài, phiên bản), `account` (đăng nhập được không, `error`, `hint` khi thiếu keyring), `gpu` (`sessions`: các phiên GPU đang có, `balance` và `rate_per_h` compute unit từ `colab usage`, `choices`: GPU chọn được), `smpl` (`found`, `path` của `SMPL_NEUTRAL.pkl` trên máy), `code` (như Kaggle), và `ready` (cài, đăng nhập, code đã push). Colab không cho biết trước còn GPU không, nên `gpu` không tính vào `ready`. Đăng nhập không làm từ Studio được (trang đồng ý của Google mở từ terminal) | |
+| `GET /api/colab/{run_id}` | `colab.json` của run (mục 9.3) cộng `status` (`running`, `succeeded`, `failed`, `died`, `lost`, hoặc `null` khi không hỏi được), `exit_code`, `log_tail` (40 dòng log cuối), `status_error` | `colab status` |
+| `POST /api/colab/{run_id}/push`, `POST /api/colab/{run_id}/pull` | Đẩy (thân tuỳ chọn `gpu`, `session`), tải ở nền; trả `202` kèm việc | `colab push`, `colab pull` |
+| `POST /api/colab/{run_id}/stop` | Tắt phiên Colab của run; trả `colab.json` | `colab stop` |
 | `POST /api/scenes/{scene_id}/validate` | Kiểm tra lại, ghi và trả báo cáo | `scene validate` |
 | `DELETE /api/scenes/{scene_id}`, `DELETE /api/scenes/{scene_id}/splits/{split_id}` | `{"removed": [...]}`; `409` khi run đang chạy hoặc split còn run dùng | `scene delete`, `split delete` |
 | `POST /api/runs/{run_id}/cancel` | Ghi yêu cầu huỷ (mục 6.1); trả `run.json` hiện tại | `run cancel` |
@@ -821,7 +825,7 @@ Route đã có (`drive2sim/studio/api/routes/`):
 | `GET /api/cache`, `POST /api/cache/gc` | Liệt kê (kèm `size_bytes`, `used_by`); dọn, thân `scene_id`, `dry_run` | `cache list`, `cache gc` |
 | `GET /files/<đường dẫn>` | File trong `D2S_WORKDIR`; đường dẫn ra ngoài thư mục làm việc trả `404` | |
 
-Run chạy nền **lần lượt từng run** trong một luồng (`drive2sim/studio/api/jobs.py`): một người, một máy, hai run train cùng lúc sẽ tranh GPU. Việc nền dài (ingest, Kaggle) chạy ở luồng riêng, nên không phải chờ run train xong.
+Run chạy nền **lần lượt từng run** trong một luồng (`drive2sim/studio/api/jobs.py`): một người, một máy, hai run train cùng lúc sẽ tranh GPU. Việc nền dài (ingest, Kaggle, Colab) chạy ở luồng riêng, nên không phải chờ run train xong.
 
 ### 11.2 Thân và kết quả
 

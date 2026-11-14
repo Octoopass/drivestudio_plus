@@ -3,8 +3,8 @@
 Theo CONTRACTS mục 11; phục vụ SPEC mục 8 nhóm B (tiến trình) và C (kết quả một run).
 
 File này chứa:
-- ``POST /api/runs``: tạo run rồi xếp vào hàng đợi chạy nền (hoặc đẩy lên Kaggle); trả ``202``
-  kèm ``run.json``.
+- ``POST /api/runs``: tạo run rồi xếp vào hàng đợi chạy nền (hoặc đẩy lên Kaggle, Colab); trả
+  ``202`` kèm ``run.json``.
 - ``GET /api/runs``, ``GET /api/runs/{run_id}``: liệt kê run; xem ``run.json`` kèm ``summary``.
 - ``POST /api/runs/{run_id}/resume``: chạy tiếp một run.
 - ``POST /api/runs/{run_id}/cancel``: huỷ run đang chạy hoặc đang chờ.
@@ -46,7 +46,7 @@ from drive2sim.engine.run import (
 )
 from drive2sim.stages.commands import CAMERAS_FILE
 from drive2sim.studio.api.events import stream_events
-from drive2sim.studio.api.routes import kaggle
+from drive2sim.studio.api.routes import colab, kaggle
 from drive2sim.studio.api.routes.approaches import PlanBody, plan_from_body
 from drive2sim.studio.api.state import state_of
 
@@ -73,11 +73,12 @@ class CreateRunBody(PlanBody):
 
     Attributes:
         approach_id: Approach cần chạy.
-        executor: Nơi chạy: ``local`` (hàng đợi trên máy) hoặc ``kaggle`` (đẩy lên Kaggle ở nền).
+        executor: Nơi chạy: ``local`` (hàng đợi trên máy), ``kaggle`` hoặc ``colab`` (đẩy lên
+            Kaggle, Colab ở nền).
     """
 
     approach_id: str
-    executor: Literal["local", "kaggle"] = "local"
+    executor: Literal["local", "kaggle", "colab"] = "local"
 
 
 def _load(request: Request, run_id: str) -> tuple[Path, RunRecord]:
@@ -104,7 +105,8 @@ def _tail(path: Path, lines: int = LOG_TAIL_LINES) -> str:
 def start_run(body: CreateRunBody, request: Request) -> dict:
     """Tạo một run và xếp vào hàng đợi chạy nền.
 
-    Với ``executor: kaggle``, run được tạo rồi đẩy lên Kaggle ở nền (``/api/jobs``).
+    Với ``executor: kaggle`` hoặc ``colab``, run được tạo rồi đẩy lên Kaggle hoặc Colab ở nền
+    (``/api/jobs``).
 
     Returns:
         ``run.json`` vừa tạo (trạng thái ``pending``); theo dõi tiến độ qua
@@ -115,6 +117,8 @@ def start_run(body: CreateRunBody, request: Request) -> dict:
     run_dir = create_run(plan, state.workdir, scene, split, executor=body.executor)
     if body.executor == "kaggle":
         kaggle.submit_push(state, run_dir.name)
+    elif body.executor == "colab":
+        colab.submit_push(state, run_dir.name)
     else:
         state.queue.submit(run_dir)
     return files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord).model_dump(mode="json")

@@ -36,6 +36,12 @@ def register(
         default=5,
         help="cứ chừng ấy phút hỏi trạng thái run trên Kaggle, xong thì tự tải về; 0 để tắt",
     )
+    parser.add_argument(
+        "--colab-watch-minutes",
+        type=float,
+        default=5,
+        help="cứ chừng ấy phút hỏi trạng thái job trên Colab, xong thì tự tải về; 0 để tắt",
+    )
     parser.set_defaults(handler=run_studio)
 
 
@@ -43,7 +49,8 @@ def run_studio(args: argparse.Namespace) -> int:
     """Chạy Studio cho tới khi người dùng bấm Ctrl-C.
 
     Args:
-        args: Tham số dòng lệnh, có ``port``, ``workdir`` và ``kaggle_watch_minutes``.
+        args: Tham số dòng lệnh, có ``port``, ``workdir``, ``kaggle_watch_minutes`` và
+            ``colab_watch_minutes``.
 
     Returns:
         Mã thoát ``0`` khi server dừng.
@@ -74,7 +81,8 @@ def run_studio(args: argparse.Namespace) -> int:
             ) from None
     info(args, f"Studio ở http://{HOST}:{args.port} (thư mục làm việc {workdir.root})")
     watch = args.kaggle_watch_minutes * 60 if args.kaggle_watch_minutes > 0 else None
-    app = create_app(workdir, kaggle_watch_s=watch)
+    colab_watch = args.colab_watch_minutes * 60 if args.colab_watch_minutes > 0 else None
+    app = create_app(workdir, kaggle_watch_s=watch, colab_watch_s=colab_watch)
     # Luồng sự kiện (SSE) của giao diện đang mở không tự đóng; không có hạn chót thì Ctrl+C chờ
     # mãi ở "Waiting for connections to close" và không tới bước dọn dẹp (tắt viewer GPU, hàng
     # đợi). Sau GRACEFUL_SHUTDOWN_S giây uvicorn cắt các kết nối còn lại.

@@ -9,19 +9,21 @@ Kaggle không công bố giới hạn tần suất gọi API, nên luồng này 
 lần hỏi lỗi (mạng, chưa có khoá API, 429) thì khoảng chờ nhân đôi, tối đa ``max_interval_s``
 (1 giờ); hỏi được thì về lại ``interval_s``. Không có run nào cần theo dõi thì không gọi Kaggle.
 
+Vòng hỏi nền và cách giãn khoảng chờ dùng chung với Colab (``remote_watch.py``).
+
 File này chứa ``KaggleWatcher``, ``watched_runs``.
 """
 
 import logging
-import threading
 from collections.abc import Callable
 from pathlib import Path
-from typing import Optional
+from typing import ClassVar, Optional
 
 from drive2sim.engine.workdir import Workdir
 from drive2sim.kaggle import executor
 from drive2sim.kaggle.client import KaggleClient, KaggleError
 from drive2sim.studio.api.jobs import BackgroundJobs, RunQueue
+from drive2sim.studio.api.remote_watch import RemoteWatcher
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_INTERVAL_S = 300
@@ -54,7 +56,7 @@ def watched_runs(workdir: Workdir) -> list[tuple[Path, executor.KaggleState]]:
     return found
 
 
-class KaggleWatcher:
+class KaggleWatcher(RemoteWatcher):
     """Luồng nền hỏi trạng thái notebook và tự xếp việc tải kết quả về.
 
     Args:
@@ -66,6 +68,9 @@ class KaggleWatcher:
         queue: Hàng đợi run của Studio, để giữ chỗ run trong lúc tải về.
     """
 
+    THREAD_NAME: ClassVar[str] = "kaggle-watch"
+    SERVICE: ClassVar[str] = "Kaggle"
+
     def __init__(
         self,
         workdir: Workdir,
@@ -75,15 +80,12 @@ class KaggleWatcher:
         client_factory: Callable[[], KaggleClient] = KaggleClient,
         queue: Optional["RunQueue"] = None,
     ) -> None:
+        super().__init__(interval_s, max_interval_s)
         self.workdir = workdir
         self.jobs = jobs
-        self.interval_s = interval_s
-        self.max_interval_s = max(max_interval_s, interval_s)
         self.client_factory = client_factory
         self.queue = queue
         self._submitted: set[str] = set()  # notebook đã xếp việc tải, không xếp lại
-        self._stop = threading.Event()
-        self._thread: Optional[threading.Thread] = None
 
     def check_once(self) -> list[str]:
         """Hỏi trạng thái mọi run cần theo dõi một lượt, xếp việc tải cho notebook đã xong.
@@ -132,23 +134,3 @@ class KaggleWatcher:
             return run_id
 
         return work
-
-    def _loop(self) -> None:
-        delay = self.interval_s
-        while not self._stop.wait(delay):
-            try:
-                self.check_once()
-                delay = self.interval_s
-            except Exception as error:  # noqa: BLE001  (luồng nền không được chết vì lỗi mạng)
-                delay = min(delay * 2, self.max_interval_s)
-                LOGGER.warning("không hỏi được Kaggle (%s); thử lại sau %.0f giây", error, delay)
-
-    def start(self) -> None:
-        """Bật luồng nền; lượt hỏi đầu tiên sau ``interval_s``."""
-        if self._thread is None:
-            self._thread = threading.Thread(target=self._loop, name="kaggle-watch", daemon=True)
-            self._thread.start()
-
-    def stop(self) -> None:
-        """Dừng luồng nền (không chờ lượt hỏi đang chạy)."""
-        self._stop.set()
