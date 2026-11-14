@@ -237,6 +237,7 @@ class BasicTrainer(nn.Module):
                 sched_cfg.max_steps = sched_cfg.max_steps - sched_cfg.opt_after
                 lr_schedulers[params_name] = lr_scheduler_fn(sched_cfg, lr_init)
 
+        self.fastergs.prepare_adam_params(groups)
         self.optimizer = torch.optim.Adam(groups, lr=0.0, eps=1e-15, **self.fastergs.adam_kwargs())
         self.lr_schedulers = lr_schedulers
         self.grad_scaler = torch.cuda.amp.GradScaler(enabled=self.optim_general.get("use_grad_scaler", False))

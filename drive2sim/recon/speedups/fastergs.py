@@ -23,7 +23,7 @@ File này chứa ``FasterGS``, ``FusedSSIM``, ``morton_codes``, ``reorder_gaussi
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
 import torch.nn as nn
@@ -109,6 +109,31 @@ class FasterGS:
     def adam_kwargs(self) -> Dict[str, Any]:
         """Tham số thêm cho ``torch.optim.Adam``."""
         return {"fused": True} if self.uses("fused_adam") else {}
+
+    def prepare_adam_params(self, groups: List[Dict[str, Any]]) -> int:
+        """Với fused Adam: đổi tham số không liền mạch trong bộ nhớ thành bản liền mạch, cùng giá trị.
+
+        DriveStudio tạo vài tham số bằng cách cắt một tensor lớn hơn (``sh_dc``, ``sh_rest`` là
+        ``features[:, 0, :]``...; ``ins_translation``), nên tham số không liền mạch còn gradient thì
+        liền mạch. Adam thường không để ý; ``torch._fused_adam_`` đòi tham số, gradient và state cùng
+        bố trí bộ nhớ ("must have same dtype, device, and layout"). Giữ nguyên đối tượng Parameter
+        (chỉ thay ``.data``), nên model vẫn trỏ đúng tham số. Gaussian sinh thêm khi densify được
+        ghép bằng ``torch.cat``, vốn liền mạch.
+
+        Returns:
+            Số tham số đã đổi.
+        """
+        if not self.uses("fused_adam"):
+            return 0
+        changed = 0
+        for group in groups:
+            # vài lớp trả ``self.parameters()`` (generator): đổi sang list để Adam vẫn nhận đủ
+            group["params"] = list(group["params"])
+            for param in group["params"]:
+                if not param.is_contiguous():
+                    param.data = param.data.contiguous()
+                    changed += 1
+        return changed
 
     def make_ssim(self, default: nn.Module) -> nn.Module:
         """Hàm SSIM dùng trong loss: ``FusedSSIM`` khi bật, không thì ``default`` (pytorch_msssim)."""
