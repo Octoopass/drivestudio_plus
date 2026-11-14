@@ -714,6 +714,7 @@ Quy tắc chung:
 - File con chỉ ghi phần khác với file cha. Lý do: sửa một tham số chung thì sửa ở một chỗ; đọc file con là thấy ngay biến thể khác gì.
 - Lỗi khi đọc config (file cha không có, vòng lặp, YAML sai) báo kèm tên **cả hai** file và dừng ngay trước khi tạo thư mục run, để không để lại run rỗng.
 - Config dataset vẫn chọn qua khoá `dataset: <dataset>/<k>cams` như DriveStudio; không dùng `extends` giữa config method và config dataset.
+- Cài ở `drive2sim/core/config.py` (`load_config`). YAML được đọc giống hệt OmegaConf 2.3 (`1e-15` là số thực, không có kiểu timestamp, trùng khoá là lỗi), nên config gộp cho cùng giá trị như `OmegaConf.load`. `train.drivestudio` gộp sẵn, ghi bản đầy đủ vào `method_config.yaml` trong thư mục stage và đưa bản đó cho DriveStudio; config sai bị báo khi engine kiểm tra tham số, trước khi tạo run. `drive2sim/recon/tools/train.py` cũng đọc qua `load_config`, nên chạy tay với một file có `extends` vẫn được.
 
 ### 10.6 Ngôn ngữ
 

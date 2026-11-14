@@ -16,6 +16,10 @@ File này chứa:
 Vì sao chạy bằng tiến trình con: engine và CLI không phải nạp PyTorch; lỗi CUDA hay hết bộ nhớ
 chỉ làm hỏng tiến trình con, engine vẫn ghi được lỗi vào ``run.json``.
 
+File config method có thể kế thừa file khác bằng ``extends`` (CONTRACTS mục 10.5). Stage gộp sẵn
+(``drive2sim.core.config.load_config``), ghi bản đầy đủ vào ``method_config.yaml`` của stage và
+đưa bản đó cho DriveStudio; config sai bị báo ngay khi engine kiểm tra tham số.
+
 Kết quả: DriveStudio ghi log, config đã gộp, checkpoint, metric và video vào thư mục của stage
 (``d2s/stages/train.drivestudio/``). Nếu thư mục đã có ``checkpoint_resume.pth`` từ lần chạy bị
 ngắt, stage truyền ``--resume_from`` để train tiếp thay vì train lại từ đầu.
@@ -27,9 +31,11 @@ import sys
 from pathlib import Path
 from typing import ClassVar, Literal, Optional
 
+import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from drive2sim import paths
+from drive2sim.core.config import ConfigError, load_config
 from drive2sim.core.schema import CAMERA_TRACK, Manifest, Split, parse_strategy
 from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import Stage, StageContext
@@ -62,6 +68,8 @@ VIEW_DIR = "scene_view"
 MASK_ENTRIES = ("sky_masks", "fine_dynamic_masks")
 SMPL_ENTRY = "humanpose"
 FINAL_CHECKPOINT = "checkpoint_final.pth"
+# Config method đã gộp extends, ghi trong thư mục stage và đưa cho DriveStudio.
+METHOD_CONFIG = "method_config.yaml"
 
 
 class TrainDrivestudioParams(BaseModel):
@@ -94,10 +102,11 @@ class TrainDrivestudioParams(BaseModel):
 
     @model_validator(mode="after")
     def _check_config_exists(self) -> "TrainDrivestudioParams":
-        """Kiểm tra tổ hợp (method, renderer, campose, fastgs) có file config sẵn.
+        """Kiểm tra tổ hợp (method, renderer, campose, fastgs) có file config sẵn và đọc được.
 
         Raises:
-            ValueError: Nếu chưa có file config cho tổ hợp này; thông báo liệt kê các tổ hợp có.
+            ValueError: Nếu chưa có file config cho tổ hợp này (thông báo liệt kê các tổ hợp có),
+                hoặc file config và các tầng ``extends`` của nó không đọc được.
         """
         if self.config_key not in CONFIG_FILES:
             available = ", ".join(
@@ -109,6 +118,10 @@ class TrainDrivestudioParams(BaseModel):
                 f"chưa có config DriveStudio cho method={self.method}, renderer={self.renderer}, "
                 f"campose={self.campose}, fastgs={self.fastgs}; các tổ hợp có: {available}"
             )
+        try:
+            load_config(self.config_file)
+        except ConfigError as error:
+            raise ValueError(f"config {self.config_file.name} không đọc được: {error}") from None
         return self
 
     @property
@@ -180,6 +193,7 @@ def build_command(
     output_dir: Path,
     has_sky_masks: bool = True,
     has_smpl: bool = True,
+    config_file: Optional[Path] = None,
 ) -> list[str]:
     """Dựng câu lệnh train của DriveStudio cho một run.
 
@@ -199,6 +213,8 @@ def build_command(
         output_dir: Thư mục kết quả của stage.
         has_sky_masks: Cảnh ảo có ``sky_masks/`` không.
         has_smpl: Cảnh ảo có ``humanpose/smpl.pkl`` không.
+        config_file: File config đưa cho DriveStudio; mặc định là ``params.config_file``. Stage
+            truyền bản đã gộp ``extends`` (``write_method_config``).
 
     Returns:
         Câu lệnh dạng danh sách, dùng được cho ``subprocess.run``.
@@ -221,7 +237,7 @@ def build_command(
         "-m",
         "drive2sim.recon.tools.train",
         "--config_file",
-        str(params.config_file),
+        str(config_file or params.config_file),
         # DriveStudio ghi log vào <output_root>/<project>/<run_name>; tách output_dir làm ba.
         "--output_root",
         str(output_dir.parent.parent),
@@ -259,6 +275,22 @@ def build_command(
     options.update(params.overrides)
     command += [f"{key}={_format_value(value)}" for key, value in options.items()]
     return command
+
+
+def write_method_config(params: TrainDrivestudioParams, output_dir: Path) -> Path:
+    """Gộp ``extends`` của config method rồi ghi bản đầy đủ vào thư mục stage.
+
+    Args:
+        params: Tham số của stage, để biết file config.
+        output_dir: Thư mục của stage.
+
+    Returns:
+        Đường dẫn ``method_config.yaml`` vừa ghi.
+    """
+    path = output_dir / METHOD_CONFIG
+    text = yaml.safe_dump(load_config(params.config_file), sort_keys=False, allow_unicode=True)
+    path.write_text(text, encoding="utf-8")
+    return path
 
 
 @register_stage("train.drivestudio")
@@ -327,6 +359,7 @@ class TrainDrivestudioStage(Stage):
             ctx.output_dir,
             has_sky_masks="sky_masks" in extra,
             has_smpl=SMPL_ENTRY in extra,
+            config_file=write_method_config(params, ctx.output_dir),
         )
         env = {}
         if SMPL_ENTRY in extra:

@@ -1,3 +1,4 @@
+from drive2sim.core.config import load_config
 from drive2sim.paths import CONFIGS_DIR
 from omegaconf import OmegaConf
 import json
@@ -32,7 +33,8 @@ def set_seeds(seed=31):
 
 def setup(args):
     # get config
-    cfg = OmegaConf.load(args.config_file)
+    # drive2sim: config may inherit another file with `extends` (docs/drive2sim/CONTRACTS.md 10.5)
+    cfg = OmegaConf.create(load_config(args.config_file))
     
     # parse datasets
     args_from_cli = OmegaConf.from_cli(args.opts)
@@ -44,9 +46,9 @@ def setup(args):
         
     if "dataset" in cfg:
         dataset_type = cfg.pop("dataset")
-        dataset_cfg = OmegaConf.load(
+        dataset_cfg = OmegaConf.create(load_config(
             os.path.join(CONFIGS_DIR, "datasets", f"{dataset_type}.yaml")
-        )
+        ))
         # merge data
         cfg = OmegaConf.merge(cfg, dataset_cfg)
     

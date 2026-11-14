@@ -675,7 +675,7 @@ Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiề
 2. **Engine và stage bọc mã hiện có:** registry, file approach có mục cấu hình, `train.drivestudio`, `eval.standard`, `render.videos`, `export.ply_world`, `run.json`, CLI `d2s`. Đạt L1 theo thiết kế; Studio nhóm A–D làm song song.
 3. **Tầng dữ liệu:** `source inspect`; `scene ingest` cho nuScenes (gọi script có sẵn, sinh `manifest.yaml`); bộ kiểm tra. Sau bước này `d2s run start omnire` chạy trọn đường. Chạy thật trên Kaggle cùng cảnh nuScenes mini mà teammate đã dùng, so PSNR với đường cũ. Rồi stage `prep.masks_segformer`, `prep.smpl` ghi vào cache.
 4. **Tách khởi tạo:** `init.lidar` tách khỏi dataset, rồi `init.depth`. Thí nghiệm có LiDAR so với không LiDAR là đổi mục cấu hình `init`.
-5. **Config kế thừa** thay cho config chép file.
+5. **Config kế thừa** thay cho config chép file. Đã cài `extends` (`drive2sim/core/config.py`, CONTRACTS mục 10.5); các file config chép đang được chuyển sang dạng kế thừa.
 6. **sim/renderer.py** → L2 và viewer chế độ chính.
 7. **sim/actors.py** → L3.
 8. **sim/server/** + CARLA → L4.

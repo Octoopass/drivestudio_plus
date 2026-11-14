@@ -21,6 +21,7 @@ from pydantic import ValidationError
 
 from drive2sim import paths
 from drive2sim.core import files
+from drive2sim.core.config import load_config
 from drive2sim.core.schema import Manifest, Split, Summary
 from drive2sim.engine.registry import REGISTRY, load_builtin_stages
 from drive2sim.engine.stage import Scene
@@ -184,6 +185,18 @@ def test_train_stage_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     assert TrainDrivestudioStage().run(ctx, {}, params) == {"model": tmp_path}
     assert len(calls) == 1
     assert ctx.events[-1][0] == 1.0
+    # DriveStudio nhận bản config đã gộp extends, ghi trong thư mục stage
+    config = Path(calls[0][calls[0].index("--config_file") + 1])
+    assert config == tmp_path / drivestudio.METHOD_CONFIG
+    assert load_config(config) == load_config(params.config_file)
+
+
+def test_params_reject_unreadable_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "methods").mkdir()
+    (tmp_path / "methods" / "omnire_nocampose.yaml").write_text("extends: nope.yaml\n")
+    monkeypatch.setattr(drivestudio.paths, "CONFIGS_DIR", tmp_path)
+    with pytest.raises(ValueError, match="nope.yaml"):
+        TrainDrivestudioParams(method="omnire")
 
 
 def test_train_stage_requires_final_checkpoint(
