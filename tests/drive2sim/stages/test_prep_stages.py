@@ -135,12 +135,48 @@ def test_smpl_stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         (view / "humanpose" / "smpl.pkl").write_text("new")
 
     monkeypatch.setattr(smpl, "run_logged", fake_run)
+    model = tmp_path / "SMPL_NEUTRAL.pkl"
+    model.write_text("smpl")
+    monkeypatch.setenv("D2S_SMPL_MODEL", str(model))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     ctx = Context(scene, tmp_path / "cache" / "smpl")
     assert PrepSmplStage().run(ctx, {}, NoParams()) == {"smpl": ctx.output_dir}
+    # PHALP và 4D-Humans tìm SMPL trong ~/.cache: đã trỏ tới file của người dùng
+    for relative in smpl.SMPL_CACHE_PATHS:
+        assert (tmp_path / "home" / ".cache" / relative).read_text() == "smpl"
     assert (ctx.output_dir / "humanpose" / "smpl.pkl").read_text() == "new"
     assert (scene / "humanpose" / "smpl.pkl").read_text() == "original"
     assert calls[0][calls[0].index("--dataset") + 1] == "nuscenes"
     assert calls[0][:3] == [sys.executable, "-m", "drive2sim.recon.preprocess.smpl.run"]
+
+
+def test_smpl_stage_reports_the_logged_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """smpl/run.py bắt lỗi từng cảnh rồi thoát 0: báo lại dòng lỗi trong log."""
+    scene = make_scene(tmp_path)
+
+    def fake_run(command: list[str], log_path: Path, **kwargs: object) -> None:
+        log_path.write_text("start\nERROR Error processing scene 0: no such file\n")
+
+    monkeypatch.setattr(smpl, "run_logged", fake_run)
+    model = tmp_path / "SMPL_NEUTRAL.pkl"
+    model.write_text("smpl")
+    monkeypatch.setenv("D2S_SMPL_MODEL", str(model))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    with pytest.raises(RuntimeError, match="Error processing scene 0"):
+        PrepSmplStage().run(Context(scene, tmp_path / "cache" / "smpl"), {}, NoParams())
+
+
+def test_link_smpl_model_keeps_existing_files(tmp_path: Path) -> None:
+    model = tmp_path / "SMPL_NEUTRAL.pkl"
+    model.write_text("smpl")
+    own = tmp_path / ".cache" / smpl.SMPL_CACHE_PATHS[0]
+    own.parent.mkdir(parents=True)
+    own.write_text("user's own")
+    created = smpl.link_smpl_model(model, tmp_path / ".cache")
+    assert created == [tmp_path / ".cache" / smpl.SMPL_CACHE_PATHS[1]]
+    assert own.read_text() == "user's own"
 
 
 def test_train_view_uses_artifacts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

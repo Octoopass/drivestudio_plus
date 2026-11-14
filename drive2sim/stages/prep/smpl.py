@@ -9,11 +9,13 @@ Gaussians không cần.
 Kết quả là artifact loại ``smpl`` trong ``cache/`` (stage có cache). Script chạy trên một thư mục
 cảnh ảo dựng bằng symlink (``drive2sim/stages/scene_view.py``), nên dữ liệu chuẩn không bị sửa.
 
-File này chứa ``build_command`` và ``PrepSmplStage``.
+File này chứa ``build_command``, ``link_smpl_model`` và ``PrepSmplStage``.
 
-Cần GPU, gói ``hmr2`` (``third_party/Humans4D``) và cảnh có box 3D. Chưa chạy thật.
+Cần GPU, gói ``hmr2`` (``third_party/Humans4D``) và ``phalp`` (``envs/install_main.sh`` bước 8),
+file ``SMPL_NEUTRAL.pkl`` (``drive2sim.paths.find_smpl_model``) và cảnh có box 3D.
 """
 
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -23,6 +25,7 @@ from pydantic import BaseModel
 
 from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import NoParams, Stage, StageContext
+from drive2sim.paths import find_smpl_model
 from drive2sim.stages.commands import LOG_FILE, run_logged
 from drive2sim.stages.scene_view import (
     DRIVESTUDIO_DATASETS,
@@ -33,6 +36,37 @@ from drive2sim.stages.scene_view import (
 
 OUTPUT_NAME = "humanpose"
 VIEW_DIR = "view"
+# Chỗ PHALP và 4D-Humans tìm SMPL, tính từ ~/.cache. Thiếu file thì PHALP tự wget một link đã chết
+# (github.com/classner/up, 404) rồi bỏ qua cảnh, script vẫn thoát 0.
+SMPL_CACHE_PATHS = (
+    Path("phalp/3D/models/smpl/SMPL_NEUTRAL.pkl"),
+    Path("4DHumans/data/smpl/SMPL_NEUTRAL.pkl"),
+)
+
+
+def link_smpl_model(model: Path, cache_dir: Path) -> list[Path]:
+    """Trỏ các chỗ PHALP và 4D-Humans tìm SMPL tới file của người dùng (symlink).
+
+    File đã có ở đó (người dùng tự đặt) thì giữ nguyên.
+
+    Args:
+        model: File ``SMPL_NEUTRAL.pkl`` tìm được.
+        cache_dir: Thư mục cache của hai thư viện (``~/.cache``).
+
+    Returns:
+        Các đường dẫn vừa tạo.
+    """
+    created = []
+    for relative in SMPL_CACHE_PATHS:
+        target = cache_dir / relative
+        if target.is_file():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.is_symlink():
+            target.unlink()  # symlink hỏng
+        target.symlink_to(model)
+        created.append(target)
+    return created
 
 
 def build_command(dataset: str, view_root: Path) -> list[str]:
@@ -90,6 +124,15 @@ class PrepSmplStage(Stage):
         Raises:
             RuntimeError: Nếu quy trình lỗi hoặc không ghi ra ``humanpose/smpl.pkl``.
         """
+        # Cảnh nằm ở <thư mục làm việc>/data/<cảnh>/ (trên Kaggle: dưới /kaggle/input, khi đó
+        # find_smpl_model tìm trong các dataset đã gắn).
+        model = find_smpl_model(ctx.scene.root.parent.parent)
+        if model is None:
+            raise RuntimeError(
+                "prep.smpl cần SMPL_NEUTRAL.pkl: đặt ở <thư mục làm việc>/smpl_models/ hoặc trỏ "
+                "biến D2S_SMPL_MODEL (Kaggle: biến D2S_KAGGLE_SMPL_DATASET khi đẩy)"
+            )
+        link_smpl_model(model, Path(os.environ.get("HOME", "~")).expanduser() / ".cache")
         view_root = ctx.output_dir / VIEW_DIR
         view = build_view(ctx.scene.root, view_root, exclude=[OUTPUT_NAME])
         ctx.progress(0.0, "sinh SMPL bằng 4D-Humans")
@@ -98,6 +141,12 @@ class PrepSmplStage(Stage):
         collect_outputs(view, ctx.output_dir, [OUTPUT_NAME])
         shutil.rmtree(view_root)
         if not (ctx.output_dir / OUTPUT_NAME / "smpl.pkl").is_file():
-            raise RuntimeError("smpl/run.py xong nhưng không có humanpose/smpl.pkl")
+            # smpl/run.py bắt lỗi từng cảnh rồi vẫn thoát 0; lỗi thật nằm trong log.
+            lines = (ctx.output_dir / LOG_FILE).read_text("utf-8", errors="replace").splitlines()
+            errors = [line for line in lines if "ERROR" in line or "Error" in line][-5:]
+            raise RuntimeError(
+                "smpl/run.py xong nhưng không có humanpose/smpl.pkl; lỗi trong log.txt:\n"
+                + "\n".join(errors or lines[-20:])
+            )
         ctx.progress(1.0, "sinh SMPL xong")
         return {"smpl": ctx.output_dir}
