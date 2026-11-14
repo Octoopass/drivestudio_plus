@@ -7,7 +7,8 @@ File này chứa:
 - ``IngestTarget``: dataset, phiên bản, chuỗi đã chọn.
 - ``plan_ingest``: từ kết quả ``inspect_source`` và lựa chọn của người dùng, chọn đúng một chuỗi;
   tự chọn khi chỉ có một khả năng, báo rõ các lựa chọn khi có nhiều.
-- ``run_ingest``: gọi ``ingest_drivestudio`` với tham số riêng của dataset (nuScenes: nội suy).
+- ``run_ingest``: gọi converter của dataset: ``ingest_drivestudio`` với tham số riêng của
+  dataset (nuScenes: nội suy), hoặc ``ingest_kitti360`` (khung đầu, số khung, camera, khoảng hở).
 """
 
 from dataclasses import dataclass
@@ -15,8 +16,9 @@ from pathlib import Path
 from typing import Optional
 
 from drive2sim.engine.workdir import Workdir
-from drive2sim.ingest.detect import SourceReport
-from drive2sim.ingest.drivestudio import SOURCES, ingest_drivestudio
+from drive2sim.ingest import kitti360
+from drive2sim.ingest.detect import INGEST_SUPPORTED, SourceReport
+from drive2sim.ingest.drivestudio import ingest_drivestudio
 
 
 class IngestRequestError(ValueError):
@@ -28,7 +30,7 @@ class IngestTarget:
     """Chuỗi đã chọn để ingest.
 
     Attributes:
-        dataset: Khoá trong ``SOURCES``, ví dụ ``nuscenes``.
+        dataset: Khoá trong ``SOURCES`` của DriveStudio, ví dụ ``nuscenes``, hoặc ``kitti360``.
         version: Phiên bản hoặc split; chuỗi rỗng nếu dataset không chia phiên bản.
         sequence: Tên chuỗi trong nguồn.
     """
@@ -65,9 +67,9 @@ def plan_ingest(
         raise IngestRequestError(
             "không nhận ra dataset; chạy d2s source inspect để xem thư mục có gì"
         )
-    if dataset not in SOURCES:
+    if dataset not in INGEST_SUPPORTED:
         raise IngestRequestError(
-            f"chưa hỗ trợ ingest {dataset}; hỗ trợ: {', '.join(sorted(SOURCES))}"
+            f"chưa hỗ trợ ingest {dataset}; hỗ trợ: {', '.join(sorted(INGEST_SUPPORTED))}"
         )
     versions = report.versions
     if version is None:
@@ -96,6 +98,7 @@ def run_ingest(
     scene_id: Optional[str] = None,
     interpolate_n: int = 4,
     workers: int = 4,
+    kitti360_options: Optional[kitti360.Kitti360Options] = None,
 ) -> Path:
     """Ingest chuỗi đã chọn.
 
@@ -107,13 +110,19 @@ def run_ingest(
         interpolate_n: nuScenes: số khung nội suy giữa hai keyframe 2 Hz; ``4`` cho 10 Hz như
             teammate đang dùng, ``0`` để giữ 2 Hz. Dataset khác bỏ qua.
         workers: Số tiến trình song song của script.
+        kitti360_options: KITTI-360: khung đầu, số khung, camera, khoảng hở tối đa; mặc định
+            ``Kitti360Options()``. Dataset khác bỏ qua.
 
     Returns:
         Thư mục cảnh ``data/<scene_id>/``.
 
     Raises:
-        IngestError: Nếu ingest lỗi (xem ``ingest_drivestudio``).
+        IngestError: Nếu ingest lỗi (xem ``ingest_drivestudio``, ``ingest_kitti360``).
     """
+    if target.dataset == kitti360.DATASET:
+        return kitti360.ingest_kitti360(
+            raw_dir, workdir, target.sequence, scene_id=scene_id, options=kitti360_options
+        )
     extra = ["--interpolate_N", str(interpolate_n)] if target.dataset == "nuscenes" else []
     return ingest_drivestudio(
         raw_dir,

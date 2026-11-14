@@ -67,6 +67,7 @@ def build_manifest(
     lidar_ids: Optional[list[str]] = None,
     data_license: Optional[str] = None,
     camera_model: str = "opencv_pinhole",
+    camera_models: Optional[list[str]] = None,
 ) -> Manifest:
     """Dựng manifest cho một thư mục cảnh DriveStudio.
 
@@ -74,7 +75,9 @@ def build_manifest(
     LiDAR khi ``lidar/`` có file ``.bin``; có box khi ``instances/instances_info.json`` không rỗng.
     Mọi camera ghi cùng mô hình ``camera_model`` và shutter ``GLOBAL``; track của cảnh suy ra từ
     mô hình (``CAMERA_TRACK``): ``opencv_pinhole`` là track pinhole, ``ftheta`` (PhysicalAI) là
-    track fisheye.
+    track fisheye. Cảnh có nhiều loại camera (KITTI-360: hai pinhole, hai mắt cá) truyền
+    ``camera_models`` theo từng camera; khi đó track là ``fisheye`` nếu có ít nhất một camera
+    thuộc track fisheye (CONTRACTS mục 2.2).
 
     Args:
         scene_dir: Thư mục cảnh đã tiền xử lý.
@@ -85,15 +88,20 @@ def build_manifest(
         converter: Tên converter, ví dụ ``drivestudio.nuscenes``.
         lidar_ids: Tên các LiDAR nếu cảnh có LiDAR, ví dụ ``["LIDAR_TOP"]``.
         data_license: License của dữ liệu nguồn.
-        camera_model: Mô hình ống kính của ảnh trong ``images/``.
+        camera_model: Mô hình ống kính của ảnh trong ``images/``, chung cho mọi camera.
+        camera_models: Mô hình của từng camera, cùng thứ tự với ``camera_ids``; có thì thay cho
+            ``camera_model``.
 
     Returns:
         Manifest đã kiểm tra theo schema.
 
     Raises:
-        ValueError: Nếu camera đầu tiên không có ảnh nào, hoặc ảnh đầu của một camera không đọc
-            được kích thước.
+        ValueError: Nếu camera đầu tiên không có ảnh nào, ảnh đầu của một camera không đọc
+            được kích thước, hoặc ``camera_models`` khác số camera.
     """
+    models = list(camera_models) if camera_models else [camera_model] * len(camera_ids)
+    if len(models) != len(camera_ids):
+        raise ValueError("camera_models phải có đúng một mô hình cho mỗi camera")
     frames = frame_indices(scene_dir, 0)
     if not frames:
         raise ValueError(f"{scene_dir}: không có ảnh nào của camera 0 trong images/")
@@ -106,7 +114,7 @@ def build_manifest(
         cameras.append(
             {
                 "camera_id": camera_id,
-                "model": camera_model,
+                "model": models[index],
                 "resolution": list(size),
                 "shutter": "GLOBAL",
             }
@@ -128,7 +136,9 @@ def build_manifest(
                 "converter_version": converter_version(),
                 "data_license": data_license,
             },
-            "track": CAMERA_TRACK[camera_model],
+            "track": (
+                "fisheye" if any(CAMERA_TRACK[m] == "fisheye" for m in models) else "pinhole"
+            ),
             "cameras": cameras,
             "lidars": lidars,
             "timeline": {"reference_sensor": camera_ids[0], "num_frames": frames[-1] + 1},

@@ -21,12 +21,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from drive2sim.ingest import kitti360
 from drive2sim.ingest.drivestudio import SOURCES
 from drive2sim.ingest.images import IMAGE_SUFFIXES, read_image_size
 from drive2sim.paths import SCENE_LISTS_DIR
 
-# Nguồn mà scene ingest chạy được: mọi dataset có script tiền xử lý của DriveStudio.
-INGEST_SUPPORTED: frozenset[str] = frozenset(SOURCES)
+# Nguồn mà scene ingest chạy được: mọi dataset có script tiền xử lý của DriveStudio, cộng các
+# nguồn có converter tự viết trong drive2sim/ingest/ (KITTI-360).
+INGEST_SUPPORTED: frozenset[str] = frozenset(SOURCES) | {kitti360.DATASET}
 _MAX_DEPTH = 3
 _MAX_INVENTORY = 20
 
@@ -184,6 +186,40 @@ def _detect_kitti(root: Path, report: SourceReport) -> bool:
     return True
 
 
+def _detect_kitti360(root: Path, report: SourceReport) -> bool:
+    """Nhận ra KITTI-360: ``calibration/calib_cam_to_pose.txt`` cùng ảnh trong ``data_2d_raw/``.
+
+    Chuỗi lấy từ tên thư mục hoặc file ``.tar`` trong ``data_2d_raw/`` (``<chuỗi>_image_0X.tar``).
+    Không đọc file ``.pkl`` nào (ví dụ ``ImageSets-rosa-6class/``): đó là pickle từ nguồn bên
+    thứ ba, đọc có thể chạy mã tuỳ ý; converter chỉ dùng file chính thức.
+
+    Args:
+        root: Thư mục nguồn.
+        report: Kết quả, được điền thêm nếu nhận ra.
+
+    Returns:
+        ``True`` nếu là KITTI-360.
+    """
+    if not (root / "calibration" / "calib_cam_to_pose.txt").is_file():
+        return False
+    sequences = kitti360.find_sequences(root)
+    if not sequences:
+        return False
+    report.dataset = kitti360.DATASET
+    report.versions[""] = sequences
+    report.cameras = list(kitti360.CAMERAS)
+    report.has_lidar = any(kitti360.has_lidar(root, sequence) for sequence in sequences)
+    report.has_cuboids = False
+    if (root / "data_3d_bboxes").exists():
+        report.notes.append("có data_3d_bboxes nhưng converter chưa đọc box 3D")
+    if any(root.glob("*/*.pkl")) or any(root.glob("*.pkl")):
+        report.notes.append(
+            "bỏ qua các file .pkl: converter không đọc pickle từ nguồn bên ngoài, chỉ đọc "
+            "calibration/, data_poses và dữ liệu thô"
+        )
+    return True
+
+
 def _detect_nuplan(root: Path, report: SourceReport) -> bool:
     """Nhận ra nuPlan: ``nuplan-v1.1/splits/<split>/*.db``; phiên bản là split."""
     for split_dir in _dirs(root / "nuplan-v1.1" / "splits", "*"):
@@ -236,6 +272,7 @@ _DETECTORS = (
     _detect_waymo,
     _detect_physicalai,
     _detect_nuplan,
+    _detect_kitti360,
     _detect_kitti,
     _detect_argoverse,
     _detect_pandaset,

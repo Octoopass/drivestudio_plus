@@ -5,7 +5,7 @@ File này chứa:
 - ``list_scenes``: liệt kê các cảnh có ``manifest.yaml`` trong ``data/``.
 - ``show_scene``: in manifest và tóm tắt báo cáo kiểm tra của một cảnh.
 - ``ingest_scene``: chuyển một chuỗi của dữ liệu gốc thành ``data/<scene_id>/`` (mọi dataset có
-  script tiền xử lý của DriveStudio), ghi manifest và báo cáo kiểm tra.
+  script tiền xử lý của DriveStudio, và KITTI-360), ghi manifest và báo cáo kiểm tra.
 
 - ``validate_scene``: kiểm tra lại một cảnh, ghi ``reports/validation.json``.
 - ``delete_scene``: xoá cảnh cùng split, cache và run của nó, sau khi hỏi xác nhận.
@@ -20,6 +20,7 @@ from drive2sim.core import files
 from drive2sim.core.schema import Manifest
 from drive2sim.engine import housekeeping, scenes
 from drive2sim.engine.workdir import Workdir
+from drive2sim.ingest import kitti360
 from drive2sim.ingest.detect import inspect_source
 from drive2sim.ingest.dispatch import IngestRequestError, plan_ingest, run_ingest
 from drive2sim.ingest.drivestudio import IngestError
@@ -58,6 +59,29 @@ def register(
         help="nuScenes: số khung nội suy giữa hai keyframe; 4 cho 10 Hz (mặc định), 0 cho 2 Hz",
     )
     ingest.add_argument("--workers", type=int, default=4, help="số tiến trình của script")
+    ingest.add_argument(
+        "--start-frame",
+        type=int,
+        default=0,
+        help="KITTI-360: số hiệu khung gốc nhỏ nhất được xét (mặc định 0)",
+    )
+    ingest.add_argument(
+        "--num-frames",
+        type=int,
+        help="KITTI-360: số khung tối đa; bỏ trống thì lấy cả đoạn liền nhau dài nhất",
+    )
+    ingest.add_argument(
+        "--cameras",
+        help="KITTI-360: camera cần ghi, cách nhau bằng dấu phẩy; mặc định "
+        "image_00,image_01,image_02,image_03",
+    )
+    ingest.add_argument(
+        "--max-gap",
+        type=int,
+        default=kitti360.DEFAULT_MAX_GAP,
+        help="KITTI-360: hai khung liền nhau cách nhau quá số này (theo số hiệu gốc) thì cắt "
+        f"đoạn (mặc định {kitti360.DEFAULT_MAX_GAP})",
+    )
     ingest.set_defaults(handler=ingest_scene)
     validate = actions.add_parser("validate", parents=[common], help="kiểm tra lại một cảnh")
     validate.add_argument("scene_id")
@@ -140,7 +164,8 @@ def ingest_scene(args: argparse.Namespace) -> int:
 
     Args:
         args: Tham số dòng lệnh: ``path``, ``source_type``, ``version``, ``sequence``,
-            ``scene_id``, ``interpolate_n``, ``workers``.
+            ``scene_id``, ``interpolate_n``, ``workers``; với KITTI-360 thêm ``start_frame``,
+            ``num_frames``, ``cameras``, ``max_gap``.
 
     Returns:
         ``0`` nếu ingest xong và báo cáo kiểm tra không có lỗi; ``1`` nếu báo cáo có lỗi.
@@ -156,6 +181,12 @@ def ingest_scene(args: argparse.Namespace) -> int:
         )
     except IngestRequestError as error:
         raise UsageError(str(error)) from None
+    options = kitti360.Kitti360Options(
+        start_frame=args.start_frame,
+        num_frames=args.num_frames,
+        cameras=tuple(args.cameras.split(",")) if args.cameras else kitti360.CAMERAS,
+        max_gap=args.max_gap,
+    )
     try:
         scene_dir = run_ingest(
             args.path,
@@ -164,6 +195,7 @@ def ingest_scene(args: argparse.Namespace) -> int:
             scene_id=args.scene_id,
             interpolate_n=args.interpolate_n,
             workers=args.workers,
+            kitti360_options=options,
         )
     except IngestError as error:
         raise CommandError(str(error)) from None
