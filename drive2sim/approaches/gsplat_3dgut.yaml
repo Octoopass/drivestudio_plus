@@ -1,0 +1,89 @@
+# Approach gsplat 3DGUT: dựng cảnh tĩnh bằng Gaussian 3DGUT của gsplat, vẽ camera pinhole và mắt cá
+# trong cùng một lần dựng. Port trainer KITTI-360 của teammate (repo thaianh20021/fisheye-fusion-lab,
+# tools/colab_cli_kitti360.py); ghi chú phương pháp ở docs/methods/gsplat_3dgut.md. Định dạng file:
+# CONTRACTS mục 4.1.
+#
+# Cảnh tĩnh: không có node xe, người; vật chuyển động bị nhoè. Khởi tạo Gaussian từ LiDAR nên cần
+# LiDAR. Mặc định là cấu hình tốt nhất của teammate: vòm trời, mask nắp capô, fused-ssim, SelectiveAdam.
+schema_version: d2s-approach/0.3
+approach_id: gsplat_3dgut
+name: "gsplat 3DGUT (tĩnh)"
+version: 0.1.0
+codebase: gsplat
+level: L1
+requires:
+  camera_models: [opencv_pinhole, opencv_fisheye]
+  cuboids: none
+  split_strategies: [every_nth_frame, custom]
+
+groups:
+  core:
+    label: "Cách dựng"
+    help: "Các khâu chính: có thêm vòm trời không, vùng ảnh nào được giám sát, loss và optimizer."
+  speedup:
+    label: "Thuật toán phụ trợ"
+    help: "Cách tính nhanh hơn cho cùng một loss."
+
+options:
+  sky:
+    choices: [true, false]
+    default: true
+    group: core
+    label: "Vòm trời"
+    help: "LiDAR không chạm tới trời nên nếu chỉ khởi tạo từ LiDAR thì trời không có Gaussian nào. Vòm trời thêm Gaussian lớn trên mặt cầu 200 m quanh xe, màu lấy từ ảnh. Theo teammate đây là thay đổi tăng PSNR nhiều nhất (+3,5 dB pinhole, +4,9 dB mắt cá, mỗi cấu hình chạy một lần)."
+    labels: ["Bật", "Tắt"]
+    descriptions:
+      - "Thêm khoảng 400 Gaussian trời mỗi khung, bán kính 200 m."
+      - "Chỉ Gaussian từ LiDAR; vùng trời không vẽ được."
+  hood_mask:
+    choices: [true, false]
+    default: true
+    group: core
+    label: "Mask nắp capô"
+    help: "Camera mắt cá của KITTI-360 thấy nắp capô và vùng đen ngoài vòng tròn ảnh; hai vùng này cố định theo camera nên không dựng được trong cảnh. Mask tìm bằng cạnh ảnh không đổi qua các khung. Đánh giá luôn bỏ hai vùng này; vùng tia lệch trục quá 1,45 rad luôn bị bỏ."
+    labels: ["Bật", "Tắt"]
+    descriptions:
+      - "Không tính loss ở nắp capô và vùng đen."
+      - "Tính loss trên mọi điểm ảnh vẽ được."
+  ssim:
+    choices: [fused, torch, none]
+    default: fused
+    group: core
+    label: "SSIM"
+    help: "Loss 0,8·L1 + 0,2·(1 − SSIM) thay cho L1 thuần. Theo teammate SSIM tăng 0,5–0,9 dB trên camera pinhole."
+    labels: ["fused-ssim", "PyTorch", "Tắt"]
+    descriptions:
+      - "SSIM bằng kernel CUDA của gói fused-ssim; nhanh."
+      - "SSIM bằng conv2d của PyTorch; cùng công thức, chậm hơn khoảng 2,4 lần."
+      - "Chỉ L1."
+  optimizer:
+    choices: [selective_adam, adam]
+    default: selective_adam
+    group: speedup
+    label: "Optimizer"
+    help: "SelectiveAdam của gsplat chỉ cập nhật Gaussian thấy được trong ảnh đang train (kiểu Fast3DGS). Kernel CUDA của nó (gsplat/cuda/csrc/AdamCUDA.cu) không hiệu chỉnh bias như Adam chuẩn, nên vài trăm bước đầu bước cập nhật lớn hơn khoảng 3 lần lr; teammate dùng mặc định này, chưa so với Adam."
+    labels: ["SelectiveAdam", "Adam"]
+    descriptions:
+      - "Mặc định của teammate. Không hiệu chỉnh bias."
+      - "torch.optim.Adam chuẩn, cập nhật mọi Gaussian mỗi bước."
+
+presets:
+  base: {sky: false, hood_mask: false, ssim: none}
+  no_sky: {sky: false}
+  adam: {optimizer: adam}
+
+preset_help:
+  base: "Cấu hình Base trong ablation của teammate: không vòm trời, không mask capô, chỉ L1."
+  no_sky: "Như mặc định nhưng không có vòm trời."
+  adam: "Như mặc định nhưng dùng Adam chuẩn thay SelectiveAdam."
+
+stages:
+  - stage: train.gsplat_3dgut
+    params:
+      sky: "${options.sky}"
+      hood_mask: "${options.hood_mask}"
+      ssim: "${options.ssim}"
+      optimizer: "${options.optimizer}"
+  - {stage: eval.standard}
+  - {stage: export.ply_world}
+  - {stage: export.preview}

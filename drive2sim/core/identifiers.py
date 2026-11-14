@@ -34,6 +34,7 @@ DATASETS: tuple[str, ...] = (
     "argoverse2",
     "pandaset",
     "kitti",
+    "kitti360",
     "physicalai",
     "carla",
     "colmap",

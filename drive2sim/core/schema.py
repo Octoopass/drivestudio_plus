@@ -60,6 +60,7 @@ Dataset = Literal[
     "argoverse2",
     "pandaset",
     "kitti",
+    "kitti360",
     "physicalai",
     "carla",
     "colmap",
@@ -98,6 +99,9 @@ ERROR_CODES: tuple[str, ...] = (
     "stage_failed",
 )
 Executor = Literal["local", "kaggle", "colab"]
+# Codebase có mã ngay trong package và chạy trong môi trường chính (CONTRACTS mục 4.1): trainer
+# DriveStudio, và trainer gsplat viết mới (drive2sim/recon/tools/train_gsplat_3dgut.py).
+IN_PACKAGE_CODEBASES: tuple[str, ...] = ("drivestudio", "gsplat")
 
 # Phiên bản schema hiện tại của từng loại file.
 SCHEMA_VERSIONS: dict[str, str] = {
@@ -749,7 +753,8 @@ class Approach(VersionedFile):
         approach_id: Định danh ``snake_case``, ví dụ ``omnire``.
         name: Tên hiển thị.
         version: Phiên bản của file approach.
-        codebase: ``drivestudio`` hoặc ``external:<tên>``.
+        codebase: ``drivestudio`` (trainer DriveStudio), ``gsplat`` (trainer gsplat viết trong
+            package, ví dụ ``train.gsplat_3dgut``; cùng môi trường chính) hoặc ``external:<tên>``.
         level: Mức năng lực cao nhất đạt được, ``L1``–``L4``.
         requires: Điều kiện dữ liệu. Track (pinhole, fisheye) của approach và của từng preset suy
             ra từ mô hình camera nhận được (``CAMERA_TRACK``), không ghi riêng; file ``0.1``,
@@ -798,13 +803,15 @@ class Approach(VersionedFile):
     @field_validator("codebase")
     @classmethod
     def _validate_codebase(cls, value: str) -> str:
-        """Kiểm tra codebase là ``drivestudio`` hoặc ``external:<tên>``.
+        """Kiểm tra codebase là ``drivestudio``, ``gsplat`` hoặc ``external:<tên>``.
 
         Raises:
-            ValueError: Nếu không theo một trong hai dạng.
+            ValueError: Nếu không theo một trong ba dạng.
         """
-        if value != "drivestudio" and not re.match(r"^external:[a-z][a-z0-9_]*$", value):
-            raise ValueError("codebase must be 'drivestudio' or 'external:<name>'")
+        if value not in IN_PACKAGE_CODEBASES and not re.match(
+            r"^external:[a-z][a-z0-9_]*$", value
+        ):
+            raise ValueError("codebase must be 'drivestudio', 'gsplat' or 'external:<name>'")
         return value
 
     def _check_assignment(self, where: str, values: dict[str, Any]) -> None:

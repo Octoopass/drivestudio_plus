@@ -33,7 +33,7 @@ Trạng thái: bản nháp, ngày 12/11/2026.
 | Cấu hình sẵn (preset) | Bộ giá trị đặt sẵn cho các mục cấu hình, ví dụ `paper`, `no_lidar`. |
 | Chuẩn bị riêng | Các stage lấy bớt, sinh thêm hoặc đổi dạng dữ liệu chuẩn cho vừa một approach (mục 6.3). |
 | Codebase | Mã nguồn tái dựng mà approach chạy trên đó. Lõi là DriveStudio trong repo này; approach từ codebase khác (NuRec, feed-forward...) được bọc lại và chạy trong môi trường riêng. |
-| Track | Loại rig camera: **pinhole** hoặc **fisheye**, thường 4–8 camera (Argoverse 7, nuPlan 8). Hai track xử lý riêng, không trộn camera pinhole và fisheye trong một lần dựng. Một approach có thể dùng cho cả hai track; preset và lựa chọn (ví dụ renderer) quyết định track nào (CONTRACTS mục 4.1). |
+| Track | Loại rig camera: **pinhole** hoặc **fisheye**, thường 4–8 camera (Argoverse 7, nuPlan 8). Cảnh có ít nhất một camera mắt cá (ví dụ KITTI-360: 2 pinhole, 2 mắt cá) thuộc track fisheye. Một lần dựng chỉ trộn camera pinhole và mắt cá khi renderer của approach vẽ được cả hai (3DGUT, 3DGEER), như approach `gsplat_3dgut`; còn lại split chỉ chọn camera cùng một loại. Một approach có thể dùng cho cả hai track; preset và lựa chọn (ví dụ renderer) quyết định track nào (CONTRACTS mục 4.1). |
 | Run | Một lần chạy một approach trên một cảnh, với một split và một bộ tham số. |
 
 ## 4. Mức năng lực của approach
@@ -68,6 +68,7 @@ Trên giao diện có thể cho chọn approach sớm để người dùng biế
 ### 6.1 Nguồn dữ liệu được hỗ trợ
 
 - Waymo, nuScenes, nuPlan, Argoverse 2, PandaSet, KITTI, PhysicalAI.
+- KITTI-360: 2 camera pinhole (đã rectify), 2 camera mắt cá (mô hình Mei, đổi gần đúng sang OpenCV fisheye), LiDAR Velodyne, pose chính thức; không có box (`docs/datasets/kitti360.md`).
 - CARLA: dữ liệu sinh từ CARLA cho track fisheye (rig 4–6 camera fisheye, có pose, depth và box ground truth).
 - Dữ liệu riêng của mentor: định dạng chưa biết; đi qua một converter riêng khi có thông tin.
 - Ảnh kèm pose dạng COLMAP.
@@ -191,7 +192,7 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 ## 12. Ngoài phạm vi
 
 - Nhiều người dùng, tài khoản, phân quyền, lưu trữ đám mây dùng chung.
-- Trộn camera pinhole và fisheye trong cùng một lần dựng.
+- Trộn camera pinhole và fisheye trong cùng một lần dựng với renderer chỉ vẽ được một loại (3DGS gốc). Renderer vẽ được cả hai (3DGUT, 3DGEER) thì được trộn (approach `gsplat_3dgut`).
 - Trích mesh va chạm.
 
 ## 13. Nghiệm thu

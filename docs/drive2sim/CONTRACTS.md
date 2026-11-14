@@ -58,6 +58,8 @@ data/<scene_id>/
 - `<khung>` là chỉ số 3 chữ số (`000`), `<camera>` là chỉ số camera của DriveStudio cho dataset đó.
 - Cách lưu pose khác nhau giữa các dataset và **được giữ nguyên**, vì mỗi dataset đọc bằng loader riêng của nó (`drive2sim/recon/data/loaders/<dataset>.py`): Waymo, Argoverse, KITTI, nuPlan lưu `ego_pose/<khung>.txt` và `extrinsics/<camera>.txt`; PandaSet lưu `ego_pose/` và `extrinsics/<khung>_<camera>.txt`; nuScenes lưu `extrinsics/<khung>_<camera>.txt` và `lidar_pose/`. Bảng đầy đủ ở `ARCHITECTURE.md` mục 2.2.
 - Nguồn mới không có loader riêng: converter ghi theo đúng khung thư mục của một dataset có sẵn rồi dùng loader của dataset đó (`ARCHITECTURE.md` mục 2.4).
+- **KITTI-360** (`drive2sim/ingest/kitti360.py`, `docs/datasets/kitti360.md`) ghi theo khung KITTI của DriveStudio: xe trùng hệ LiDAR Velodyne (x tới trước, y trái, z lên); `lidar/<khung>.bin` chép nguyên file Velodyne (`float32` x, y, z, cường độ); `ego_pose/<khung>.txt` là ma trận 4×4 Velodyne → world, world là hệ Velodyne ở khung đầu của cảnh; `extrinsics/<camera>.txt` là camera → Velodyne (trục OpenCV), cố định; ảnh `images/<khung>_<camera>.png` chép nguyên PNG của nguồn. Thêm `frame_ids.txt` (số hiệu khung gốc theo thứ tự khung) và `timestamps.txt` (micro giây mỗi khung).
+- **`intrinsics/<camera>.txt` theo mô hình camera** ghi trong manifest (`cameras[].model`): `opencv_pinhole` là 9 số `fx fy cx cy k1 k2 p1 p2 k3` (như Argoverse, KITTI); `opencv_fisheye` là 8 số `fx fy cx cy k1 k2 k3 k4` (thứ tự của `cv2.fisheye`, `theta_d = θ·(1 + k1·θ² + k2·θ⁴ + k3·θ⁶ + k4·θ⁸)`). Bốn số đầu luôn là `fx fy cx cy` (pixel, ảnh gốc). Hai dạng phân biệt bằng `model`, không bằng số phần tử. Camera mắt cá KITTI-360 (Mei) được khớp sang `opencv_fisheye`, chỉ đúng tới tia lệch trục 1,45 rad (`drive2sim/core/camera.py`).
 - Thư mục cảnh chỉ chứa những gì có từ nguồn. Mask bầu trời và SMPL do stage `prep.*` sinh ra là artifact trong `cache/` (mục 5), không ghi vào đây.
 
 ### 2.2 `manifest.yaml`
@@ -66,12 +68,12 @@ data/<scene_id>/
 schema_version: d2s-manifest/1.0
 scene_id: nuscenes_scene-0061
 source:
-  dataset: nuscenes               # waymo | nuscenes | nuplan | argoverse2 | pandaset | kitti | physicalai | carla | colmap | custom
+  dataset: nuscenes               # waymo | nuscenes | nuplan | argoverse2 | pandaset | kitti | kitti360 | physicalai | carla | colmap | custom
   sequence_id: scene-0061
   converter: drivestudio.nuscenes # converter đã dùng: script tiền xử lý DriveStudio cho nuScenes
   converter_version: "0.1.0+96876ad"   # <phiên bản drive2sim>+<commit> lúc ingest
   data_license: "CC BY-NC-SA 4.0"
-track: pinhole                    # pinhole | fisheye
+track: pinhole                    # pinhole | fisheye; fisheye khi có ít nhất một camera mắt cá
 cameras:
   - camera_id: CAM_FRONT
     model: opencv_pinhole         # opencv_pinhole | opencv_fisheye | ftheta | ideal_pinhole
@@ -93,7 +95,7 @@ available:
 - `cameras` xếp đúng thứ tự chỉ số camera của DriveStudio cho dataset đó, vì `images/<khung>_<camera>.jpg` và config dataset dùng chỉ số này; stage train đổi `camera_id` của split sang chỉ số theo thứ tự đó.
 - `source.dataset` chọn loader và config dataset có sẵn của DriveStudio khi train.
 - Thay đổi từ `0.1`: bỏ phần `ncore` (dữ liệu chuẩn không còn là NCore); file `0.x` không đọc được nữa.
-- `cameras[].model` ghi đúng mô hình trong nguồn, nên có thể là `ideal_pinhole` (với nguồn NCore); approach chỉ khai báo nhận ba mô hình chuẩn (mục 10.3), và `ideal_pinhole` được coi là `opencv_pinhole` với hệ số méo bằng 0.
+- `cameras[].model` ghi đúng mô hình trong nguồn, nên có thể là `ideal_pinhole` (với nguồn NCore); approach chỉ khai báo nhận ba mô hình chuẩn (mục 10.3), và `ideal_pinhole` được coi là `opencv_pinhole` với hệ số méo bằng 0. Mỗi camera ghi mô hình riêng; một cảnh có thể có cả camera pinhole lẫn mắt cá (KITTI-360). `track` của cảnh là `fisheye` khi có ít nhất một camera thuộc track fisheye. Engine vẫn kiểm từng camera của split với mô hình approach nhận (mục 4.2), nên approach chỉ vẽ pinhole bị khoá trên split có camera mắt cá.
 - Các giá trị trong ví dụ chỉ minh hoạ định dạng.
 
 ## 3. Split và báo cáo kiểm tra
@@ -150,7 +152,7 @@ schema_version: d2s-approach/0.3
 approach_id: omnire
 name: "OmniRe"
 version: 0.1.0
-codebase: drivestudio              # drivestudio | external:<tên>
+codebase: drivestudio              # drivestudio | gsplat | external:<tên>
 level: L1                          # L1 | L2 | L3 | L4
 requires:
   camera_models: [opencv_pinhole, opencv_fisheye, ftheta]   # nhận được với ít nhất một tổ hợp lựa chọn
@@ -220,6 +222,7 @@ stages:                            # chạy lần lượt; ${...} được thay 
 - **Loại camera (track).** Approach không ghi track. Track suy ra từ mô hình camera: `opencv_pinhole`, `ideal_pinhole` là track `pinhole`; `opencv_fisheye`, `ftheta` là track `fisheye`. `requires.camera_models` là mọi mô hình approach nhận với **ít nhất một** tổ hợp lựa chọn. Lựa chọn chỉ nhận một phần thì ghi trong `camera_models` của mục cấu hình đó, mỗi lựa chọn một danh sách, chỉ dùng mô hình có trong `requires.camera_models` (thêm từ `0.3`). Ví dụ OmniRe: 3DGS gốc chỉ vẽ pinhole, 3DGUT và 3DGEER vẽ thêm fisheye, F-theta (`drive2sim/recon/trainers/base.py`, `camera_rasterization_kwargs`). Vậy track của từng preset suy ra từ lựa chọn của preset đó: `paper` chỉ pinhole, `geer` cả hai. API Studio (`GET /api/approaches`) và `d2s approach list`, `show` trả thêm `camera_support`: `{"tracks", "camera_models", "default": {...}, "presets": {tên: {...}}}` (`resolve.camera_support`). File `0.1`, `0.2` có trường `track` vẫn đọc được; trường đó bị bỏ qua.
 - Preset chỉ là cách điền nhanh các mục cấu hình. `run.json` ghi tên preset (`approach.preset`) chỉ khi cấu hình cuối đúng bằng preset đó; người dùng chọn preset rồi chỉnh một mục cấu hình khác đi (Studio, hoặc `--preset` kèm `--set` ở CLI) thì `preset` là `null`. Studio làm mờ lựa chọn vi phạm ràng buộc với các mục cấu hình đang chọn, kèm mục cấu hình cần đổi và `reason`.
 - Tham số cuối cùng của một stage được gộp theo thứ tự: mặc định của stage → `params` trong file → preset → lựa chọn của người dùng (Studio hoặc `--set` của CLI).
+- `codebase`: `drivestudio` là trainer DriveStudio trong `drive2sim/recon/`; `gsplat` là trainer gsplat viết trong package (`drive2sim/recon/tools/train_gsplat_3dgut.py`, stage `train.gsplat_3dgut`); cả hai chạy trong môi trường chính (`drive2sim/engine/environment.py`, `CODEBASE_ENV`). `external:<tên>` là codebase ngoài, môi trường riêng (mục 9).
 - `train.drivestudio` chọn **một file config có sẵn** trong `drive2sim/configs/methods/` theo năm tham số `method`, `renderer`, `campose`, `fastgs`, `fastergs` (bảng `CONFIG_FILES` trong `drive2sim/stages/train/drivestudio.py`), không tự sửa tham số train. Ví dụ `streetgs` + `3dgeer` + `fastgs: true` dùng `streetgs_geer_fastgs.yaml`. Tổ hợp chưa có file config bị từ chối khi kiểm tra tham số, và file approach khai báo `constraints` để Studio, CLI khoá sẵn các tổ hợp đó.
 
 ### 4.2 Điều kiện chạy
@@ -316,7 +319,7 @@ Riêng `train.*`: chạy tiếp bằng `checkpoint_resume.pth` (model, optimizer
 | `smpl` | Thư mục có `humanpose/smpl.pkl` (định dạng của `drive2sim/recon/preprocess/smpl/run.py`) cùng file trung gian trong `humanpose/temp/`, `humanpose/postprocess/`. Do `prep.smpl` ghi |
 | `depth_prior` | Depth metric theo camera và khung, mỗi ảnh một file `.npy` `float32`, mét; kèm tên model trong `artifact.json` |
 | `points_init` | `points_init.npz`: `points` `float32[M,3]` trong hệ `world`, `colors` `uint8[M,3]`, `track_ids` (tuỳ chọn) |
-| `model` | Thư mục log của codebase; với DriveStudio có `checkpoint_final.pth`, `config.yaml`, `metrics/`, `videos/` (mục 6.1) |
+| `model` | Thư mục log của codebase; với DriveStudio có `checkpoint_final.pth`, `config.yaml`, `metrics/`, `videos/` (mục 6.1). `train.gsplat_3dgut` ghi cùng tên ở những chỗ stage sau đọc: `checkpoint_final.pth` (chỉ node `Background`, tên trường như DriveStudio), `metrics/images_test_*.json`, `train_stats.json`, `cameras.json`; không có `config.yaml` của DriveStudio nên mode Render GPU của Studio không mở được run này |
 | `eval_report` | Thư mục chứa `summary.json` (mục 6.3) và metric gốc của codebase |
 | `videos` | Video MP4 H.264 |
 | `export_ply` | PLY 3DGS trong hệ `world` |
@@ -430,7 +433,8 @@ Các con số trong ví dụ chỉ minh hoạ định dạng. Metric vùng ngư�
 - `train_time_s`, `peak_vram_mb`, `num_gaussians`, `num_iters` đọc từ `train_stats.json` mà `train.py` ghi cùng mỗi checkpoint. `train_time_s` là **thời gian train thực**: chỉ tính các bước train (lấy batch, forward, backward, cập nhật), không tính lúc khởi động, nạp checkpoint, vẽ ảnh kiểm tra, lưu checkpoint hay đánh giá cuối; chạy tiếp từ checkpoint thì cộng tiếp từ số đã lưu cùng checkpoint đó, nên các bước bị làm lại sau khi ngắt không bị tính hai lần. `num_gaussians` là tổng mọi node của model (nền, xe, người, vật biến dạng).
 - `render_fps`: số khung chia cho thời gian model vẽ ảnh tập test (chỉ tính lời gọi model, có đồng bộ GPU, bỏ 3 khung đầu), ở độ phân giải `render_resolution`. FPS phụ thuộc GPU; tên GPU nằm trong `env.json`.
 - Các trường trên để trống (`null`) khi không có số liệu, ví dụ model train bằng `train.py` cũ chưa ghi `train_stats.json`.
-- `per_camera` để trống với DriveStudio, vì `train.py` không tách metric theo camera.
+- `per_camera` để trống với DriveStudio, vì `train.py` không tách metric theo camera. Trainer ghi thêm khoá `image_metrics/test/per_camera/<camera_id>/<psnr|ssim|lpips>` trong file metric test (`train.gsplat_3dgut` ghi) thì `eval.standard` điền `per_camera`.
+- `protocol.resolution` đọc từ `config.yaml` của DriveStudio; không có file này thì lấy trường `resolution` trong `train_stats.json` (ví dụ `downscale=2` với `train.gsplat_3dgut`).
 - `speedups`: các thuật toán, kỹ thuật tăng tốc **thật sự** đã bật khi train, đọc từ `train_stats.json`: `fastgs` (`docs/methods/fastgs.md`), `fastergs.<kỹ thuật>` (`docs/methods/fastergs.md`). Rỗng khi không bật gì hoặc model train bằng `train.py` cũ. Mục cấu hình của run chỉ ghi công tắc; trường này ghi cái công tắc thật sự làm, để hai run cùng `fastergs: true` mà khác kỹ thuật (ví dụ ở hai phiên bản code) không bị coi là cùng cấu hình.
 - Thay đổi từ `0.1`: `train_time_s`, `peak_vram_mb`, `num_gaussians` thành tuỳ chọn. Thay đổi từ `0.2`: thêm `dynamic_psnr`, `num_iters`, `render_fps`, `render_resolution`; `occupied_psnr` ghi đúng nghĩa là vùng không phải bầu trời. Thay đổi từ `0.3`: thêm `speedups`.
 
@@ -706,7 +710,7 @@ Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dà
 | Lệnh | Việc |
 |---|---|
 | `d2s source inspect <thư mục>` | Xem trước thư mục dữ liệu gốc: nhận ra dataset, báo có gì, gợi ý lệnh ingest; không ghi gì |
-| `d2s scene ingest <nguồn> [--source-type <dataset>] [--version <phiên bản>] [--sequence <chuỗi gốc>] [--scene <scene_id>] [--interpolate-n <N>] [--workers <N>]` | Chuyển một chuỗi của nguồn sang `data/<scene_id>/`, ghi manifest và báo cáo kiểm tra; bỏ `--source-type` thì tự nhận dạng như `source inspect`. `scene_id` mặc định `<dataset>_<chuỗi gốc>`. Mã thoát `1` nếu báo cáo có lỗi. Hỗ trợ nuScenes, Waymo, Argoverse 2, PandaSet, KITTI, nuPlan, PhysicalAI; phiên bản và chuỗi được tự chọn khi chỉ có một |
+| `d2s scene ingest <nguồn> [--source-type <dataset>] [--version <phiên bản>] [--sequence <chuỗi gốc>] [--scene <scene_id>] [--interpolate-n <N>] [--workers <N>] [--start-frame <số hiệu>] [--num-frames <N>] [--cameras <id,...>] [--max-gap <N>]` | Chuyển một chuỗi của nguồn sang `data/<scene_id>/`, ghi manifest và báo cáo kiểm tra; bỏ `--source-type` thì tự nhận dạng như `source inspect`. `scene_id` mặc định `<dataset>_<chuỗi gốc>`. Mã thoát `1` nếu báo cáo có lỗi. Hỗ trợ nuScenes, Waymo, Argoverse 2, PandaSet, KITTI, nuPlan, PhysicalAI, KITTI-360; phiên bản và chuỗi được tự chọn khi chỉ có một. Bốn tuỳ chọn cuối chỉ dùng cho KITTI-360: số hiệu khung gốc nhỏ nhất, số khung tối đa (mặc định cả đoạn liền nhau dài nhất), camera cần ghi, khoảng cách lớn nhất giữa hai khung liền nhau (mặc định 5) |
 | `d2s scene validate <scene_id>` | Kiểm tra lại, ghi `validation.json` |
 | `d2s scene list` / `d2s scene show <scene_id>` | Liệt kê cảnh; xem manifest và báo cáo |
 | `d2s scene delete <scene_id>` | Xoá dữ liệu chuẩn, split, cache và run của cảnh; hỏi xác nhận |

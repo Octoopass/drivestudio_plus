@@ -22,8 +22,9 @@ from drive2sim.paths import SMPL_MODEL_NAME, find_smpl_model
 # Phiên bản của môi trường chính; phải khớp envs/main.yml và envs/install_main.sh (có test kiểm).
 EXPECTED = {"main": {"pytorch": "2.4.1", "cuda": "12.1", "gsplat": "1.5.3"}}
 # Codebase của approach → môi trường cần; codebase không có ở đây (ví dụ approach mẫu) thì không
-# cần môi trường GPU nào.
-CODEBASE_ENV = {"drivestudio": "main"}
+# cần môi trường GPU nào. Trainer gsplat (train.gsplat_3dgut) cần đúng các gói của môi trường
+# chính: PyTorch, gsplat-geer (UT), fused-ssim, OpenCV, SciPy, torchmetrics.
+CODEBASE_ENV = {"drivestudio": "main", "gsplat": "main"}
 # Hỏi PyTorch tốn vài giây (tiến trình con), nên giữ kết quả một lúc.
 _CUDA_CACHE_S = 120
 _cuda_cache: dict[str, Any] = {}

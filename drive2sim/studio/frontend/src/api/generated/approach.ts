@@ -50,7 +50,8 @@ export type Stage = string;
  *     approach_id: Định danh ``snake_case``, ví dụ ``omnire``.
  *     name: Tên hiển thị.
  *     version: Phiên bản của file approach.
- *     codebase: ``drivestudio`` hoặc ``external:<tên>``.
+ *     codebase: ``drivestudio`` (trainer DriveStudio), ``gsplat`` (trainer gsplat viết trong
+ *         package, ví dụ ``train.gsplat_3dgut``; cùng môi trường chính) hoặc ``external:<tên>``.
  *     level: Mức năng lực cao nhất đạt được, ``L1``–``L4``.
  *     requires: Điều kiện dữ liệu. Track (pinhole, fisheye) của approach và của từng preset suy
  *         ra từ mô hình camera nhận được (``CAMERA_TRACK``), không ghi riêng; file ``0.1``,

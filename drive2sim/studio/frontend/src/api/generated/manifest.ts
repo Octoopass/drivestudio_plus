@@ -3,7 +3,17 @@
 export type SchemaVersion = string;
 export type SceneId = string;
 export type Dataset =
-  "waymo" | "nuscenes" | "nuplan" | "argoverse2" | "pandaset" | "kitti" | "physicalai" | "carla" | "colmap" | "custom";
+  | "waymo"
+  | "nuscenes"
+  | "nuplan"
+  | "argoverse2"
+  | "pandaset"
+  | "kitti"
+  | "kitti360"
+  | "physicalai"
+  | "carla"
+  | "colmap"
+  | "custom";
 export type SequenceId = string;
 export type Converter = string;
 export type ConverterVersion = string;
