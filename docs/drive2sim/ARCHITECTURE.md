@@ -65,7 +65,7 @@ Mỗi quyết định gồm: giải thích công cụ hoặc khái niệm, lý d
 | 2.12 | Viewer 3D chính: viser + nerfview, render ở server |
 | 2.13 | Chế độ xem trước không cần GPU CUDA: Spark trong trình duyệt, file PLY |
 | 2.14 | Server mô phỏng theo proto `SensorsimService` của NuRec |
-| 2.15 | Ba mô hình camera chuẩn: `opencv_pinhole`, `opencv_fisheye`, `ftheta` |
+| 2.15 | Ba mô hình camera chuẩn: `opencv_pinhole`, `opencv_fisheye`, `ftheta`; track của approach, preset suy ra từ renderer |
 
 ### 2.1 Xây tool trong repo `drivestudio_plus`, tái cấu trúc toàn bộ thành một package
 
@@ -346,6 +346,20 @@ Route, thân, lỗi và sự kiện SSE quy định ở CONTRACTS mục 11; API 
 **Nhược điểm.**
 - Mô hình khác (omnidirectional, double sphere) phải chuyển gần đúng; kiểm tra khi biết dữ liệu của mentor.
 - NCore còn có pinhole lý tưởng và mô hình méo kính chắn gió; đường PhysicalAI hiện từ chối mô hình kính chắn gió.
+
+**Phân loại camera theo approach và preset.** Track (pinhole, fisheye) của cảnh suy ra từ mô hình camera trong manifest; track của approach và của từng preset suy ra từ mô hình camera mà lựa chọn của nó nhận (CONTRACTS mục 4.1, 4.2). Không ghi track riêng cho approach, vì cùng một approach dùng được cho cả hai track tuỳ renderer:
+
+| Renderer (OmniRe, Street GS) | Mô hình camera nhận | Track |
+|---|---|---|
+| `3dgs` | `opencv_pinhole` | pinhole |
+| `3dgut`, `3dgeer` | `opencv_pinhole`, `opencv_fisheye`, `ftheta` | pinhole, fisheye |
+
+Nguồn: `drive2sim/recon/trainers/base.py`, `camera_rasterization_kwargs` (3DGS gốc báo lỗi "Native fisheye/FTheta cameras require UT or GEER"). F-theta với 3DGEER còn cần bản gsplat có `ftheta_coeffs` (`docs/methods/3dgeer.md`).
+
+- Ingest ghi mô hình thật: các dataset pinhole là `opencv_pinhole`; PhysicalAI giữ ảnh F-theta gốc (`docs/datasets/physicalai.md`) nên camera là `ftheta`, cảnh là track fisheye. Cảnh PhysicalAI đã ingest trước thay đổi này ghi nhầm `opencv_pinhole`; ingest lại để sửa.
+- `train.drivestudio` train cảnh fisheye trên ảnh gốc (`data.pixel_source.undistort=false`, đè giá trị `True` của `physicalai/7cams.yaml`). Khử méo về pinhole để dùng 3DGS là việc của stage `prep.undistort`, chưa làm; tới lúc đó 3DGS bị khoá trên cảnh fisheye.
+- Trang Chạy mới hiện track của cảnh, track của từng approach, làm mờ preset và lựa chọn không vẽ được camera của cảnh (kèm lý do), trước cả khi engine trả lời. Cấu hình mặc định không vẽ được camera của cảnh thì trang chọn sẵn preset đầu tiên vẽ được (OmniRe: `geer`; Street GS: `ut`).
+- Chưa làm: shutter của camera PhysicalAI vẫn ghi `GLOBAL` trong manifest (thông số thật nằm trong calibration của cảnh, loader đọc trực tiếp).
 
 ## 3. Cấu trúc repo đích
 

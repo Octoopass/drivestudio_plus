@@ -19,7 +19,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Optional
 
-from drive2sim.core.schema import SCHEMA_VERSIONS, Manifest
+from drive2sim.core.schema import CAMERA_TRACK, SCHEMA_VERSIONS, Manifest
 from drive2sim.engine.run import code_commit
 from drive2sim.ingest.images import IMAGE_SUFFIXES, read_image_size
 
@@ -66,13 +66,15 @@ def build_manifest(
     converter: str,
     lidar_ids: Optional[list[str]] = None,
     data_license: Optional[str] = None,
+    camera_model: str = "opencv_pinhole",
 ) -> Manifest:
     """Dựng manifest cho một thư mục cảnh DriveStudio.
 
     Số khung lấy theo camera đầu tiên. Độ phân giải đọc từ ảnh đầu tiên của từng camera. Cảnh có
     LiDAR khi ``lidar/`` có file ``.bin``; có box khi ``instances/instances_info.json`` không rỗng.
-    Mô hình camera ghi ``opencv_pinhole`` và shutter ``GLOBAL``, đúng với cách loader DriveStudio
-    của các dataset pinhole đọc ảnh.
+    Mọi camera ghi cùng mô hình ``camera_model`` và shutter ``GLOBAL``; track của cảnh suy ra từ
+    mô hình (``CAMERA_TRACK``): ``opencv_pinhole`` là track pinhole, ``ftheta`` (PhysicalAI) là
+    track fisheye.
 
     Args:
         scene_dir: Thư mục cảnh đã tiền xử lý.
@@ -83,6 +85,7 @@ def build_manifest(
         converter: Tên converter, ví dụ ``drivestudio.nuscenes``.
         lidar_ids: Tên các LiDAR nếu cảnh có LiDAR, ví dụ ``["LIDAR_TOP"]``.
         data_license: License của dữ liệu nguồn.
+        camera_model: Mô hình ống kính của ảnh trong ``images/``.
 
     Returns:
         Manifest đã kiểm tra theo schema.
@@ -103,7 +106,7 @@ def build_manifest(
         cameras.append(
             {
                 "camera_id": camera_id,
-                "model": "opencv_pinhole",
+                "model": camera_model,
                 "resolution": list(size),
                 "shutter": "GLOBAL",
             }
@@ -125,7 +128,7 @@ def build_manifest(
                 "converter_version": converter_version(),
                 "data_license": data_license,
             },
-            "track": "pinhole",
+            "track": CAMERA_TRACK[camera_model],
             "cameras": cameras,
             "lidars": lidars,
             "timeline": {"reference_sensor": camera_ids[0], "num_frames": frames[-1] + 1},

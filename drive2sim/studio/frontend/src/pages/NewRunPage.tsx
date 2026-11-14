@@ -11,6 +11,9 @@ import { ErrorBox, InfoTip, Note, PageHead, Panel, Segmented, Skeleton } from ".
 import { useI18n } from "../i18n";
 import { go, href } from "../router";
 
+// Pinhole lý tưởng của NCore được coi là pinhole OpenCV, như engine (CONTRACTS 4.2).
+const lensModel = (model: string) => (model === "ideal_pinhole" ? "opencv_pinhole" : model);
+
 const show = (value: OptionValue) => (typeof value === "boolean" ? (value ? "true" : "false") : String(value));
 
 export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { sceneId?: string; splitId?: string }) {
@@ -55,7 +58,15 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
   useEffect(() => {
     if (!approachId && approaches.data?.items[0]) setApproachId(approaches.data.items[0].approach_id);
   }, [approaches.data, approachId]);
-  useEffect(() => setOptions({}), [approachId]);
+  // Đổi approach hoặc cảnh thì về cấu hình mặc định; nếu mặc định không vẽ được camera của cảnh
+  // (ví dụ 3DGS trên cảnh F-theta) thì chọn sẵn preset đầu tiên vẽ được, thay vì để người dùng gặp
+  // lỗi bị khoá.
+  useEffect(() => {
+    const support = approach?.camera_support;
+    if (!support || !scene.data || !cameraReason(support.default)) return setOptions({});
+    const name = Object.keys(approach.presets ?? {}).find((n) => !cameraReason(support.presets[n]));
+    setOptions(name ? { ...((approach.presets ?? {})[name] as Record<string, OptionValue>) } : {});
+  }, [approachId, scene.data, approaches.data]);
 
   // Kiểm tra lại mỗi khi lựa chọn đổi.
   useEffect(() => {
@@ -93,6 +104,23 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
       setStarting(false);
     }
   };
+
+  // Loại camera của cảnh, để làm mờ approach, preset và lựa chọn không vẽ được camera đó trước cả
+  // khi /check trả lời (cảnh fisheye mà để 3DGS mặc định thì /check báo bị khoá, không có danh sách
+  // lựa chọn bị khoá). Engine vẫn là chỗ quyết định cuối, theo camera của split.
+  const sceneModels = [...new Set((scene.data?.manifest.cameras ?? []).map((c) => lensModel(c.model)))];
+  const sceneTrack = scene.data?.manifest.track;
+  const fits = (models: string[]) => sceneModels.every((m) => models.includes(m));
+  const trackText = (fit: { tracks: string[] }) => fit.tracks.map((track) => t(`new.track.${track}`)).join(", ");
+  const cameraReason = (fit: { camera_models: string[] }) =>
+    scene.data && !fits(fit.camera_models) ? t("new.camera.mismatch", { models: sceneModels.join(", ") }) : undefined;
+  const choiceCameraReason = (name: string, choice: OptionValue) => {
+    const spec = specs[name];
+    const index = (spec?.choices as OptionValue[] | undefined)?.indexOf(choice) ?? -1;
+    const models = spec?.camera_models?.[index];
+    return models ? cameraReason({ camera_models: models }) : undefined;
+  };
+  const presetFit = (name: string) => (name ? approach?.camera_support.presets[name] : approach?.camera_support.default);
 
   const blockedReason = (option: string, choice: OptionValue) => check?.blocked_choices[option]?.find((b) => b.choice === choice)?.message;
   const decided = check?.options ?? {};
@@ -164,6 +192,11 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
                 </select>
               </label>
             </div>
+            {sceneTrack && (
+              <p className="small muted" style={{ marginTop: 12 }}>
+                {t("new.field.camera")}: <span className="tag">{t(`new.track.${sceneTrack}`)}</span> <code>{sceneModels.join(", ")}</code>
+              </p>
+            )}
             {scenes.data?.total === 0 && (
               <div style={{ marginTop: 15 }}>
                 <Note>
@@ -184,9 +217,23 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
             {!approaches.data && <Skeleton height={64} />}
             <div className="choice-list">
               {(approaches.data?.items ?? []).map((a) => (
-                <button key={a.approach_id} className="choice" aria-pressed={a.approach_id === approachId} onClick={() => setApproachId(a.approach_id)}>
+                <button
+                  key={a.approach_id}
+                  className="choice"
+                  aria-pressed={a.approach_id === approachId}
+                  onClick={() => setApproachId(a.approach_id)}
+                  title={cameraReason(a.camera_support)}
+                >
                   <span className="name">{a.name}</span>
                   <span className="desc">{t("new.approach.meta", { codebase: a.codebase, level: a.level, stages: a.stages.length })}</span>
+                  <span className="row wrap" style={{ gap: 6 }}>
+                    {a.camera_support.tracks.map((track) => (
+                      <span key={track} className={`tag${sceneTrack === track ? " go" : ""}`}>
+                        {t(`new.track.${track}`)}
+                      </span>
+                    ))}
+                    {cameraReason(a.camera_support) && <span className="tag warn">{t("new.camera.unfit")}</span>}
+                  </span>
                 </button>
               ))}
             </div>
@@ -200,11 +247,12 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
                         <span className="stack" style={{ gap: 6 }}>
                           <span>{t("new.preset.info")}</span>
                           <span>
-                            <b>{t("new.field.no_preset")}</b>: {t("new.preset.default_help")}
+                            <b>{t("new.field.no_preset")}</b>: {t("new.preset.default_help")} ({trackText(approach.camera_support.default)})
                           </span>
                           {presetNames.map((name) => (
                             <span key={name}>
-                              <b>{name}</b>: {presetHelp(name) ?? optionsSummary((approach.presets ?? {})[name] as Record<string, OptionValue>)}
+                              <b>{name}</b>: {presetHelp(name) ?? optionsSummary((approach.presets ?? {})[name] as Record<string, OptionValue>)} (
+                              {trackText(approach.camera_support.presets[name])})
                             </span>
                           ))}
                         </span>
@@ -215,10 +263,16 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
                         label={t("new.field.preset")}
                         value={activePreset ?? "\u0000custom"}
                         onChange={(name) => setOptions(name ? { ...((approach.presets ?? {})[name] as Record<string, OptionValue>) } : {})}
-                        options={[
-                          { value: "", label: t("new.field.no_preset") },
-                          ...presetNames.map((name) => ({ value: name, label: name })),
-                        ]}
+                        options={["", ...presetNames].map((name) => {
+                          const fit = presetFit(name);
+                          const reason = fit && cameraReason(fit);
+                          return {
+                            value: name,
+                            label: name || t("new.field.no_preset"),
+                            disabled: Boolean(reason),
+                            title: reason ?? (fit ? trackText(fit) : undefined),
+                          };
+                        })}
                       />
                       {activePreset === null && <span className="tag warn">{t("new.preset.custom")}</span>}
                     </div>
@@ -235,7 +289,8 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
                     {group.names.map((name) => {
                       const spec = specs[name];
                       const choices = spec.choices as OptionValue[];
-                      const reasonOf = (choice: OptionValue) => blockedReason(name, choice) ?? conflict(name, choice);
+                      const reasonOf = (choice: OptionValue) =>
+                        blockedReason(name, choice) ?? choiceCameraReason(name, choice) ?? conflict(name, choice);
                       const blocked = choices
                         .map((choice) => ({ choice, reason: reasonOf(choice) }))
                         .filter((item): item is { choice: OptionValue; reason: string } => Boolean(item.reason));

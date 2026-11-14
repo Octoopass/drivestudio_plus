@@ -33,7 +33,7 @@ Trạng thái: bản nháp, ngày 12/11/2026.
 | Cấu hình sẵn (preset) | Bộ giá trị đặt sẵn cho các mục cấu hình, ví dụ `paper`, `no_lidar`. |
 | Chuẩn bị riêng | Các stage lấy bớt, sinh thêm hoặc đổi dạng dữ liệu chuẩn cho vừa một approach (mục 6.3). |
 | Codebase | Mã nguồn tái dựng mà approach chạy trên đó. Lõi là DriveStudio trong repo này; approach từ codebase khác (NuRec, feed-forward...) được bọc lại và chạy trong môi trường riêng. |
-| Track | Loại rig camera: **pinhole** hoặc **fisheye**, thường 4–8 camera (Argoverse 7, nuPlan 8). Hai track xử lý riêng, không trộn camera pinhole và fisheye trong một lần dựng. |
+| Track | Loại rig camera: **pinhole** hoặc **fisheye**, thường 4–8 camera (Argoverse 7, nuPlan 8). Hai track xử lý riêng, không trộn camera pinhole và fisheye trong một lần dựng. Một approach có thể dùng cho cả hai track; preset và lựa chọn (ví dụ renderer) quyết định track nào (CONTRACTS mục 4.1). |
 | Run | Một lần chạy một approach trên một cảnh, với một split và một bộ tham số. |
 
 ## 4. Mức năng lực của approach

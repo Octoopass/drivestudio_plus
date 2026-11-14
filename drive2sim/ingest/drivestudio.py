@@ -126,6 +126,9 @@ class DriveStudioSource:
         uses_version: ``True`` nếu script cần ``--split <phiên bản>``.
         data_license: License của dữ liệu, nếu đã biết chắc.
         extra_args: Tham số thêm cho script, ví dụ nội suy của nuScenes.
+        camera_model: Mô hình ống kính của ảnh sau tiền xử lý. Các dataset pinhole là
+            ``opencv_pinhole``; PhysicalAI giữ ảnh F-theta gốc (docs/datasets/physicalai.md) nên
+            là ``ftheta``. Track của cảnh suy ra từ mô hình này.
     """
 
     dataset: str
@@ -136,6 +139,7 @@ class DriveStudioSource:
     uses_version: bool = False
     data_license: Optional[str] = None
     extra_args: tuple[str, ...] = field(default_factory=tuple)
+    camera_model: str = "opencv_pinhole"
 
 
 SOURCES: dict[str, DriveStudioSource] = {
@@ -224,6 +228,7 @@ SOURCES: dict[str, DriveStudioSource] = {
         ),
         GENERIC_LIDAR,
         _physicalai_arg,
+        camera_model="ftheta",
     ),
 }
 
@@ -383,6 +388,7 @@ def ingest_drivestudio(
         converter=f"drivestudio.{source.script_dataset}",
         lidar_ids=list(source.lidars),
         data_license=source.data_license,
+        camera_model=source.camera_model,
     )
     files.dump(manifest, scene_dir / "manifest.yaml")
     files.dump(validate_scene(scene_dir, manifest), scene_dir / "reports" / "validation.json")

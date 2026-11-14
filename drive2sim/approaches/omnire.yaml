@@ -7,15 +7,14 @@
 #
 # Chưa có mục cấu hình "init" (LiDAR hay depth): DriveStudio vẫn tự khởi tạo từ LiDAR bên trong trainer,
 # cho tới khi tách thành stage init.* (ARCHITECTURE mục 7.4 bước 4).
-schema_version: d2s-approach/0.2
+schema_version: d2s-approach/0.3
 approach_id: omnire
 name: "OmniRe"
 version: 0.1.0
 codebase: drivestudio
-track: pinhole
 level: L1
 requires:
-  camera_models: [opencv_pinhole]
+  camera_models: [opencv_pinhole, opencv_fisheye, ftheta]   # với ít nhất một renderer
   cuboids: required
   split_strategies: [every_nth_frame]
 
@@ -34,6 +33,9 @@ options:
     group: core
     label: "Renderer"
     help: "Cách vẽ các Gaussian thành ảnh camera."
+    camera_models:                # loại camera từng renderer vẽ được (recon/trainers/base.py)
+      - [opencv_pinhole]
+      - [opencv_pinhole, opencv_fisheye, ftheta]
     labels: ["3DGS (gốc)", "3DGEER"]
     descriptions:
       - "Cách vẽ gốc của 3D Gaussian Splatting, cho camera pinhole."

@@ -146,15 +146,14 @@ Approach khai báo các `strategy` mà codebase của nó hỗ trợ (`requires.
 `drive2sim/approaches/<approach_id>.yaml`. Approach là danh sách stage chạy lần lượt; các khâu thay thế được cho nhau là *mục cấu hình*, quyết định trước khi chạy (`ARCHITECTURE.md` mục 2.5).
 
 ```yaml
-schema_version: d2s-approach/0.2
+schema_version: d2s-approach/0.3
 approach_id: omnire
 name: "OmniRe"
 version: 0.1.0
 codebase: drivestudio              # drivestudio | external:<tên>
-track: pinhole                     # pinhole | fisheye
 level: L1                          # L1 | L2 | L3 | L4
 requires:
-  camera_models: [opencv_pinhole]
+  camera_models: [opencv_pinhole, opencv_fisheye, ftheta]   # nhận được với ít nhất một tổ hợp lựa chọn
   cuboids: required                # required | optional | none
   split_strategies: [every_nth_frame]
 
@@ -169,6 +168,10 @@ options:                           # mục cấu hình
   renderer:
     choices: [3dgs, 3dgut, 3dgeer]
     default: 3dgs
+    camera_models:                 # mô hình camera từng lựa chọn nhận, cùng thứ tự với choices (tuỳ chọn)
+      - [opencv_pinhole]
+      - [opencv_pinhole, opencv_fisheye, ftheta]
+      - [opencv_pinhole, opencv_fisheye, ftheta]
   campose:
     choices: [false, true]
     default: false
@@ -214,6 +217,7 @@ stages:                            # chạy lần lượt; ${...} được thay 
 - Một stage dùng được artifact của bất kỳ stage nào đứng trước. Engine nối theo kiểu artifact: stage cần `points_init` nhận artifact `points_init` gần nhất phía trước.
 - `${options.<tên mục>}` được thay bằng lựa chọn cụ thể trước khi chạy. Sau khi thay, danh sách stage là cố định; không có điều kiện, nhánh song song hay vòng lặp lúc đang chạy.
 - `groups`, và `label`, `help`, `labels`, `descriptions`, `group` của mục cấu hình, và `preset_help` chỉ dùng để hiển thị (thêm từ `0.2`; file `0.1` vẫn đọc được). Studio hiện các mục cấu hình theo nhóm; giải thích của mục cấu hình, của từng lựa chọn, của preset và lý do một lựa chọn bị khoá nằm trong icon (i), không hiện thành dòng chữ trên trang. Thuật toán phụ trợ (FastGS, và sau này các thuật toán tăng tốc khác) đặt mỗi thuật toán thành một mục cấu hình bật/tắt riêng trong nhóm `speedup`; tổ hợp chưa có file config thì khai báo trong `constraints`. Viết tiếng Việt như `reason` của ràng buộc. Thêm approach hay lựa chọn mới không cần sửa Studio: thiếu các trường này thì Studio hiện tên mục cấu hình và giá trị thô.
+- **Loại camera (track).** Approach không ghi track. Track suy ra từ mô hình camera: `opencv_pinhole`, `ideal_pinhole` là track `pinhole`; `opencv_fisheye`, `ftheta` là track `fisheye`. `requires.camera_models` là mọi mô hình approach nhận với **ít nhất một** tổ hợp lựa chọn. Lựa chọn chỉ nhận một phần thì ghi trong `camera_models` của mục cấu hình đó, mỗi lựa chọn một danh sách, chỉ dùng mô hình có trong `requires.camera_models` (thêm từ `0.3`). Ví dụ OmniRe: 3DGS gốc chỉ vẽ pinhole, 3DGUT và 3DGEER vẽ thêm fisheye, F-theta (`drive2sim/recon/trainers/base.py`, `camera_rasterization_kwargs`). Vậy track của từng preset suy ra từ lựa chọn của preset đó: `paper` chỉ pinhole, `geer` cả hai. API Studio (`GET /api/approaches`) và `d2s approach list`, `show` trả thêm `camera_support`: `{"tracks", "camera_models", "default": {...}, "presets": {tên: {...}}}` (`resolve.camera_support`). File `0.1`, `0.2` có trường `track` vẫn đọc được; trường đó bị bỏ qua.
 - Preset chỉ là cách điền nhanh các mục cấu hình. `run.json` ghi tên preset (`approach.preset`) chỉ khi cấu hình cuối đúng bằng preset đó; người dùng chọn preset rồi chỉnh một mục cấu hình khác đi (Studio, hoặc `--preset` kèm `--set` ở CLI) thì `preset` là `null`. Studio làm mờ lựa chọn vi phạm ràng buộc với các mục cấu hình đang chọn, kèm mục cấu hình cần đổi và `reason`.
 - Tham số cuối cùng của một stage được gộp theo thứ tự: mặc định của stage → `params` trong file → preset → lựa chọn của người dùng (Studio hoặc `--set` của CLI).
 - `train.drivestudio` chọn **một file config có sẵn** trong `drive2sim/configs/methods/` theo bốn tham số `method`, `renderer`, `campose`, `fastgs` (bảng `CONFIG_FILES` trong `drive2sim/stages/train/drivestudio.py`), không tự sửa tham số train. Ví dụ `streetgs` + `3dgeer` + `fastgs: true` dùng `streetgs_geer_fastgs.yaml`. Tổ hợp chưa có file config bị từ chối khi kiểm tra tham số, và file approach khai báo `constraints` để Studio, CLI khoá sẵn các tổ hợp đó.
@@ -223,9 +227,9 @@ stages:                            # chạy lần lượt; ${...} được thay 
 Engine kiểm tra trước khi chạy. Approach hoặc một lựa chọn bị khoá, kèm lý do, khi:
 - lựa chọn cần LiDAR (ví dụ `init.lidar`) mà `available.lidar` là `false`;
 - `cuboids: required` mà `available.cuboids` là `none`;
-- mô hình camera trong split không nằm trong `camera_models`, và danh sách stage không có `prep.undistort`;
+- mô hình camera trong split không nằm trong `requires.camera_models`, và danh sách stage không có `prep.undistort`;
+- lựa chọn đang chọn có `camera_models` không chứa mô hình của một camera trong split, và danh sách stage không có `prep.undistort` (ví dụ renderer `3dgs` trên cảnh camera `ftheta`); lựa chọn đó bị khoá và `auto` bỏ qua nó;
 - `strategy` của split không nằm trong `split_strategies`;
-- `track` của approach khác `track` của cảnh;
 - tổ hợp lựa chọn vi phạm một mục trong `constraints`.
 
 Studio và CLI dùng chung bước kiểm tra này (`drive2sim/engine/resolve.py`). Quy tắc chi tiết:

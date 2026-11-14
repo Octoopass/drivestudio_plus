@@ -30,7 +30,7 @@ from typing import ClassVar, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from drive2sim import paths
-from drive2sim.core.schema import Manifest, Split, parse_strategy
+from drive2sim.core.schema import CAMERA_TRACK, Manifest, Split, parse_strategy
 from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import Stage, StageContext
 from drive2sim.paths import SMPL_MODEL_ENV, SMPL_MODEL_NAME, find_smpl_model
@@ -249,6 +249,11 @@ def build_command(
         options["data.pixel_source.load_sky_mask"] = False
     if not has_smpl:
         options["data.pixel_source.load_smpl"] = False
+    # Camera fisheye, F-theta: train trên ảnh gốc của cảnh. Engine đã khoá renderer không vẽ được
+    # loại camera này (OptionSpec.camera_models); khử méo về pinhole sẽ là stage prep.undistort.
+    # Ví dụ config physicalai/7cams đặt undistort: True, dòng này đè thành False.
+    if any(CAMERA_TRACK[manifest.camera(c).model] == "fisheye" for c in split.cameras):
+        options["data.pixel_source.undistort"] = False
     if params.num_iters is not None:
         options["trainer.optim.num_iters"] = params.num_iters
     options.update(params.overrides)

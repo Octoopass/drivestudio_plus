@@ -53,6 +53,12 @@ def modified(base: dict, change: Callable[[dict], None]) -> dict:
     return data
 
 
+def test_old_approach_track_is_dropped() -> None:
+    """File 0.1, 0.2 còn trường track vẫn đọc được; track bị bỏ qua."""
+    approach = Approach.model_validate(APPROACH)
+    assert "track" not in approach.model_dump()
+
+
 def test_approach_ok() -> None:
     approach = Approach.model_validate(APPROACH)
     assert approach.options["campose"].choices == [False, True]
@@ -97,6 +103,16 @@ def test_approach_display_text() -> None:
         lambda data: data.update(preset_help={"missing_preset": "mô tả"}),
         lambda data: data["options"]["campose"].update(descriptions=["chỉ một"]),
         lambda data: data["options"]["campose"].update(group="missing_group"),
+        # camera_models: mỗi lựa chọn một danh sách, và chỉ dùng mô hình có trong requires.
+        lambda data: data["options"]["renderer"].update(camera_models=[["opencv_pinhole"]]),
+        lambda data: data["options"]["renderer"].update(
+            camera_models=[["opencv_pinhole"], ["opencv_pinhole"], ["ftheta"]]
+        ),
+        lambda data: data["options"]["renderer"].update(
+            camera_models=[["opencv_pinhole"], [], []]
+        ),
+        # Từ 0.3 track suy ra từ mô hình camera; ghi track là khoá lạ.
+        lambda data: data.update(schema_version="d2s-approach/0.3"),
     ],
 )
 def test_approach_rejects(change: Callable[[dict], None]) -> None:

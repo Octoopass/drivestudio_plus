@@ -10,6 +10,9 @@ File này chứa:
   ``Plan`` (danh sách stage sẽ chạy kèm tham số), hoặc ném lỗi kèm lý do.
 - ``blocked_choices``: liệt kê lựa chọn nào của từng mục cấu hình bị khoá vì dữ liệu, để Studio
   làm mờ.
+- ``camera_models_for``, ``tracks_of``, ``camera_support``: mô hình camera và track (pinhole,
+  fisheye) một tổ hợp lựa chọn nhận, để Studio, CLI ghi approach và từng preset dùng cho loại
+  camera nào.
 - ``wire_inputs``: nối đầu vào của từng stage với stage phía trước tạo ra nó.
 - ``validate_params``: kiểm tra tham số của một stage theo khai báo ``Params`` của nó.
 - ``Plan``, ``PlannedStage``: kết quả của ``resolve``.
@@ -28,8 +31,10 @@ from typing import Optional
 from pydantic import ValidationError
 
 from drive2sim.core.schema import (
+    CAMERA_TRACK,
     Approach,
     Manifest,
+    OptionSpec,
     OptionValue,
     Split,
     contains_value,
@@ -66,7 +71,7 @@ class BlockReason:
         message: Lý do bằng tiếng Việt, ví dụ ``"init.lidar cần LiDAR nhưng cảnh ... không có
             LiDAR"``.
         option: Tên mục cấu hình liên quan nếu lý do gắn với một mục cấu hình, ví dụ ``"init"``;
-            ``None`` nếu lý do thuộc cả approach (ví dụ sai track).
+            ``None`` nếu lý do thuộc cả approach (ví dụ cảnh không có box).
         choice: Lựa chọn bị khoá nếu có, ví dụ ``"init.lidar"``.
     """
 
@@ -156,18 +161,112 @@ class Plan:
         return [stage.stage_id for stage in self.stages if stage.uses_lidar]
 
 
+def _model(model: str) -> str:
+    """Tên mô hình camera sau khi gộp bí danh (``ideal_pinhole`` → ``opencv_pinhole``)."""
+    return CAMERA_MODEL_ALIASES.get(model, model)
+
+
+def choice_camera_models(spec: OptionSpec, choice: OptionValue) -> Optional[list[str]]:
+    """Mô hình camera một lựa chọn nhận, theo ``OptionSpec.camera_models``.
+
+    Returns:
+        Danh sách mô hình, hoặc ``None`` nếu mục cấu hình không giới hạn mô hình camera.
+    """
+    if not spec.camera_models:
+        return None
+    index = next(i for i, c in enumerate(spec.choices) if contains_value([c], choice))
+    return list(spec.camera_models[index])
+
+
+def camera_models_for(approach: Approach, chosen: dict[str, OptionValue]) -> list[str]:
+    """Mô hình camera approach nhận với một tổ hợp lựa chọn.
+
+    Là ``requires.camera_models`` trừ đi những mô hình mà lựa chọn đang chọn của một mục cấu hình
+    không nhận.
+
+    Args:
+        approach: File approach.
+        chosen: Tên mục → giá trị; mục không có trong ``chosen`` lấy ``default`` (``auto`` thì
+            không giới hạn).
+
+    Returns:
+        Các mô hình, theo thứ tự của ``requires.camera_models``.
+    """
+    models = list(approach.requires.camera_models)
+    for option_name, spec in approach.options.items():
+        value = chosen.get(option_name, spec.default)
+        if value == AUTO and not contains_value(spec.choices, AUTO):
+            continue
+        allowed = choice_camera_models(spec, value)
+        if allowed is not None:
+            models = [m for m in models if m in allowed]
+    return models
+
+
+def tracks_of(models: list[str]) -> list[str]:
+    """Track (``pinhole``, ``fisheye``) của một danh sách mô hình camera, theo ``CAMERA_TRACK``."""
+    return [t for t in ("pinhole", "fisheye") if any(CAMERA_TRACK[m] == t for m in models)]
+
+
+def camera_support(approach: Approach) -> dict[str, object]:
+    """Loại camera approach nhận: cả approach, cấu hình mặc định và từng preset.
+
+    Studio hiện bảng này cạnh tên approach và tên preset; ``d2s approach list``, ``show`` in nó.
+
+    Returns:
+        ``{"tracks", "camera_models", "default": {"tracks", "camera_models"},
+        "presets": {tên: {"tracks", "camera_models"}}}``. Ví dụ OmniRe: cả approach có
+        ``["pinhole", "fisheye"]``, mặc định (3DGS) và preset ``paper`` chỉ ``["pinhole"]``,
+        preset ``geer`` có cả hai.
+    """
+
+    def entry(models: list[str]) -> dict[str, list[str]]:
+        return {"tracks": tracks_of(models), "camera_models": models}
+
+    return {
+        **entry(list(approach.requires.camera_models)),
+        "default": entry(camera_models_for(approach, {})),
+        "presets": {
+            name: entry(camera_models_for(approach, values))
+            for name, values in approach.presets.items()
+        },
+    }
+
+
+def _has_undistort(approach: Approach) -> bool:
+    """Danh sách stage có ``prep.undistort`` cố định hoặc là một lựa chọn của mục cấu hình."""
+    for entry in approach.stages:
+        if entry.stage == UNDISTORT_STAGE:
+            return True
+        name = option_reference(entry.stage)
+        if name is not None and contains_value(approach.options[name].choices, UNDISTORT_STAGE):
+            return True
+    return False
+
+
 def _choice_block(
-    choice: OptionValue, manifest: Manifest, registry: StageRegistry
+    approach: Approach,
+    option_name: str,
+    choice: OptionValue,
+    manifest: Manifest,
+    registry: StageRegistry,
+    cameras: Optional[list[str]] = None,
 ) -> Optional[str]:
     """Kiểm tra một lựa chọn có dùng được với dữ liệu của cảnh không.
 
-    Hiện chỉ có một điều kiện: lựa chọn là tên một stage có ``uses_lidar = True`` mà cảnh không
-    có LiDAR. Lựa chọn không phải tên stage (ví dụ ``"3dgs"``, ``true``) luôn dùng được.
+    Hai điều kiện:
+    - lựa chọn là tên một stage có ``uses_lidar = True`` mà cảnh không có LiDAR;
+    - lựa chọn chỉ nhận một số mô hình camera (``OptionSpec.camera_models``) mà một camera đang
+      dùng có mô hình khác, và approach không có ``prep.undistort``. Ví dụ renderer ``3dgs`` trên
+      cảnh camera ``ftheta``.
 
     Args:
+        approach: File approach.
+        option_name: Tên mục cấu hình.
         choice: Một lựa chọn của mục cấu hình.
         manifest: Manifest của cảnh.
         registry: Bảng stage, để biết stage có cần LiDAR không.
+        cameras: Camera đang dùng (camera của split); ``None`` là mọi camera của cảnh.
 
     Returns:
         Lý do bằng tiếng Việt nếu lựa chọn bị khoá, ``None`` nếu dùng được.
@@ -175,11 +274,24 @@ def _choice_block(
     if isinstance(choice, str) and choice in registry:
         if registry.get(choice).uses_lidar and not manifest.available.lidar:
             return f"{choice} cần LiDAR nhưng cảnh {manifest.scene_id} không có LiDAR"
+    allowed = choice_camera_models(approach.options[option_name], choice)
+    if allowed is not None and not _has_undistort(approach):
+        used = cameras if cameras is not None else [c.camera_id for c in manifest.cameras]
+        found = {_model(manifest.camera(camera_id).model) for camera_id in used}
+        models = sorted(found - set(allowed))
+        if models:
+            return (
+                f"{choice} chỉ nhận camera {', '.join(allowed)}; "
+                f"cảnh {manifest.scene_id} có camera {', '.join(models)}"
+            )
     return None
 
 
 def blocked_choices(
-    approach: Approach, manifest: Manifest, registry: StageRegistry = REGISTRY
+    approach: Approach,
+    manifest: Manifest,
+    registry: StageRegistry = REGISTRY,
+    cameras: Optional[list[str]] = None,
 ) -> dict[str, list[BlockReason]]:
     """Liệt kê các lựa chọn bị khoá vì dữ liệu của cảnh, theo từng mục cấu hình.
 
@@ -190,6 +302,7 @@ def blocked_choices(
         approach: File approach đã kiểm tra theo schema.
         manifest: Manifest của cảnh đang chọn.
         registry: Bảng stage; mặc định là bảng chung.
+        cameras: Camera của split đang chọn; ``None`` là mọi camera của cảnh.
 
     Returns:
         Tên mục → danh sách lựa chọn bị khoá kèm lý do. Mục không có lựa chọn nào bị khoá thì không
@@ -199,7 +312,7 @@ def blocked_choices(
     result: dict[str, list[BlockReason]] = {}
     for option_name, spec in approach.options.items():
         for choice in spec.choices:
-            message = _choice_block(choice, manifest, registry)
+            message = _choice_block(approach, option_name, choice, manifest, registry, cameras)
             if message is not None:
                 result.setdefault(option_name, []).append(
                     BlockReason(message, option_name, choice)
@@ -241,6 +354,7 @@ def _decide_options(
     preset: Optional[str],
     option_values: dict[str, OptionValue],
     registry: StageRegistry,
+    cameras: Optional[list[str]] = None,
 ) -> tuple[dict[str, OptionValue], list[BlockReason]]:
     """Quyết định giá trị cụ thể cho mọi mục cấu hình.
 
@@ -256,6 +370,7 @@ def _decide_options(
         preset: Tên preset người dùng chọn, hoặc ``None``.
         option_values: Tên mục → giá trị người dùng chọn.
         registry: Bảng stage.
+        cameras: Camera của split, để khoá lựa chọn không nhận mô hình camera của chúng.
 
     Returns:
         Bộ hai phần: giá trị đã quyết định của mọi mục cấu hình, và danh sách lý do bị khoá của
@@ -282,7 +397,11 @@ def _decide_options(
     for option_name, value in chosen.items():
         choices = approach.options[option_name].choices
         if value == AUTO and isinstance(value, str) and not contains_value(choices, AUTO):
-            usable = [c for c in choices if _choice_block(c, manifest, registry) is None]
+            usable = [
+                c
+                for c in choices
+                if _choice_block(approach, option_name, c, manifest, registry, cameras) is None
+            ]
             if usable:
                 chosen[option_name] = usable[0]
             else:
@@ -294,7 +413,7 @@ def _decide_options(
                     )
                 )
             continue
-        message = _choice_block(value, manifest, registry)
+        message = _choice_block(approach, option_name, value, manifest, registry, cameras)
         if message is not None:
             reasons.append(
                 BlockReason(f"mục cấu hình {option_name!r}: {message}", option_name, value)
@@ -335,10 +454,11 @@ def _data_reasons(
 ) -> list[BlockReason]:
     """Kiểm tra các điều kiện dữ liệu ở cấp approach (CONTRACTS mục 4.2).
 
-    Gồm bốn điều kiện: track của approach khớp track của cảnh; approach cần box 3D thì cảnh phải
-    có box; chiến lược của split nằm trong danh sách approach hỗ trợ; mô hình của mọi camera
-    trong split nằm trong danh sách approach nhận, trừ khi danh sách stage có ``prep.undistort``
-    để khử méo về pinhole trước.
+    Gồm ba điều kiện: approach cần box 3D thì cảnh phải có box; chiến lược của split nằm trong
+    danh sách approach hỗ trợ; mô hình của mọi camera trong split nằm trong
+    ``requires.camera_models``, trừ khi danh sách stage có ``prep.undistort`` để khử méo về
+    pinhole trước. Không so track: track suy ra từ mô hình camera, nên điều kiện mô hình camera
+    đã bao gồm. Lựa chọn chỉ nhận một phần mô hình camera thì ``_choice_block`` báo.
 
     Args:
         approach: File approach.
@@ -352,12 +472,6 @@ def _data_reasons(
         Lý do cho từng điều kiện không thoả; rỗng nếu thoả hết.
     """
     reasons = []
-    if approach.track != manifest.track:
-        reasons.append(
-            BlockReason(
-                f"approach dành cho track {approach.track}, cảnh là track {manifest.track}"
-            )
-        )
     if approach.requires.cuboids == "required" and manifest.available.cuboids == "none":
         reasons.append(BlockReason("approach cần box 3D nhưng cảnh không có box"))
     # Stage cố định (không do mục cấu hình chọn) cần LiDAR mà cảnh không có: khoá cả approach.
@@ -379,8 +493,7 @@ def _data_reasons(
         )
     if UNDISTORT_STAGE not in stage_ids:
         for camera_id in split.cameras:
-            model = manifest.camera(camera_id).model
-            model = CAMERA_MODEL_ALIASES.get(model, model)
+            model = _model(manifest.camera(camera_id).model)
             if model not in approach.requires.camera_models:
                 allowed = ", ".join(approach.requires.camera_models)
                 reasons.append(
@@ -591,11 +704,13 @@ def resolve(
             f"split {split.split_id} dùng camera không có trong cảnh: {', '.join(missing)}"
         )
 
-    chosen, reasons = _decide_options(approach, manifest, preset, option_values or {}, registry)
+    chosen, reasons = _decide_options(
+        approach, manifest, preset, option_values or {}, registry, split.cameras
+    )
     if preset is not None and option_values:
         # Người dùng chỉnh khác preset thì cấu hình không còn là preset đó: không ghi tên preset,
         # để run.json và bảng so sánh không gọi nhầm một cấu hình đã sửa bằng tên preset.
-        as_preset, _ = _decide_options(approach, manifest, preset, {}, registry)
+        as_preset, _ = _decide_options(approach, manifest, preset, {}, registry, split.cameras)
         if as_preset != chosen:
             preset = None
     # Gom mọi lý do bị khoá trước khi dựng danh sách stage, để người dùng sửa một lần.

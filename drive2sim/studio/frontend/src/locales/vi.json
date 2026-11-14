@@ -530,5 +530,10 @@
   "viewer.panel.expand": "Mở bảng điều khiển",
   "viewer.hud.fullscreen": "Toàn màn hình",
   "viewer.hud.exit_fullscreen": "Thoát toàn màn hình",
-  "viewer.hud.preparing": "Đang tải thông tin run…"
+  "viewer.hud.preparing": "Đang tải thông tin run…",
+  "new.track.pinhole": "Pinhole",
+  "new.track.fisheye": "Fisheye",
+  "new.camera.mismatch": "không vẽ được camera của cảnh ({models})",
+  "new.camera.unfit": "Không hợp camera cảnh",
+  "new.field.camera": "Camera"
 }

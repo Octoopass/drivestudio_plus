@@ -196,6 +196,18 @@ def test_build_manifest(tmp_path: Path) -> None:
     assert manifest.lidars == ["LIDAR_TOP"] and manifest.available.lidar
     assert manifest.available.cuboids == "gt"
     assert manifest.source.converter_version.count("+") == 1
+    assert manifest.track == "pinhole" and manifest.cameras[0].model == "opencv_pinhole"
+    # PhysicalAI giữ ảnh F-theta gốc: cảnh thuộc track fisheye.
+    fisheye = build_manifest(
+        make_processed_scene(tmp_path / "f"),
+        "physicalai_x",
+        "physicalai",
+        "x",
+        NUSCENES_CAMERAS,
+        "drivestudio.physicalai",
+        camera_model=SOURCES["physicalai"].camera_model,
+    )
+    assert fisheye.track == "fisheye" and {c.model for c in fisheye.cameras} == {"ftheta"}
     with pytest.raises(ValueError, match="camera 0"):
         manifest_for(tmp_path / "empty")
 

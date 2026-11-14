@@ -44,6 +44,14 @@ ShutterType = Literal[
     "ROLLING_RIGHT_TO_LEFT",
 ]
 Track = Literal["pinhole", "fisheye"]
+# Track của từng mô hình camera (SPEC mục 2): camera thường thuộc track pinhole, camera góc rộng có
+# mô hình ống kính riêng thuộc track fisheye. Track của approach, preset suy ra từ bảng này.
+CAMERA_TRACK: dict[str, str] = {
+    "opencv_pinhole": "pinhole",
+    "ideal_pinhole": "pinhole",
+    "opencv_fisheye": "fisheye",
+    "ftheta": "fisheye",
+}
 Level = Literal["L1", "L2", "L3", "L4"]
 Dataset = Literal[
     "waymo",
@@ -96,7 +104,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "manifest": "d2s-manifest/1.0",
     "split": "d2s-split/0.1",
     "report": "d2s-report/0.1",
-    "approach": "d2s-approach/0.2",
+    "approach": "d2s-approach/0.3",
     "artifact": "d2s-artifact/0.2",
     "run": "d2s-run/0.3",
     "summary": "d2s-summary/0.3",
@@ -589,7 +597,9 @@ class Requires(StrictModel):
     """Điều kiện dữ liệu mà một approach cần để chạy được (CONTRACTS mục 4.2).
 
     Attributes:
-        camera_models: Các mô hình camera approach nhận trực tiếp, không cần khử méo.
+        camera_models: Các mô hình camera approach nhận trực tiếp, không cần khử méo, với ít
+            nhất một tổ hợp lựa chọn. Lựa chọn nào chỉ nhận một phần thì ghi ở
+            ``OptionSpec.camera_models``.
         cuboids: Approach cần box 3D không: ``required``, ``optional`` hoặc ``none``.
         split_strategies: Các chiến lược split codebase của approach hỗ trợ.
     """
@@ -648,6 +658,10 @@ class OptionSpec(StrictModel):
         descriptions: Giải thích từng lựa chọn, cùng thứ tự với ``choices``; hiện trong icon (i).
         group: Nhóm của mục cấu hình trong ``Approach.groups``; Studio hiện các mục cấu hình theo
             nhóm.
+        camera_models: Mô hình camera mỗi lựa chọn nhận, cùng thứ tự với ``choices``; trống thì
+            mọi lựa chọn nhận đủ ``requires.camera_models``. Ví dụ renderer ``3dgs`` chỉ nhận
+            ``opencv_pinhole``, còn ``3dgeer`` nhận thêm ``opencv_fisheye``, ``ftheta`` (thêm từ
+            ``d2s-approach/0.3``).
     """
 
     choices: list[OptionValue] = Field(min_length=1)
@@ -657,6 +671,7 @@ class OptionSpec(StrictModel):
     labels: list[str] = []
     descriptions: list[str] = []
     group: Optional[str] = None
+    camera_models: list[list[CameraModel]] = []
 
     @model_validator(mode="after")
     def _validate_default(self) -> "OptionSpec":
@@ -673,6 +688,10 @@ class OptionSpec(StrictModel):
             raise ValueError("labels must have one entry per choice")
         if self.descriptions and len(self.descriptions) != len(self.choices):
             raise ValueError("descriptions must have one entry per choice")
+        if self.camera_models and len(self.camera_models) != len(self.choices):
+            raise ValueError("camera_models must have one entry per choice")
+        if any(not models for models in self.camera_models):
+            raise ValueError("camera_models: every choice needs at least one camera model")
         return self
 
 
@@ -731,9 +750,10 @@ class Approach(VersionedFile):
         name: Tên hiển thị.
         version: Phiên bản của file approach.
         codebase: ``drivestudio`` hoặc ``external:<tên>``.
-        track: ``pinhole`` hoặc ``fisheye``.
         level: Mức năng lực cao nhất đạt được, ``L1``–``L4``.
-        requires: Điều kiện dữ liệu.
+        requires: Điều kiện dữ liệu. Track (pinhole, fisheye) của approach và của từng preset suy
+            ra từ mô hình camera nhận được (``CAMERA_TRACK``), không ghi riêng; file ``0.1``,
+            ``0.2`` có trường ``track`` thì trường đó được bỏ qua.
         options: Tên mục → mục cấu hình.
         constraints: Các tổ hợp không hợp lệ.
         presets: Tên preset → giá trị của các mục cấu hình khác mặc định.
@@ -747,7 +767,6 @@ class Approach(VersionedFile):
     name: str
     version: Version
     codebase: str
-    track: Track
     level: Level
     requires: Requires
     options: dict[str, OptionSpec] = {}
@@ -756,6 +775,15 @@ class Approach(VersionedFile):
     preset_help: dict[str, str] = {}
     groups: dict[str, OptionGroup] = {}
     stages: list[StageEntry] = Field(min_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_old_track(cls, data: object) -> object:
+        """Bỏ trường ``track`` của file ``0.1``, ``0.2``; từ ``0.3`` track suy ra từ camera."""
+        old = ("d2s-approach/0.1", "d2s-approach/0.2")
+        if isinstance(data, dict) and "track" in data and data.get("schema_version") in old:
+            data = {key: value for key, value in data.items() if key != "track"}
+        return data
 
     @field_validator("approach_id")
     @classmethod
@@ -853,6 +881,13 @@ class Approach(VersionedFile):
         for option_name, spec in self.options.items():
             if spec.group is not None and spec.group not in self.groups:
                 raise ValueError(f"options.{option_name}.group: unknown group {spec.group!r}")
+            for models in spec.camera_models:
+                extra = set(models) - set(self.requires.camera_models)
+                if extra:
+                    raise ValueError(
+                        f"options.{option_name}.camera_models: {sorted(extra)[0]!r} is not in "
+                        "requires.camera_models"
+                    )
         for index, entry in enumerate(self.stages):
             self._check_stage_entry(index, entry)
         return self

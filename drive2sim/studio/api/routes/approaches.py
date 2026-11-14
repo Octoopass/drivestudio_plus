@@ -15,10 +15,10 @@ from typing import Any, Optional
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict
 
-from drive2sim.core.schema import OptionValue, Split
+from drive2sim.core.schema import Approach, OptionValue, Split
 from drive2sim.engine.approaches import list_approach_ids, load_approach
 from drive2sim.engine.environment import environment_check
-from drive2sim.engine.resolve import Plan, blocked_choices, resolve
+from drive2sim.engine.resolve import Plan, blocked_choices, camera_support, resolve
 from drive2sim.engine.run import preview_reuse
 from drive2sim.engine.stage import Scene
 from drive2sim.studio.api.state import StudioState, state_of
@@ -81,6 +81,15 @@ def plan_from_body(
     return scene, split, plan
 
 
+def _approach_json(approach: Approach) -> dict:
+    """Nội dung file approach, cộng ``camera_support``.
+
+    ``camera_support`` là loại camera của approach, của cấu hình mặc định và của từng preset
+    (``resolve.camera_support``).
+    """
+    return {**approach.model_dump(mode="json"), "camera_support": camera_support(approach)}
+
+
 @router.get("")
 def list_approaches() -> dict:
     """Liệt kê các approach có sẵn.
@@ -88,14 +97,14 @@ def list_approaches() -> dict:
     Returns:
         ``{"items": [approach, ...], "total": n}``.
     """
-    items = [load_approach(a).model_dump(mode="json") for a in list_approach_ids()]
+    items = [_approach_json(load_approach(a)) for a in list_approach_ids()]
     return {"items": items, "total": len(items)}
 
 
 @router.get("/{approach_id}")
 def get_approach(approach_id: str) -> dict:
     """Trả về nội dung file approach: mục cấu hình, preset, ràng buộc, stage."""
-    return load_approach(approach_id).model_dump(mode="json")
+    return _approach_json(load_approach(approach_id))
 
 
 @router.get("/{approach_id}/environment")
@@ -126,7 +135,9 @@ def check(approach_id: str, body: PlanBody, request: Request) -> dict:
     state = state_of(request)
     scene, split, plan = plan_from_body(state, approach_id, body)
     reused = preview_reuse(plan, scene, split, state.workdir, state.registry)
-    blocked = blocked_choices(load_approach(approach_id), scene.manifest, state.registry)
+    blocked = blocked_choices(
+        load_approach(approach_id), scene.manifest, state.registry, split.cameras
+    )
     return {
         "approach_id": plan.approach_id,
         "preset": plan.preset,

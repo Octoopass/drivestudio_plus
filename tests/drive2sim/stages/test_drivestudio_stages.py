@@ -121,6 +121,12 @@ def test_build_command_camera_index_follows_manifest(tmp_path: Path) -> None:
     command = build_command(params, split, Manifest.model_validate(MANIFEST), tmp_path, tmp_path)
     assert option(command, "data.pixel_source.cameras") == "[1]"
     assert option(command, "dataset") == "nuscenes/1cams"
+    # Camera fisheye: train trên ảnh gốc, không khử méo trong loader.
+    assert option(command, "data.pixel_source.undistort") == "false"
+    pinhole = build_command(
+        params, Split.model_validate(SPLIT), Manifest.model_validate(MANIFEST), tmp_path, tmp_path
+    )
+    assert not any(part.startswith("data.pixel_source.undistort=") for part in pinhole)
 
 
 def test_dataset_config_for() -> None:

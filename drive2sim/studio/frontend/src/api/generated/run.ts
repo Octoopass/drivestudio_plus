@@ -62,8 +62,8 @@ export interface RunRecord {
  *     approach_id: Approach đã chạy.
  *     version: Phiên bản file approach lúc tạo run.
  *     preset: Preset đã chọn, nếu có.
- *     options: Giá trị cụ thể của mọi mục cấu hình, kể cả mục để ``auto``; Studio lọc và so sánh run theo
- *         trường này.
+ *     options: Giá trị cụ thể của mọi mục cấu hình, kể cả mục để ``auto``; Studio lọc và so sánh
+ *         run theo trường này.
  *     quick: ``True`` nếu là run chạy thử nhanh (``--quick``): train ít iteration để kiểm tra
  *         approach chạy được từ đầu tới cuối; metric không so được với run đủ iteration
  *         (thêm từ ``d2s-run/0.3``).

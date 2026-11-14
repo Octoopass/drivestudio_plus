@@ -530,5 +530,10 @@
   "viewer.panel.expand": "Show controls",
   "viewer.hud.fullscreen": "Full screen",
   "viewer.hud.exit_fullscreen": "Exit full screen",
-  "viewer.hud.preparing": "Loading run details…"
+  "viewer.hud.preparing": "Loading run details…",
+  "new.track.pinhole": "Pinhole",
+  "new.track.fisheye": "Fisheye",
+  "new.camera.mismatch": "cannot render the scene's cameras ({models})",
+  "new.camera.unfit": "Wrong camera type",
+  "new.field.camera": "Cameras"
 }

@@ -15,7 +15,7 @@ from drive2sim.cli.output import emit, format_table, format_value, parse_set
 from drive2sim.core.schema import Split
 from drive2sim.engine.approaches import list_approach_ids, load_approach
 from drive2sim.engine.environment import environment_check
-from drive2sim.engine.resolve import QUICK_NUM_ITERS, Plan, resolve
+from drive2sim.engine.resolve import QUICK_NUM_ITERS, Plan, camera_support, resolve
 from drive2sim.engine.run import preview_reuse
 from drive2sim.engine.stage import Scene
 from drive2sim.engine.workdir import Workdir
@@ -86,10 +86,13 @@ def list_approaches(args: argparse.Namespace) -> int:
         Mã thoát ``0``.
     """
     approaches = [load_approach(approach_id) for approach_id in list_approach_ids()]
-    rows = [[a.approach_id, a.name, a.track, a.level, a.codebase] for a in approaches]
+    rows = [
+        [a.approach_id, a.name, ", ".join(camera_support(a)["tracks"]), a.level, a.codebase]
+        for a in approaches
+    ]
     emit(
         args,
-        [a.model_dump(mode="json") for a in approaches],
+        [{**a.model_dump(mode="json"), "camera_support": camera_support(a)} for a in approaches],
         format_table(["approach_id", "tên", "track", "mức", "codebase"], rows),
     )
     return 0
@@ -105,7 +108,15 @@ def show_approach(args: argparse.Namespace) -> int:
         Mã thoát ``0``.
     """
     approach = load_approach(args.approach_id)
-    lines = [f"{approach.approach_id}: {approach.name} (track {approach.track}, {approach.level})"]
+    support = camera_support(approach)
+    tracks = ", ".join(support["tracks"])
+    lines = [f"{approach.approach_id}: {approach.name} (track {tracks}, {approach.level})"]
+    lines.append(
+        "camera: "
+        + ", ".join(support["camera_models"])
+        + "; mặc định: "
+        + ", ".join(support["default"]["camera_models"])
+    )
     lines.append("cấu hình approach:")
     for name, spec in approach.options.items():
         choices = ", ".join(format_value(choice) for choice in spec.choices)
@@ -113,7 +124,9 @@ def show_approach(args: argparse.Namespace) -> int:
     lines.append("preset:")
     for name, values in approach.presets.items():
         lines.append(
-            f"  {name}: " + ", ".join(f"{k}={format_value(v)}" for k, v in values.items())
+            f"  {name}: "
+            + ", ".join(f"{k}={format_value(v)}" for k, v in values.items())
+            + f" (track {', '.join(support['presets'][name]['tracks'])})"
         )
     lines.append("ràng buộc:")
     for constraint in approach.constraints:
@@ -122,7 +135,7 @@ def show_approach(args: argparse.Namespace) -> int:
         lines.append(f"  không cho {combination}: {constraint.reason}")
     lines.append("stage:")
     lines += [f"  {index + 1}. {entry.stage}" for index, entry in enumerate(approach.stages)]
-    emit(args, approach.model_dump(mode="json"), "\n".join(lines))
+    emit(args, {**approach.model_dump(mode="json"), "camera_support": support}, "\n".join(lines))
     return 0
 
 

@@ -5,13 +5,24 @@ import type { RunRecord } from "./generated/run";
 import type { Summary } from "./generated/summary";
 import type { EnvRecord } from "./generated/env";
 import type { ValidationReport } from "./generated/report";
-
-export type { Approach } from "./generated/approach";
+import type { Approach as ApproachFile } from "./generated/approach";
 export type { Manifest } from "./generated/manifest";
 export type { RunRecord, StageRecord } from "./generated/run";
 export type { Split } from "./generated/split";
 export type { Summary } from "./generated/summary";
 export type { EnvRecord, Machine } from "./generated/env";
+
+// Loại camera một cấu hình nhận: track (pinhole, fisheye) và mô hình camera (resolve.camera_support).
+export interface CameraFit {
+  tracks: string[];
+  camera_models: string[];
+}
+
+// File approach như API trả về: nội dung file cộng loại camera của approach, của cấu hình mặc định
+// và của từng preset.
+export type Approach = ApproachFile & {
+  camera_support: CameraFit & { default: CameraFit; presets: Record<string, CameraFit> };
+};
 
 export interface List<T> {
   items: T[];

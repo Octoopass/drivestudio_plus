@@ -4,8 +4,10 @@ File này kiểm tra, trên một approach giả có mục cấu hình ``init``,
 - giá trị của mục cấu hình gộp đúng thứ tự mặc định → preset → lựa chọn của người dùng;
 - ``auto`` chọn ``init.lidar`` khi cảnh có LiDAR và ``init.depth`` khi không có;
 - tham số stage được gộp, kiểm tra, và đầu vào được nối với đúng stage phía trước;
-- các trường hợp bị khoá (thiếu LiDAR, vi phạm ràng buộc, sai track, sai chiến lược split, mô
-  hình camera không hỗ trợ) báo ``BlockedError`` kèm đủ mọi lý do;
+- các trường hợp bị khoá (thiếu LiDAR, vi phạm ràng buộc, sai chiến lược split, mô hình camera
+  không hỗ trợ, renderer không vẽ được loại camera của split) báo ``BlockedError`` kèm đủ mọi
+  lý do;
+- loại camera (track) của approach và từng preset suy ra từ ``camera_models``;
 - các yêu cầu sai (preset, mục cấu hình, giá trị, tham số, stage không tồn tại) báo
   ``ResolveError``.
 """
@@ -26,6 +28,7 @@ from drive2sim.engine.resolve import (
     Plan,
     ResolveError,
     blocked_choices,
+    camera_support,
     resolve,
     wire_inputs,
 )
@@ -204,13 +207,72 @@ def test_camera_model_needs_undistort() -> None:
     run_resolve(approach=approach, split=split)
 
 
-def test_track_and_split_strategy_block() -> None:
+def test_split_strategy_block() -> None:
     approach = copy.deepcopy(APPROACH)
-    approach["track"] = "fisheye"
     approach["requires"]["split_strategies"] = ["custom"]
-    with pytest.raises(BlockedError) as info:
+    with pytest.raises(BlockedError, match="chiến lược"):
         run_resolve(approach=approach)
-    assert len(info.value.reasons) == 2
+
+
+FISHEYE_SPLIT = {**SPLIT, "cameras": ["CAM_FISH"], "train": [[0, "CAM_FISH"]], "test": []}
+
+
+def per_renderer_approach() -> dict:
+    """APPROACH, với 3DGS chỉ nhận pinhole còn 3DGEER nhận thêm fisheye (như OmniRe thật)."""
+    approach = copy.deepcopy(APPROACH)
+    approach["schema_version"] = "d2s-approach/0.3"
+    del approach["track"]
+    approach["requires"]["camera_models"] = ["opencv_pinhole", "opencv_fisheye"]
+    approach["options"]["renderer"]["camera_models"] = [
+        ["opencv_pinhole"],
+        ["opencv_pinhole", "opencv_fisheye"],
+    ]
+    return approach
+
+
+def test_renderer_blocked_by_camera_model() -> None:
+    """Renderer chỉ vẽ pinhole bị khoá trên camera fisheye; renderer vẽ được fisheye thì chạy."""
+    approach = per_renderer_approach()
+    with pytest.raises(BlockedError, match="3dgs chỉ nhận camera opencv_pinhole") as info:
+        run_resolve(approach=approach, split=FISHEYE_SPLIT)
+    assert info.value.reasons[0].option == "renderer"
+    plan = run_resolve(approach=approach, split=FISHEYE_SPLIT, preset="fisheye")
+    assert plan.options["renderer"] == "3dgeer"
+    # Split chỉ có camera pinhole thì 3DGS vẫn chạy, dù cảnh có thêm camera fisheye.
+    assert run_resolve(approach=approach).options["renderer"] == "3dgs"
+
+
+def test_blocked_choices_use_split_cameras() -> None:
+    approach = Approach.model_validate(per_renderer_approach())
+    manifest = Manifest.model_validate(MANIFEST)
+    result = blocked_choices(approach, manifest, make_registry(), ["CAM_FISH"])
+    assert [r.choice for r in result["renderer"]] == ["3dgs"]
+    assert "renderer" not in blocked_choices(approach, manifest, make_registry(), ["CAM_FRONT"])
+
+
+def test_auto_renderer_picks_first_that_fits_cameras() -> None:
+    approach = per_renderer_approach()
+    approach["options"]["renderer"]["default"] = "auto"
+    assert run_resolve(approach=approach, split=FISHEYE_SPLIT).options["renderer"] == "3dgeer"
+    assert run_resolve(approach=approach).options["renderer"] == "3dgs"
+
+
+def test_camera_support_per_preset() -> None:
+    support = camera_support(Approach.model_validate(per_renderer_approach()))
+    assert support["tracks"] == ["pinhole", "fisheye"]
+    assert support["default"]["tracks"] == ["pinhole"]
+    assert support["presets"]["fisheye"]["camera_models"] == ["opencv_pinhole", "opencv_fisheye"]
+    assert support["presets"]["no_lidar"]["tracks"] == ["pinhole"]
+
+
+def test_real_approaches_camera_support() -> None:
+    """OmniRe, Street GS: 3DGS chỉ pinhole; preset dùng 3DGEER nhận cả fisheye và F-theta."""
+    for approach_id in ("omnire", "streetgs"):
+        support = camera_support(load_approach(approach_id))
+        assert support["tracks"] == ["pinhole", "fisheye"]
+        assert support["default"]["camera_models"] == ["opencv_pinhole"]
+        assert "ftheta" in support["presets"]["geer"]["camera_models"]
+        assert support["presets"]["paper"]["tracks"] == ["pinhole"]
 
 
 @pytest.mark.parametrize(
