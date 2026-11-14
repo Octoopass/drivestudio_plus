@@ -4,6 +4,9 @@ File này chứa manifest và split hợp lệ của một cảnh nuScenes giả
 nội dung file ``manifest.yaml`` và ``splits/<split_id>.json`` (CONTRACTS mục 2.2, 3.1). Test nào
 cần một cảnh hợp lệ thì import từ đây rồi chép và sửa phần cần thử, thay vì tự viết lại cả
 manifest, để khi schema đổi chỉ phải sửa một chỗ.
+
+Cuối file có tham số Mei thật của camera mắt cá ``image_02`` của KITTI-360, dùng chung cho test của
+phép khớp Mei → OpenCV fisheye và của converter KITTI-360.
 """
 
 MANIFEST = {
@@ -45,3 +48,14 @@ SPLIT = {
     "train": [[0, "CAM_FRONT"]],
     "test": [[8, "CAM_FRONT"]],
 }
+
+# Tham số Mei của image_02 trong calib thật của KITTI-360 (calibration/image_02.yaml).
+MEI_02 = {"xi": 2.2134047507854890, "k1": 1.6798235660113681e-02, "k2": 1.6548773243373522}
+GAMMA_02 = (1.3363220825849971e03, 1.3357883350012958e03)
+# Hệ số numpy.linalg.lstsq cho MEI_02 (cùng cách của teammate, chạy trong môi trường có numpy).
+NUMPY_COEFFS_02 = [
+    -0.009477485565102724,
+    0.009264348574303914,
+    -0.001678306810050497,
+    -0.00045523033695660204,
+]
