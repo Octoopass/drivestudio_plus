@@ -1,4 +1,4 @@
-"""Gói job cho Kaggle và dựng lại thư mục làm việc từ gói trên Kaggle (CONTRACTS mục 9.2).
+"""Gói job cho Kaggle và Colab, dựng lại thư mục làm việc từ gói trên máy chạy (CONTRACTS 9.2).
 
 Gói gồm vài file JSON nhỏ, được nhúng thẳng vào notebook (không upload riêng):
 - ``run.json``: run đã tạo trên máy, đủ để chạy (approach, lựa chọn, tham số từng stage).
@@ -9,6 +9,10 @@ Gói gồm vài file JSON nhỏ, được nhúng thẳng vào notebook (không u
 Trên Kaggle, ``d2s kaggle run <gói>`` gọi ``materialize`` để dựng thư mục làm việc: cảnh lấy từ
 dataset đã gắn (tìm theo ``manifest.yaml``, không giả định đường dẫn gắn của Kaggle), split ghi
 mới, run và cache của lần chạy trước chép vào nếu có; rồi chạy run như ``d2s run resume``.
+
+Executor Colab (``drive2sim/colab/executor.py``) dùng cùng gói và cùng lệnh ``d2s kaggle run`` trên
+VM Colab: ``kaggle_dataset`` là ``null``, ``resume.json`` rỗng (bản run để chạy tiếp được đặt sẵn
+vào thư mục làm việc trên VM), ``--input-root`` là thư mục đã giải nén cảnh (CONTRACTS mục 9.3).
 
 File này chứa ``write_bundle``, ``read_bundle`` và ``materialize``.
 """
@@ -30,7 +34,7 @@ BUNDLE_FILES = ("run.json", "split.json", "scene_ref.json", "resume.json")
 def write_bundle(
     run_dir: Path,
     workdir: Workdir,
-    scene_dataset: str,
+    scene_dataset: Optional[str],
     resume_kernels: Sequence[str] = (),
 ) -> dict[str, dict]:
     """Dựng gói job của một run.
@@ -38,7 +42,8 @@ def write_bundle(
     Args:
         run_dir: Thư mục run trên máy.
         workdir: Thư mục làm việc trên máy.
-        scene_dataset: Dataset Kaggle chứa cảnh, ví dụ ``alice/d2s-1a2b3c4d``.
+        scene_dataset: Dataset Kaggle chứa cảnh, ví dụ ``alice/d2s-1a2b3c4d``; ``None`` với
+            Colab (cảnh được upload thẳng lên VM, CONTRACTS mục 9.3).
         resume_kernels: Các notebook của những lần đẩy trước (mới nhất trước), để chạy tiếp từ
             output của lần mới nhất có kết quả của run.
 

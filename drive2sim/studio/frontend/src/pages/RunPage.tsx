@@ -1,9 +1,10 @@
-// Một run: trạng thái và hành động ở đầu trang (huỷ, chạy tiếp, xuất, xem 3D, Kaggle, xoá); làn
-// stage cập nhật trực tiếp qua SSE; các tab kết quả, metric trong lúc train, stage, video, log, Kaggle.
-import { Box, Cloud, CloudDownload, CloudUpload, Download, RotateCcw, Square, Trash2, Zap, Trophy, Plus } from "lucide-react";
+// Một run: trạng thái và hành động ở đầu trang (huỷ, chạy tiếp, xuất, xem 3D, Kaggle, Colab, xoá);
+// làn stage cập nhật trực tiếp qua SSE; các tab kết quả, metric trong lúc train, stage, video, log,
+// Kaggle, Colab.
+import { Box, Cloud, CloudDownload, CloudUpload, Download, Power, RefreshCw, RotateCcw, Square, Trash2, Zap, Trophy, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { asApiError, del, post, seg, useApi } from "../api/client";
-import type { EnvRecord, KaggleStatus, List, ReportRow, RunDetail, RunEvent, RunLog, Splats, Video } from "../api/types";
+import type { ColabStatus, EnvRecord, KaggleStatus, List, ReportRow, RunDetail, RunEvent, RunLog, Splats, Video } from "../api/types";
 import { LineChart, type Point } from "../components/charts";
 import { RunArtifacts } from "../components/RunArtifacts";
 import { StageRoad } from "../components/StageRoad";
@@ -15,7 +16,7 @@ import { useLive } from "../live";
 import { BetterArrow, visibleGroups } from "../metrics";
 import { go, href } from "../router";
 
-type Tab = "result" | "metrics" | "stages" | "artifacts" | "videos" | "logs" | "kaggle";
+type Tab = "result" | "metrics" | "stages" | "artifacts" | "videos" | "logs" | "kaggle" | "colab";
 
 /**
  * Theo dõi sự kiện SSE của một run; gọi onDone khi run kết thúc. Kết nối đóng sau "done", và
@@ -137,10 +138,10 @@ export function RunPage({ runId }: { runId: string }) {
                   <InfoTip>{t("run.quick_hint")}</InfoTip>
                 </span>
               )}
-              {data.executor === "kaggle" && (
+              {data.executor !== "local" && (
                 <span className="tag info">
                   <Cloud size={15} />
-                  Kaggle
+                  {data.executor === "kaggle" ? "Kaggle" : "Colab"}
                 </span>
               )}
               <span className="small muted">{t("run.meta.created", { when: ago(data.created_utc ?? null, locale) })}</span>
@@ -277,6 +278,7 @@ export function RunPage({ runId }: { runId: string }) {
             { value: "videos", label: t("run.tab.videos"), badge: videos.data?.total || null },
             { value: "logs", label: t("run.tab.logs") },
             ...(data.executor === "kaggle" ? [{ value: "kaggle" as Tab, label: "Kaggle" }] : []),
+            ...(data.executor === "colab" ? [{ value: "colab" as Tab, label: "Colab" }] : []),
           ]}
         />
         <div className={`panel-body${tab === "logs" || tab === "stages" ? " flush" : ""}`}>
@@ -461,6 +463,7 @@ export function RunPage({ runId }: { runId: string }) {
           )}
 
           {tab === "kaggle" && <KagglePanel runId={runId} />}
+          {tab === "colab" && <ColabPanel runId={runId} />}
         </div>
       </section>
 
@@ -552,6 +555,90 @@ function KagglePanel({ runId }: { runId: string }) {
           {t("run.kaggle.pull")}
         </button>
         <InfoTip>{t("run.kaggle.hint")}</InfoTip>
+      </div>
+    </div>
+  );
+}
+
+function ColabPanel({ runId }: { runId: string }) {
+  const { t, locale } = useI18n();
+  const toast = useToast();
+  const live = useLive();
+  // Mỗi lần hỏi là một lệnh colab exec vài giây trên máy chạy Studio, nên chỉ hỏi khi mở tab, khi
+  // một run đổi trạng thái, hoặc khi bấm Làm mới.
+  const state = useApi<ColabStatus>(`/api/colab/${seg(runId)}?_=${live.tick}`);
+  const job = async (kind: "push" | "pull") => {
+    try {
+      await post(`/api/colab/${seg(runId)}/${kind}`);
+      toast({ kind: "ok", title: t(`run.colab.${kind}_queued`) });
+      live.refreshJobs();
+    } catch (err) {
+      toast({ kind: "bad", title: t(`run.colab.${kind}_queued`), detail: asApiError(err).message });
+    }
+  };
+  const stop = async () => {
+    try {
+      await post(`/api/colab/${seg(runId)}/stop`);
+      toast({ kind: "ok", title: t("run.colab.stopped") });
+      state.reload();
+    } catch (err) {
+      toast({ kind: "bad", title: t("run.colab.stop"), detail: asApiError(err).message });
+    }
+  };
+  const data = state.data;
+  return (
+    <div className="stack" style={{ gap: 15 }}>
+      {state.error && state.error.code !== "colab_failed" && <ErrorBox error={state.error} />}
+      {state.error?.code === "colab_failed" && <Note kind="warn">{state.error.message}</Note>}
+      {data?.status === "lost" && <Note kind="warn">{data.status_error}</Note>}
+      {data && (
+        <dl className="facts">
+          <div>
+            <dt>{t("run.colab.status")}</dt>
+            <dd className="row" style={{ gap: 4 }}>
+              {data.status ? <Status value={data.status} /> : <span className="muted">{t("run.kaggle.status_unknown")}</span>}
+              {data.status_error && data.status !== "lost" && <InfoTip warn>{data.status_error}</InfoTip>}
+            </dd>
+          </div>
+          <div>
+            <dt>{t("run.colab.session")}</dt>
+            <dd>
+              {data.session} ({data.gpu})
+            </dd>
+          </div>
+          <div>
+            <dt>{t("run.kaggle.attempt")}</dt>
+            <dd>{data.attempt}</dd>
+          </div>
+          <div>
+            <dt>{t("run.kaggle.pushed")}</dt>
+            <dd>{ago(data.pushed_utc, locale)}</dd>
+          </div>
+          <div>
+            <dt>{t("run.kaggle.pulled")}</dt>
+            <dd>{data.pulled_utc ? ago(data.pulled_utc, locale) : "–"}</dd>
+          </div>
+        </dl>
+      )}
+      {data && data.log_tail.length > 0 && <pre className="log">{data.log_tail.join("\n")}</pre>}
+      <div className="row wrap">
+        <button className="btn" onClick={() => job("push")}>
+          <CloudUpload size={19} />
+          {t("run.colab.push")}
+        </button>
+        <button className="btn" onClick={() => job("pull")} disabled={!data}>
+          <CloudDownload size={19} />
+          {t("run.kaggle.pull")}
+        </button>
+        <button className="btn" onClick={() => state.reload()} disabled={state.loading}>
+          <RefreshCw size={19} className={state.loading ? "spin" : undefined} />
+          {t("run.colab.refresh")}
+        </button>
+        <button className="btn" onClick={() => void stop()} disabled={!data || data.status === "lost"}>
+          <Power size={19} />
+          {t("run.colab.stop")}
+        </button>
+        <InfoTip>{t("run.colab.hint")}</InfoTip>
       </div>
     </div>
   );

@@ -2,7 +2,7 @@
 
 Lệnh có dạng ``d2s <nhóm> <hành động> [tuỳ chọn]`` (CONTRACTS mục 10.4). File này chứa:
 - ``build_parser``: dựng parser với mọi nhóm lệnh (``source``, ``scene``, ``split``,
-  ``approach``, ``run``, ``report``, ``export``, ``cache``, ``kaggle``, ``studio``,
+  ``approach``, ``run``, ``report``, ``export``, ``cache``, ``kaggle``, ``colab``, ``studio``,
   ``schema``) và tuỳ chọn chung ``--workdir``, ``--json``, ``--verbose``, ``--quiet``,
   ``--yes``.
 - ``main``: phân tích dòng lệnh, nạp mọi stage, gọi lệnh, và đổi lỗi thành mã thoát:
@@ -27,6 +27,7 @@ from typing import Optional
 from drive2sim.cli import (
     approach,
     cache,
+    colab,
     export,
     kaggle,
     report,
@@ -38,6 +39,7 @@ from drive2sim.cli import (
     studio,
 )
 from drive2sim.cli.output import CommandError, UsageError
+from drive2sim.colab.client import ColabError
 from drive2sim.engine.cache import CacheBusyError
 from drive2sim.engine.housekeeping import InUseError
 from drive2sim.engine.registry import load_builtin_stages
@@ -98,6 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
         export,
         cache,
         kaggle,
+        colab,
         studio,
         schema,
     ):
@@ -158,6 +161,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return EXIT_ERROR
     except KaggleError as error:
         _print_error(args, "kaggle_failed", str(error))
+        return EXIT_ERROR
+    except ColabError as error:
+        _print_error(args, "colab_failed", str(error))
         return EXIT_ERROR
     except CommandError as error:
         _print_error(args, error.code, str(error))

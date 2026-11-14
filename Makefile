@@ -52,7 +52,7 @@ DEMO_DIR  ?= $(ROOT)/.demo
 DEMO_DEPS :=
 ifeq ($(DEMO),1)
   override WORKDIR := $(DEMO_DIR)
-  # Lệnh kaggle giả đứng trước PATH: tab Kaggle của run mẫu không gửi gì lên Kaggle.
+  # Lệnh kaggle, colab giả đứng trước PATH: tab Kaggle, Colab của run mẫu không gửi gì đi.
   export PATH := $(DEMO_DIR)/.bin:$(PATH)
   # Khoá API nhập thử trên Studio mẫu được ghi vào đây, không đụng ~/.kaggle thật.
   export KAGGLE_CONFIG_DIR := $(DEMO_DIR)/.kaggle
@@ -188,7 +188,7 @@ dev: $(DEMO_DEPS)
 	# Một trong hai dừng (lỗi hoặc Ctrl+C) thì dọn cả hai.
 	wait -n "$$API_PID" "$$WEB_PID" || true
 
-## demo-data: dữ liệu mẫu ở DEMO_DIR; chỉ tạo khi chưa có (FORCE=1 để tạo lại), kèm lệnh kaggle giả.
+## demo-data: dữ liệu mẫu ở DEMO_DIR; chỉ tạo khi chưa có (FORCE=1 để tạo lại), kèm lệnh kaggle, colab giả.
 demo-data:
 	@[ -x "$(PY)" ] || { echo "[!] Thiếu $(PY); chạy: make setup"; exit 1; }
 	if [ ! -f "$(DEMO_DIR)/DEMO" ] || [ "$(FORCE)" = "1" ]; then
@@ -197,6 +197,8 @@ demo-data:
 	mkdir -p "$(DEMO_DIR)/.bin"
 	printf '#!/bin/sh\necho "dữ liệu mẫu: không gọi Kaggle thật" >&2\nexit 1\n' > "$(DEMO_DIR)/.bin/kaggle"
 	chmod +x "$(DEMO_DIR)/.bin/kaggle"
+	printf '#!/bin/sh\necho "dữ liệu mẫu: không gọi Colab thật" >&2\nexit 1\n' > "$(DEMO_DIR)/.bin/colab"
+	chmod +x "$(DEMO_DIR)/.bin/colab"
 
 demo:
 	@$(MAKE) --no-print-directory studio DEMO=1

@@ -105,6 +105,7 @@ Mỗi cảnh có file split ghi khung và camera nào để train, khung và cam
 |---|---|---|
 | **Local** | Máy đang chạy tool có GPU đủ mạnh, kể cả máy GPU thuê | Đầy đủ L1–L4 |
 | **Kaggle** | Máy đang dùng không đủ GPU | Ingest, chuẩn bị, train và đánh giá (L1) |
+| **Colab** | Máy đang dùng không đủ GPU và hết giờ Kaggle, hoặc cần GPU khác (L4, A100) | Như Kaggle: chuẩn bị, train và đánh giá (L1) |
 | **CLI** | Chạy không qua Studio, kể cả trong notebook viết tay | Như chế độ tương ứng |
 
 Yêu cầu riêng cho chế độ Kaggle:
@@ -113,6 +114,13 @@ Yêu cầu riêng cho chế độ Kaggle:
 - Studio hiện trạng thái job và log; khi job xong, tool tự tải kết quả về.
 - Kết quả được lưu sau từng bước, kể cả checkpoint giữa chừng. Khi một phiên Kaggle hết giờ, lần chạy sau tiếp tục từ chỗ dở.
 - Bật Studio ngay trong phiên Kaggle qua tunnel chỉ là tính năng phụ, không bảo đảm hoạt động.
+
+Yêu cầu riêng cho chế độ Colab:
+
+- Cùng run như Kaggle cho ra cùng kết quả: cùng gói job, cùng lệnh chạy, cùng cách cài môi trường và ghép kết quả.
+- Tool tự tạo phiên Colab có GPU, upload cảnh và file SMPL lên VM (không qua git, không qua chỗ công khai), chạy job tách khỏi kết nối và đọc log theo từng đoạn; kết nối rớt không làm dừng job. Người dùng chỉ cần cài lệnh `colab` và đăng nhập Google một lần.
+- Studio hiện trạng thái job và log cuối; khi job xong, tool tự tải kết quả về; run xong thì tắt phiên để không tốn compute unit.
+- Mất phiên (VM bị thu hồi) thì báo rõ; đẩy lại thì chạy tiếp từ bản đã tải về, stage đã xong không chạy lại.
 
 ## 8. Studio
 

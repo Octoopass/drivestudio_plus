@@ -8,8 +8,8 @@ Dùng khi muốn xem giao diện mà chưa có dữ liệu thật hay GPU::
 Thư mục mẫu có:
 - 3 cảnh của 3 dataset (nuScenes, Waymo, KITTI), mỗi cảnh có ảnh mọi camera theo khung, split và
   báo cáo kiểm tra (có cảnh báo, có lỗi);
-- 11 run với đủ trạng thái (xong, lỗi, đang chạy, đã huỷ, chạy thử nhanh), chạy trên máy hoặc
-  Kaggle, trên các GPU khác nhau; có metric, thống kê train, máy đã chạy, log, video, file
+- 13 run với đủ trạng thái (xong, lỗi, đang chạy, đã huỷ, chạy thử nhanh), chạy trên máy hoặc
+  Kaggle, Colab, trên các GPU khác nhau; có metric, thống kê train, máy đã chạy, log, video, file
   ``scene.ply`` và gói xem trước có xe chạy theo khung;
 - cache dùng chung (mask, SMPL) và một mục cache không còn run nào dùng.
 
@@ -612,6 +612,12 @@ def make_run(
                  "attempt": len(machines), "dataset": f"demo/d2s-{spec['scene'][-4:]}0000",
                  "commit": "e695d7d", "pushed_utc": spec["created"], "pulled_utc": spec["created"]}  # fmt: skip
         (run_dir / "d2s" / "kaggle.json").write_text(json.dumps(state, indent=2))
+    if run["executor"] == "colab":
+        state = {"session": "d2s", "gpu": "T4", "attempt": 1, "job": f"{spec['run_id']}-1",
+                 "commit": "e695d7d", "branch": "drive2sim", "pushed_utc": spec["created"],
+                 "pulled_utc": spec["created"], "lost_utc": None,
+                 "stopped_utc": spec["created"]}  # fmt: skip
+        (run_dir / "d2s" / "colab.json").write_text(json.dumps(state, indent=2))
 
 
 def write_train_curve(train_dir: Path, spec: dict[str, Any], done: bool) -> None:
@@ -687,6 +693,12 @@ RUNS: list[dict[str, Any]] = [
      "created": "2026-11-13T09:00:00Z", "executor": "kaggle", "machines": ["T4"],
      "psnr": 27.63, "ssim": 0.861, "lpips": 0.198, "train_time": 3540.8, "vram": 7310,
      "gaussians": 1281000, "fps": 38.9},
+    # Cùng cấu hình chạy trên VM Colab (executor colab): cùng gói job, kết quả gần như Kaggle.
+    {"run_id": "20261113-100000-omnire-c01a", "scene": "waymo_seg-1017", "approach": "omnire",
+     "options": {"renderer": "3dgs", "campose": False, "fastgs": True}, "preset": "fastgs",
+     "created": "2026-11-13T10:00:00Z", "executor": "colab", "machines": ["T4"],
+     "psnr": 29.08, "ssim": 0.888, "lpips": 0.172, "train_time": 5260.4, "vram": 9010,
+     "gaussians": 1540000, "fps": 31.5},
     # Hai run trên split thứ hai của nuScenes (every_nth_frame:8), để thử bảng trộn nhiều split.
     {"run_id": "20261112-210000-omnire-b3e1", "scene": "nuscenes_scene-0061", "approach": "omnire",
      "options": {"renderer": "3dgs", "campose": False, "fastgs": True}, "preset": "fastgs",

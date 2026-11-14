@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from drive2sim.colab import client as colab_client
 from drive2sim.kaggle import client
 
 
@@ -30,6 +31,22 @@ def no_real_kaggle(
     monkeypatch.delenv("KAGGLE_USERNAME", raising=False)
     monkeypatch.delenv("KAGGLE_KEY", raising=False)
     monkeypatch.delenv("KAGGLE_API_TOKEN", raising=False)
+
+
+def _blocked_colab(command: Sequence[str], timeout_s: float) -> "subprocess.CompletedProcess[str]":
+    """Thay lệnh ``colab`` thật: luôn báo lỗi, không gọi mạng."""
+    return subprocess.CompletedProcess(list(command), 1, "", "test không được gọi Colab thật")
+
+
+@pytest.fixture(autouse=True)
+def no_real_colab(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Chặn mọi lần gọi Colab thật trong test.
+
+    Máy phát triển thường đã đăng nhập ``colab``, nên một test lỡ đi tới executor Colab sẽ tạo
+    VM GPU thật (tốn compute unit) trên tài khoản người chạy test. Test cần Colab thì truyền
+    client giả hoặc runner giả vào ``ColabClient``.
+    """
+    monkeypatch.setattr(colab_client, "_run_cli", _blocked_colab)
 
 
 @pytest.fixture(autouse=True)

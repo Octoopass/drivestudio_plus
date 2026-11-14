@@ -212,6 +212,13 @@ def test_scenes_and_splits(client: TestClient) -> None:
     assert missing.status_code == 404 and missing.json()["error"]["code"] == "not_found"
 
 
+def test_colab_setup_route(client: TestClient) -> None:
+    # conftest chặn lệnh colab thật: báo chưa cài, không gọi mạng
+    status = client.get("/api/colab/setup/status").json()
+    assert status["ready"] is False and status["cli"]["installed"] is False
+    assert set(status) == {"ready", "cli", "account", "gpu", "smpl", "code"}
+
+
 def test_kaggle_setup_routes(client: TestClient, tmp_path: Path) -> None:
     # conftest chặn lệnh kaggle thật: trạng thái báo chưa cài, không gọi mạng
     status = client.get("/api/kaggle/setup/status").json()
@@ -340,6 +347,20 @@ def test_run_lifecycle(client: TestClient) -> None:
     assert push_job["kind"] == "kaggle_push" and push_job["status"] == "failed"
     status = client.get(f"/api/kaggle/{kaggle.json()['run_id']}")
     assert status.status_code == 502 and status.json()["error"]["code"] == "kaggle_failed"
+    colab = client.post(
+        "/api/runs",
+        json={"approach_id": "toy", "scene_id": SCENE, "split_id": split_id, "executor": "colab"},
+    )
+    assert colab.status_code == 202 and colab.json()["executor"] == "colab"
+    client.app.state.studio.jobs.wait_idle()
+    colab_job = next(
+        j for j in client.get("/api/jobs").json()["items"] if j["kind"] == "colab_push"
+    )
+    assert colab_job["status"] == "failed"  # conftest chặn lệnh colab thật
+    status = client.get(f"/api/colab/{colab.json()['run_id']}")
+    assert status.status_code == 502 and status.json()["error"]["code"] == "colab_failed"
+    bad = client.post(f"/api/colab/{colab.json()['run_id']}/push", json={"gpu": "K80"})
+    assert bad.status_code == 400
 
 
 def test_files_block_traversal(client: TestClient) -> None:

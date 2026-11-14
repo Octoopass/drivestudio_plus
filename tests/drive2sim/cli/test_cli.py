@@ -10,7 +10,7 @@ File này dựng một thư mục làm việc tạm có một cảnh mẫu, mộ
   tham số stage;
 - ``approach check omnire`` chạy được trên cảnh mẫu với ba stage bọc DriveStudio;
 - mã thoát và lỗi dạng JSON: ``2`` khi sai giá trị, ``3`` khi bị khoá, ``1``
-  khi không tìm thấy cảnh hoặc chọn Kaggle;
+  khi không tìm thấy cảnh hoặc chọn Kaggle, Colab;
 - ``parse_value`` và ``parse_set`` đọc ``--set`` đúng CONTRACTS mục 10.3.
 """
 
@@ -261,6 +261,8 @@ def test_exit_codes(workdir: Path, split_id: str, capsys: pytest.CaptureFixture)
     assert code == 2 and data["error"]["code"] == "invalid_request"
     code, data = run_json(capsys, "run", "start", "toy", *base, "--executor", "kaggle")
     assert code == 1 and data["error"]["code"] == "kaggle_failed"
+    code, data = run_json(capsys, "run", "start", "toy", *base, "--executor", "colab")
+    assert code == 1 and data["error"]["code"] == "colab_failed"
     code, data = run_json(capsys, "scene", "show", "nuscenes_scene-9999")
     assert code == 1 and data["error"]["code"] == "not_found"
     assert main(["run", "bogus"]) == 2

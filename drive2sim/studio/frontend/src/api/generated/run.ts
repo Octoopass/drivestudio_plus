@@ -9,7 +9,7 @@ export type Version = string;
 export type Preset = string | null;
 export type Quick = boolean;
 export type Level = "L1" | "L2" | "L3" | "L4";
-export type Executor = "local" | "kaggle";
+export type Executor = "local" | "kaggle" | "colab";
 export type Status = "pending" | "running" | "succeeded" | "failed" | "cancelled";
 export type CreatedUtc = string | null;
 export type LidarUsage = string[];
@@ -36,7 +36,7 @@ export type Stages = StageRecord[];
  *     split_id: Split của run.
  *     approach: Approach và lựa chọn đã quyết định.
  *     level: Mức năng lực của approach.
- *     executor: Nơi chạy, ``local`` hoặc ``kaggle``.
+ *     executor: Nơi chạy, ``local``, ``kaggle`` hoặc ``colab``.
  *     status: Trạng thái của cả run.
  *     created_utc: Thời điểm tạo run.
  *     lidar_usage: Các stage dùng LiDAR; rỗng nếu run không dùng LiDAR.

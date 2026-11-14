@@ -24,6 +24,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
+from drive2sim.colab.client import ColabError
 from drive2sim.engine.cache import CacheBusyError
 from drive2sim.engine.housekeeping import InUseError
 from drive2sim.engine.registry import REGISTRY, StageRegistry, load_builtin_stages
@@ -34,13 +35,24 @@ from drive2sim.engine.workdir import Workdir, WorkdirError
 from drive2sim.ingest.dispatch import IngestRequestError
 from drive2sim.kaggle.client import KaggleError
 from drive2sim.kaggle.setup import CredentialExistsError
+from drive2sim.studio.api.colab_watch import ColabWatcher
 from drive2sim.studio.api.events import EventBroker
 from drive2sim.studio.api.gpu_viewer import GpuViewerError, GpuViewers
 from drive2sim.studio.api.jobs import BackgroundJobs, RunQueue
 from drive2sim.studio.api.kaggle_watch import KaggleWatcher
 from drive2sim.studio.api.picker import PickerError, pick_folder
+from drive2sim.studio.api.remote_watch import RemoteWatcher
 from drive2sim.studio.api.reveal import RevealError, reveal
-from drive2sim.studio.api.routes import approaches, cache, kaggle, report, runs, scenes, sources
+from drive2sim.studio.api.routes import (
+    approaches,
+    cache,
+    colab,
+    kaggle,
+    report,
+    runs,
+    scenes,
+    sources,
+)
 from drive2sim.studio.api.state import StudioState
 
 FRONTEND_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
@@ -143,6 +155,10 @@ def _install_error_handlers(app: FastAPI) -> None:
     async def kaggle_failed(request: Request, error: KaggleError) -> JSONResponse:
         return error_response(502, "kaggle_failed", str(error))
 
+    @app.exception_handler(ColabError)
+    async def colab_failed(request: Request, error: ColabError) -> JSONResponse:
+        return error_response(502, "colab_failed", str(error))
+
     @app.exception_handler(ResolveError)
     async def invalid_resolve(request: Request, error: ResolveError) -> JSONResponse:
         return error_response(400, "invalid_request", str(error))
@@ -181,6 +197,7 @@ def create_app(
     registry: StageRegistry = REGISTRY,
     frontend_dir: Optional[Path] = FRONTEND_DIST,
     kaggle_watch_s: Optional[float] = None,
+    colab_watch_s: Optional[float] = None,
 ) -> FastAPI:
     """Dựng ứng dụng Studio.
 
@@ -190,6 +207,7 @@ def create_app(
         frontend_dir: Thư mục giao diện đã build (``npm run build``); phục vụ ở ``/`` nếu có.
         kaggle_watch_s: Có thì cứ chừng ấy giây hỏi trạng thái các run trên Kaggle và tự tải kết
             quả về khi notebook xong (``KaggleWatcher``); ``None`` thì không theo dõi (test).
+        colab_watch_s: Như ``kaggle_watch_s`` cho các run trên Colab (``ColabWatcher``).
 
     Returns:
         Ứng dụng FastAPI.
@@ -199,18 +217,30 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        """Bật theo dõi Kaggle khi mở; khi tắt Studio, chờ run đang chạy xong rồi mới thoát."""
-        watcher = None
+        """Bật theo dõi Kaggle, Colab khi mở; khi tắt Studio, chờ run đang chạy xong rồi thoát."""
+        watchers: list[RemoteWatcher] = []
         if kaggle_watch_s:
-            watcher = KaggleWatcher(
-                workdir,
-                app.state.studio.jobs,
-                interval_s=kaggle_watch_s,
-                queue=app.state.studio.queue,
+            watchers.append(
+                KaggleWatcher(
+                    workdir,
+                    app.state.studio.jobs,
+                    interval_s=kaggle_watch_s,
+                    queue=app.state.studio.queue,
+                )
             )
+        if colab_watch_s:
+            watchers.append(
+                ColabWatcher(
+                    workdir,
+                    app.state.studio.jobs,
+                    interval_s=colab_watch_s,
+                    queue=app.state.studio.queue,
+                )
+            )
+        for watcher in watchers:
             watcher.start()
         yield
-        if watcher is not None:
+        for watcher in watchers:
             watcher.stop()
         gpu_viewers.stop()
         app.state.studio.queue.shutdown()
@@ -245,7 +275,7 @@ def create_app(
             )
         return await call_next(request)
 
-    for module in (sources, scenes, approaches, runs, report, cache, kaggle):
+    for module in (sources, scenes, approaches, runs, report, cache, kaggle, colab):
         app.include_router(module.router)
 
     class RevealBody(BaseModel):

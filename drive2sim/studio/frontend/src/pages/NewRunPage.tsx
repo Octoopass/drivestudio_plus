@@ -1,10 +1,11 @@
 // Chạy mới (SPEC mục 5 bước 4–5): chọn cảnh, split, approach, preset và các mục cấu hình; chọn chạy trên
-// máy hay trên Kaggle, train đầy đủ hay thử nhanh. Mỗi lần đổi lựa chọn, gọi /check để biết lựa chọn nào bị khoá (gạch và ghi
+// máy, trên Kaggle hay trên Colab, train đầy đủ hay thử nhanh. Mỗi lần đổi lựa chọn, gọi /check để biết lựa chọn nào bị khoá (gạch và ghi
 // lý do) và vẽ trước làn stage sẽ chạy, stage nào dùng lại cache. Bấm chạy thì mở màn hình run.
 import { AlertTriangle, CheckCircle2, Cloud, Cpu, Database, Play, XCircle, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { asApiError, post, seg, useApi, type ApiError } from "../api/client";
 import type { Approach, CheckResult, List, Manifest, OptionValue, RunRecord, SceneDetail } from "../api/types";
+import { ColabSetup, type ColabSetupStatus } from "../components/ColabSetup";
 import { KaggleSetup, type KaggleSetupStatus } from "../components/KaggleSetup";
 import { StageRoad } from "../components/StageRoad";
 import { ErrorBox, InfoTip, Note, PageHead, Panel, Segmented, Skeleton } from "../components/ui";
@@ -27,9 +28,10 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
   // Chỉ các mục cấu hình người dùng đã chọn khác đi; mục không có ở đây lấy giá trị mặc định của approach.
   // Preset không lưu riêng: bấm preset là điền các mục cấu hình, còn preset đang dùng được suy ra từ các mục cấu hình.
   const [options, setOptions] = useState<Record<string, OptionValue>>({});
-  const [executor, setExecutor] = useState<"local" | "kaggle">("local");
+  const [executor, setExecutor] = useState<"local" | "kaggle" | "colab">("local");
   const [quick, setQuick] = useState(false);
   const [kaggleStatus, setKaggleStatus] = useState<KaggleSetupStatus | null>(null);
+  const [colabStatus, setColabStatus] = useState<ColabSetupStatus | null>(null);
   const [check, setCheck] = useState<CheckResult | null>(null);
   const [checkError, setCheckError] = useState<ApiError | null>(null);
   const [checking, setChecking] = useState(false);
@@ -412,19 +414,22 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
                   {t("new.field.executor")}
                   <InfoTip>{t("new.executor.info")}</InfoTip>
                 </span>
-                <Segmented<"local" | "kaggle">
+                <Segmented<"local" | "kaggle" | "colab">
                   label={t("new.field.executor")}
                   value={executor}
                   onChange={setExecutor}
                   options={[
                     { value: "local", label: <span className="row" style={{ gap: 7 }}><Cpu size={16} />{t("new.executor.local")}</span> },
                     { value: "kaggle", label: <span className="row" style={{ gap: 7 }}><Cloud size={16} />Kaggle</span> },
+                    { value: "colab", label: <span className="row" style={{ gap: 7 }}><Cloud size={16} />Colab</span> },
                   ]}
                 />
               </div>
               {executor === "local" && approachId && <LocalEnvironment approachId={approachId} />}
               {executor === "kaggle" && <KaggleSetup onStatus={setKaggleStatus} />}
               {executor === "kaggle" && kaggleStatus && !kaggleStatus.ready && <Note kind="warn">{t("kaggle.setup.start_warning")}</Note>}
+              {executor === "colab" && <ColabSetup onStatus={setColabStatus} needsSmpl={check?.stages.some((s) => s.stage_id === "prep.smpl")} />}
+              {executor === "colab" && colabStatus && !colabStatus.ready && <Note kind="warn">{t("colab.setup.start_warning")}</Note>}
               {cached > 0 && (
                 <div className="row small muted">
                   <Database size={16} />
@@ -433,7 +438,7 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
               )}
               <button className="btn primary" onClick={start} disabled={!check || starting} style={{ height: 47 }}>
                 <Play size={19} />
-                {t(starting ? "new.action.starting" : executor === "kaggle" ? "new.action.start_kaggle" : "new.action.start")}
+                {t(starting ? "new.action.starting" : executor === "kaggle" ? "new.action.start_kaggle" : executor === "colab" ? "new.action.start_colab" : "new.action.start")}
               </button>
               <ErrorBox error={startError} />
             </div>

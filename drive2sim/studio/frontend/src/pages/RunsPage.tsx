@@ -111,7 +111,7 @@ export function RunsPage({ sceneId = "", status = "all" }: { sceneId?: string; s
                         <div className="small faint row" style={{ gap: 6 }}>
                           {run.approach.approach_id}
                           {run.approach.quick && <Zap size={15} aria-label={t("run.quick")} className="warn-ink" />}
-                          {run.executor === "kaggle" && <Cloud size={15} aria-label="Kaggle" />}
+                          {run.executor !== "local" && <Cloud size={15} aria-label={run.executor === "kaggle" ? "Kaggle" : "Colab"} />}
                         </div>
                       </td>
                       <td className="ellipsis" style={{ maxWidth: 276 }}>{run.scene_id}</td>

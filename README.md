@@ -129,6 +129,24 @@ python -m drive2sim.recon.tools.export_ply --ckpt $output_root/$project/$expname
 
 `load_smpl=False` is needed for Street Gaussians configs, which have no human nodes. The `1cams` dataset configs hold out no test frames unless `test_image_stride` is set.
 
+### Training on Kaggle or Google Colab
+
+`d2s run start ... --executor kaggle` and `--executor colab` create the run locally and send it to a GPU elsewhere; both use the same job bundle, run the same `d2s kaggle run` entry point and install with `envs/install_main.sh`, so the run directory you get back has the same layout and contents as a Kaggle run. Kaggle is described in `docs/drive2sim/CONTRACTS.md` section 9.2, Colab in section 9.3.
+
+```shell
+# one-time setup for Colab (headless hosts also need the keyrings.alt backend)
+uv tool install google-colab-cli --with keyrings.alt
+export PYTHON_KEYRING_BACKEND=keyrings.alt.file.PlaintextKeyring   # only without an OS keyring
+colab sessions          # first call opens the Google consent page
+
+git push origin drive2sim   # the VM clones the exact commit from the remote
+d2s run start omnire --scene <scene_id> --split <split_id> --executor colab
+d2s colab logs <run_id> --follow   # the job keeps running if this stops or the connection drops
+d2s colab pull <run_id>            # merges runs/ and cache/; stops the VM when the run succeeded
+```
+
+`d2s colab push <run_id> --gpu L4 --session <name>` picks another GPU or session. The scene and, for OmniRe, the local `SMPL_NEUTRAL.pkl` are uploaded straight to the VM (never through git). If Colab reclaims the VM, everything not yet pulled is lost; `d2s colab push <run_id>` again starts a new VM and resumes from the last pulled copy. Not tested on a real Colab VM yet.
+
 ### Licence of this fork
 
 Upstream DriveStudio is MIT-licensed. The Bosch 3DGEER patch included here is released under **AGPL-3.0**, so this repository contains AGPL-3.0 code; check those terms before redistributing it or building a service on it. The branch `phase3` holds only the MIT-compatible additions (the two tools and the `*_nocampose` configs).
@@ -235,7 +253,7 @@ Notes for this fork:
 
 - `requirements.txt` now also lists `plyfile` (for `drive2sim/recon/tools/export_ply.py`) and `transformers` (for `drive2sim/recon/preprocess/masks/segformer_hf.py`).
 - `requirements.txt` pins `torch==2.4.1+cu121` (the version gsplat-geer was run with) instead of DriveStudio's `torch==2.0.0+cu117`, drops `xformers` (unused), and uses `numpy==1.23.5` and `open3d==0.17.0` so it also installs on Python 3.11.
-- OmniRe needs the SMPL body model `SMPL_NEUTRAL.pkl` to reconstruct people. It is licensed and not in the repo: download it from https://smpl.is.tue.mpg.de and put it at `<workdir>/smpl_models/SMPL_NEUTRAL.pkl` (or set `D2S_SMPL_MODEL`). For Kaggle runs, upload it as a private dataset and set `D2S_KAGGLE_SMPL_DATASET=<user>/<dataset>` before `d2s kaggle push`. Studio's New run page shows whether the file is found.
+- OmniRe needs the SMPL body model `SMPL_NEUTRAL.pkl` to reconstruct people. It is licensed and not in the repo: download it from https://smpl.is.tue.mpg.de and put it at `<workdir>/smpl_models/SMPL_NEUTRAL.pkl` (or set `D2S_SMPL_MODEL`). For Kaggle runs, upload it as a private dataset and set `D2S_KAGGLE_SMPL_DATASET=<user>/<dataset>` before `d2s kaggle push`; Colab runs upload the local file to the VM. Studio's New run page shows whether the file is found.
 - Stock gsplat (`pip install git+https://github.com/nerfstudio-project/gsplat.git@v1.3.0`) only supports `render_mode: default` and has not been tested with this fork.
 - At commit `f15cee2` the `glm` submodule of gsplat-geer is declared but missing from the tree, which made the build stop with `glm/gtc/type_ptr.hpp: No such file`; `envs/install_main.sh` now fetches glm 1.0.1 into place by itself. If a step fails, fix it and rerun from that step with `bash envs/install_main.sh --from <step>`.
 - Dataset-specific packages are still installed separately, as described in each dataset guide (for example `nuscenes-devkit` for nuScenes, the NCore SDK for PhysicalAI).

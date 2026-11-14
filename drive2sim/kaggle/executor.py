@@ -24,7 +24,6 @@ import hashlib
 import json
 import os
 import shutil
-import subprocess
 import tempfile
 import time
 from collections.abc import Callable
@@ -36,14 +35,10 @@ from typing import Optional
 
 from drive2sim import paths
 from drive2sim.core import files
-from drive2sim.core.schema import EnvRecord, RunRecord
-from drive2sim.engine.cache import PARTIAL_SUFFIX
-from drive2sim.engine.machine import same_machine
+from drive2sim.core.schema import RunRecord
+from drive2sim.engine import remote
 from drive2sim.engine.run import (
-    CANCEL_FILE,
     D2S_DIR,
-    ENV_FILE,
-    PID_FILE,
     RUN_FILE,
     run_is_active,
 )
@@ -60,6 +55,7 @@ MAX_RESUME_SOURCES = 5  # số lần đẩy trước được gắn vào noteboo
 DATASET_WAIT_S = 900  # chờ Kaggle xử lý xong dataset cảnh vừa upload, tối đa 15 phút
 DATASET_POLL_S = 10
 SMPL_DATASET_ENV = "D2S_KAGGLE_SMPL_DATASET"  # dataset private chứa SMPL_NEUTRAL.pkl
+REPO_ENV = "D2S_KAGGLE_REPO"  # đổi repo notebook clone (mặc định remote origin)
 
 
 @dataclass
@@ -108,34 +104,15 @@ def _save_state(run_dir: Path, state: KaggleState) -> None:
 
 
 def _git(*args: str) -> str:
-    """Chạy git trong repo chứa package; trả stdout, chuỗi rỗng nếu lỗi."""
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(paths.PACKAGE_DIR), *args],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    return result.stdout.strip() if result.returncode == 0 else ""
-
-
-def _remote_for(url: str) -> Optional[str]:
-    """Tên remote của repo có URL ``url`` (ví dụ ``origin``), nếu có."""
-    for line in _git("remote", "-v").splitlines():
-        parts = line.split()
-        if len(parts) >= 2 and parts[1] == url:
-            return parts[0]
-    return None
+    """Chạy git trong repo chứa package; trả stdout, chuỗi rỗng nếu lỗi (``remote.git``)."""
+    return remote.git(*args)
 
 
 def code_source(branch: str = DEFAULT_BRANCH) -> tuple[str, str]:
     """Commit hiện tại và URL repo mà notebook sẽ clone (``D2S_KAGGLE_REPO`` hoặc ``origin``).
 
-    Notebook chạy ``git clone --branch <branch> <url>`` rồi ``git checkout <commit>``, nên commit
-    phải có trên **đúng remote đó** và remote phải có nhánh ``branch``; có trên một remote khác
-    (ví dụ ``fork``) thì notebook không checkout được.
+    Kiểm tra theo ``remote.code_source``: commit phải có trên đúng remote notebook clone và remote
+    phải có nhánh ``branch``.
 
     Args:
         branch: Nhánh notebook clone.
@@ -147,22 +124,10 @@ def code_source(branch: str = DEFAULT_BRANCH) -> tuple[str, str]:
         KaggleError: Nếu không đọc được git, remote không có nhánh ``branch``, hoặc commit chưa
             push lên remote đó.
     """
-    commit = _git("rev-parse", "HEAD")
-    url = os.environ.get("D2S_KAGGLE_REPO") or _git("remote", "get-url", "origin")
-    if not commit or not url:
-        raise KaggleError("không đọc được commit hoặc remote origin của repo")
-    remote = _remote_for(url)
-    if remote is None:
-        # URL không phải remote nào của repo này: không kiểm tra được, notebook sẽ báo nếu thiếu.
-        return commit, url
-    if not _git("rev-parse", "--verify", "--quiet", f"refs/remotes/{remote}/{branch}"):
-        raise KaggleError(f"remote {remote} ({url}) không có nhánh {branch}; push nhánh đó trước")
-    if not _git("branch", "-r", "--contains", commit, "--list", f"{remote}/*"):
-        raise KaggleError(
-            f"commit {commit[:7]} chưa có trên remote {remote} ({url}), repo notebook sẽ clone; "
-            f"git push {remote} {branch} rồi chạy lại"
-        )
-    return commit, url
+    try:
+        return remote.code_source(branch, REPO_ENV, _git)
+    except remote.RemoteError as error:
+        raise KaggleError(str(error)) from None
 
 
 def _ensure_scene_dataset(
@@ -374,75 +339,16 @@ def kernel_state(workdir: Workdir, run_id: str, client: Optional[KaggleClient] =
     return {**asdict(state), "status": status, "status_error": error}
 
 
-STAGES_DIR = "stages"
+def _merge_d2s(local: Path, remote_d2s: Path) -> list[str]:
+    """Ghép ``d2s/`` tải từ Kaggle vào ``d2s/`` của run trên máy (``remote.merge_d2s``).
 
-
-def _load_or_none(path: Path, model: type) -> Optional[object]:
-    """Đọc một file JSON theo schema; thiếu file hoặc file hỏng thì trả ``None``."""
-    try:
-        return files.load(path, model)
-    except (OSError, ValueError):
-        return None
-
-
-def _replace(source: Path, target: Path) -> None:
-    """Chuyển ``source`` vào chỗ ``target``, xoá ``target`` cũ (file hoặc thư mục) nếu có."""
-    if target.is_dir() and not target.is_symlink():
-        shutil.rmtree(target)
-    elif target.exists() or target.is_symlink():
-        target.unlink()
-    shutil.move(str(source), str(target))
-
-
-def _merge_d2s(local: Path, remote: Path) -> list[str]:
-    """Ghép ``d2s/`` tải từ Kaggle vào ``d2s/`` của run trên máy.
-
-    - Mỗi stage có trong bản Kaggle thay stage cùng tên trên máy (bản Kaggle mới hơn).
-    - Stage chỉ có trên máy, đã có thư mục kết quả, được giữ lại: thư mục giữ nguyên, bản ghi của
-      nó nối vào cuối ``run.json`` lấy từ Kaggle.
-    - ``env.json`` lấy từ Kaggle, cộng thêm các máy chỉ có trong bản trên máy.
-    - ``kaggle.json`` trên máy giữ nguyên; các file khác lấy theo bản Kaggle.
-
-    Args:
-        local: ``d2s/`` của run trên máy.
-        remote: ``d2s/`` của run trong output Kaggle (sẽ bị chuyển đi).
+    Bản Kaggle thắng ở mọi stage nó có; stage chỉ có trên máy được giữ lại; ``env.json`` cộng các
+    máy chỉ có trên máy; ``kaggle.json`` trên máy giữ nguyên; ``pid``, ``cancel`` không chép về.
 
     Returns:
         Các ``stage_id`` chỉ có trên máy đã được giữ lại.
     """
-    local_record = _load_or_none(local / RUN_FILE, RunRecord)
-    remote_record = _load_or_none(remote / RUN_FILE, RunRecord)
-    local_env = _load_or_none(local / ENV_FILE, EnvRecord)
-    remote_ids = {s.stage_id for s in remote_record.stages} if remote_record else set()
-    kept = [
-        stage
-        for stage in (local_record.stages if local_record else [])
-        if stage.stage_id not in remote_ids and (local / STAGES_DIR / stage.stage_id).is_dir()
-    ]
-    for item in remote.iterdir():
-        # pid, cancel: trạng thái tiến trình của phiên Kaggle (pid còn sót khi phiên bị ngắt),
-        # không có nghĩa gì trên máy này; chép về thì run bị coi là đang chạy mãi.
-        if item.name in (STATE_FILE, PID_FILE, CANCEL_FILE):
-            continue
-        target = local / item.name
-        if item.name == STAGES_DIR and item.is_dir() and target.is_dir():
-            for stage_dir in item.iterdir():
-                _replace(stage_dir, target / stage_dir.name)
-            continue
-        _replace(item, target)
-    if kept and remote_record is not None:
-        merged = remote_record.model_copy(update={"stages": [*remote_record.stages, *kept]})
-        files.dump(merged, local / RUN_FILE)
-    env = _load_or_none(local / ENV_FILE, EnvRecord)
-    if local_env is not None and env is not None:
-        extra = [
-            m for m in local_env.machines if not any(same_machine(m, s) for s in env.machines)
-        ]
-        if extra:
-            files.dump(
-                env.model_copy(update={"machines": [*env.machines, *extra]}), local / ENV_FILE
-            )
-    return [stage.stage_id for stage in kept]
+    return remote.merge_d2s(local, remote_d2s)
 
 
 def pull_run(workdir: Workdir, run_id: str, client: Optional[KaggleClient] = None) -> RunRecord:
@@ -468,17 +374,11 @@ def pull_run(workdir: Workdir, run_id: str, client: Optional[KaggleClient] = Non
     with tempfile.TemporaryDirectory(dir=_staging(workdir)) as folder:
         output = Path(folder)
         client.kernel_output(state.kernel, output)
-        relative = run_dir.relative_to(workdir.root)
-        found = [p for p in output.glob(f"**/{relative.as_posix()}") if (p / D2S_DIR).is_dir()]
-        if not found:
-            raise KaggleError(f"output của {state.kernel} không có {relative}")
-        _merge_d2s(run_dir / D2S_DIR, found[0] / D2S_DIR)
-        remote_cache = found[0].parents[2].parent / "cache"
-        for entry in sorted(remote_cache.glob("*/*")):
-            target = workdir.cache_dir / entry.parent.name / entry.name
-            if entry.is_dir() and not entry.name.endswith(PARTIAL_SUFFIX) and not target.exists():
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(entry), str(target))
+        try:
+            remote.merge_output(workdir, run_dir, output)
+        except FileNotFoundError:
+            relative = run_dir.relative_to(workdir.root)
+            raise KaggleError(f"output của {state.kernel} không có {relative}") from None
     state.pulled_utc = _now()
     _save_state(run_dir, state)
     return files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
