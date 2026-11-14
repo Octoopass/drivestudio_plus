@@ -10,10 +10,16 @@
 - ``fewer_syncs``: kiểm NaN/Inf của mọi loss bằng một lần chờ GPU thay vì hai lần mỗi loss, và
   đọc mọi số để ghi log bằng một lần ``tolist()`` thay vì ``item()`` từng số. Kết quả không đổi.
   Không đụng hai lệnh ``torch.cuda.synchronize()`` dùng để đo ``train_time_s``.
+- ``morton_order`` (thử nghiệm, mặc định tắt): mỗi ``morton_interval`` bước, sau khi model refine,
+  sắp Gaussian của nền (``VanillaGaussians``, đúng lớp đó, không áp cho xe, người, PVG) theo mã
+  Morton của tâm, cùng trạng thái Adam. Chỉ tương đương về thống kê với khi tắt.
+
+Không có SelectiveAdam: ``SelectiveAdam`` của gsplat-geer bỏ cả bước hiệu chỉnh bias của Adam, còn
+code công khai của Faster-GS không có bản bỏ qua Gaussian không nhìn thấy (docs/methods/fastergs.md).
 
 Khi công tắc ``trainer.fastergs.enabled`` tắt, trainer chạy y như trước.
 
-File này chứa ``FasterGS``, ``FusedSSIM``.
+File này chứa ``FasterGS``, ``FusedSSIM``, ``morton_codes``, ``reorder_gaussians``.
 """
 
 import logging
@@ -22,7 +28,7 @@ from typing import Any, Dict, Optional
 import torch
 import torch.nn as nn
 
-from drive2sim.recon.speedups.fastergs_rules import active_techniques, parse_config
+from drive2sim.recon.speedups.fastergs_rules import active_techniques, morton_due, parse_config
 
 logger = logging.getLogger()
 
@@ -104,3 +110,71 @@ class FasterGS:
             # cùng kiểu dữ liệu thì gộp được mà không đổi giá trị
             return dict(zip(values.keys(), torch.stack(tensors).tolist()))
         return {k: v.item() for k, v in values.items()}
+
+    def after_step(self, trainer: Any, step: int) -> None:
+        """Gọi cuối mỗi bước, sau khi model refine và FastGS xoá mask: sắp lại theo Z-order."""
+        if not morton_due(step, self.cfg):
+            return
+        from drive2sim.recon.models.gaussians.vanilla import VanillaGaussians
+
+        for name in trainer.gaussian_classes:
+            model = trainer.models[name]
+            if type(model) is VanillaGaussians:  # đúng lớp nền; không áp cho lớp con (xe, người, PVG)
+                with torch.no_grad():
+                    order = torch.argsort(morton_codes(model._means.detach()))
+                reorder_gaussians(model, order, trainer.optimizer)
+                logger.info(f"Faster-GS: Z-order {name} ({model.num_points} Gaussian) @ step {step}")
+
+
+# Tham số theo từng Gaussian của VanillaGaussians: tên nhóm optimizer (sau tiền tố lớp) → thuộc tính.
+_PARAM_ATTRS = {
+    "xyz": "_means",
+    "sh_dc": "_features_dc",
+    "sh_rest": "_features_rest",
+    "opacity": "_opacities",
+    "scaling": "_scales",
+    "rotation": "_quats",
+}
+# Thống kê densify theo từng Gaussian; None sau mỗi lần refine.
+_STAT_ATTRS = ("xys_grad_norm", "vis_counts", "max_2Dsize")
+
+
+def _spread_bits(v: torch.Tensor) -> torch.Tensor:
+    """Chèn hai bit 0 giữa các bit của số 21 bit (mã Morton 3 chiều 63 bit)."""
+    v = (v | (v << 32)) & 0x1F00000000FFFF
+    v = (v | (v << 16)) & 0x1F0000FF0000FF
+    v = (v | (v << 8)) & 0x100F00F00F00F00F
+    v = (v | (v << 4)) & 0x10C30C30C30C30C3
+    v = (v | (v << 2)) & 0x1249249249249249
+    return v
+
+
+def morton_codes(xyz: torch.Tensor) -> torch.Tensor:
+    """Mã Morton (đường cong Z) 63 bit của các điểm, lưới 2^21 mỗi trục trong hộp bao của chúng."""
+    lo = xyz.min(dim=0).values
+    span = (xyz.max(dim=0).values - lo).clamp(min=1e-12)
+    grid = ((xyz - lo) / span * (2**21 - 1)).round().long().clamp(0, 2**21 - 1)
+    return _spread_bits(grid[:, 0]) | (_spread_bits(grid[:, 1]) << 1) | (_spread_bits(grid[:, 2]) << 2)
+
+
+def reorder_gaussians(model: nn.Module, order: torch.Tensor, optimizer: Any) -> None:
+    """Sắp lại mọi tham số, trạng thái Adam và thống kê densify của ``model`` theo ``order``.
+
+    Theo cùng cách ``remove_from_optim`` thay tham số trong optimizer: tham số mới, trạng thái cũ
+    được sắp lại (``step`` giữ nguyên).
+    """
+    groups = {group["name"]: group for group in optimizer.param_groups}
+    for name, params in model.get_gaussian_param_groups().items():
+        old = params[0]
+        new = nn.Parameter(old.detach()[order])
+        state = optimizer.state.pop(old, None)
+        if state is not None:
+            for key in ("exp_avg", "exp_avg_sq"):
+                state[key] = state[key][order]
+            optimizer.state[new] = state
+        groups[name]["params"] = [new]
+        setattr(model, _PARAM_ATTRS[name[len(model.class_prefix):]], new)
+    for attr in _STAT_ATTRS:
+        value = getattr(model, attr, None)
+        if value is not None:
+            setattr(model, attr, value[order])

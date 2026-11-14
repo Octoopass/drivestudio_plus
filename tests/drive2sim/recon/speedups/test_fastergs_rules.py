@@ -10,6 +10,7 @@ from drive2sim.recon.speedups.fastergs_rules import (
     FASTERGS_DEFAULTS,
     TECHNIQUES,
     active_techniques,
+    morton_due,
     parse_config,
 )
 
@@ -21,7 +22,14 @@ def test_off_by_default() -> None:
 
 
 def test_active_techniques_follow_flags() -> None:
-    assert active_techniques(parse_config({"enabled": True})) == list(TECHNIQUES)
+    # Z-order là thử nghiệm: không bật theo công tắc chung
+    assert active_techniques(parse_config({"enabled": True})) == [
+        "fused_adam",
+        "fused_ssim",
+        "fewer_syncs",
+    ]
+    cfg = parse_config({"enabled": True, "morton_order": True})
+    assert active_techniques(cfg) == list(TECHNIQUES)
     cfg = parse_config({"enabled": True, "fused_ssim": False})
     assert active_techniques(cfg) == ["fused_adam", "fewer_syncs"]
     # cờ riêng bật nhưng công tắc chung tắt: không có gì chạy
@@ -31,3 +39,10 @@ def test_active_techniques_follow_flags() -> None:
 def test_unknown_key() -> None:
     with pytest.raises(AssertionError, match="unknown trainer.fastergs keys"):
         parse_config({"enabled": True, "fused_lamb": True})
+
+
+def test_morton_due() -> None:
+    on = parse_config({"enabled": True, "morton_order": True, "morton_interval": 5000})
+    assert [step for step in (0, 4900, 5000, 7000, 10000) if morton_due(step, on)] == [5000, 10000]
+    assert not morton_due(5000, parse_config({"enabled": True}))  # cờ riêng tắt
+    assert not morton_due(5000, parse_config({"morton_order": True}))  # công tắc chung tắt

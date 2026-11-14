@@ -346,6 +346,8 @@ class BasicTrainer(nn.Module):
             )
             # FastGS masks are only valid for the point counts of this step
             FastGS.clear_masks(self.models[class_name])
+        # Faster-GS: Z-order of the background Gaussians, after refinement (off unless morton_order)
+        self.fastergs.after_step(self, step)
         
         # viewer
         if self.viewer is not None:
