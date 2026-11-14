@@ -98,6 +98,10 @@ class TrainDrivestudioParams(BaseModel):
         seed: Seed ngẫu nhiên.
         overrides: Tham số DriveStudio khác cần đè, dạng ``{"khoá.con": giá trị}``, ví dụ
             ``{"trainer.render.near_plane": 0.2}``.
+        profile_at: Các bước bắt đầu đo thời gian GPU bằng torch.profiler
+            (``drive2sim/recon/utils/step_profile.py``); rỗng là không đo. Chỉ dùng trong run đo
+            riêng, vì profiler làm chậm các bước được đo.
+        profile_steps: Số bước mỗi lần đo.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -111,6 +115,8 @@ class TrainDrivestudioParams(BaseModel):
     num_iters: Optional[int] = Field(default=None, ge=1)
     seed: int = 0
     overrides: dict[str, object] = {}
+    profile_at: list[int] = []
+    profile_steps: int = Field(default=30, ge=1)
 
     @model_validator(mode="after")
     def _check_config_exists(self) -> "TrainDrivestudioParams":
@@ -285,6 +291,9 @@ def build_command(
         options["data.pixel_source.undistort"] = False
     if params.num_iters is not None:
         options["trainer.optim.num_iters"] = params.num_iters
+    if params.profile_at:
+        options["logging.profile_at"] = list(params.profile_at)
+        options["logging.profile_steps"] = params.profile_steps
     options.update(params.overrides)
     command += [f"{key}={_format_value(value)}" for key, value in options.items()]
     return command

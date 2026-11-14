@@ -113,6 +113,16 @@ def test_build_command_translates_split(tmp_path: Path) -> None:
     assert option(command, "data.pixel_source.cameras") == "[0]"
     assert option(command, "data.pixel_source.test_image_stride") == "6"
     assert option(command, "trainer.optim.num_iters") == "100"
+    assert not any(part.startswith("logging.profile_at=") for part in command)
+    profiled = TrainDrivestudioParams(method="omnire", profile_at=[2000, 20000], profile_steps=20)
+    profiled_command = build_command(profiled, split, manifest, view_root, output_dir)
+    assert option(profiled_command, "logging.profile_at") == "[2000,20000]"
+    assert option(profiled_command, "logging.profile_steps") == "20"
+    # --set train.drivestudio.profile_at=2000,20000 cho ra chuỗi; tham số tự đổi sang số
+    assert TrainDrivestudioParams(method="omnire", profile_at=["2000", "20000"]).profile_at == [
+        2000,
+        20000,
+    ]
     assert option(command, "a.b") == "true"
 
 

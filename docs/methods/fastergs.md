@@ -6,7 +6,7 @@
 
 "Faster-GS: Analyzing and Improving Gaussian Splatting Optimization" (Hahlbohm và cộng sự, CVPR 2026), code tại [nerficg-project/faster-gaussian-splatting](https://github.com/nerficg-project/faster-gaussian-splatting), license Apache-2.0.
 
-Faster-GS không đổi thuật toán 3DGS: vẫn densify theo cách gốc, số Gaussian và chất lượng giữ nguyên. Nó gom kỹ thuật tăng tốc đã có (Taming-3DGS, StopThePop, Speedy-Splat, Splatshop) và thêm tối ưu riêng: backward theo từng Gaussian, sort tách hai bước, Adam fused, Z-order. Trên RTX 4090, paper báo nhanh hơn 3DGS gốc 4,1 lần (Mip-NeRF 360) và 5,2 lần (Deep Blending), VRAM giảm tới 30%, đo trên cảnh tĩnh, camera pinhole.
+Faster-GS không đổi thuật toán 3DGS: vẫn densify theo cách gốc, số Gaussian và chất lượng giữ nguyên. Nó gom kỹ thuật tăng tốc đã có (Taming-3DGS, StopThePop, Speedy-Splat, Splatshop) và thêm tối ưu riêng: backward theo từng Gaussian, sort tách hai bước, Adam fused, Z-order. Paper báo nhanh hơn 3DGS gốc 4,1 lần (Mip-NeRF 360) và 5,2 lần (Deep Blending) trên RTX 4090, cảnh tĩnh, pinhole.
 
 Bản gốc chạy trong NeRFICG, rasterizer riêng `FasterGSCudaBackend` chỉ nhận pinhole và SH, chỉ trả RGB; OmniRe cần độ sâu, alpha, fisheye, nên dự án không dùng bản này.
 
@@ -38,8 +38,8 @@ Bật cùng FastGS được.
 
 ## Dùng an toàn và hiệu quả
 
-- **So sánh công bằng:** chỉ đổi công tắc; nhờ `extends`, run có và không có Faster-GS dùng cùng tham số train.
+- **So sánh công bằng:** chỉ đổi công tắc; `extends` giữ nguyên tham số train.
 - **Kernel mới phải qua test so khớp:** khi tắt cờ, bản fork phải cho ảnh và gradient trùng từng bit với gsplat-geer gốc (commit `f15cee2`) ở cả ba renderer; khi bật, chỉ lệch mức làm tròn.
 - **SelectiveAdam dừng:** `SelectiveAdam` của gsplat-geer bỏ cả hiệu chỉnh bias của Adam (đổi cách tối ưu); code công khai của Faster-GS không có bản bỏ qua Gaussian không nhìn thấy. Cần kernel giữ hiệu chỉnh bias.
 - **Z-order chỉ áp cho nền:** xe, người có dữ liệu gắn theo từng Gaussian. Chỉ tương đương thống kê: ảnh trùng, Adam lệch 2e-5 sau 20 bước, densify ngẫu nhiên khác.
-- **Đo trước khi sửa kernel:** rasterizer chiếm 30% mỗi bước thì nhanh gấp đôi chỉ bớt 15% tổng thời gian.
+- **Đo trước khi sửa kernel:** run riêng với `--set train.drivestudio.profile_at=2000,20000` ghi `profile_step<bước>.json` (tỉ lệ thời gian GPU: rasterizer, optimizer, SSIM). Không bật profile trong run so `train_time_s`.

@@ -16,6 +16,7 @@ from drive2sim.recon.tools.eval import do_evaluation
 from drive2sim.recon.utils.misc import import_str
 from drive2sim.recon.utils.backup import backup_project
 from drive2sim.recon.utils.logging import MetricLogger, setup_logging
+from drive2sim.recon.utils.step_profile import StepProfiler
 from drive2sim.recon.rendering.videos import render_images, save_videos
 from drive2sim.recon.data.driving_dataset import DrivingDataset
 
@@ -268,6 +269,10 @@ def main(args):
     #     args=args,
     # )
 
+    # drive2sim: optional GPU profile of a few steps (logging.profile_at); off by default
+    step_profiler = StepProfiler(
+        cfg.logging.get("profile_at", []) or [], cfg.logging.get("profile_steps", 30), cfg.log_dir
+    )
     for step in metric_logger.log_every(all_iters, cfg.logging.print_freq):
         #----------------------------------------------------------------------------
         #----------------------------     Validate     ------------------------------
@@ -324,6 +329,7 @@ def main(args):
         #----------------------------  training step  -------------------------------
         # prepare for training
         torch.cuda.synchronize()
+        step_profiler.begin_step(step)
         step_started = time.perf_counter()
         trainer.set_train()
         trainer.preprocess_per_train_step(step=step)
@@ -356,6 +362,7 @@ def main(args):
         trainer.postprocess_per_train_step(step=step)
         torch.cuda.synchronize()
         train_time_s += time.perf_counter() - step_started
+        step_profiler.end_step(step)
         
         #----------------------------------------------------------------------------
         #-------------------------------  logging  ----------------------------------
