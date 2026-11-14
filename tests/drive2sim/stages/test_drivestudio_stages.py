@@ -123,6 +123,8 @@ def test_build_command_translates_split(tmp_path: Path) -> None:
         2000,
         20000,
     ]
+    # một bước (--set train.drivestudio.profile_at=2000) đọc ra số
+    assert TrainDrivestudioParams(method="omnire", profile_at=2000).profile_at == [2000]
     assert option(command, "a.b") == "true"
 
 

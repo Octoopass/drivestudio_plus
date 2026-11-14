@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import ClassVar, Literal, Optional
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from drive2sim import paths
 from drive2sim.core.config import ConfigError, load_config
@@ -117,6 +117,12 @@ class TrainDrivestudioParams(BaseModel):
     overrides: dict[str, object] = {}
     profile_at: list[int] = []
     profile_steps: int = Field(default=30, ge=1)
+
+    @field_validator("profile_at", mode="before")
+    @classmethod
+    def _one_step_is_a_list(cls, value: object) -> object:
+        """``--set ...profile_at=2000`` (một bước) đọc ra số, không phải danh sách."""
+        return [value] if isinstance(value, int) else value
 
     @model_validator(mode="after")
     def _check_config_exists(self) -> "TrainDrivestudioParams":
