@@ -20,7 +20,11 @@ import torch
 import torch.nn as nn
 from gsplat.rendering import rasterization
 
-from drive2sim.recon.speedups.fastgs_rules import model_schedule, parse_config, sample_view_ids
+from drive2sim.recon.speedups.fastgs_rules import (
+    model_schedule,
+    parse_config,
+    sample_view_ids_by_camera,
+)
 
 logger = logging.getLogger()
 
@@ -133,7 +137,10 @@ class FastGS:
         source = self.view_source
         num_views = min(int(cfg.num_views), len(source))
         offset = float(torch.rand(1))
-        view_ids = sample_view_ids(len(source), num_views, offset)
+        # rải đều theo từng camera (xem sample_view_ids_by_camera); một camera thì như trước
+        num_cams = max(1, int(getattr(source.datasource, "num_cams", 1)))
+        cameras = [int(index) % num_cams for index in source.split_indices]
+        view_ids = sample_view_ids_by_camera(cameras, num_views, offset)
         downscale = trainer._get_downscale_factor()
         device = trainer.device
 

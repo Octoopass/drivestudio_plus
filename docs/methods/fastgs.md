@@ -39,6 +39,16 @@ Applied to `Background`, `RigidNodes` and `DeformableNodes`. `SMPLNodes` and PVG
    forward-driving clip most views do not see a given Gaussian, so that rule would block nearly all
    densification.
 3. **No pruning budget during densification**, and none of FastGS's rasterizer speed-ups.
+4. **Views are spread over each camera.** The sampled views are split evenly between the cameras of
+   the rig and then spread over each camera's frames. Spreading them over the whole image list (as
+   the first version did) put all 10 views on one camera whenever the number of training frames was
+   a multiple of 10, because DriveStudio lists images frame by frame and camera by camera; Gaussians
+   seen only by the other cameras then counted as unseen and could not densify. A one-camera rig
+   samples exactly as before.
+
+DriveStudio itself (not FastGS) only densifies when `step % reset_alpha_interval` exceeds the number
+of training images, so rigs with many cameras or long clips densify less: 1080 images (6 cameras,
+200 frames) leave 64% of each 3000-step cycle, more than 3000 images leave none. This is unchanged.
 
 ## Tuning
 

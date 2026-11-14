@@ -13,6 +13,7 @@ from drive2sim.recon.speedups.fastgs_rules import (
     model_schedule,
     parse_config,
     sample_view_ids,
+    sample_view_ids_by_camera,
 )
 
 CTRL = SimpleNamespace(
@@ -59,3 +60,30 @@ def test_sample_view_ids() -> None:
     ids = sample_view_ids(100, 10, 0.99)
     assert ids == sorted(set(ids)) and len(ids) == 10 and max(ids) <= 99
     assert sample_view_ids(4, 10, 0.5) == [0, 1, 2, 3]  # ít ảnh hơn số cần lấy
+
+
+def _split(cams: int, frames: int) -> list[int]:
+    """Camera của từng ảnh train theo thứ tự DriveStudio (khung trước, camera sau).
+
+    Giữ lại 1/10 khung để test, như split every_nth_frame:10.
+    """
+    return [c for f in range(frames) if f % 10 for c in range(cams)]
+
+
+def test_by_camera_matches_old_rule_for_one_camera() -> None:
+    for offset in (0.0, 0.37, 0.99):
+        new = sample_view_ids_by_camera(_split(1, 200), 10, offset)
+        assert new == sample_view_ids(180, 10, offset)
+
+
+def test_by_camera_sees_every_camera() -> None:
+    """Rig 3 camera, 200 khung: luật cũ cho cả lượt rơi vào một camera, luật mới thấy cả ba."""
+    cams = _split(3, 200)
+    old = {cams[i] for i in sample_view_ids(len(cams), 10, 0.25)}
+    assert len(old) == 1
+    for offset in (0.0, 0.25, 0.8):
+        ids = sample_view_ids_by_camera(cams, 10, offset)
+        assert len(ids) == 10 and {cams[i] for i in ids} == {0, 1, 2}
+    # nhiều camera hơn số ảnh cần lấy: không lỗi, không trùng
+    six = _split(6, 30)
+    assert len(sample_view_ids_by_camera(six, 4, 0.5)) == 4
