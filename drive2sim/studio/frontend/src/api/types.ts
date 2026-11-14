@@ -116,10 +116,10 @@ export interface RunEvent {
   level?: string;
 }
 
-/** Việc nền của Studio: ingest, đẩy và tải Kaggle (GET /api/jobs). */
+/** Việc nền của Studio: ingest, đẩy và tải Kaggle, Colab (GET /api/jobs). */
 export interface Job {
   job_id: string;
-  kind: "ingest" | "kaggle_push" | "kaggle_pull";
+  kind: "ingest" | "kaggle_push" | "kaggle_pull" | "colab_push" | "colab_pull";
   label: string;
   status: "queued" | "running" | "succeeded" | "failed";
   result: string | null;
@@ -173,6 +173,25 @@ export interface Splats {
 export interface ActorPoses {
   track_ids: string[];
   T_object_world: (number[] | null)[][];
+}
+
+/** Job Colab của một run (GET /api/colab/{run_id}; CONTRACTS mục 9.3). */
+export interface ColabStatus {
+  session: string;
+  gpu: string;
+  attempt: number;
+  job: string;
+  commit: string;
+  branch: string;
+  pushed_utc: string;
+  pulled_utc: string | null;
+  lost_utc: string | null;
+  stopped_utc: string | null;
+  /** running, succeeded, failed, died, lost; null khi không hỏi được Colab (lý do ở status_error). */
+  status: string | null;
+  exit_code: number | null;
+  log_tail: string[];
+  status_error: string | null;
 }
 
 export interface KaggleStatus {

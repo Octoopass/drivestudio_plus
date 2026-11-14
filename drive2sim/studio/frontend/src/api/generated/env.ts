@@ -8,7 +8,7 @@ export type Cuda = string | null;
 export type Gsplat = string | null;
 export type Gpu = string | null;
 export type Seed = number | null;
-export type Executor = "local" | "kaggle";
+export type Executor = "local" | "kaggle" | "colab";
 export type Cpu = string | null;
 export type CpuCores = number | null;
 export type RamGb = number | null;
@@ -35,7 +35,7 @@ export type Machines = Machine[];
  *     gsplat: Phiên bản gsplat.
  *     gpu: Tên GPU của máy chạy gần nhất.
  *     seed: Seed ngẫu nhiên.
- *     executor: Nơi chạy, ``local`` hoặc ``kaggle``.
+ *     executor: Nơi chạy, ``local``, ``kaggle`` hoặc ``colab``.
  *     machines: Các máy đã chạy run, theo thứ tự; run chạy tiếp trên máy khác (ví dụ phiên
  *         Kaggle mới được cấp GPU khác) có nhiều máy (thêm từ ``d2s-env/0.2``).
  */
