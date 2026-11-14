@@ -3,7 +3,6 @@ from omegaconf import OmegaConf
 import os
 import time
 import logging
-from types import SimpleNamespace
 
 import numpy as np
 import torch
@@ -20,21 +19,9 @@ from drive2sim.recon.tools.viewer import create_gsplat_viewer
 
 from drive2sim.recon.models.gaussians.basics import *
 from drive2sim.recon.utils.geometry import camera_shutter_fraction, interpolate_camera_poses
+from drive2sim.recon.speedups.fastgs import FastGS
 
 logger = logging.getLogger()
-
-# Defaults for trainer.fastgs (multi-view densification / pruning, see docs/methods/fastgs.md)
-FASTGS_DEFAULTS = dict(
-    enabled=False,
-    num_views=10,             # training views sampled per scoring pass (spread evenly over the clip)
-    loss_thresh=0.1,          # a pixel is "high-error" if its min-max normalised L1 error exceeds this
-    score_thresh=1.0,         # densify only if the blend-weighted high-error pixel count per visible view exceeds this
-    densify_unseen=False,     # whether gaussians that no sampled view saw may still densify on gradient alone
-    prune=True,               # multi-view pruning late in training
-    prune_from=15000,         # first step at which pruning may run
-    prune_min_opacity=0.1,    # prune gaussians below this opacity ...
-    prune_score_thresh=0.9,   # ... or whose normalised error score exceeds this
-)
 
 class GSModelType(IntEnum):
     Background = 0
@@ -98,11 +85,8 @@ class BasicTrainer(nn.Module):
         self.optim_general = optim
         self.losses_dict = losses
         self.render_cfg = render
-        fastgs = dict(fastgs) if fastgs is not None else {}
-        unknown = set(fastgs) - set(FASTGS_DEFAULTS)
-        assert not unknown, f"unknown trainer.fastgs keys: {sorted(unknown)}"
-        self.fastgs_cfg = SimpleNamespace(**{**FASTGS_DEFAULTS, **fastgs})
-        self.fastgs_view_source = None   # train split (SplitWrapper), set by tools/train.py
+        # FastGS multi-view densification / pruning (drive2sim/recon/speedups/fastgs.py)
+        self.fastgs = FastGS(fastgs)
         self._last_render_inputs = None
         self._init_renderer()
         self.res_schedule = res_schedule
@@ -315,8 +299,7 @@ class BasicTrainer(nn.Module):
 
         # FastGS: score gaussians on a few training views before this step's own forward pass,
         # so the scores are ready (and match the point counts) when the models refine in postprocess.
-        if self.fastgs_cfg.enabled and self.fastgs_view_source is not None:
-            self._fastgs_update_scores(step)
+        self.fastgs.before_step(self, step)
 
         # viewer
         if self.viewer is not None:
@@ -356,8 +339,7 @@ class BasicTrainer(nn.Module):
                 last_size=max(self.info["width"], self.info["height"])
             )
             # FastGS masks are only valid for the point counts of this step
-            self.models[class_name].fastgs_densify_mask = None
-            self.models[class_name].fastgs_prune_mask = None
+            FastGS.clear_masks(self.models[class_name])
         
         # viewer
         if self.viewer is not None:
@@ -634,155 +616,6 @@ class BasicTrainer(nn.Module):
                 self.info["means3d"].retain_grad()
         
         return results, render_fn
-
-    # ------------------------------------------------------------------ FastGS
-    def _fastgs_models(self) -> Dict[str, nn.Module]:
-        return {
-            name: self.models[name] for name in self.gaussian_classes.keys()
-            if getattr(self.models[name], "fastgs_supported", False)
-        }
-
-    def _fastgs_schedule(self, step: int) -> Tuple[List[str], List[str]]:
-        """Classes that densify / prune at this step. Mirrors the conditions in refinement_after()."""
-        cfg = self.fastgs_cfg
-        densify, prune = [], []
-        for name, model in self._fastgs_models().items():
-            c = model.ctrl_cfg
-            if step <= c.warmup_steps or step % c.refine_interval != 0:
-                continue
-            phase = step % c.reset_alpha_interval
-            if phase <= max(model.num_train_images, c.refine_interval):
-                continue   # the model neither densifies nor culls right after an opacity reset
-            if step < c.stop_split_at:
-                densify.append(name)
-            # prune at the last refinement before each opacity reset, when opacities have recovered
-            if (cfg.prune and cfg.prune_from < step < self.num_iters
-                    and phase == c.reset_alpha_interval - c.refine_interval):
-                prune.append(name)
-        return densify, prune
-
-    def _fastgs_contributions(self, flagged: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Per-gaussian sum of blending weights (alpha * transmittance) over the flagged pixels of the
-        view rendered last, and whether each gaussian was visible in it.
-
-        The weights are the gradient of sum(flagged * render) w.r.t. a per-gaussian colour, so this works
-        with every render mode (default / ut / geer) and needs no rasterizer changes.
-        """
-        gs, cam, kwargs = self._last_render_inputs
-        render_mode = cam.render_mode or self.render_cfg.get("render_mode", "default")
-        camera_kwargs = self.camera_rasterization_kwargs(cam, render_mode)
-        kwargs = dict(kwargs)
-        kwargs["render_mode"] = "RGB"
-        kwargs.pop("channel_chunk", None)
-        opacities = gs.opacities.detach().reshape(-1)
-        with torch.enable_grad():
-            weight = torch.zeros(opacities.shape[0], 1, device=opacities.device, requires_grad=True)
-            renders, _, info = rasterization(
-                means=gs.means.detach(),
-                quats=gs.quats.detach(),
-                scales=gs.scales.detach(),
-                opacities=opacities,
-                colors=weight.repeat(1, 3),
-                viewmats=torch.linalg.inv(cam.camtoworlds.detach())[None, ...],
-                Ks=cam.Ks[None, ...],
-                width=cam.W,
-                height=cam.H,
-                packed=False,
-                absgrad=False,
-                sparse_grad=False,
-                rasterize_mode="antialiased" if self.render_cfg.antialiased else "classic",
-                **camera_kwargs,
-                **kwargs,
-            )
-            total = (renders[0][..., :3].mean(dim=-1) * flagged).sum()
-            (contrib,) = torch.autograd.grad(total, weight)
-        radii = info["radii"]
-        if radii.ndim == 3:
-            radii = radii.amax(dim=-1)
-        # opacity is zero for object gaussians whose instance is absent from this frame
-        visible = (radii[0] > 0) & (opacities > 0)
-        return contrib[:, 0].detach(), visible
-
-    def _fastgs_update_scores(self, step: int) -> None:
-        """Multi-view consistency scores in the spirit of FastGS (https://github.com/fastgs/FastGS).
-
-        Renders a few training views, marks their high-error pixels and measures how much each gaussian
-        contributes to them. Two changes from the paper, both needed for driving clips:
-          * each flagged pixel counts with the gaussian's blending weight (not as 1), because the
-            exact count needs FastGS's own rasterizer;
-          * scores are averaged over the views that actually see a gaussian (not over all sampled
-            views), because in a forward-driving clip most views do not see a given gaussian.
-        """
-        cfg = self.fastgs_cfg
-        densify, prune = self._fastgs_schedule(step)
-        if not densify and not prune:
-            return
-        models = self._fastgs_models()
-        source = self.fastgs_view_source
-        num_views = min(int(cfg.num_views), len(source))
-        offset = float(torch.rand(1))
-        view_ids = sorted({min(int((i + offset) * len(source) / num_views), len(source) - 1) for i in range(num_views)})
-        downscale = self._get_downscale_factor()
-
-        acc = {
-            name: {k: torch.zeros(model.num_points, device=self.device) for k in ("weight", "views", "error")}
-            for name, model in models.items()
-        }
-        with torch.no_grad():
-            for view_id in view_ids:
-                image_infos, cam_infos = source.get_image(view_id, downscale)
-                image_infos = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in image_infos.items()}
-                cam_infos = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in cam_infos.items()}
-                outputs = self(image_infos, cam_infos)
-                pred, gt = outputs["rgb"], image_infos["pixels"]
-                if "egocar_masks" in image_infos:
-                    valid = (1.0 - image_infos["egocar_masks"]).float()
-                else:
-                    valid = torch.ones_like(pred[..., 0])
-                pred, gt = pred * valid[..., None], gt * valid[..., None]
-                error = (pred - gt).abs().mean(dim=-1)
-                lo, hi = error.min(), error.max()
-                flagged = ((error - lo) / (hi - lo + 1e-8) > cfg.loss_thresh).float() * valid
-                photometric = 0.8 * (pred - gt).abs().mean() + 0.2 * (
-                    1 - self.ssim(gt.permute(2, 0, 1)[None, ...], pred.permute(2, 0, 1)[None, ...])
-                )
-                del outputs
-                self.info = None   # frees the first render before the second one
-                contrib, visible = self._fastgs_contributions(flagged)
-                for name, model in models.items():
-                    in_class = self.pts_labels == self.gaussian_classes[name]
-                    rendered = model.filter_mask
-                    if int(in_class.sum()) == 0 or int(in_class.sum()) != int(rendered.sum()):
-                        continue   # class not rendered in this frame
-                    acc[name]["weight"][rendered] += contrib[in_class]
-                    acc[name]["views"][rendered] += visible[in_class].float()
-                    acc[name]["error"][rendered] += photometric * contrib[in_class]
-
-        all_error = torch.cat([a["error"] for a in acc.values()])
-        err_lo, err_hi = all_error.min(), all_error.max()
-        for name, model in models.items():
-            a = acc[name]
-            seen = a["views"] > 0
-            score = a["weight"] / a["views"].clamp(min=1)
-            msg = f"FastGS @ step {step} {name}: seen in sampled views {int(seen.sum())}/{model.num_points}"
-            if name in densify:
-                keep = score > cfg.score_thresh
-                if cfg.densify_unseen:
-                    keep = keep | ~seen
-                model.fastgs_densify_mask = keep
-                seen_scores = score[seen]
-                seen_scores = seen_scores[::max(1, seen_scores.shape[0] // 1_000_000)]   # torch.quantile has a size limit
-                quantiles = torch.quantile(seen_scores, torch.tensor([0.5, 0.9, 0.99], device=self.device)) \
-                    if seen.any() else torch.zeros(3)
-                msg += (f", may densify {int(keep.sum())}, score p50/p90/p99 "
-                        f"{quantiles[0]:.2f}/{quantiles[1]:.2f}/{quantiles[2]:.2f}")
-            if name in prune:
-                error_score = (a["error"] - err_lo) / (err_hi - err_lo + 1e-12)
-                low_opacity = model.get_opacity.data.reshape(-1) < cfg.prune_min_opacity
-                model.fastgs_prune_mask = low_opacity | (error_score > cfg.prune_score_thresh)
-                msg += (f", prune {int(model.fastgs_prune_mask.sum())} "
-                        f"(low opacity {int(low_opacity.sum())}, high error {int((error_score > cfg.prune_score_thresh).sum())})")
-            logger.info(msg)
 
     def affine_transformation(
         self,

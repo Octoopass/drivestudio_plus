@@ -12,6 +12,10 @@ trainer:
     enabled: true
 ```
 
+## Where the code is
+
+`drive2sim/recon/speedups/fastgs.py` scores the Gaussians (class `FastGS`); `fastgs_rules.py` holds the defaults, the schedule and the view sampling, and is tested on CPU in `tests/drive2sim/recon/speedups/`. The trainer calls `FastGS.before_step` at the start of a step and `FastGS.clear_masks` after the models refine; the models apply the masks in `refinement_after()` (`fastgs_filter_densify`, `fastgs_extra_culls` in `models/gaussians/vanilla.py`).
+
 ## What it does
 
 At every refinement step that densifies or prunes, the trainer first renders `num_views` training views

@@ -200,7 +200,7 @@ class VanillaGaussians(nn.Module):
         if mask is None:
             return high_grads
         kept = high_grads & mask.reshape(high_grads.shape)
-        print(f"     FastGS: {int(kept.sum())} of {int(high_grads.sum())} high-gradient gaussians pass the multi-view test")
+        logger.info(f"     FastGS: {int(kept.sum())} of {int(high_grads.sum())} high-gradient gaussians pass the multi-view test")
         return kept
 
     def fastgs_extra_culls(self, culls: torch.Tensor) -> torch.Tensor:
@@ -211,7 +211,7 @@ class VanillaGaussians(nn.Module):
         if mask.shape[0] < culls.shape[0]:
             # gaussians appended by densification earlier in this refinement are not pruned
             mask = torch.cat([mask, mask.new_zeros(culls.shape[0] - mask.shape[0])])
-        print(f"     FastGS prune: {int((mask & ~culls).sum())}")
+        logger.info(f"     FastGS prune: {int((mask & ~culls).sum())}")
         return culls | mask
 
     def get_gaussian_param_groups(self) -> Dict[str, List[Parameter]]:
