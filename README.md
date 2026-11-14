@@ -78,6 +78,8 @@ Install with `pip install -e .` from the repository root (or keep `export PYTHON
 
 3DGEER cannot optimise camera poses, so every 3DGUT / 3DGEER config removes `CamPose`; the other new configs remove it too, so that runs differ only in the renderer or the densification rule. The 3DGEER configs use `densify_grad_thresh: 0.01` and `refine_interval: 300`, because 3DGEER's densification gradients are much larger than those of 3DGS.
 
+Each new config inherits its base file with `extends:` and lists only what differs (for example `omnire_fastgs.yaml` is `omnire_nocampose.yaml` plus the `trainer.fastgs` block), so a change to a shared setting applies to every variant. `drive2sim/recon/tools/train.py` resolves `extends` itself, and `tests/drive2sim/core/test_config.py` checks that each variant differs from its base only where intended. Rules: `docs/drive2sim/CONTRACTS.md` section 10.5.
+
 ### How the FastGS-style densification works
 
 Before each refinement step that densifies or prunes, the trainer renders a few training views spread evenly over the clip, marks the high-error pixels in each, and measures how much every Gaussian contributes to those pixels. A Gaussian is split or duplicated only if it passes DriveStudio's usual gradient test *and* this multi-view score. From step 15,000 on, Gaussians with low opacity or a very high error score are removed just before each opacity reset.

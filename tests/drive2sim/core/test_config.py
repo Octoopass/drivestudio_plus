@@ -70,3 +70,45 @@ def test_same_as_omegaconf_on_repo_configs() -> None:
         if "extends" in reference:
             continue  # OmegaConf không hiểu extends; file này đã được gộp ở test khác
         assert repr(load_config(path)) == repr(reference), path.name
+
+
+def _diff_paths(parent: dict, child: dict, prefix: str = "") -> set[str]:
+    """Đường dẫn các khoá khác nhau giữa hai config đã gộp (thêm, bớt, đổi giá trị hay kiểu)."""
+    out = set()
+    for key in set(parent) | set(child):
+        path = f"{prefix}{key}"
+        a, b = parent.get(key), child.get(key)
+        if isinstance(a, dict) and isinstance(b, dict):
+            out |= _diff_paths(a, b, path + ".")
+        elif key not in parent or key not in child or a != b or type(a) is not type(b):
+            out.add(path)
+    return out
+
+
+FASTGS_BLOCK = {"trainer.fastgs"}
+GEER_CHANGES = {
+    "trainer.render.render_mode",
+    "trainer.gaussian_ctrl_general_cfg.refine_interval",
+    "trainer.gaussian_ctrl_general_cfg.densify_grad_thresh",
+}
+# Biến thể → (file cha, các khoá được phép khác). Thêm biến thể mới thì thêm một dòng ở đây.
+VARIANTS = {
+    "omnire_nocampose.yaml": ("omnire.yaml", {"model.CamPose"}),
+    "omnire_geer.yaml": ("omnire_nocampose.yaml", GEER_CHANGES),
+    "omnire_fastgs.yaml": ("omnire_nocampose.yaml", FASTGS_BLOCK),
+    "streetgs_nocampose.yaml": ("streetgs.yaml", {"model.CamPose"}),
+    "streetgs_ut.yaml": ("streetgs_nocampose.yaml", {"trainer.render.render_mode"}),
+    "streetgs_geer.yaml": ("streetgs_nocampose.yaml", GEER_CHANGES),
+    "streetgs_fastgs.yaml": ("streetgs_nocampose.yaml", FASTGS_BLOCK),
+    "streetgs_geer_fastgs.yaml": ("streetgs_geer.yaml", FASTGS_BLOCK),
+}
+
+
+@pytest.mark.parametrize("variant", sorted(VARIANTS))
+def test_variant_differs_only_where_declared(variant: str) -> None:
+    """Biến thể chỉ khác file cha ở đúng các khoá đã khai, để so sánh hai run là công bằng."""
+    parent, allowed = VARIANTS[variant]
+    methods = paths.CONFIGS_DIR / "methods"
+    child_cfg, parent_cfg = load_config(methods / variant), load_config(methods / parent)
+    assert _diff_paths(parent_cfg, child_cfg) == allowed
+    assert list(child_cfg["model"]) == [k for k in parent_cfg["model"] if k in child_cfg["model"]]
