@@ -13,7 +13,7 @@ from typing import Any, Mapping, Optional
 TECHNIQUES = ("fused_adam", "fused_ssim", "fewer_syncs", "morton_order")
 # Kỹ thuật trong kernel gsplat (bản fork third_party/gsplat-geer). Chỉ bật khi bản gsplat đang cài
 # tự khai là hỗ trợ cho render mode đang dùng (gsplat.fastergs_support()).
-KERNEL_TECHNIQUES = ("exact_tiles",)
+KERNEL_TECHNIQUES = ("exact_tiles", "two_stage_sort", "per_gaussian_backward")
 
 # Giá trị mặc định của khối trainer.fastergs. `enabled` là công tắc chung; mỗi kỹ thuật chỉ chạy
 # khi công tắc chung bật và cờ riêng của nó bật.
@@ -29,6 +29,12 @@ FASTERGS_DEFAULTS = dict(
     morton_interval=5000,  # sắp lại mỗi bấy nhiêu bước, sau khi model refine
     # Kernel: chỉ ghép Gaussian với tile có pixel thật sự nhận màu (ảnh, gradient không đổi).
     exact_tiles=True,
+    # Kernel: sort theo độ sâu một lần rồi theo tile (thứ tự trong tile, ảnh không đổi).
+    two_stage_sort=True,
+    # Kernel: backward chạy theo từng Gaussian thay vì từng pixel (ảnh không đổi, gradient lệch
+    # trong mức dao động của bản cũ). Tốn thêm bộ nhớ GPU theo số cặp Gaussian–tile (~300 MB với
+    # 300k Gaussian ở 1600×900).
+    per_gaussian_backward=True,
 )
 
 

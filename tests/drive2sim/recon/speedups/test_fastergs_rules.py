@@ -51,11 +51,15 @@ def test_morton_due() -> None:
 
 def test_kernel_techniques_follow_gsplat_support() -> None:
     on = parse_config({"enabled": True})
-    table = {"default": {"exact_tiles"}, "ut": set(), "geer": set()}
-    assert kernel_techniques(on, table, "default") == (["exact_tiles"], [])
-    assert kernel_techniques(on, table, "ut") == ([], ["exact_tiles"])
+    every = ["exact_tiles", "two_stage_sort", "per_gaussian_backward"]
+    table = {"default": set(every), "ut": set(), "geer": set()}
+    assert kernel_techniques(on, table, "default") == (every, [])
+    assert kernel_techniques(on, table, "ut") == ([], every)
+    # bản fork cũ chỉ có exact_tiles: hai kỹ thuật kia báo là không có
+    old = {"default": {"exact_tiles"}}
+    assert kernel_techniques(on, old, "default") == (["exact_tiles"], every[1:])
     # bản gsplat gốc của Bosch không có bảng khả năng: không bật gì
-    assert kernel_techniques(on, None, "default") == ([], ["exact_tiles"])
-    off = parse_config({"enabled": True, "exact_tiles": False})
-    assert kernel_techniques(off, table, "default") == ([], [])
+    assert kernel_techniques(on, None, "default") == ([], every)
+    off = parse_config({"enabled": True, "exact_tiles": False, "per_gaussian_backward": False})
+    assert kernel_techniques(off, table, "default") == (["two_stage_sort"], [])
     assert kernel_techniques(parse_config(None), table, "default") == ([], [])
