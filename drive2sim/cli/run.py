@@ -22,6 +22,7 @@ from drive2sim.cli.output import (
     format_value,
     info,
 )
+from drive2sim.colab import executor as colab_executor
 from drive2sim.core import files
 from drive2sim.core.schema import RunRecord
 from drive2sim.engine import housekeeping
@@ -46,7 +47,7 @@ def register(
 
     start = actions.add_parser("start", parents=[common], help="tạo run mới và chạy")
     add_plan_arguments(start)
-    start.add_argument("--executor", choices=["local", "kaggle"], default="local")
+    start.add_argument("--executor", choices=["local", "kaggle", "colab"], default="local")
     start.set_defaults(handler=start_run)
 
     resume = actions.add_parser("resume", parents=[common], help="chạy tiếp một run")
@@ -85,16 +86,17 @@ def _report(args: argparse.Namespace, record: RunRecord) -> int:
 
 
 def start_run(args: argparse.Namespace) -> int:
-    """Tạo một run mới rồi chạy hết các stage, trên máy hoặc trên Kaggle.
+    """Tạo một run mới rồi chạy hết các stage, trên máy, trên Kaggle hoặc trên Colab.
 
     Với ``--executor kaggle``, run được tạo trên máy rồi đẩy lên Kaggle (``d2s kaggle push``);
-    lệnh trả về ngay, kết quả tải về bằng ``d2s kaggle pull``.
+    lệnh trả về ngay, kết quả tải về bằng ``d2s kaggle pull``. ``--executor colab`` tương tự với
+    ``d2s colab push`` (phiên ``d2s``, GPU T4) và ``d2s colab pull``.
 
     Args:
         args: Tham số dòng lệnh như ``approach check``, thêm ``executor``.
 
     Returns:
-        ``0`` nếu run xong (hoặc đã đẩy lên Kaggle), ``1`` nếu một stage lỗi.
+        ``0`` nếu run xong (hoặc đã đẩy lên Kaggle, Colab), ``1`` nếu một stage lỗi.
     """
     workdir, scene, split, plan = resolve_from_args(args)
     run_dir = create_run(plan, workdir, scene, split, executor=args.executor)
@@ -106,6 +108,15 @@ def start_run(args: argparse.Namespace) -> int:
             {"run_id": run_dir.name, "kaggle": state.to_dict()},
             f"đã đẩy run {run_dir.name} lên notebook {state.kernel}; "
             f"xem: d2s kaggle status {run_dir.name}; tải về: d2s kaggle pull {run_dir.name}",
+        )
+        return 0
+    if args.executor == "colab":
+        colab_state = colab_executor.push_run(workdir, run_dir.name)
+        emit(
+            args,
+            {"run_id": run_dir.name, "colab": colab_state.to_dict()},
+            f"đã chạy run {run_dir.name} trên phiên Colab {colab_state.session}; "
+            f"xem: d2s colab logs {run_dir.name} --follow; tải về: d2s colab pull {run_dir.name}",
         )
         return 0
     return _report(args, execute_run(run_dir, workdir, sink=event_printer(args)))

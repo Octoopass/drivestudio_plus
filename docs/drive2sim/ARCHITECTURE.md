@@ -66,6 +66,7 @@ Mỗi quyết định gồm: giải thích công cụ hoặc khái niệm, lý d
 | 2.13 | Chế độ xem trước không cần GPU CUDA: Spark trong trình duyệt, file PLY |
 | 2.14 | Server mô phỏng theo proto `SensorsimService` của NuRec |
 | 2.15 | Ba mô hình camera chuẩn: `opencv_pinhole`, `opencv_fisheye`, `ftheta`; track của approach, preset suy ra từ renderer |
+| 2.16 | Chạy trên VM Google Colab qua executor thứ ba, dùng chung gói job và lệnh chạy với Kaggle |
 
 ### 2.1 Xây tool trong repo `drivestudio_plus`, tái cấu trúc toàn bộ thành một package
 
@@ -361,6 +362,26 @@ Nguồn: `drive2sim/recon/trainers/base.py`, `camera_rasterization_kwargs` (3DGS
 - Trang Chạy mới hiện track của cảnh, track của từng approach, làm mờ preset và lựa chọn không vẽ được camera của cảnh (kèm lý do), trước cả khi engine trả lời. Cấu hình mặc định không vẽ được camera của cảnh thì trang chọn sẵn preset đầu tiên vẽ được (OmniRe: `geer`; Street GS: `ut`).
 - Chưa làm: shutter của camera PhysicalAI vẫn ghi `GLOBAL` trong manifest (thông số thật nằm trong calibration của cảnh, loader đọc trực tiếp).
 
+### 2.16 Chạy trên VM Google Colab qua executor thứ ba, dùng chung gói job với Kaggle
+
+**Khái niệm.** Colab cho thuê VM có GPU (`colab new --gpu` nhận T4, L4, G4, A100, H100; được cấp loại nào tuỳ gói đăng ký của tài khoản, tính theo compute unit). Lệnh `colab` (gói `google-colab-cli` của Google) tạo phiên, chạy mã Python trong kernel của VM (`colab exec`), upload, download từng file và tắt phiên. Phiên là một VM; tắt hay bị thu hồi thì mọi file trên đó mất.
+
+**Lý do.** Kaggle giới hạn giờ GPU mỗi tuần và chỉ có T4, P100; Colab cho thêm GPU khi hết giờ Kaggle, và GPU mạnh hơn (L4, A100) khi cần. Teammate đã chạy train 3DGUT trên Colab T4 bằng `colab` CLI (`fflab`) và ghi lại các lỗi gặp phải; executor này theo đúng cách đó.
+
+**Cách làm.** Executor `colab` (`drive2sim/colab/`) dùng lại gần hết đường của Kaggle để cùng một run cho ra cùng kết quả: cùng gói job (`kaggle/bundle.py`), cùng lệnh `d2s kaggle run` trên máy chạy, cùng `envs/install_main.sh`, cùng cách ghép output tải về (`engine/remote.py`). Phần riêng:
+- Cảnh, file SMPL và (khi chạy tiếp trên VM mới) bản run trên máy được upload thẳng lên VM, cắt thành phần 32 MiB, kiểm tra sha256. Không dùng Google Drive vì `colab drivemount` cần người bấm đồng ý; không dùng Hugging Face hay dataset ngoài vì dữ liệu lái xe có license riêng, không đưa lên chỗ công khai.
+- Job chạy tách khỏi kết nối trên VM (log ra file, mã thoát ra file), máy chỉ hỏi bằng các lệnh `colab exec` ngắn: `colab exec` giữ kết nối vài phút hay bị rớt (kinh nghiệm của teammate).
+- Môi trường cài vào venv Python 3.10 trên VM, vì Python của Colab mới hơn bản `requirements.txt` hỗ trợ.
+
+**Ưu điểm.** Thêm nơi có GPU mà không đổi engine, stage hay định dạng gói job; cùng lệnh `d2s run start`, chỉ đổi `--executor colab`. Phiên dùng lại được giữa các run, nên môi trường chỉ cài một lần mỗi phiên.
+
+**Nhược điểm.**
+- Mất phiên là mất mọi thứ chưa tải về, kể cả checkpoint giữa chừng; chạy tiếp chỉ từ bản đã tải về gần nhất.
+- Mỗi phiên mới phải upload lại cảnh và cài lại môi trường (build gsplat-geer, nvdiffrast, pytorch3d: hàng chục phút).
+- Upload, download qua API nội dung của Jupyter, chậm với cảnh lớn; giới hạn kích thước request chưa kiểm tra.
+- Đăng nhập lần đầu cần người (trang đồng ý của Google); không có API để biết trước còn GPU hay không.
+- Chưa chạy thật trên Colab (mục 7.1).
+
 ## 3. Cấu trúc repo đích
 
 ```
@@ -398,14 +419,15 @@ drivestudio_plus/                          branch drive2sim
 │   ├── core/                              identifiers.py, schema.py, files.py, split.py (đã có); transforms.py, camera.py (chưa có)
 │   ├── ingest/                            detect.py (source inspect), dispatch.py (chọn chuỗi), drivestudio.py (converter chung cho 7 dataset), images.py, manifest.py, validate.py
 │   ├── stages/                            commands.py, scene_view.py; prep/masks_segformer.py, prep/smpl.py, train/drivestudio.py, eval/standard.py, export/ply_world.py, export/preview.py (đã có); init/, render/ (khung)
-│   ├── engine/                            stage.py, registry.py, resolve.py, approaches.py, workdir.py, scenes.py, cache.py, run.py, report.py, housekeeping.py (xoá, dọn cache), remote.py (phần chung của các executor chạy ở máy khác: kiểm tra commit, ghép output tải về)
+│   ├── engine/                            stage.py, registry.py, resolve.py, approaches.py, workdir.py, scenes.py, cache.py, run.py, report.py, housekeeping.py (xoá, dọn cache), remote.py (phần chung của executor Kaggle và Colab: kiểm tra commit, ghép output tải về)
 │   ├── approaches/                        omnire.yaml, streetgs.yaml
-│   ├── kaggle/                            client.py, bundle.py, executor.py, templates/run.ipynb
+│   ├── kaggle/                            client.py, bundle.py, executor.py, setup.py, templates/run.ipynb
+│   ├── colab/                             client.py, executor.py, setup.py, templates/job.sh (mục 2.16)
 │   ├── sim/                   (khung)     renderer.py (L2), actors.py (L3), server/ (L4; protos/ từ NuRec)
 │   ├── studio/                            api/ (app.py, state.py, events.py, jobs.py, routes/<nhóm>.py); frontend/ (Vite + React: src/pages/, src/components/, src/viewer/ (Spark), src/live.tsx, src/locales/, src/api/generated/, dist/ đã build); viz/ (khung)
 │   ├── external/              (khung)     <codebase>/: worker cho codebase ngoài
 │   ├── scripts/               (khung)     công cụ phát triển chạy một lần
-│   └── cli/                               main.py, output.py; source.py, scene.py, split.py, approach.py, run.py, report.py, export.py, cache.py, kaggle.py, studio.py, schema.py
+│   └── cli/                               main.py, output.py; source.py, scene.py, split.py, approach.py, run.py, report.py, export.py, cache.py, kaggle.py, colab.py, studio.py, schema.py
 ├── third_party/                           smplx (pip -e, import smplx); Humans4D (submodule, import hmr2); ncore (submodule, tag v19.9.0: converter NCore)
 ├── envs/                                  main.yml (conda: Python 3.10), install_main.sh (cài môi trường chính, dùng chung cho Kaggle) (mục 2.9)
 └── tests/drive2sim/           (khung)     cùng cây thư mục với drive2sim/; fixtures/
@@ -444,6 +466,8 @@ Chạy script bằng `python -m`, ví dụ `python -m drive2sim.recon.tools.trai
 | API cho Studio | `drive2sim/studio/api/routes/<nhóm>.py` | đường dẫn `/api/<nhóm số nhiều>/...`, verb, lỗi và sự kiện theo CONTRACTS mục 11 | `app.py` |
 | Màn hình Studio | `drive2sim/studio/frontend/src/pages/` | `PascalCase.tsx`; chuỗi giao diện trong `src/locales/vi.json`, `en.json` (CONTRACTS mục 10.6) | Router của frontend |
 | Mẫu notebook Kaggle | `drive2sim/kaggle/templates/` | `<tên>.ipynb` | `bundle.py` |
+| Script job chạy trên VM Colab | `drive2sim/colab/templates/` | `job.sh` | `colab/executor.py` |
+| Phần dùng chung của các executor chạy ở máy khác | `drive2sim/engine/remote.py` | | Kaggle và Colab gọi |
 | Test | `tests/drive2sim/<cùng đường dẫn>/` | `test_<module>.py` | |
 | Fixture dữ liệu nhỏ cho test | `tests/drive2sim/fixtures/<scene_id>/` | | |
 | Công cụ phát triển chạy một lần | `drive2sim/scripts/` | `<động_từ>_<đối_tượng>.py` | Không dùng trong luồng chính; việc dùng thường xuyên phải thành lệnh CLI |
@@ -541,9 +565,11 @@ Các config hiện có của teammate map sang tổ hợp cấu hình:
 
 Tên renderer theo CONTRACTS mục 10.3 (`3dgs`, `3dgut`, `3dgeer`); engine đổi sang `render_mode` của DriveStudio (`default`, `ut`, `geer`). Ràng buộc đã biết: renderer `3dgeer` không đi với campose bật, vì 3DGEER không tối ưu được pose camera. Các config 3DGEER của teammate còn đổi `densify_grad_thresh: 0.01` và `refine_interval: 300` (README của fork); hai giá trị này đi theo lựa chọn renderer `3dgeer`.
 
-### 4.6 kaggle
+### 4.6 kaggle, colab
 
 Đóng gói job, upload cảnh thành dataset private (một lần, nhận diện theo `scene_id` và phiên bản converter), sinh notebook từ `kaggle/templates/run.ipynb`, cài repo đúng commit và chạy `d2s kaggle run <gói>`, theo dõi bằng lệnh `kaggle`, tải output về và ghép vào `runs/` và `cache/` (CONTRACTS mục 9.2). `client.py` gọi lệnh `kaggle` trong tiến trình con, nên máy không dùng Kaggle không cần cài gì và test thay được Kaggle bằng hàm giả; `bundle.py` dựng và đọc gói; `executor.py` đẩy, hỏi trạng thái, tải về.
+
+Colab (`colab/`) là executor thứ ba (mục 2.16, CONTRACTS mục 9.3): `client.py` gọi lệnh `colab` trong tiến trình con (test thay bằng client giả, VM giả là thư mục tạm); `executor.py` tạo hoặc dùng lại phiên, upload cảnh, SMPL và bản run để chạy tiếp, chạy `templates/job.sh` tách khỏi kết nối, đọc trạng thái và log, gói output trên VM rồi tải về và ghép bằng `engine/remote.py` như Kaggle; `setup.py` kiểm tra cho màn hình thiết lập. Trên VM job chạy đúng `d2s kaggle run` với gói job của Kaggle.
 
 ### 4.7 export
 
@@ -578,6 +604,7 @@ Lệnh dạng `d2s <nhóm> <hành động>`. Danh sách đầy đủ, tuỳ ch�
 | `approach` | `list`, `show`, `check` |
 | `run` | `start`, `resume`, `status`, `list`, `cancel`, `delete` |
 | `kaggle` | `push`, `status`, `pull` |
+| `colab` | `push`, `status`, `logs`, `pull`, `stop` |
 | `export` | `ply`, `preview` |
 | `cache` | `list`, `gc` |
 | `report`, `studio`, `serve` | (lệnh đơn) |
@@ -634,6 +661,7 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (thư mục DriveStudio
 | Studio giao diện làm lại: tổng quan (việc đang chạy, dẫn đầu theo PSNR, run gần đây), thêm cảnh từ thư mục gốc (ingest nền), xoá cảnh, split, run, kiểm tra lại cảnh, huỷ và chạy tiếp từ danh sách, xuất PLY và gói xem trước, Kaggle (trạng thái, đẩy, tải), lưu trữ (cache, dọn cache có xem trước), xem 3D bằng Spark (gói xem trước có phát lại xe theo khung, `scene.ply`, kéo thả file splat trên máy), tìm nhanh, thông báo nổi | Xong; đã xem bằng trình duyệt trên dữ liệu mẫu và splat tổng hợp (không phải dữ liệu thật) | |
 | Studio còn thiếu: sơ đồ rig nhìn từ trên xuống và quỹ đạo xe trên bản đồ 2D (cần đọc extrinsics, pose theo cách lưu của từng dataset); depth và tách lớp; xuất hình cho báo cáo (mới có CSV); viewer chế độ chính theo thiết kế đích (worker render + viser trong Studio, `studio/viz`, mục 2.12; hiện dùng `tools/viewer.py` chạy riêng); trình phát video theo từng camera với ảnh gốc, ảnh render, bản đồ sai khác, thanh trượt so sánh và phát đồng bộ mọi camera (SPEC 8C; hiện là danh sách file MP4); chồng box, mask, LiDAR lên ảnh và độ dài cảnh ở trang cảnh (SPEC 8A); hiện người và vật biến dạng bằng box trong viewer Spark; nhóm E | Chưa làm | |
 | Kaggle (`kaggle/`): upload cảnh, notebook có gói job, đẩy, trạng thái, tải về, chạy tiếp qua output notebook trước; `run start --executor kaggle`; Studio `/api/kaggle` | Xong trong code; test với Kaggle giả; cờ lệnh `kaggle` đã kiểm với Kaggle CLI 2.2.5; **chưa chạy thật** | |
+| Colab (`colab/`): phiên GPU, upload cảnh, SMPL và bản run theo phần có sha256, job tách khỏi kết nối, trạng thái và log, tải về và ghép như Kaggle (`engine/remote.py`), mất phiên và chạy tiếp; `run start --executor colab` | Xong trong code; test với Colab giả (mã chạy trên VM được chạy thật trong thư mục tạm); cờ lệnh `colab` đọc từ `--help` và mã nguồn google-colab-cli 0.7.5; **chưa chạy thật** | |
 | `envs/main.yml`, `envs/install_main.sh`, ô cài phụ thuộc trong notebook Kaggle dùng chung script; kiểm tra môi trường (`engine/environment.py`, `GET /api/approaches/{id}/environment`, `d2s approach check`) | Đã cài thử trên máy cá nhân (Quadro T2000, CUDA toolkit 12.8); notebook Kaggle **chưa chạy thử** | |
 | Stage `prep.masks_segformer`, `prep.smpl` (cache, thư mục cảnh ảo); đầu vào tuỳ chọn của stage; approach `omnire`, `streetgs` có stage prep | Xong trong code; có test với script giả; **chưa chạy thật** (cần GPU, `transformers`, `hmr2`) | |
 | Tầng dữ liệu: `source inspect`; `scene ingest` cho nuScenes (gọi script có sẵn, sinh manifest); kiểm tra cấu trúc | Xong trong code; có test với dữ liệu giả; **chưa chạy thật** (cần nuScenes và `nuscenes-devkit`) | |
@@ -698,7 +726,8 @@ Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiề
 - Weights SegFormer của NVIDIA dùng trong `drive2sim/recon/preprocess/masks/segformer_hf.py` chỉ cho dùng phi thương mại.
 - NCore, proto `SensorsimService`: Apache-2.0; giữ nguyên ghi chú bản quyền khi đưa vào repo.
 - viser, nerfview, Spark: MIT.
-- Dữ liệu (Waymo, nuScenes...) không nằm trong repo; dataset upload lên Kaggle luôn để private.
+- Dữ liệu (Waymo, nuScenes...) không nằm trong repo; dataset upload lên Kaggle luôn để private; cảnh upload lên Colab chỉ nằm trên VM của người dùng.
+- google-colab-cli (Apache-2.0) chỉ được gọi như lệnh ngoài, không đi kèm repo.
 
 ## 10. Kiểm thử
 

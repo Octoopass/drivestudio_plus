@@ -97,7 +97,7 @@ ERROR_CODES: tuple[str, ...] = (
     "cancelled",
     "stage_failed",
 )
-Executor = Literal["local", "kaggle"]
+Executor = Literal["local", "kaggle", "colab"]
 
 # Phiên bản schema hiện tại của từng loại file.
 SCHEMA_VERSIONS: dict[str, str] = {
@@ -1007,7 +1007,7 @@ class RunRecord(VersionedFile):
         split_id: Split của run.
         approach: Approach và lựa chọn đã quyết định.
         level: Mức năng lực của approach.
-        executor: Nơi chạy, ``local`` hoặc ``kaggle``.
+        executor: Nơi chạy, ``local``, ``kaggle`` hoặc ``colab``.
         status: Trạng thái của cả run.
         created_utc: Thời điểm tạo run.
         lidar_usage: Các stage dùng LiDAR; rỗng nếu run không dùng LiDAR.
@@ -1191,7 +1191,7 @@ class EnvRecord(VersionedFile):
         gsplat: Phiên bản gsplat.
         gpu: Tên GPU của máy chạy gần nhất.
         seed: Seed ngẫu nhiên.
-        executor: Nơi chạy, ``local`` hoặc ``kaggle``.
+        executor: Nơi chạy, ``local``, ``kaggle`` hoặc ``colab``.
         machines: Các máy đã chạy run, theo thứ tự; run chạy tiếp trên máy khác (ví dụ phiên
             Kaggle mới được cấp GPU khác) có nhiều máy (thêm từ ``d2s-env/0.2``).
     """

@@ -155,7 +155,7 @@ def _env_record(executor: str) -> EnvRecord:
     dụ phiên bản PyTorch khi PyTorch chưa được import, thì để trống (CONTRACTS mục 6.4).
 
     Args:
-        executor: Nơi chạy, ``local`` hoặc ``kaggle``.
+        executor: Nơi chạy, ``local``, ``kaggle`` hoặc ``colab``.
 
     Returns:
         Bản ghi ``env.json``.
@@ -212,7 +212,7 @@ def create_run(
         workdir: Thư mục làm việc.
         scene: Cảnh của run.
         split: Split của run.
-        executor: Nơi chạy, ``local`` hoặc ``kaggle``.
+        executor: Nơi chạy, ``local``, ``kaggle`` hoặc ``colab``.
         run_id: Định danh run; mặc định sinh mới dạng
             ``YYYYMMDD-HHMMSS-<approach_id>-<4 hex>`` (CONTRACTS mục 10.1).
 
