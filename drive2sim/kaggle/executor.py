@@ -187,7 +187,14 @@ def wait_dataset_ready(
     """
     waited = 0.0
     while True:
-        status = client.dataset_status(slug)
+        try:
+            status = client.dataset_status(slug)
+        except KaggleError as error:
+            # Ngay sau khi tạo, Kaggle có thể chưa nhận ra dataset và trả 403 cho lệnh hỏi trạng
+            # thái (đã gặp với Kaggle CLI 2.2.5); hỏi lại tới khi hết thời gian chờ.
+            if waited >= timeout_s:
+                raise
+            status = f"chưa hỏi được trạng thái: {error}"
         if "ready" in status:
             return
         if "error" in status:

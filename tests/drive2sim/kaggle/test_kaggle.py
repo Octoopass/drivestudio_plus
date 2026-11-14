@@ -322,6 +322,30 @@ def test_wait_dataset_ready_polls_until_ready() -> None:
         executor.wait_dataset_ready(client, "alice/d2s-x", timeout_s=20, sleep=lambda s: None)
 
 
+def test_wait_dataset_ready_retries_while_new_dataset_is_not_visible() -> None:
+    """Kaggle trả 403 cho dataset vừa tạo trong vài giây đầu; vẫn chờ tới khi ready."""
+    answers = iter([KaggleError("403 Forbidden"), "pending", "ready"])
+    client = FakeKaggle.__new__(FakeKaggle)
+
+    def status(slug: str) -> str:
+        answer = next(answers)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    client.dataset_status = status  # type: ignore[method-assign]
+    sleeps: list[float] = []
+    executor.wait_dataset_ready(client, "alice/d2s-x", sleep=sleeps.append)
+    assert len(sleeps) == 2
+
+    def forbidden(slug: str) -> str:
+        raise KaggleError("403 Forbidden")
+
+    client.dataset_status = forbidden  # type: ignore[method-assign]
+    with pytest.raises(KaggleError, match="403"):
+        executor.wait_dataset_ready(client, "alice/d2s-x", timeout_s=20, sleep=lambda s: None)
+
+
 def test_kernel_state_survives_cli_failure(setup: tuple[Workdir, FakeKaggle]) -> None:
     """Không hỏi được Kaggle vẫn trả thông tin đã lưu, để Studio còn hiện và cho tải về."""
     workdir, fake = setup
