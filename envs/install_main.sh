@@ -75,8 +75,20 @@ if want 3; then
   pip install -r "$REPO/requirements.txt"
 fi
 
+# Bước 4, 5, 7, 8 build CUDA: nvcc phải cùng major với CUDA của PyTorch (cu121 → 12.x), nếu không
+# torch báo "The detected CUDA version mismatches". Image Kaggle từ 11/2026 chỉ có nvcc 13.0: khi đó cài
+# CUDA 12.8 riêng (envs/install_cuda.sh) rồi build bằng bản đó.
+if [ "$FROM" -le 8 ]; then
+  torch_major="$("$PY" -c 'import torch; print((torch.version.cuda or "").split(".")[0])')"
+  nvcc_major="$(nvcc --version 2>/dev/null | sed -n 's/.*release \([0-9]*\)\..*/\1/p')"
+  if [ -n "$torch_major" ] && [ "$nvcc_major" != "$torch_major" ]; then
+    echo "nvcc ${nvcc_major:-không có} khác CUDA $torch_major của PyTorch: cài CUDA 12.8 riêng"
+    CUDA_HOME="$(bash "$REPO/envs/install_cuda.sh" "${D2S_CUDA_PREFIX:-$HOME/.cache/drive2sim/cuda-12.8}")"
+    export CUDA_HOME PATH="$CUDA_HOME/bin:$PATH"
+  fi
+fi
+
 if want 4; then
-  # Bước 4, 5, 7 build CUDA: nvcc phải cùng major với CUDA của PyTorch (cu121 → 12.x).
   echo "nvcc: $(command -v nvcc || echo 'không có') $(nvcc --version 2>/dev/null | tail -1); CUDA_HOME=${CUDA_HOME:-}"
   # Bản fork của dự án (submodule third_party/gsplat-geer, docs/methods/fastergs.md): gsplat-geer
   # của Bosch cộng kỹ thuật Faster-GS, mặc định tắt nên khi không bật cho kết quả như bản gốc.
