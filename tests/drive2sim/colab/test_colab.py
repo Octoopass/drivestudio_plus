@@ -376,3 +376,13 @@ def test_upload_assemble_is_safe_to_repeat(setup: tuple[Workdir, FakeColab, Path
     config = {"parts": f"{vm}/upload/gone", "target": target, "count": 3, "sha256": "x"}
     again = executor._run_on_vm(fake, "d2s", executor._ASSEMBLE, {**config, "extract_to": None})
     assert "@@OK" in again
+
+
+def test_stopped_session_is_not_polled(setup: tuple[Workdir, FakeColab, Path]) -> None:
+    workdir, fake, _ = setup
+    executor.push_run(workdir, RUN_ID, client=fake)
+    wait_job(workdir, fake)
+    executor.pull_run(workdir, RUN_ID, client=fake)
+    executor.stop_session(workdir, RUN_ID, client=fake)
+    fake.lose()  # mọi lệnh tới VM giờ sẽ báo mất phiên
+    assert executor.job_state(workdir, RUN_ID, client=fake)["status"] == "stopped"

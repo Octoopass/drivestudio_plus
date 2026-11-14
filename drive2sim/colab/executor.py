@@ -340,10 +340,17 @@ def _markers(output: str, name: str) -> list[str]:
 
 
 def _run_on_vm(
-    client: ColabClient, session: str, body: str, config: dict, timeout_s: float = 60
+    client: ColabClient,
+    session: str,
+    body: str,
+    config: dict,
+    timeout_s: float = 60,
+    attempts: int = 3,
 ) -> str:
-    """Chạy một đoạn mã trên VM và trả stdout."""
-    return client.exec_python(session, _snippet(body, config), timeout_s=timeout_s)
+    """Chạy một đoạn mã trên VM và trả stdout (thử lại ``attempts`` lần khi kết nối lỗi)."""
+    return client.exec_python(
+        session, _snippet(body, config), timeout_s=timeout_s, attempts=attempts
+    )
 
 
 # ------------------------------------------------------------------ chuyển file
@@ -648,7 +655,8 @@ def _poll(
         "max_bytes": max_bytes,
         "tail": LOG_TAIL_LINES,
     }
-    output = _run_on_vm(client, state.session, _POLL, config)
+    # Hỏi trạng thái chỉ thử một lần: nơi gọi (follow_log, Studio, vòng theo dõi) tự hỏi lại sau.
+    output = _run_on_vm(client, state.session, _POLL, config, attempts=1)
     states = _markers(output, "STATE")
     if not states:
         raise ColabError(f"không đọc được trạng thái job {state.job}: {output.strip()[-200:]}")
@@ -675,7 +683,8 @@ def job_state(workdir: Workdir, run_id: str, client: Optional[ColabClient] = Non
 
     Returns:
         Nội dung ``colab.json`` cộng ``status`` (``running``, ``succeeded``, ``failed``, ``died``,
-        ``lost``, hoặc ``None`` khi không hỏi được), ``exit_code``, ``log_tail`` (tối đa
+        ``lost``, ``stopped`` khi phiên đã tắt sau khi tải về, hoặc ``None`` khi không hỏi
+        được), ``exit_code``, ``log_tail`` (tối đa
         ``LOG_TAIL_LINES`` dòng) và ``status_error`` (lý do không hỏi được, hoặc ``None``).
 
     Raises:
@@ -690,6 +699,9 @@ def job_state(workdir: Workdir, run_id: str, client: Optional[ColabClient] = Non
 
     if state.lost_utc and state.lost_utc >= state.pushed_utc:
         return answer("lost", _lost_message(state, run_id))
+    if state.stopped_utc and state.stopped_utc >= state.pushed_utc:
+        # Tool đã tắt phiên sau khi tải kết quả về: không còn gì để hỏi.
+        return answer("stopped")
     # Không hỏi được Colab (mất mạng, hết hạn đăng nhập) vẫn trả thông tin đã lưu, như Kaggle.
     try:
         info, lines = _poll(client, state, -1)

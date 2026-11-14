@@ -37,7 +37,7 @@ class FakeClient:
         self.answers = answers
         self.calls = 0
 
-    def exec_python(self, session: str, code: str, timeout_s: float = 60) -> str:
+    def exec_python(self, session: str, code: str, timeout_s: float = 60, **_: object) -> str:
         """Trả ``@@STATE`` của job có tên trong đoạn mã; lỗi nếu đặt sẵn là ngoại lệ."""
         self.calls += 1
         for job, answer in self.answers.items():
