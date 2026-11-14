@@ -4,7 +4,7 @@
 # run chạy cùng một bộ phiên bản.
 #
 #   conda env create -f envs/main.yml && conda activate drive2sim && bash envs/install_main.sh
-#   # Kaggle (notebook do d2s kaggle push sinh): bash envs/install_main.sh --python python
+#   # Kaggle (notebook do d2s kaggle push sinh): bash envs/install_main.sh --python /kaggle/tmp/venv/bin/python (venv Python 3.10)
 #
 # Phiên bản chốt ở đây và trong requirements.txt; drive2sim/engine/environment.py (EXPECTED) phải
 # khớp (có test kiểm). Các gói build từ mã nguồn (gsplat-geer, nvdiffrast, pytorch3d) cần CUDA
