@@ -60,6 +60,15 @@ if want 3; then
 fi
 
 if want 4; then
+  # Bản fork của dự án (submodule third_party/gsplat-geer, docs/methods/fastergs.md): gsplat-geer
+  # của Bosch cộng kỹ thuật Faster-GS, mặc định tắt nên khi không bật cho kết quả như bản gốc.
+  # Repo clone kèm --recurse-submodules (notebook Kaggle) thì dùng luôn; không có thì clone bản Bosch.
+  SUB_DIR="$REPO/third_party/gsplat-geer"
+  if [ -f "$SUB_DIR/setup.py" ]; then
+    step "4/7 gsplat-geer $GSPLAT_VERSION (fork, submodule $(git -C "$SUB_DIR" rev-parse --short HEAD))"
+    git -C "$REPO" submodule update --init --recursive third_party/gsplat-geer
+    pip install "$SUB_DIR" --no-build-isolation
+  else
   step "4/7 gsplat-geer $GSPLAT_VERSION (commit $GSPLAT_COMMIT)"
   if [ ! -d "$GEER_DIR/.git" ]; then
     git clone --recursive --branch "$GSPLAT_BRANCH" "$GSPLAT_REPO" "$GEER_DIR"
@@ -75,6 +84,7 @@ if want 4; then
     git clone --quiet --depth 1 --branch 1.0.1 https://github.com/g-truc/glm.git "$GLM_DIR"
   fi
   pip install "$GEER_DIR" --no-build-isolation
+  fi
 fi
 
 if want 5; then

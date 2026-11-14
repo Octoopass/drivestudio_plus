@@ -2,8 +2,8 @@
 
 Tách khỏi ``fastergs.py`` để test được trên máy không có GPU (``docs/methods/fastergs.md``).
 
-File này chứa ``FASTERGS_DEFAULTS``, ``TECHNIQUES``, ``parse_config``, ``active_techniques``,
-``morton_due``.
+File này chứa ``FASTERGS_DEFAULTS``, ``TECHNIQUES``, ``KERNEL_TECHNIQUES``, ``parse_config``,
+``active_techniques``, ``kernel_techniques``, ``morton_due``.
 """
 
 from types import SimpleNamespace
@@ -11,6 +11,9 @@ from typing import Any, Mapping, Optional
 
 # Kỹ thuật phần Python, theo thứ tự ghi vào log và train_stats.json.
 TECHNIQUES = ("fused_adam", "fused_ssim", "fewer_syncs", "morton_order")
+# Kỹ thuật trong kernel gsplat (bản fork third_party/gsplat-geer). Chỉ bật khi bản gsplat đang cài
+# tự khai là hỗ trợ cho render mode đang dùng (gsplat.fastergs_support()).
+KERNEL_TECHNIQUES = ("exact_tiles",)
 
 # Giá trị mặc định của khối trainer.fastergs. `enabled` là công tắc chung; mỗi kỹ thuật chỉ chạy
 # khi công tắc chung bật và cờ riêng của nó bật.
@@ -24,6 +27,8 @@ FASTERGS_DEFAULTS = dict(
     # nhiên khi split), không trùng tới mức làm tròn như ba kỹ thuật trên.
     morton_order=False,
     morton_interval=5000,  # sắp lại mỗi bấy nhiêu bước, sau khi model refine
+    # Kernel: chỉ ghép Gaussian với tile có pixel thật sự nhận màu (ảnh, gradient không đổi).
+    exact_tiles=True,
 )
 
 
@@ -40,10 +45,31 @@ def parse_config(cfg: Optional[Mapping[str, Any]]) -> SimpleNamespace:
 
 
 def active_techniques(cfg: SimpleNamespace) -> list[str]:
-    """Các kỹ thuật thật sự được bật, theo thứ tự ``TECHNIQUES``; rỗng khi công tắc chung tắt."""
+    """Các kỹ thuật phần Python được bật, theo thứ tự ``TECHNIQUES``; rỗng khi công tắc chung tắt."""
     if not cfg.enabled:
         return []
     return [name for name in TECHNIQUES if getattr(cfg, name)]
+
+
+def kernel_techniques(
+    cfg: SimpleNamespace, support: Optional[Mapping[str, Any]], render_mode: str
+) -> tuple[list[str], list[str]]:
+    """Kỹ thuật kernel được bật và kỹ thuật được yêu cầu nhưng bản gsplat không có cho mode này.
+
+    Args:
+        cfg: Cấu hình Faster-GS.
+        support: Bảng ``gsplat.fastergs_support()``; ``None`` khi bản gsplat không có bảng này
+            (bản gốc của Bosch).
+        render_mode: ``default``, ``ut`` hoặc ``geer``.
+
+    Returns:
+        ``(bật, không có)``, theo thứ tự ``KERNEL_TECHNIQUES``.
+    """
+    if not cfg.enabled:
+        return [], []
+    wanted = [name for name in KERNEL_TECHNIQUES if getattr(cfg, name)]
+    available = set((support or {}).get(render_mode, ()))
+    return [n for n in wanted if n in available], [n for n in wanted if n not in available]
 
 
 def morton_due(step: int, cfg: SimpleNamespace) -> bool:

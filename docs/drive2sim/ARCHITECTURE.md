@@ -406,7 +406,7 @@ drivestudio_plus/                          branch drive2sim
 │   ├── external/              (khung)     <codebase>/: worker cho codebase ngoài
 │   ├── scripts/               (khung)     công cụ phát triển chạy một lần
 │   └── cli/                               main.py, output.py; source.py, scene.py, split.py, approach.py, run.py, report.py, export.py, cache.py, kaggle.py, studio.py, schema.py
-├── third_party/                           smplx (pip -e, import smplx); Humans4D (submodule, import hmr2); ncore (submodule, tag v19.9.0: converter NCore)
+├── third_party/                           smplx (pip -e, import smplx); Humans4D (submodule, import hmr2); ncore (submodule, tag v19.9.0: converter NCore); gsplat-geer (submodule, fork `awun0105/3dgeer` nhánh `drive2sim`: gsplat-geer của Bosch `f15cee2` + `glm` + kỹ thuật kernel Faster-GS, cài bằng `envs/install_main.sh` bước 4)
 ├── envs/                                  main.yml (conda: Python 3.10), install_main.sh (cài môi trường chính, dùng chung cho Kaggle) (mục 2.9)
 └── tests/drive2sim/           (khung)     cùng cây thư mục với drive2sim/; fixtures/
 ```

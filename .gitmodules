@@ -4,3 +4,8 @@
 [submodule "third_party/ncore"]
 	path = third_party/ncore
 	url = https://github.com/NVIDIA/ncore.git
+[submodule "third_party/gsplat-geer"]
+	path = third_party/gsplat-geer
+	url = https://github.com/awun0105/3dgeer.git
+	branch = drive2sim
+	shallow = true

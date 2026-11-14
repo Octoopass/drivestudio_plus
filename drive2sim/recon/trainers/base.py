@@ -456,6 +456,8 @@ class BasicTrainer(nn.Module):
         import inspect
 
         self._rasterization_parameters = set(inspect.signature(rasterization).parameters)
+        # drive2sim: Faster-GS kernel techniques this gsplat build offers (gsplat/fastergs.py)
+        self.fastergs.bind_renderer(self.render_cfg.get("render_mode", "default"))
         self._geer_supports_ftheta = False
         if 'with_geer' in self._rasterization_parameters:
             try:
@@ -525,6 +527,8 @@ class BasicTrainer(nn.Module):
             )
         if self.render_cfg.get('tile_size') is not None:
             extra['tile_size'] = int(self.render_cfg.tile_size)
+        # drive2sim: Faster-GS kernel flags supported for this render mode (empty when off)
+        extra.update(self.fastergs.kernel_kwargs(mode))
         return extra
 
     def render_gaussians(

@@ -10,6 +10,7 @@ from drive2sim.recon.speedups.fastergs_rules import (
     FASTERGS_DEFAULTS,
     TECHNIQUES,
     active_techniques,
+    kernel_techniques,
     morton_due,
     parse_config,
 )
@@ -46,3 +47,15 @@ def test_morton_due() -> None:
     assert [step for step in (0, 4900, 5000, 7000, 10000) if morton_due(step, on)] == [5000, 10000]
     assert not morton_due(5000, parse_config({"enabled": True}))  # cờ riêng tắt
     assert not morton_due(5000, parse_config({"morton_order": True}))  # công tắc chung tắt
+
+
+def test_kernel_techniques_follow_gsplat_support() -> None:
+    on = parse_config({"enabled": True})
+    table = {"default": {"exact_tiles"}, "ut": set(), "geer": set()}
+    assert kernel_techniques(on, table, "default") == (["exact_tiles"], [])
+    assert kernel_techniques(on, table, "ut") == ([], ["exact_tiles"])
+    # bản gsplat gốc của Bosch không có bảng khả năng: không bật gì
+    assert kernel_techniques(on, None, "default") == ([], ["exact_tiles"])
+    off = parse_config({"enabled": True, "exact_tiles": False})
+    assert kernel_techniques(off, table, "default") == ([], [])
+    assert kernel_techniques(parse_config(None), table, "default") == ([], [])

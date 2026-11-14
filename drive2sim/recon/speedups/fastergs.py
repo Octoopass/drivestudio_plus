@@ -28,7 +28,12 @@ from typing import Any, Dict, Optional
 import torch
 import torch.nn as nn
 
-from drive2sim.recon.speedups.fastergs_rules import active_techniques, morton_due, parse_config
+from drive2sim.recon.speedups.fastergs_rules import (
+    active_techniques,
+    kernel_techniques,
+    morton_due,
+    parse_config,
+)
 
 logger = logging.getLogger()
 
@@ -69,8 +74,33 @@ class FasterGS:
     def __init__(self, cfg: Optional[Any]) -> None:
         self.cfg = parse_config(cfg)
         self.active = active_techniques(self.cfg)
+        self._support: Optional[Dict[str, Any]] = None
+        self._kwarg_of: Dict[str, str] = {}
         if self.cfg.enabled:
             logger.info(f"Faster-GS: {', '.join(self.active) or 'không có kỹ thuật nào'}")
+
+    def bind_renderer(self, render_mode: str) -> None:
+        """Đọc bảng khả năng của bản gsplat đang cài và thêm kỹ thuật kernel dùng được.
+
+        Gọi một lần khi trainer khởi tạo renderer. Bản gsplat không có ``fastergs_support`` (bản
+        gốc của Bosch) thì không bật kỹ thuật kernel nào.
+        """
+        try:
+            from gsplat import FASTERGS_KWARGS, fastergs_support
+
+            self._support, self._kwarg_of = fastergs_support(), dict(FASTERGS_KWARGS)
+        except ImportError:
+            self._support, self._kwarg_of = None, {}
+        enabled, missing = kernel_techniques(self.cfg, self._support, render_mode)
+        self.active = active_techniques(self.cfg) + enabled
+        if self.cfg.enabled:
+            note = f"; chưa có cho {render_mode}: {', '.join(missing)}" if missing else ""
+            logger.info(f"Faster-GS ({render_mode}): {', '.join(self.active) or 'không có'}{note}")
+
+    def kernel_kwargs(self, render_mode: str) -> Dict[str, Any]:
+        """Tham số thêm cho ``gsplat.rasterization`` ở render mode này."""
+        enabled, _ = kernel_techniques(self.cfg, self._support, render_mode)
+        return {self._kwarg_of[name]: True for name in enabled if name in self._kwarg_of}
 
     def uses(self, name: str) -> bool:
         """Kỹ thuật ``name`` có đang bật không."""
