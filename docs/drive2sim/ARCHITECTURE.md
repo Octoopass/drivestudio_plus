@@ -398,7 +398,7 @@ drivestudio_plus/                          branch drive2sim
 │   ├── core/                              identifiers.py, schema.py, files.py, split.py (đã có); transforms.py, camera.py (chưa có)
 │   ├── ingest/                            detect.py (source inspect), dispatch.py (chọn chuỗi), drivestudio.py (converter chung cho 7 dataset), images.py, manifest.py, validate.py
 │   ├── stages/                            commands.py, scene_view.py; prep/masks_segformer.py, prep/smpl.py, train/drivestudio.py, eval/standard.py, export/ply_world.py, export/preview.py (đã có); init/, render/ (khung)
-│   ├── engine/                            stage.py, registry.py, resolve.py, approaches.py, workdir.py, scenes.py, cache.py, run.py, report.py, housekeeping.py (xoá, dọn cache)
+│   ├── engine/                            stage.py, registry.py, resolve.py, approaches.py, workdir.py, scenes.py, cache.py, run.py, report.py, housekeeping.py (xoá, dọn cache), remote.py (phần chung của các executor chạy ở máy khác: kiểm tra commit, ghép output tải về)
 │   ├── approaches/                        omnire.yaml, streetgs.yaml
 │   ├── kaggle/                            client.py, bundle.py, executor.py, templates/run.ipynb
 │   ├── sim/                   (khung)     renderer.py (L2), actors.py (L3), server/ (L4; protos/ từ NuRec)
