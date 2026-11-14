@@ -1,0 +1,9 @@
+# Street Gaussians rendered with 3DGEER plus Faster-GS, Python part (docs/methods/fastergs.md): fused Adam, fused SSIM, fewer GPU syncs.
+# Chỉ khác streetgs_geer.yaml ở khối trainer.fastergs (kế thừa bằng extends, CONTRACTS mục 10.5).
+extends: streetgs_geer.yaml
+trainer:
+  fastergs: # các kỹ thuật không đổi kết quả train, chỉ làm mỗi bước nhanh hơn
+    enabled: true
+    fused_adam: true   # torch.optim.Adam(fused=True)
+    fused_ssim: true   # gói fused-ssim cho loss SSIM (cùng định nghĩa với pytorch_msssim)
+    fewer_syncs: true  # gộp các lần chờ GPU khi kiểm NaN/Inf và ghi log

@@ -537,6 +537,7 @@ Các config hiện có của teammate map sang tổ hợp cấu hình:
 | `streetgs_geer.yaml` / `omnire_geer.yaml` | renderer 3dgeer, campose tắt |
 | `streetgs_fastgs.yaml` / `omnire_fastgs.yaml` | renderer 3dgs, campose tắt, fastgs bật |
 | `streetgs_geer_fastgs.yaml` | renderer 3dgeer, campose tắt, fastgs bật |
+| `<config trên>` + `_fastergs` (ví dụ `omnire_fastgs_fastergs.yaml`, `omnire_fastergs_nocampose.yaml`) | như config gốc, fastergs bật (phần Python của Faster-GS, `docs/methods/fastergs.md`) |
 
 Tên renderer theo CONTRACTS mục 10.3 (`3dgs`, `3dgut`, `3dgeer`); engine đổi sang `render_mode` của DriveStudio (`default`, `ut`, `geer`). Ràng buộc đã biết: renderer `3dgeer` không đi với campose bật, vì 3DGEER không tối ưu được pose camera. Các config 3DGEER của teammate còn đổi `densify_grad_thresh: 0.01` và `refine_interval: 300` (README của fork); hai giá trị này đi theo lựa chọn renderer `3dgeer`.
 

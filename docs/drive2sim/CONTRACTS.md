@@ -220,7 +220,7 @@ stages:                            # chạy lần lượt; ${...} được thay 
 - **Loại camera (track).** Approach không ghi track. Track suy ra từ mô hình camera: `opencv_pinhole`, `ideal_pinhole` là track `pinhole`; `opencv_fisheye`, `ftheta` là track `fisheye`. `requires.camera_models` là mọi mô hình approach nhận với **ít nhất một** tổ hợp lựa chọn. Lựa chọn chỉ nhận một phần thì ghi trong `camera_models` của mục cấu hình đó, mỗi lựa chọn một danh sách, chỉ dùng mô hình có trong `requires.camera_models` (thêm từ `0.3`). Ví dụ OmniRe: 3DGS gốc chỉ vẽ pinhole, 3DGUT và 3DGEER vẽ thêm fisheye, F-theta (`drive2sim/recon/trainers/base.py`, `camera_rasterization_kwargs`). Vậy track của từng preset suy ra từ lựa chọn của preset đó: `paper` chỉ pinhole, `geer` cả hai. API Studio (`GET /api/approaches`) và `d2s approach list`, `show` trả thêm `camera_support`: `{"tracks", "camera_models", "default": {...}, "presets": {tên: {...}}}` (`resolve.camera_support`). File `0.1`, `0.2` có trường `track` vẫn đọc được; trường đó bị bỏ qua.
 - Preset chỉ là cách điền nhanh các mục cấu hình. `run.json` ghi tên preset (`approach.preset`) chỉ khi cấu hình cuối đúng bằng preset đó; người dùng chọn preset rồi chỉnh một mục cấu hình khác đi (Studio, hoặc `--preset` kèm `--set` ở CLI) thì `preset` là `null`. Studio làm mờ lựa chọn vi phạm ràng buộc với các mục cấu hình đang chọn, kèm mục cấu hình cần đổi và `reason`.
 - Tham số cuối cùng của một stage được gộp theo thứ tự: mặc định của stage → `params` trong file → preset → lựa chọn của người dùng (Studio hoặc `--set` của CLI).
-- `train.drivestudio` chọn **một file config có sẵn** trong `drive2sim/configs/methods/` theo bốn tham số `method`, `renderer`, `campose`, `fastgs` (bảng `CONFIG_FILES` trong `drive2sim/stages/train/drivestudio.py`), không tự sửa tham số train. Ví dụ `streetgs` + `3dgeer` + `fastgs: true` dùng `streetgs_geer_fastgs.yaml`. Tổ hợp chưa có file config bị từ chối khi kiểm tra tham số, và file approach khai báo `constraints` để Studio, CLI khoá sẵn các tổ hợp đó.
+- `train.drivestudio` chọn **một file config có sẵn** trong `drive2sim/configs/methods/` theo năm tham số `method`, `renderer`, `campose`, `fastgs`, `fastergs` (bảng `CONFIG_FILES` trong `drive2sim/stages/train/drivestudio.py`), không tự sửa tham số train. Ví dụ `streetgs` + `3dgeer` + `fastgs: true` dùng `streetgs_geer_fastgs.yaml`. Tổ hợp chưa có file config bị từ chối khi kiểm tra tham số, và file approach khai báo `constraints` để Studio, CLI khoá sẵn các tổ hợp đó.
 
 ### 4.2 Điều kiện chạy
 
@@ -404,7 +404,7 @@ Tóm tắt metric theo protocol của SPEC mục 9, do `eval.standard` ghi vào 
 
 ```json
 {
-  "schema_version": "d2s-summary/0.3",
+  "schema_version": "d2s-summary/0.4",
   "protocol": {"version": "0.2", "image_dtype": "uint8", "resolution": "downscale_when_loading=[2, 2, 2], downscale=1",
                "lpips": {"net": "alex", "package": "torchmetrics", "package_version": "0.10.3"}},
   "split_id": "every8_allcams",
@@ -416,7 +416,8 @@ Tóm tắt metric theo protocol của SPEC mục 9, do `eval.standard` ghi vào 
   "num_gaussians": 1280000,
   "num_iters": 30000,
   "render_fps": 38.6,
-  "render_resolution": "800x450"
+  "render_resolution": "800x450",
+  "speedups": ["fastgs", "fastergs.fused_adam", "fastergs.fused_ssim"]
 }
 ```
 
@@ -428,7 +429,8 @@ Các con số trong ví dụ chỉ minh hoạ định dạng. Metric vùng ngư�
 - `render_fps`: số khung chia cho thời gian model vẽ ảnh tập test (chỉ tính lời gọi model, có đồng bộ GPU, bỏ 3 khung đầu), ở độ phân giải `render_resolution`. FPS phụ thuộc GPU; tên GPU nằm trong `env.json`.
 - Các trường trên để trống (`null`) khi không có số liệu, ví dụ model train bằng `train.py` cũ chưa ghi `train_stats.json`.
 - `per_camera` để trống với DriveStudio, vì `train.py` không tách metric theo camera.
-- Thay đổi từ `0.1`: `train_time_s`, `peak_vram_mb`, `num_gaussians` thành tuỳ chọn. Thay đổi từ `0.2`: thêm `dynamic_psnr`, `num_iters`, `render_fps`, `render_resolution`; `occupied_psnr` ghi đúng nghĩa là vùng không phải bầu trời.
+- `speedups`: các thuật toán, kỹ thuật tăng tốc **thật sự** đã bật khi train, đọc từ `train_stats.json`: `fastgs` (`docs/methods/fastgs.md`), `fastergs.<kỹ thuật>` (`docs/methods/fastergs.md`). Rỗng khi không bật gì hoặc model train bằng `train.py` cũ. Mục cấu hình của run chỉ ghi công tắc; trường này ghi cái công tắc thật sự làm, để hai run cùng `fastergs: true` mà khác kỹ thuật (ví dụ ở hai phiên bản code) không bị coi là cùng cấu hình.
+- Thay đổi từ `0.1`: `train_time_s`, `peak_vram_mb`, `num_gaussians` thành tuỳ chọn. Thay đổi từ `0.2`: thêm `dynamic_psnr`, `num_iters`, `render_fps`, `render_resolution`; `occupied_psnr` ghi đúng nghĩa là vùng không phải bầu trời. Thay đổi từ `0.3`: thêm `speedups`.
 
 ### 6.4 `d2s/env.json`
 
@@ -646,7 +648,7 @@ Chưa chạy thật: cờ của lệnh `kaggle` đã kiểm với Kaggle CLI 2.2
 - Mã Python: module `snake_case`; lớp `PascalCase`; lớp stage đặt theo `<Nhóm><Tên>Stage`, ví dụ `PrepMasksSegformerStage` cho `prep.masks_segformer`. Quy tắc đặt tên đầy đủ cho module, lớp, hàm, biến, tham số ở `AGENTS.md` mục 4.2.
 - Package Python có `__init__.py`; thư mục chưa có file giữ trong git bằng `.gitkeep`, xoá `.gitkeep` khi thư mục đã có file.
 - File môi trường trong `envs/`: `main.yml` cho môi trường chính, `<codebase>.yml` cho codebase ngoài.
-- Config method (`drive2sim/configs/methods/`): `<method>.yaml` là config gốc; biến thể là `<method>_<biến thể>[_<biến thể>].yaml`, các biến thể xếp theo thứ tự cố định **renderer → densify → campose** (`geer`, `ut`; `fastgs`; `nocampose`), ví dụ `streetgs_geer_fastgs.yaml`. Biến thể kế thừa từ config gốc (mục 10.5). Config cũ chép nguyên file được giữ tới khi chuyển sang kế thừa (`ARCHITECTURE.md` mục 7.4 bước 5).
+- Config method (`drive2sim/configs/methods/`): `<method>.yaml` là config gốc; biến thể là `<method>_<biến thể>[_<biến thể>].yaml`, các biến thể xếp theo thứ tự cố định **renderer → densify → tăng tốc → campose** (`geer`, `ut`; `fastgs`; `fastergs`; `nocampose`), ví dụ `streetgs_geer_fastgs.yaml`, `omnire_fastergs_nocampose.yaml`. Biến thể kế thừa file cha bằng `extends` và chỉ ghi phần khác (mục 10.5); `tests/drive2sim/core/test_config.py` (`VARIANTS`) ghi khoá nào mỗi biến thể được phép khác.
 - Config dataset (`drive2sim/configs/datasets/<dataset>/`): `<k>cams.yaml`; biến thể `<k>cams_<biến thể>.yaml`, ví dụ `7cams_native.yaml` (giữ mô hình camera gốc, không khử méo).
 - Mask thân xe: `drive2sim/assets/ego_masks/<dataset>/<chỉ số camera>.png`, chỉ số là vị trí camera trong danh sách `cameras` của manifest (bắt đầu từ 0). Mỗi dataset có một bảng chỉ số ↔ `camera_id` trong `drive2sim/recon/data/dataset_meta.py`; code mới dùng `camera_id`, chỉ đổi sang chỉ số ở biên với mã DriveStudio.
 - File bên trong một artifact (mục 5.4): `videos/<camera_id>_<loại>.mp4` với loại `gt`, `render`, `diff`, `side_by_side`; `eval_report` gồm `summary.json` và metric gốc của codebase (`drivestudio_metrics.json` với DriveStudio); `masks` là PNG như DriveStudio, `depth_prior` là `.npy`; `smpl/<track_id>.npz`.

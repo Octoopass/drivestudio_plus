@@ -133,6 +133,9 @@ def save_train_stats(log_dir: str, trainer, step: int, train_time_s: float, peak
         "peak_vram_mb": int(peak_vram_mb),
         "num_gaussians": sum(per_node.values()),
         "gaussians_per_node": per_node,
+        # drive2sim: speed-up techniques that were really active (docs/methods/fastgs.md, fastergs.md)
+        "speedups": (["fastgs"] if trainer.fastgs.enabled else [])
+        + [f"fastergs.{name}" for name in trainer.fastergs.active],
     }
     tmp = os.path.join(log_dir, TRAIN_STATS + ".tmp")
     with open(tmp, "w") as f:
@@ -345,12 +348,8 @@ def main(args):
             image_infos=image_infos,
             cam_infos=cam_infos,
         )
-        # check nan or inf
-        for k, v in loss_dict.items():
-            if torch.isnan(v).any():
-                raise ValueError(f"NaN detected in loss {k} at step {step}")
-            if torch.isinf(v).any():
-                raise ValueError(f"Inf detected in loss {k} at step {step}")
+        # check nan or inf (drive2sim: one GPU sync for all losses with trainer.fastergs.fewer_syncs)
+        trainer.fastergs.check_finite(loss_dict, step)
         trainer.backward(loss_dict)
         
         # after training step
@@ -366,9 +365,9 @@ def main(args):
                 outputs=outputs,
                 image_infos=image_infos,
             )
-        metric_logger.update(**{"train_metrics/"+k: v.item() for k, v in metric_dict.items()})
+        metric_logger.update(**{"train_metrics/"+k: v for k, v in trainer.fastergs.to_floats(metric_dict).items()})
         metric_logger.update(**{"train_stats/gaussian_num_" + k: v for k, v in trainer.get_gaussian_count().items()})
-        metric_logger.update(**{"losses/"+k: v.item() for k, v in loss_dict.items()})
+        metric_logger.update(**{"losses/"+k: v for k, v in trainer.fastergs.to_floats(loss_dict).items()})
         metric_logger.update(**{"train_stats/lr_" + group['name']: group['lr'] for group in trainer.optimizer.param_groups})
         if args.enable_wandb:
             wandb.log({k: v.avg for k, v in metric_logger.meters.items()})

@@ -8,7 +8,8 @@
 #
 # Phiên bản chốt ở đây và trong requirements.txt; drive2sim/engine/environment.py (EXPECTED) phải
 # khớp (có test kiểm). Các gói build từ mã nguồn (gsplat-geer, nvdiffrast, pytorch3d) cần CUDA
-# toolkit (nvcc) và mất hàng chục phút; đặt TORCH_CUDA_ARCH_LIST (ví dụ "7.5") để build nhanh hơn.
+# toolkit (nvcc) và mất hàng chục phút (fused-ssim cũng build từ mã nguồn); đặt
+# TORCH_CUDA_ARCH_LIST (ví dụ "7.5") để build nhanh hơn.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -31,6 +32,8 @@ GSPLAT_COMMIT="f15cee2"
 GSPLAT_VERSION=1.5.3
 NVDIFFRAST="git+https://github.com/NVlabs/nvdiffrast.git@v0.4.0"
 PYTORCH3D="git+https://github.com/facebookresearch/pytorch3d.git@v0.7.9"
+# SSIM fused cho Faster-GS (docs/methods/fastergs.md); commit đã kiểm khớp pytorch_msssim.
+FUSED_SSIM="git+https://github.com/rahul-goel/fused-ssim.git@a7c48d6dd7ac6dc39a7958c7c4452e0b10418f38"
 # gsplat-geer clone ngoài repo, để không lẫn vào git của repo.
 GEER_DIR="${D2S_GEER_DIR:-$HOME/.cache/drive2sim/3dgeer}"
 
@@ -75,8 +78,10 @@ if want 4; then
 fi
 
 if want 5; then
-  step "5/7 nvdiffrast, smplx"
+  step "5/7 nvdiffrast, fused-ssim, smplx"
   pip install "$NVDIFFRAST" --no-build-isolation
+  # Build từ mã nguồn, cần PyTorch lúc build nên không để trong requirements.txt (bước 3 build cô lập).
+  pip install "$FUSED_SSIM" --no-build-isolation
   pip install -e "$REPO/third_party/smplx"
 fi
 

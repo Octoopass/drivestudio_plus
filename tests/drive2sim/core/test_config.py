@@ -86,6 +86,7 @@ def _diff_paths(parent: dict, child: dict, prefix: str = "") -> set[str]:
 
 
 FASTGS_BLOCK = {"trainer.fastgs"}
+FASTERGS_BLOCK = {"trainer.fastergs"}
 GEER_CHANGES = {
     "trainer.render.render_mode",
     "trainer.gaussian_ctrl_general_cfg.refine_interval",
@@ -101,6 +102,16 @@ VARIANTS = {
     "streetgs_geer.yaml": ("streetgs_nocampose.yaml", GEER_CHANGES),
     "streetgs_fastgs.yaml": ("streetgs_nocampose.yaml", FASTGS_BLOCK),
     "streetgs_geer_fastgs.yaml": ("streetgs_geer.yaml", FASTGS_BLOCK),
+    "omnire_fastergs.yaml": ("omnire.yaml", FASTERGS_BLOCK),
+    "omnire_fastergs_nocampose.yaml": ("omnire_nocampose.yaml", FASTERGS_BLOCK),
+    "omnire_geer_fastergs.yaml": ("omnire_geer.yaml", FASTERGS_BLOCK),
+    "omnire_fastgs_fastergs.yaml": ("omnire_fastgs.yaml", FASTERGS_BLOCK),
+    "streetgs_fastergs.yaml": ("streetgs.yaml", FASTERGS_BLOCK),
+    "streetgs_fastergs_nocampose.yaml": ("streetgs_nocampose.yaml", FASTERGS_BLOCK),
+    "streetgs_ut_fastergs.yaml": ("streetgs_ut.yaml", FASTERGS_BLOCK),
+    "streetgs_geer_fastergs.yaml": ("streetgs_geer.yaml", FASTERGS_BLOCK),
+    "streetgs_fastgs_fastergs.yaml": ("streetgs_fastgs.yaml", FASTERGS_BLOCK),
+    "streetgs_geer_fastgs_fastergs.yaml": ("streetgs_geer_fastgs.yaml", FASTERGS_BLOCK),
 }
 
 

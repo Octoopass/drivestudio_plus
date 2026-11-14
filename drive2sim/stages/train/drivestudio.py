@@ -1,12 +1,12 @@
 """Stage ``train.drivestudio``: train một cảnh bằng trainer DriveStudio có sẵn.
 
 Stage này không viết lại việc train. Nó chọn một file config method có sẵn trong
-``drive2sim/configs/methods/`` theo bốn tham số (method, renderer, CamPose, FastGS), dựng câu lệnh
-``python -m drive2sim.recon.tools.train`` với dữ liệu và split của run, rồi chạy câu lệnh đó trong
-một tiến trình con (ARCHITECTURE mục 4.3, 4.4).
+``drive2sim/configs/methods/`` theo năm tham số (method, renderer, CamPose, FastGS, Faster-GS),
+dựng câu lệnh ``python -m drive2sim.recon.tools.train`` với dữ liệu và split của run, rồi chạy câu
+lệnh đó trong một tiến trình con (ARCHITECTURE mục 4.3, 4.4).
 
 File này chứa:
-- ``CONFIG_FILES``: bảng tổ hợp (method, renderer, CamPose, FastGS) → file config có sẵn.
+- ``CONFIG_FILES``: bảng tổ hợp (method, renderer, CamPose, FastGS, Faster-GS) → file config.
 - ``TrainDrivestudioParams``: tham số của stage; tổ hợp không có file config bị từ chối ngay khi
   engine kiểm tra tham số, trước khi run bắt đầu.
 - ``build_command``: dựng câu lệnh train từ tham số, split và thư mục; tách riêng để test được
@@ -46,21 +46,31 @@ from drive2sim.stages.scene_view import DRIVESTUDIO_DATASETS, VIEW_SCENE, build_
 Method = Literal["omnire", "streetgs", "pvg", "deformablegs"]
 Renderer = Literal["3dgs", "3dgut", "3dgeer"]
 
-# Tổ hợp (method, renderer, campose, fastgs) → file config có sẵn. Chỉ liệt kê tổ hợp đã có file;
-# thêm tổ hợp mới thì thêm file config rồi thêm một dòng ở đây.
-CONFIG_FILES: dict[tuple[str, str, bool, bool], str] = {
-    ("omnire", "3dgs", True, False): "omnire.yaml",
-    ("omnire", "3dgs", False, False): "omnire_nocampose.yaml",
-    ("omnire", "3dgeer", False, False): "omnire_geer.yaml",
-    ("omnire", "3dgs", False, True): "omnire_fastgs.yaml",
-    ("streetgs", "3dgs", True, False): "streetgs.yaml",
-    ("streetgs", "3dgs", False, False): "streetgs_nocampose.yaml",
-    ("streetgs", "3dgut", False, False): "streetgs_ut.yaml",
-    ("streetgs", "3dgeer", False, False): "streetgs_geer.yaml",
-    ("streetgs", "3dgs", False, True): "streetgs_fastgs.yaml",
-    ("streetgs", "3dgeer", False, True): "streetgs_geer_fastgs.yaml",
-    ("pvg", "3dgs", True, False): "pvg.yaml",
-    ("deformablegs", "3dgs", True, False): "deformablegs.yaml",
+# Tổ hợp (method, renderer, campose, fastgs, fastergs) → file config có sẵn. Chỉ liệt kê tổ hợp đã
+# có file; thêm tổ hợp mới thì thêm file config (kế thừa bằng extends) rồi thêm một dòng ở đây.
+CONFIG_FILES: dict[tuple[str, str, bool, bool, bool], str] = {
+    ("omnire", "3dgs", True, False, False): "omnire.yaml",
+    ("omnire", "3dgs", False, False, False): "omnire_nocampose.yaml",
+    ("omnire", "3dgeer", False, False, False): "omnire_geer.yaml",
+    ("omnire", "3dgs", False, True, False): "omnire_fastgs.yaml",
+    ("omnire", "3dgs", True, False, True): "omnire_fastergs.yaml",
+    ("omnire", "3dgs", False, False, True): "omnire_fastergs_nocampose.yaml",
+    ("omnire", "3dgeer", False, False, True): "omnire_geer_fastergs.yaml",
+    ("omnire", "3dgs", False, True, True): "omnire_fastgs_fastergs.yaml",
+    ("streetgs", "3dgs", True, False, False): "streetgs.yaml",
+    ("streetgs", "3dgs", False, False, False): "streetgs_nocampose.yaml",
+    ("streetgs", "3dgut", False, False, False): "streetgs_ut.yaml",
+    ("streetgs", "3dgeer", False, False, False): "streetgs_geer.yaml",
+    ("streetgs", "3dgs", False, True, False): "streetgs_fastgs.yaml",
+    ("streetgs", "3dgeer", False, True, False): "streetgs_geer_fastgs.yaml",
+    ("streetgs", "3dgs", True, False, True): "streetgs_fastergs.yaml",
+    ("streetgs", "3dgs", False, False, True): "streetgs_fastergs_nocampose.yaml",
+    ("streetgs", "3dgut", False, False, True): "streetgs_ut_fastergs.yaml",
+    ("streetgs", "3dgeer", False, False, True): "streetgs_geer_fastergs.yaml",
+    ("streetgs", "3dgs", False, True, True): "streetgs_fastgs_fastergs.yaml",
+    ("streetgs", "3dgeer", False, True, True): "streetgs_geer_fastgs_fastergs.yaml",
+    ("pvg", "3dgs", True, False, False): "pvg.yaml",
+    ("deformablegs", "3dgs", True, False, False): "deformablegs.yaml",
 }
 RESUME_CHECKPOINT = "checkpoint_resume.pth"
 VIEW_DIR = "scene_view"
@@ -80,6 +90,7 @@ class TrainDrivestudioParams(BaseModel):
         renderer: ``3dgs``, ``3dgut`` hoặc ``3dgeer``.
         campose: Có tối ưu pose camera (node ``CamPose``) không.
         fastgs: Có dùng luật densify kiểu FastGS không.
+        fastergs: Có bật phần Python của Faster-GS không (``docs/methods/fastergs.md``).
         dataset: Config dataset của DriveStudio, dạng ``<thư mục>/<k>cams``, ví dụ
             ``nuscenes/3cams``. Bỏ trống thì chọn theo dataset gốc trong manifest và số camera
             ``k`` của split (``dataset_config_for``).
@@ -95,6 +106,7 @@ class TrainDrivestudioParams(BaseModel):
     renderer: Renderer = "3dgs"
     campose: bool = False
     fastgs: bool = False
+    fastergs: bool = False
     dataset: Optional[str] = None
     num_iters: Optional[int] = Field(default=None, ge=1)
     seed: int = 0
@@ -102,7 +114,7 @@ class TrainDrivestudioParams(BaseModel):
 
     @model_validator(mode="after")
     def _check_config_exists(self) -> "TrainDrivestudioParams":
-        """Kiểm tra tổ hợp (method, renderer, campose, fastgs) có file config sẵn và đọc được.
+        """Kiểm tra tổ hợp (method, renderer, campose, fastgs, fastergs) có config đọc được.
 
         Raises:
             ValueError: Nếu chưa có file config cho tổ hợp này (thông báo liệt kê các tổ hợp có),
@@ -110,13 +122,14 @@ class TrainDrivestudioParams(BaseModel):
         """
         if self.config_key not in CONFIG_FILES:
             available = ", ".join(
-                f"{m}/{r}/campose={c}/fastgs={f}"
-                for (m, r, c, f) in CONFIG_FILES
+                f"{m}/{r}/campose={c}/fastgs={f}/fastergs={g}"
+                for (m, r, c, f, g) in CONFIG_FILES
                 if m == self.method
             )
             raise ValueError(
                 f"chưa có config DriveStudio cho method={self.method}, renderer={self.renderer}, "
-                f"campose={self.campose}, fastgs={self.fastgs}; các tổ hợp có: {available}"
+                f"campose={self.campose}, fastgs={self.fastgs}, fastergs={self.fastergs}; "
+                f"các tổ hợp có: {available}"
             )
         try:
             load_config(self.config_file)
@@ -125,9 +138,9 @@ class TrainDrivestudioParams(BaseModel):
         return self
 
     @property
-    def config_key(self) -> tuple[str, str, bool, bool]:
+    def config_key(self) -> tuple[str, str, bool, bool, bool]:
         """Trả về khoá tra trong ``CONFIG_FILES``."""
-        return (self.method, self.renderer, self.campose, self.fastgs)
+        return (self.method, self.renderer, self.campose, self.fastgs, self.fastergs)
 
     @property
     def config_file(self) -> Path:

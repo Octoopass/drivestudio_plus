@@ -9,6 +9,7 @@ import { RunArtifacts } from "../components/RunArtifacts";
 import { StageRoad } from "../components/StageRoad";
 import { ago, Confirm, count, duration, Empty, ErrorBox, fixed, InfoTip, Loading, Note, optionsText, PageHead, Status, Tabs, useToast } from "../components/ui";
 import { ConfigText } from "../components/ConfigText";
+import { SpeedupText } from "../components/SpeedupText";
 import { useI18n } from "../i18n";
 import { useLive } from "../live";
 import { BetterArrow, visibleGroups } from "../metrics";
@@ -161,6 +162,11 @@ export function RunPage({ runId }: { runId: string }) {
                 <dt>{t("run.facts.options")}</dt>
                 <dd>
                   <ConfigText approachId={data.approach.approach_id} options={data.approach.options ?? {}} preset={data.approach.preset} />
+                  {summary?.speedups && summary.speedups.length > 0 && (
+                    <div>
+                      <SpeedupText speedups={summary.speedups} />
+                    </div>
+                  )}
                 </dd>
               </div>
               <div>

@@ -74,6 +74,8 @@ class ReportRow:
         software: Phiên bản PyTorch và gsplat đã chạy run (từ ``env.json``), ví dụ
             ``PyTorch 2.4.1+cu121, gsplat 1.5.3``. Khác phiên bản thì kết quả có thể lệch dù cùng
             cấu hình, nên trang so sánh cảnh báo khi bảng trộn nhiều bản.
+        speedups: Thuật toán, kỹ thuật tăng tốc thật sự đã bật khi train (``summary.json``), ví
+            dụ ``["fastgs", "fastergs.fused_adam"]``.
     """
 
     run_id: str
@@ -104,6 +106,7 @@ class ReportRow:
     preview_size_mb: Optional[float] = None
     gpu: Optional[str] = None
     software: Optional[str] = None
+    speedups: list[str] = field(default_factory=list)
     stage_times: dict[str, dict[str, object]] = field(default_factory=dict)
 
 
@@ -267,6 +270,7 @@ def report_rows(
             row.train_time_s = summary.train_time_s or row.train_time_s
             row.peak_vram_mb = summary.peak_vram_mb or row.peak_vram_mb
             row.num_iters = summary.num_iters or row.num_iters
+            row.speedups = list(summary.speedups)
         rows.append(row)
     return sorted(rows, key=lambda row: (row.psnr is None, -(row.psnr or 0.0)))
 
@@ -288,5 +292,6 @@ def rows_to_csv(rows: list[ReportRow]) -> str:
         data = asdict(row)
         data.pop("stage_times")
         data["options"] = ";".join(f"{key}={value}" for key, value in row.options.items())
+        data["speedups"] = ";".join(row.speedups)
         writer.writerow(data)
     return buffer.getvalue()

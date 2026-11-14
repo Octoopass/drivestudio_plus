@@ -21,6 +21,7 @@ export type NumGaussians = number | null;
 export type NumIters = number | null;
 export type RenderFps = number | null;
 export type RenderResolution = string | null;
+export type Speedups = string[];
 
 /**
  * Schema của file ``summary.json``: tóm tắt kết quả đánh giá của một run.
@@ -42,6 +43,9 @@ export type RenderResolution = string | null;
  *     render_fps: Tốc độ render khi đánh giá, khung mỗi giây, chỉ tính thời gian model vẽ ảnh
  *         (thêm từ ``d2s-summary/0.3``).
  *     render_resolution: Độ phân giải ảnh khi đo ``render_fps``, dạng ``<rộng>x<cao>``.
+ *     speedups: Thuật toán, kỹ thuật tăng tốc thật sự đã bật khi train, ví dụ ``["fastgs",
+ *         "fastergs.fused_adam"]``; rỗng nếu không bật gì hoặc không biết (thêm từ
+ *         ``d2s-summary/0.4``). Hai run cùng bật Faster-GS nhưng khác kỹ thuật thì khác ở đây.
  */
 export interface Summary {
   schema_version: SchemaVersion;
@@ -55,6 +59,7 @@ export interface Summary {
   num_iters?: NumIters;
   render_fps?: RenderFps;
   render_resolution?: RenderResolution;
+  speedups?: Speedups;
 }
 /**
  * Protocol đánh giá đã dùng cho một run (SPEC mục 9).

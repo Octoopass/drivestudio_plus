@@ -20,6 +20,7 @@ from drive2sim.recon.tools.viewer import create_gsplat_viewer
 from drive2sim.recon.models.gaussians.basics import *
 from drive2sim.recon.utils.geometry import camera_shutter_fraction, interpolate_camera_poses
 from drive2sim.recon.speedups.fastgs import FastGS
+from drive2sim.recon.speedups.fastergs import FasterGS
 
 logger = logging.getLogger()
 
@@ -70,6 +71,7 @@ class BasicTrainer(nn.Module):
         losses: OmegaConf = None,
         render: OmegaConf = None,
         fastgs: OmegaConf = None,
+        fastergs: OmegaConf = None,
         res_schedule: OmegaConf = None,
         gaussian_optim_general_cfg: OmegaConf = None,
         gaussian_ctrl_general_cfg: OmegaConf = None,
@@ -87,6 +89,8 @@ class BasicTrainer(nn.Module):
         self.render_cfg = render
         # FastGS multi-view densification / pruning (drive2sim/recon/speedups/fastgs.py)
         self.fastgs = FastGS(fastgs)
+        # Faster-GS, phần Python (drive2sim/recon/speedups/fastergs.py); tắt thì chạy y như trước
+        self.fastergs = FasterGS(fastergs)
         self._last_render_inputs = None
         self._init_renderer()
         self.res_schedule = res_schedule
@@ -119,7 +123,9 @@ class BasicTrainer(nn.Module):
         
         # metrics
         self.psnr = PeakSignalNoiseRatio(data_range=1.0).to(self.device)
-        self.ssim = SSIM(data_range=1.0, size_average=True, channel=3).to(self.device)
+        self.ssim = self.fastergs.make_ssim(
+            SSIM(data_range=1.0, size_average=True, channel=3)
+        ).to(self.device)
         self.lpips = LearnedPerceptualImagePatchSimilarity(normalize=True).to(self.device)
         self.step = 0
 
@@ -231,7 +237,7 @@ class BasicTrainer(nn.Module):
                 sched_cfg.max_steps = sched_cfg.max_steps - sched_cfg.opt_after
                 lr_schedulers[params_name] = lr_scheduler_fn(sched_cfg, lr_init)
 
-        self.optimizer = torch.optim.Adam(groups, lr=0.0, eps=1e-15)
+        self.optimizer = torch.optim.Adam(groups, lr=0.0, eps=1e-15, **self.fastergs.adam_kwargs())
         self.lr_schedulers = lr_schedulers
         self.grad_scaler = torch.cuda.amp.GradScaler(enabled=self.optim_general.get("use_grad_scaler", False))
 

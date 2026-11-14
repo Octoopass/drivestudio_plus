@@ -29,6 +29,13 @@ def test_make_demo_builds_a_readable_workdir(
     assert first.software == "PyTorch 2.0.0+cu117, gsplat 1.3.0"
     assert rows["20261112-101500-streetgs-c3d4"].software == "PyTorch 2.4.1+cu121, gsplat 1.5.3"
     assert rows["20261112-120500-omnire-d9e0"].quick is True
+    assert first.speedups == ["fastgs"]
+    assert rows["20261113-090000-omnire-fa57"].speedups == [
+        "fastgs",
+        "fastergs.fused_adam",
+        "fastergs.fused_ssim",
+        "fastergs.fewer_syncs",
+    ]
     stale = [e for e in cache_entries(work) if not e.used_by]
     assert [e.cache_key for e in stale] == [
         "nuscenes_scene-0061/prep.masks_segformer@0.1.0-0badf00d"

@@ -535,5 +535,11 @@
   "new.track.fisheye": "Fisheye",
   "new.camera.mismatch": "không vẽ được camera của cảnh ({models})",
   "new.camera.unfit": "Không hợp camera cảnh",
-  "new.field.camera": "Camera"
+  "new.field.camera": "Camera",
+  "speedup.ran": "Đã chạy: {items}",
+  "speedup.fastgs": "FastGS",
+  "speedup.fastergs": "Faster-GS",
+  "speedup.fastergs.fused_adam": "Adam fused",
+  "speedup.fastergs.fused_ssim": "SSIM fused",
+  "speedup.fastergs.fewer_syncs": "bớt chờ GPU"
 }

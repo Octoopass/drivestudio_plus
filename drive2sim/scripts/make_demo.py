@@ -564,6 +564,9 @@ def make_run(
                     "dynamic_psnr": round(psnr - 2.6, 2), "occupied_psnr": round(psnr - 0.8, 2)},
         "train_time_s": train_time, "peak_vram_mb": spec["vram"], "num_gaussians": gaussians,
         "num_iters": iters, "render_fps": spec["fps"], "render_resolution": "800x450",
+        "speedups": (["fastgs"] if spec["options"]["fastgs"] else [])
+        + (["fastergs.fused_adam", "fastergs.fused_ssim", "fastergs.fewer_syncs"]
+           if spec["options"]["fastergs"] else []),
     }  # fmt: skip
     eval_dir = stage_dir(run_dir, "eval.standard")
     files.dump(Summary.model_validate(summary), eval_dir / "summary.json")
@@ -678,6 +681,12 @@ RUNS: list[dict[str, Any]] = [
      "created": "2026-11-12T19:00:00Z", "executor": "kaggle", "machines": ["T4"],
      "psnr": 27.95, "ssim": 0.866, "lpips": 0.205, "train_time": 7480.0, "vram": 12310,
      "gaussians": 1998000, "fps": 27.4},
+    # Cùng cấu hình với run đầu, bật thêm Faster-GS (phần Python): nhanh hơn, metric gần như giữ nguyên.
+    {"run_id": "20261113-090000-omnire-fa57", "scene": "nuscenes_scene-0061", "approach": "omnire",
+     "options": {"renderer": "3dgs", "campose": False, "fastgs": True, "fastergs": True},
+     "created": "2026-11-13T09:00:00Z", "executor": "kaggle", "machines": ["T4"],
+     "psnr": 27.63, "ssim": 0.861, "lpips": 0.198, "train_time": 3540.8, "vram": 7310,
+     "gaussians": 1281000, "fps": 38.9},
     # Hai run trên split thứ hai của nuScenes (every_nth_frame:8), để thử bảng trộn nhiều split.
     {"run_id": "20261112-210000-omnire-b3e1", "scene": "nuscenes_scene-0061", "approach": "omnire",
      "options": {"renderer": "3dgs", "campose": False, "fastgs": True}, "preset": "fastgs",
@@ -690,6 +699,11 @@ RUNS: list[dict[str, Any]] = [
      "psnr": 25.37, "ssim": 0.829, "lpips": 0.236, "train_time": 3105.8, "vram": 10480,
      "gaussians": 1730000, "fps": 52.9},
 ]  # fmt: skip
+
+
+# Mục cấu hình thêm sau khi các run mẫu được viết: run cũ ghi giá trị mặc định.
+for _spec in RUNS:
+    _spec["options"].setdefault("fastergs", False)
 
 
 def main(argv: Optional[list[str]] = None) -> int:

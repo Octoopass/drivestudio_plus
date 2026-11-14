@@ -107,7 +107,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "approach": "d2s-approach/0.3",
     "artifact": "d2s-artifact/0.2",
     "run": "d2s-run/0.3",
-    "summary": "d2s-summary/0.3",
+    "summary": "d2s-summary/0.4",
     "env": "d2s-env/0.2",
     "preview": "d2s-preview/0.1",
     "job": "d2s-job/0.1",
@@ -1128,6 +1128,9 @@ class Summary(VersionedFile):
         render_fps: Tốc độ render khi đánh giá, khung mỗi giây, chỉ tính thời gian model vẽ ảnh
             (thêm từ ``d2s-summary/0.3``).
         render_resolution: Độ phân giải ảnh khi đo ``render_fps``, dạng ``<rộng>x<cao>``.
+        speedups: Thuật toán, kỹ thuật tăng tốc thật sự đã bật khi train, ví dụ ``["fastgs",
+            "fastergs.fused_adam"]``; rỗng nếu không bật gì hoặc không biết (thêm từ
+            ``d2s-summary/0.4``). Hai run cùng bật Faster-GS nhưng khác kỹ thuật thì khác ở đây.
     """
 
     FILE_KIND: ClassVar[str] = "summary"
@@ -1141,6 +1144,7 @@ class Summary(VersionedFile):
     num_iters: Optional[int] = Field(default=None, ge=0)
     render_fps: Optional[float] = Field(default=None, ge=0)
     render_resolution: Optional[str] = None
+    speedups: list[str] = []
 
 
 class Machine(StrictModel):

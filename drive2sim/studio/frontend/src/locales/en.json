@@ -535,5 +535,11 @@
   "new.track.fisheye": "Fisheye",
   "new.camera.mismatch": "cannot render the scene's cameras ({models})",
   "new.camera.unfit": "Wrong camera type",
-  "new.field.camera": "Cameras"
+  "new.field.camera": "Cameras",
+  "speedup.ran": "Ran with: {items}",
+  "speedup.fastgs": "FastGS",
+  "speedup.fastergs": "Faster-GS",
+  "speedup.fastergs.fused_adam": "fused Adam",
+  "speedup.fastergs.fused_ssim": "fused SSIM",
+  "speedup.fastergs.fewer_syncs": "fewer GPU syncs"
 }

@@ -59,7 +59,7 @@ def test_allowed_combinations_have_config(path: Path) -> None:
     combinations = allowed_combinations(approach)
     assert combinations
     for chosen in combinations:
-        key = (method, chosen["renderer"], chosen["campose"], chosen["fastgs"])
+        key = (method, chosen["renderer"], chosen["campose"], chosen["fastgs"], chosen["fastergs"])
         assert key in CONFIG_FILES, f"{path.stem}: không có config cho {chosen}"
 
 

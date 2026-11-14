@@ -70,6 +70,8 @@ def test_every_config_file_exists() -> None:
 def test_params_pick_existing_config() -> None:
     params = TrainDrivestudioParams(method="streetgs", renderer="3dgeer", fastgs=True)
     assert params.config_file.name == "streetgs_geer_fastgs.yaml"
+    params = TrainDrivestudioParams(method="streetgs", renderer="3dgut", fastergs=True)
+    assert params.config_file.name == "streetgs_ut_fastergs.yaml"
     assert TrainDrivestudioParams(method="omnire", campose=True).config_file.name == "omnire.yaml"
 
 
@@ -271,6 +273,7 @@ def test_eval_adds_train_stats_and_render_speed(tmp_path: Path) -> None:
                 "peak_vram_mb": 7400,
                 "num_gaussians": 1250000,
                 "gaussians_per_node": {"Background": 1000000, "RigidNodes": 250000},
+                "speedups": ["fastgs", "fastergs.fused_adam"],
             }
         )
     )
@@ -281,9 +284,10 @@ def test_eval_adds_train_stats_and_render_speed(tmp_path: Path) -> None:
     assert (summary.train_time_s, summary.peak_vram_mb) == (4100.5, 7400)
     assert (summary.num_gaussians, summary.num_iters) == (1250000, 30000)
     assert summary.render_fps == 41.5 and summary.render_resolution == "800x450"
+    assert summary.speedups == ["fastgs", "fastergs.fused_adam"]
     # thiếu train_stats.json thì các trường để trống, không lỗi
     bare = make_summary(read_drivestudio_metrics(tmp_path), "every8_front1", tmp_path)
-    assert bare.train_time_s is None and bare.num_gaussians is None
+    assert bare.train_time_s is None and bare.num_gaussians is None and bare.speedups == []
 
 
 def test_eval_without_metrics(tmp_path: Path) -> None:

@@ -149,6 +149,9 @@ def make_summary(
 
     width, height = optional("render_width"), optional("render_height")
     train_time = (train_stats or {}).get("train_time_s")
+    speedups = (train_stats or {}).get("speedups")
+    if not (isinstance(speedups, list) and all(isinstance(x, str) for x in speedups)):
+        speedups = []
 
     return Summary(
         schema_version=SCHEMA_VERSIONS["summary"],
@@ -180,6 +183,7 @@ def make_summary(
         num_iters=stat("num_iters"),
         render_fps=optional("render_fps"),
         render_resolution=f"{int(width)}x{int(height)}" if width and height else None,
+        speedups=speedups,
     )
 
 

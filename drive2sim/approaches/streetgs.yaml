@@ -60,6 +60,17 @@ options:
       - "Dùng quy tắc thêm, bớt Gaussian của DriveStudio."
       - "Render vài view train, tìm vùng ảnh sai nhiều; chỉ tách hoặc nhân Gaussian góp vào vùng sai đó, và bỏ thêm Gaussian mờ hoặc gây sai."
 
+  fastergs:
+    choices: [false, true]
+    default: false
+    group: speedup
+    label: "Faster-GS"
+    help: "Các kỹ thuật tăng tốc của Faster-GS không đổi kết quả train (docs/methods/fastergs.md): Adam fused, SSIM fused, bớt lần chờ GPU. Dùng được với mọi renderer và cùng FastGS."
+    labels: ["Tắt", "Bật"]
+    descriptions:
+      - "Train như DriveStudio gốc."
+      - "Mỗi bước train chạy nhanh hơn; ảnh và gradient chỉ lệch ở mức làm tròn số thực. Kỹ thuật thật sự đã bật được ghi vào summary.json (speedups)."
+
 constraints:
   - when: {renderer: 3dgut}
     forbid: {campose: true}
@@ -79,6 +90,7 @@ presets:
   ut: {renderer: 3dgut}
   geer: {renderer: 3dgeer}
   fastgs: {fastgs: true}
+  fastergs: {fastergs: true}
   geer_fastgs: {renderer: 3dgeer, fastgs: true}
 
 preset_help:
@@ -86,6 +98,7 @@ preset_help:
   ut: "Renderer 3DGUT, tắt CamPose."
   geer: "Renderer 3DGEER, tắt CamPose."
   fastgs: "Quy tắc FastGS, tắt CamPose."
+  fastergs: "Bật tăng tốc Faster-GS (phần Python) trên cấu hình mặc định: 3DGS, tắt CamPose."
   geer_fastgs: "Renderer 3DGEER kèm quy tắc FastGS."
 stages:
   - {stage: prep.masks_segformer, params: {dynamic: true}}
@@ -95,6 +108,7 @@ stages:
       renderer: "${options.renderer}"
       campose: "${options.campose}"
       fastgs: "${options.fastgs}"
+      fastergs: "${options.fastergs}"
   - {stage: eval.standard}
   - {stage: export.ply_world}
   - {stage: export.preview}
