@@ -4,9 +4,9 @@ File này kiểm tra:
 - mọi file approach đọc được và đúng schema ``d2s-approach``;
 - tên file trùng ``approach_id``;
 - mỗi mô hình camera approach khai báo đều có tổ hợp mục cấu hình nhận được;
-- với approach dòng DriveStudio, mọi tổ hợp mục cấu hình mà ràng buộc cho phép đều có file config
-  method tương ứng trong ``CONFIG_FILES``, để người dùng không chọn được tổ hợp nào mà lúc chạy
-  mới báo thiếu config.
+- với approach dòng DriveStudio (có stage ``train.drivestudio``), mọi tổ hợp mục cấu hình mà
+  ràng buộc cho phép đều có file config method tương ứng trong ``CONFIG_FILES``, để người dùng
+  không chọn được tổ hợp nào mà lúc chạy mới báo thiếu config.
 """
 
 import itertools
@@ -21,10 +21,17 @@ from drive2sim.engine.resolve import camera_models_for
 from drive2sim.stages.train.drivestudio import CONFIG_FILES
 
 APPROACH_FILES = sorted(paths.APPROACHES_DIR.glob("*.yaml"))
+# Approach chạy trainer DriveStudio: mỗi tổ hợp lựa chọn phải có file config method.
+DRIVESTUDIO_FILES = [
+    path
+    for path in APPROACH_FILES
+    if any(entry.stage == "train.drivestudio" for entry in files.load(path, Approach).stages)
+]
 
 
 def test_approach_files_exist() -> None:
-    assert {path.stem for path in APPROACH_FILES} >= {"omnire", "streetgs"}
+    assert {path.stem for path in APPROACH_FILES} >= {"omnire", "streetgs", "gsplat_3dgut"}
+    assert {path.stem for path in DRIVESTUDIO_FILES} == {"omnire", "streetgs"}
 
 
 @pytest.mark.parametrize("path", APPROACH_FILES, ids=lambda path: path.stem)
@@ -51,7 +58,7 @@ def allowed_combinations(approach: Approach) -> list[dict[str, object]]:
     return result
 
 
-@pytest.mark.parametrize("path", APPROACH_FILES, ids=lambda path: path.stem)
+@pytest.mark.parametrize("path", DRIVESTUDIO_FILES, ids=lambda path: path.stem)
 def test_allowed_combinations_have_config(path: Path) -> None:
     approach = files.load(path, Approach)
     train = next(entry for entry in approach.stages if entry.stage == "train.drivestudio")

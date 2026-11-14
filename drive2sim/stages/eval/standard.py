@@ -17,7 +17,10 @@ File này chứa:
 - ``make_summary``: dựng ``Summary`` từ metric và thống kê train đọc được.
 - ``EvalStandardStage``: stage đăng ký với engine.
 
-Giới hạn hiện tại: DriveStudio không tách metric theo camera nên ``per_camera`` để trống. Tách
+Giới hạn hiện tại: DriveStudio không tách metric theo camera nên ``per_camera`` để trống. Trainer
+khác ghi cùng định dạng file (``train.gsplat_3dgut``) có thể ghi thêm khoá
+``image_metrics/test/per_camera/<camera_id>/<psnr|ssim|lpips>``; khi có, stage điền
+``per_camera``. Tách
 đánh giá khỏi ``train.py`` là việc sau (ARCHITECTURE mục 7.2). Phần đo thời gian, VRAM, số
 Gaussian và FPS trong ``train.py`` chưa chạy thật (cần GPU).
 """
@@ -42,6 +45,7 @@ METRIC_PREFIX = "image_metrics/test/"
 SUMMARY_FILE = "summary.json"
 TRAIN_STATS_FILE = "train_stats.json"
 REPORT_FILE = "drivestudio_metrics.json"
+PER_CAMERA_PREFIX = "per_camera"
 
 
 def read_drivestudio_metrics(model_dir: Path) -> dict[str, float]:
@@ -101,12 +105,16 @@ def _resolution_of(model_dir: Path) -> str:
     """Mô tả độ phân giải khi đánh giá, đọc từ ``config.yaml`` DriveStudio ghi trong thư mục train.
 
     Returns:
-        Ví dụ ``"downscale_when_loading=[2, 2, 2], downscale=1"``; ``"unknown"`` nếu không đọc
-        được config.
+        Ví dụ ``"downscale_when_loading=[2, 2, 2], downscale=1"``; không có ``config.yaml`` thì
+        lấy trường ``resolution`` của ``train_stats.json`` (ví dụ ``"downscale=2"``);
+        ``"unknown"`` nếu không có cả hai.
     """
     config_path = model_dir / "config.yaml"
     if not config_path.is_file():
-        return "unknown"
+        # Trainer không phải DriveStudio (train.gsplat_3dgut) ghi mô tả độ phân giải vào
+        # train_stats.json thay cho config.yaml.
+        resolution = read_train_stats(model_dir).get("resolution")
+        return resolution if isinstance(resolution, str) else "unknown"
     pixel = (yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}).get("data", {})
     pixel = pixel.get("pixel_source", {})
     return (
@@ -148,6 +156,13 @@ def make_summary(
         return int(value) if isinstance(value, (int, float)) and value >= 0 else None
 
     width, height = optional("render_width"), optional("render_height")
+    # Metric theo camera, khi trainer ghi khoá ``per_camera/<camera_id>/<metric>`` (trainer
+    # gsplat 3DGUT ghi; DriveStudio không ghi nên per_camera để trống như trước).
+    per_camera: dict[str, dict[str, float]] = {}
+    for key, value in metrics.items():
+        parts = key.split("/")
+        if len(parts) == 3 and parts[0] == PER_CAMERA_PREFIX:
+            per_camera.setdefault(parts[1], {})[parts[2]] = value
     train_time = (train_stats or {}).get("train_time_s")
     speedups = (train_stats or {}).get("speedups")
     if not (isinstance(speedups, list) and all(isinstance(x, str) for x in speedups)):
@@ -177,6 +192,11 @@ def make_summary(
             dynamic_psnr=optional("masked_psnr"),
             occupied_psnr=optional("occupied_psnr"),
         ),
+        per_camera={
+            camera: Metrics(psnr=values["psnr"], ssim=values["ssim"], lpips=values["lpips"])
+            for camera, values in per_camera.items()
+            if {"psnr", "ssim", "lpips"} <= set(values)
+        },
         train_time_s=float(train_time) if isinstance(train_time, (int, float)) else None,
         peak_vram_mb=stat("peak_vram_mb") or None,
         num_gaussians=stat("num_gaussians"),
