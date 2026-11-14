@@ -62,6 +62,8 @@ Install with `pip install -e .` from the repository root (or keep `export PYTHON
 | **Faster-GS speed-ups, Python part**: fused Adam, fused SSIM (`fused-ssim`, same definition as `pytorch_msssim`) and fewer GPU syncs per step. Results only change by floating-point rounding. Off by default; enabled with `trainer.fastergs.enabled: true`, or the Faster-GS switch in Studio. The techniques that really ran are recorded in `summary.json` (`speedups`). | `drive2sim/recon/speedups/fastergs.py`, `fastergs_rules.py` | [docs/methods/fastergs.md](docs/methods/fastergs.md) |
 | **Configs without camera-pose refinement**, so that training and held-out frames use the same dataset poses. | `drive2sim/configs/methods/*_nocampose.yaml` | |
 | **Sky and dynamic masks without mmcv**: a drop-in replacement for `extract_masks.py` that uses the Hugging Face SegFormer-B5 port and runs in the main environment. | `drive2sim/recon/preprocess/masks/segformer_hf.py` | |
+| **KITTI-360 ingest**: two rectified pinhole cameras, two fisheye cameras (the Mei model fitted to OpenCV fisheye `k1..k4`), Velodyne LiDAR and official poses, read straight from the `.tar` files; never reads the third-party `.pkl` metadata. `d2s scene ingest <dir> --sequence <seq> [--start-frame N] [--num-frames N] [--max-gap N]`. LiDAR projection and poses checked against the official chain on sequence 0003. | `drive2sim/ingest/kitti360.py`, `drive2sim/core/camera.py` | [docs/datasets/kitti360.md](docs/datasets/kitti360.md) |
+| **Approach `gsplat_3dgut`**: static-scene 3DGUT reconstruction with gsplat that renders pinhole and fisheye cameras in the same run (LiDAR-seeded Gaussians, optional sky dome, hood mask, fused-ssim, SelectiveAdam or Adam, MCMC densification). Port of the KITTI-360 trainer by our teammate ([thaianh20021/fisheye-fusion-lab](https://github.com/thaianh20021/fisheye-fusion-lab)), reading the tool's scene layout and split. | `drive2sim/recon/tools/train_gsplat_3dgut.py`, `drive2sim/stages/train/gsplat_3dgut.py`, `drive2sim/approaches/gsplat_3dgut.yaml` | [docs/methods/gsplat_3dgut.md](docs/methods/gsplat_3dgut.md) |
 | **World-frame `.ply` export**: writes the static background (optionally with vehicles baked at one frame) in the standard INRIA 3DGS layout, plus a `scene.json` sidecar. DriveStudio's own export normalises positions into a unit box. | `drive2sim/recon/tools/export_ply.py` | |
 
 ### New configs
@@ -178,6 +180,7 @@ This codebase provides support for popular driving datasets. We offer instructio
 | PandaSet | [Data Process Instruction](docs/datasets/pandaset.md) | 6 cameras | 10Hz | ✅ |
 | KITTI | [Data Process Instruction](docs/datasets/kitti.md) | 2 cameras | 10Hz | ✅ |
 | PhysicalAI NCore | [Data Process Instruction](docs/datasets/physicalai.md) | 7 cameras | ~10Hz (processed) | ✅ |
+| KITTI-360 (drive2sim only) | [Ingest guide](docs/datasets/kitti360.md) | 2 pinhole + 2 fisheye | 10Hz | ❌ (not read yet) |
 
 *NOTE: For NuScenes data, LiDAR operates at 20Hz and cameras at 12Hz, but keyframes (with object annotations) are only at 2Hz. We provide a method to interpolate annotations up to 10Hz.
 
