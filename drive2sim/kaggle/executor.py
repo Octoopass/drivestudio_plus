@@ -20,9 +20,11 @@ Notebook cài code bằng ``git clone`` đúng commit của repo, nên commit ph
 File này chứa ``KaggleState``, ``push_run``, ``kernel_state``, ``pull_run``.
 """
 
+import base64
 import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -436,6 +438,56 @@ def _merge_d2s(local: Path, remote_d2s: Path) -> list[str]:
         Các ``stage_id`` chỉ có trên máy đã được giữ lại.
     """
     return remote.merge_d2s(local, remote_d2s)
+
+
+# Notebook train in các file kết quả nhỏ vào log sau chữ này (base64 của JSON
+# {đường dẫn: nội dung}), templates/run.ipynb ô cuối.
+RUN_LIGHT_MARKER = "D2S_RUN_LIGHT"
+
+
+def pull_run_light(
+    workdir: Workdir, run_id: str, client: Optional[KaggleClient] = None
+) -> RunRecord:
+    """Tải nhanh file kết quả nhỏ của run (run.json, summary, metric, thống kê) từ log notebook.
+
+    Một lệnh API (``kaggle kernels logs``) thay vì tải cả output: output của một run có hàng nghìn
+    file (cache mặt nạ), tải mất cỡ một giờ và dễ bị 429. Ghép như ``pull_run``; không đánh dấu đã
+    tải về (``pulled_utc``), nên ``pull_run`` (hoặc Studio) vẫn tải đủ sau.
+
+    Raises:
+        KaggleError: Như ``pull_run``; thêm khi run đã tải đủ (ghép bản nhỏ sẽ thay các stage đầy
+            đủ trên máy) hoặc log không có kết quả (notebook theo template cũ, hoặc chưa xong).
+    """
+    client = client or KaggleClient()
+    run_dir = workdir.find_run(run_id)
+    state = load_state(run_dir)
+    if state is None:
+        raise KaggleError(f"run {run_id} chưa đẩy lên Kaggle")
+    if state.pulled_utc is not None:
+        raise KaggleError(f"run {run_id} đã tải đủ kết quả về; không cần --light")
+    reason = _other_account(client, state)
+    if reason:
+        raise KaggleError(reason)
+    match = re.search(RUN_LIGHT_MARKER + r" ([A-Za-z0-9+/=]+)", client.kernel_logs(state.kernel))
+    if match is None:
+        raise KaggleError(
+            f"log của {state.kernel} không có kết quả nhỏ (notebook chưa xong, hoặc theo template "
+            f"cũ); tải đủ bằng d2s kaggle pull {run_id}"
+        )
+    light = json.loads(base64.b64decode(match.group(1)).decode("utf-8"))
+    with tempfile.TemporaryDirectory(dir=_staging(workdir)) as folder:
+        output = Path(folder)
+        for name, text in light.items():
+            target = (output / name).resolve()
+            if output.resolve() not in target.parents:  # chỉ ghi bên trong thư mục tạm
+                raise KaggleError(f"đường dẫn lạ trong kết quả của {state.kernel}: {name}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, "utf-8")
+        try:
+            remote.merge_output(workdir, run_dir, output)
+        except FileNotFoundError:
+            raise KaggleError(f"kết quả nhỏ của {state.kernel} không có run {run_id}") from None
+    return files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
 
 
 def pull_run(workdir: Workdir, run_id: str, client: Optional[KaggleClient] = None) -> RunRecord:

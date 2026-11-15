@@ -43,6 +43,12 @@ def register(
     ):
         parser = actions.add_parser(name, parents=[common], help=help_text)
         parser.add_argument("run_id")
+        if name == "pull":
+            parser.add_argument(
+                "--light",
+                action="store_true",
+                help="chỉ tải các file kết quả nhỏ (metric, thống kê) từ log notebook, rất nhanh",
+            )
         if name == "push":
             parser.add_argument("--branch", default=executor.DEFAULT_BRANCH)
             parser.add_argument(
@@ -110,7 +116,17 @@ def pull(args: argparse.Namespace) -> int:
     Returns:
         ``0`` nếu run đã xong; ``1`` nếu chưa (đẩy lại để chạy tiếp, hoặc xem lỗi).
     """
-    record = executor.pull_run(Workdir.from_env(args.workdir), args.run_id)
+    workdir = Workdir.from_env(args.workdir)
+    if args.light:
+        record = executor.pull_run_light(workdir, args.run_id)
+        emit(
+            args,
+            record.model_dump(mode="json"),
+            f"run {record.run_id}: {record.status} (kết quả nhỏ; tải đủ: d2s kaggle pull "
+            f"{record.run_id})",
+        )
+        return 0 if record.status == "succeeded" else 1
+    record = executor.pull_run(workdir, args.run_id)
     hint = "" if record.status == "succeeded" else f"; chạy tiếp: d2s kaggle push {args.run_id}"
     emit(args, record.model_dump(mode="json"), f"run {record.run_id}: {record.status}{hint}")
     return 0 if record.status == "succeeded" else 1

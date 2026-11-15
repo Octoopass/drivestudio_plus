@@ -431,3 +431,34 @@ def test_client_retries_rate_limited_calls(tmp_path: Path) -> None:
     with pytest.raises(KaggleError, match="429"):
         always._call("kernels", "status", "x")
     assert waits == [60, 60, 180, 600]
+
+
+def test_pull_light_reads_small_files_from_log(
+    setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import base64
+
+    monkeypatch.setenv("D2S_KAGGLE_SMPL_DATASET", "alice/smpl-model")
+    workdir, fake = setup
+    state = executor.push_run(workdir, RUN_ID, client=fake)
+    run_rel = workdir.find_run(RUN_ID).relative_to(workdir.root).as_posix()
+    record = files.load(workdir.find_run(RUN_ID) / D2S_DIR / RUN_FILE, RunRecord)
+    record.status = "succeeded"
+    summary = {"overall": {"psnr": 25.0}}
+    light = {
+        f"{run_rel}/d2s/run.json": record.model_dump_json(),
+        f"{run_rel}/d2s/stages/eval.standard/summary.json": json.dumps(summary),
+    }
+    encoded = base64.b64encode(json.dumps(light).encode()).decode()
+    fake.kernel_logs = lambda slug: f"...\n{executor.RUN_LIGHT_MARKER} {encoded}\n"  # type: ignore
+    pulled = executor.pull_run_light(workdir, RUN_ID, client=fake)
+    run_dir = workdir.find_run(RUN_ID)
+    assert pulled.status == "succeeded"
+    stage = run_dir / D2S_DIR / "stages" / "eval.standard" / "summary.json"
+    assert json.loads(stage.read_text()) == summary
+    assert executor.load_state(run_dir).pulled_utc is None  # vẫn cần tải đủ sau
+    assert executor.load_state(run_dir).kernel == state.kernel
+
+    fake.kernel_logs = lambda slug: "log cũ không có kết quả"  # type: ignore
+    with pytest.raises(KaggleError, match="không có kết quả nhỏ"):
+        executor.pull_run_light(workdir, RUN_ID, client=fake)
