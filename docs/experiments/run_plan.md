@@ -8,6 +8,7 @@ Ký hiệu:
 - **Độ phân giải**: kích thước ảnh lúc train (ảnh gốc thu nhỏ theo `downscale_when_loading` của config dataset).
 - **FGS** = FastGS, **FrGS** = Faster-GS; CamPose tắt ở mọi run.
 - GPU: Kaggle T4 16 GB, trừ khi ghi khác. Mỗi cấu hình chạy một lần: chênh PSNR dưới khoảng 0,1 dB chưa đủ để kết luận.
+- **Code:** run `2d33`, `8d9c`, `453a`, `f8a6`, `6b85`, `ca4b`, `ac56` chạy code trước commit `5bfcd3d` (gom Gaussian theo node chưa tối ưu, `docs/methods/omnire_node_gather.md`); run đẩy sau commit đó chạy code mới, nhanh hơn mỗi bước mà kết quả không đổi. Khi so thời gian train, chỉ so các run cùng loại code.
 
 Cảnh dùng:
 - nuScenes `scene-0061`: 191 khung (nội suy lên 10 Hz), ~19 s, 91 m, 6 camera pinhole 1600×900.
