@@ -217,14 +217,19 @@ def test_approaches_include_prep_stages() -> None:
     assert "prep.smpl" not in stages["streetgs"]
 
 
-def test_smpl_refuses_dataset_without_human_box_step(tmp_path: Path) -> None:
-    # KITTI-360 train được bằng DriveStudio nhưng chưa có bước chiếu box người
-    with pytest.raises(ValueError, match="kitti360"):
-        build_smpl_command("kitti360", tmp_path)
+def test_smpl_command_for_kitti360_reuses_kitti_branch(tmp_path: Path) -> None:
+    # KITTI-360 có nhánh riêng trong smpl/run.py (dùng lại phép chiếu box của KITTI)
+    command = build_smpl_command("kitti360", tmp_path)
+    assert command[command.index("--dataset") + 1] == "kitti360"
     assert "kitti" in build_smpl_command("kitti", tmp_path)
+    # chỉ hai camera pinhole (đọc file: module import OpenCV, không có trong môi trường test nhẹ)
+    source = (paths.PACKAGE_DIR / "recon" / "preprocess" / "kitti360" / "human.py").read_text()
+    assert "CAMERA_LIST = [0, 1]" in source
 
 
-def test_smpl_skips_scene_without_people_when_dataset_has_no_step(tmp_path: Path) -> None:
+def test_smpl_skips_kitti_layout_scene_without_people(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     scene = make_scene(tmp_path)
     ctx = Context(scene, tmp_path / "cache" / "smpl")
     kitti = dict(
@@ -236,7 +241,22 @@ def test_smpl_skips_scene_without_people_when_dataset_has_no_step(tmp_path: Path
     (scene / "instances" / "instances_info.json").write_text(json.dumps(cars))
     assert PrepSmplStage().run(ctx, {}, NoParams()) == {"smpl": ctx.output_dir}
     assert not (ctx.output_dir / "humanpose").exists()
+    # Có người: chạy 4D-Humans như mọi dataset (ở đây giả lập lệnh)
     people = {**cars, "1": {"id": 1, "class_name": "Pedestrian"}}
     (scene / "instances" / "instances_info.json").write_text(json.dumps(people))
-    with pytest.raises(RuntimeError, match="1 người"):
-        PrepSmplStage().run(ctx, {}, NoParams())
+    calls: list[list[str]] = []
+
+    def fake_run(command: list[str], log_path: Path, **kwargs: object) -> None:
+        calls.append(command)
+        view = Path(command[command.index("--data_root") + 1]) / "000"
+        (view / "humanpose").mkdir(exist_ok=True)
+        (view / "humanpose" / "smpl.pkl").write_text("new")
+
+    monkeypatch.setattr(smpl, "run_logged", fake_run)
+    model = tmp_path / "SMPL_NEUTRAL.pkl"
+    model.write_text("smpl")
+    monkeypatch.setenv("D2S_SMPL_MODEL", str(model))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    PrepSmplStage().run(ctx, {}, NoParams())
+    assert calls[0][calls[0].index("--dataset") + 1] == "kitti360"
+    assert (ctx.output_dir / "humanpose" / "smpl.pkl").read_text() == "new"

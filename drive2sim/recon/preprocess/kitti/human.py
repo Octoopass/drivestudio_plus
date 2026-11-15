@@ -117,9 +117,11 @@ def project_human_boxes(
             intrinsic = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float32)
             
             # load image
-            ori_image = cv2.imread(
-                os.path.join(images_dir, f"{str(frame_id).zfill(3)}_{cam_id}.jpg")
-            )
+            # drive2sim: KITTI ghi ảnh .jpg, KITTI-360 (cùng khung thư mục) ghi .png
+            image_path = os.path.join(images_dir, f"{str(frame_id).zfill(3)}_{cam_id}.jpg")
+            if not os.path.exists(image_path):
+                image_path = image_path[:-len(".jpg")] + ".png"
+            ori_image = cv2.imread(image_path)
             image = ori_image.copy()
             H, W = image.shape[:2]
             

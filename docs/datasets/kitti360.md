@@ -104,7 +104,7 @@ Chuỗi `2013_05_28_drive_0003_sync`, 30 khung từ khung gốc 167 (`--start-fr
 ## 7. Chưa làm
 
 - Train OmniRe, Street GS trên cảnh KITTI-360: cần loader KITTI đọc camera mắt cá và config dataset `kitti360` (đang làm, ARCHITECTURE mục 7.1).
-- `prep.smpl` (dựng người bằng SMPL) chưa có nhánh KITTI-360: cảnh có người thì `prep.smpl` báo lỗi. Hướng sửa: thêm nhánh KITTI-360 chạy 4D-Humans trên hai camera pinhole (như nhánh KITTI), hoặc để người thành node biến dạng khi không có SMPL.
+- `prep.smpl` (dựng người bằng SMPL): nhánh KITTI-360 dùng lại phép chiếu box của KITTI (`recon/preprocess/kitti360/human.py`), chạy 4D-Humans trên hai camera pinhole như DriveStudio làm với KITTI; tư thế SMPL nằm trong hệ thế giới nên camera mắt cá vẫn vẽ được người. Người chỉ thấy ở camera mắt cá thì không có SMPL (thành node biến dạng). **Chưa chạy thật** (cần GPU, 4D-Humans).
 - Đoạn đường dài (cả chuỗi 1,4 km): chưa có cách chia và ghép đoạn.
 - `timestamps.txt` thật của ảnh và LiDAR (khi nguồn có) mới được đọc cho ảnh của camera đầu; LiDAR dùng cùng mốc.
 - Interpolate pose cho khung không có pose: không làm, như `kitti360Scripts`.

@@ -105,12 +105,14 @@ if __name__ == "__main__":
         from drive2sim.recon.preprocess.nuscenes.human import project_human_boxes, CAMERA_LIST
     elif args.dataset == "kitti":
         from drive2sim.recon.preprocess.kitti.human import project_human_boxes, CAMERA_LIST
+    elif args.dataset == "kitti360":
+        from drive2sim.recon.preprocess.kitti360.human import project_human_boxes, CAMERA_LIST
     elif args.dataset == "nuplan":
         from drive2sim.recon.preprocess.nuplan.human import project_human_boxes, CAMERA_LIST
     elif args.dataset == "physicalai":
         from drive2sim.recon.preprocess.physicalai.human import project_human_boxes, CAMERA_LIST
     else:
-        raise ValueError(f"Unknown dataset {args.dataset}, please choose from waymo, pandaset, argoverse, nuscenes, kitti, nuplan, physicalai")
+        raise ValueError(f"Unknown dataset {args.dataset}, please choose from waymo, pandaset, argoverse, nuscenes, kitti, kitti360, nuplan, physicalai")
     
     if args.scene_ids is not None:
         scene_ids_list = args.scene_ids

@@ -36,10 +36,12 @@ from drive2sim.stages.scene_view import (
 )
 
 OUTPUT_NAME = "humanpose"
-# Dataset có bước chiếu box người của DriveStudio (nhánh --dataset của
-# recon/preprocess/smpl/run.py).
-# KITTI-360 có loader và config train nhưng chưa có bước này.
-SMPL_DATASETS = set(DRIVESTUDIO_DATASETS) - {"kitti360"}
+# Dataset có bước chiếu box người (nhánh --dataset của recon/preprocess/smpl/run.py): mọi dataset
+# của DriveStudio, cộng KITTI-360 (dùng lại nhánh KITTI, recon/preprocess/kitti360/human.py).
+SMPL_DATASETS = set(DRIVESTUDIO_DATASETS)
+# Dataset theo khung KITTI: lớp người trong instances_info.json là HUMAN_CLASSES, nên đếm được
+# người để bỏ qua 4D-Humans khi cảnh không có ai.
+KITTI_LAYOUT_DATASETS = frozenset({"kitti", "kitti360"})
 VIEW_DIR = "view"
 # Chỗ PHALP và 4D-Humans tìm SMPL, tính từ ~/.cache. Thiếu file thì PHALP tự wget một link đã chết
 # (github.com/classner/up, 404) rồi bỏ qua cảnh, script vẫn thoát 0.
@@ -143,16 +145,9 @@ class PrepSmplStage(Stage):
             RuntimeError: Nếu quy trình lỗi hoặc không ghi ra ``humanpose/smpl.pkl``.
         """
         dataset = ctx.scene.manifest.source.dataset
-        if dataset not in SMPL_DATASETS:
-            # Dataset chưa có bước chiếu box người (KITTI-360): cảnh không có người thì không có
-            # gì để dựng; trả thư mục rỗng, train.drivestudio thấy thiếu smpl.pkl thì tắt
-            # load_smpl. Cảnh có người thì báo lỗi thay vì train mà bỏ người.
-            humans = scene_humans(ctx.scene.root)
-            if humans:
-                raise RuntimeError(
-                    f"prep.smpl chưa hỗ trợ dataset {dataset}, mà cảnh có {humans} người "
-                    "(instances/instances_info.json)"
-                )
+        if dataset in KITTI_LAYOUT_DATASETS and not scene_humans(ctx.scene.root):
+            # Cảnh không có người: không có gì để dựng, khỏi chạy 4D-Humans (tốn GPU). Trả thư mục
+            # rỗng; train.drivestudio thấy thiếu smpl.pkl thì tắt load_smpl.
             (ctx.output_dir / LOG_FILE).write_text(
                 f"cảnh {dataset} không có người: bỏ qua bước dựng SMPL\n", "utf-8"
             )
