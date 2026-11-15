@@ -127,5 +127,8 @@ def ingest_kernel(scene: Optional[str], sequence: Optional[str], source: str) ->
     middle = name
     if sequence:
         match = _DIGITS.search(sequence)
-        middle = f"{name}-{match.group(1) if match else slug(sequence)}"
+        number = match.group(1) if match else slug(sequence)
+        # Tên nguồn đã có số chuỗi (d2s-raw-kitti360-0003) thì không lặp lại.
+        if not name.endswith(f"-{number}"):
+            middle = f"{name}-{number}"
     return _fit("d2s-ingest", middle, "")

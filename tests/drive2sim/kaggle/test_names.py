@@ -67,6 +67,11 @@ def test_scene_dataset_and_ingest_kernel() -> None:
         == "d2s-ingest-kitti360-0003"
     )
     assert names.ingest_kernel("kitti360_0003_a", None, "x/y") == "d2s-ingest-kitti360-0003-a"
+    # nguồn đã mang số chuỗi: không lặp
+    assert (
+        names.ingest_kernel(None, "2013_05_28_drive_0003_sync", "alice/d2s-raw-kitti360-0003")
+        == "d2s-ingest-kitti360-0003"
+    )
 
 
 def test_resume_from_legacy_hash_named_notebook(

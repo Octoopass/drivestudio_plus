@@ -410,3 +410,24 @@ def test_other_account_is_named(setup: tuple[Workdir, FakeKaggle]) -> None:
     fake.kernel_status = lambda slug: "error"  # type: ignore[method-assign]
     with pytest.raises(KaggleError, match="không đọc được notebook cũ"):
         executor.push_run(workdir, RUN_ID, client=fake)
+
+
+def test_client_retries_rate_limited_calls(tmp_path: Path) -> None:
+    replies = [(1, "", "429 Client Error: Too Many Requests"), (0, "ok\n", "")]
+    waits: list[float] = []
+
+    def runner(command: list[str]) -> subprocess.CompletedProcess:
+        code, out, err = replies.pop(0)
+        return subprocess.CompletedProcess(command, code, out, err)
+
+    client = KaggleClient(runner=runner, config_dir=tmp_path, sleep=waits.append)
+    assert client._call("kernels", "status", "x") == "ok\n"
+    assert waits == [60]
+    always = KaggleClient(
+        runner=lambda c: subprocess.CompletedProcess(c, 1, "", "429 Too Many Requests"),
+        config_dir=tmp_path,
+        sleep=waits.append,
+    )
+    with pytest.raises(KaggleError, match="429"):
+        always._call("kernels", "status", "x")
+    assert waits == [60, 60, 180, 600]

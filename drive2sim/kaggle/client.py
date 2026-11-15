@@ -29,6 +29,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Optional
@@ -62,6 +63,8 @@ class KaggleError(RuntimeError):
 # Một lệnh kaggle chạy lâu nhất bao lâu. Tải output của một run (vài GB, hàng nghìn file) qua mạng
 # chậm mất hơn một giờ (đã gặp: 2,4 GB ở khoảng 0,7 MB/s), nên để 6 giờ.
 CLI_TIMEOUT_S = 6 * 3600
+# Gặp 429 (quá nhiều lệnh API) thì chờ lần lượt các khoảng này rồi thử lại.
+RATE_LIMIT_WAITS_S = (60, 180, 600)
 
 
 def _run_cli(command: Sequence[str]) -> "subprocess.CompletedProcess[str]":
@@ -85,6 +88,7 @@ class KaggleClient:
         config_dir: Thư mục chứa ``kaggle.json``; mặc định như Kaggle CLI (``default_config_dir``).
         token_dir: Thư mục chứa ``access_token`` và ``credentials.json``; mặc định ``~/.kaggle``
             (Kaggle CLI cố định chỗ này).
+        sleep: Hàm chờ khi Kaggle báo 429 (test thay).
     """
 
     def __init__(
@@ -92,8 +96,10 @@ class KaggleClient:
         runner: Optional[Runner] = None,
         config_dir: Optional[Path] = None,
         token_dir: Optional[Path] = None,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._runner = runner or _run_cli
+        self._sleep = sleep
         self._config_dir = config_dir or default_config_dir()
         self._token_dir = token_dir or default_token_dir()
 
@@ -106,11 +112,18 @@ class KaggleClient:
         Raises:
             KaggleError: Nếu lệnh thoát khác 0; thông báo kèm stderr.
         """
-        result = self._runner(["kaggle", *args])
-        if result.returncode != 0:
-            message = (result.stderr or result.stdout).strip().splitlines()
-            raise KaggleError(f"kaggle {args[0]} {args[1]} lỗi: {' '.join(message[-3:])}")
-        return result.stdout
+        for wait in (*RATE_LIMIT_WAITS_S, None):
+            result = self._runner(["kaggle", *args])
+            if result.returncode == 0:
+                return result.stdout
+            text = result.stderr or result.stdout
+            # Kaggle giới hạn số lệnh API (429 Too Many Requests), hay gặp khi đang tải output
+            # nhiều file song song: chờ rồi thử lại thay vì báo lỗi ngay.
+            if wait is None or "429" not in text:
+                break
+            self._sleep(wait)
+        message = text.strip().splitlines()
+        raise KaggleError(f"kaggle {args[0]} {args[1]} lỗi: {' '.join(message[-3:])}")
 
     def login(self) -> tuple[Optional[str], Optional[str]]:
         """Tài khoản và nguồn khoá Kaggle CLI thật sự dùng (``kaggle config view``).

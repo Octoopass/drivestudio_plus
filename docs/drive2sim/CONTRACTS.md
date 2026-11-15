@@ -880,7 +880,7 @@ Mọi lỗi trả về cùng một hình dạng, HTTP status theo loại:
 | 409 | `conflict` | Đối tượng đã tồn tại, hoặc run đang chạy mà bị yêu cầu xoá | 1 |
 | 422 | `blocked` | Không thoả điều kiện dữ liệu hoặc `constraints` (mục 4.2) | 3 |
 | 500 | `internal` | Lỗi không lường trước; `message` không lộ traceback, traceback vào log | 1 |
-| 502 | `kaggle_failed` | Lệnh `kaggle` lỗi: chưa cài, chưa có khoá API, commit chưa push, notebook trước còn chạy | 1 |
+| 502 | `kaggle_failed` | Lệnh `kaggle` lỗi: chưa cài, chưa có khoá API, commit chưa push, notebook trước còn chạy, vẫn bị giới hạn 429 sau 3 lần chờ (60, 180, 600 s) | 1 |
 | 502 | `colab_failed` | Lệnh `colab` lỗi: chưa cài, chưa đăng nhập, commit chưa push, thiếu file SMPL, VM đang chạy job khác, phiên đã mất | 1 |
 | 503 | `worker_unavailable` | Worker render chưa sẵn sàng hoặc đã chết | 1 |
 
