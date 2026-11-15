@@ -406,7 +406,7 @@ drivestudio_plus/                          branch drive2sim
 ├── docs/
 │   ├── datasets/                          hướng dẫn tải và tiền xử lý: <dataset>.md, human_pose.md; overview.md (so sánh camera, độ dài cảnh, quãng đường)
 │   ├── experiments/                       run_plan.md: bảng benchmark các lượt run (pinhole, fisheye)
-│   ├── methods/                           ghi chú phương pháp: 3dgeer.md, fastgs.md, fastergs.md, densify_3dgut.md (densify và ngưỡng của 3DGUT)
+│   ├── methods/                           ghi chú phương pháp: 3dgeer.md, fastgs.md, fastergs.md, densify_3dgut.md (densify và ngưỡng của 3DGUT), omnire_node_gather.md (gom Gaussian theo node của OmniRe)
 │   ├── media/                             hình cho README
 │   └── drive2sim/                         SPEC.md, ARCHITECTURE.md, CONTRACTS.md
 ├── drive2sim/

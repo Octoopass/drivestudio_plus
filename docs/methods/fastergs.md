@@ -24,16 +24,7 @@ Bản gốc chạy trong NeRFICG, rasterizer riêng `FasterGSCudaBackend` chỉ 
 
 ## Ngoài Faster-GS: gom Gaussian theo node của OmniRe
 
-Profile OmniRe (mục trên) cho thấy kernel lớn nhất là `indexing_backward_kernel_small_stride` (~98 ms/bước ở bước 20 000, run `2d33`, `8d9c`): backward của phép lấy phần tử theo mặt nạ hoặc chỉ số (`x[mask]`, `x[idx]`), loại gom Gaussian theo node mà Faster-GS không chạm tới. Hai chỗ trong code DriveStudio (không thuộc patch của Bosch), đã sửa:
-
-- `get_gaussians` của nền (`VanillaGaussians`), xe (`RigidNodes`), node biến dạng (`DeformableNodes`) lấy 5 tensor qua `filter_mask`, mà mặt nạ này **luôn toàn True**: chỉ thêm một bản sao và một backward kiểu scatter. Nay dùng thẳng tensor (`torch.cat` khi gộp các node đã tạo tensor mới, nên không dùng chung bộ nhớ với tham số).
-- Mỗi Gaussian của xe lấy pose bằng `pose[point_ids]` (hàng trăm nghìn chỉ số trỏ vào vài chục pose): backward sắp xếp chỉ số rồi cộng dồn tuần tự. Nay dùng `torch.index_select` (backward cộng dồn bằng `index_add`); embedding của node biến dạng cũng vậy. Node người (`SMPLNodes`) chưa sửa vì chưa có phép so sánh cho nó.
-
-**Đã đo** trên GPU của máy (Quadro T2000), từng phép riêng: 5 tensor của 1 triệu Gaussian qua mặt nạ toàn True 36,3 ms → 5,8 ms (forward + backward); pose của 40 xe cho 400 000 Gaussian 8,6 ms → 2,3 ms.
-
-**Đã kiểm chứng kết quả không đổi:** dựng nền, xe, node biến dạng thật bằng config OmniRe (dữ liệu ngẫu nhiên nhỏ), so output của `get_gaussians` và gradient của mọi tham số trước và sau khi sửa: 52/57 tensor trùng từng bit, 5 tensor (gradient pose xe, embedding) lệch tối đa 2,5e-7 tương đối, do thứ tự cộng dồn. Test CPU: `tests/drive2sim/recon/models/test_node_gather.py`.
-
-**Chưa đo trên run thật:** mức nhanh hơn của cả bước train. Kế hoạch: OmniRe 3DGS + Faster-GS 2000 bước có profile, so với `profile_step2000.json` của `8d9c` (cùng cấu hình, 260,7 ms GPU/bước).
+Kernel lớn nhất của OmniRe (`indexing_backward`, ~98 ms/bước ở bước 20 000) đến từ cách gom Gaussian theo node, không thuộc Faster-GS. Đã sửa riêng, kết quả không đổi: `omnire_node_gather.md`.
 
 ## Áp dụng vào tầng nào
 
