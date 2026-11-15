@@ -121,6 +121,10 @@ def test_build_command_translates_split(tmp_path: Path) -> None:
     profiled_command = build_command(profiled, split, manifest, view_root, output_dir)
     assert option(profiled_command, "logging.profile_at") == "[2000,20000]"
     assert option(profiled_command, "logging.profile_steps") == "20"
+    assert not any(part.startswith("trainer.densify_stats") for part in command)
+    stats = TrainDrivestudioParams(method="omnire", renderer="3dgut", densify_stats=True)
+    stats_command = build_command(stats, split, manifest, view_root, output_dir)
+    assert option(stats_command, "trainer.densify_stats.enabled") in ("True", "true")
     # --set train.drivestudio.profile_at=2000,20000 cho ra chuỗi; tham số tự đổi sang số
     assert TrainDrivestudioParams(method="omnire", profile_at=["2000", "20000"]).profile_at == [
         2000,

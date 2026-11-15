@@ -240,6 +240,8 @@ def main(args):
     
     # setup optimizer  
     trainer.initialize_optimizer()
+    # drive2sim: thống kê densify (utils/densify_stats.py), khi trainer.densify_stats.enabled
+    trainer.densify_stats.attach(trainer, cfg.log_dir)
     
     # setup metric logger
     metrics_file = os.path.join(cfg.log_dir, "metrics.json")

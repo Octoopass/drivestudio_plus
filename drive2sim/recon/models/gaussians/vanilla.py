@@ -26,6 +26,8 @@ from drive2sim.recon.models.gaussians.basics import *
 logger = logging.getLogger()
 
 class VanillaGaussians(nn.Module):
+    # drive2sim: thống kê densify (utils/densify_stats.py); trainer gắn vào khi bật
+    densify_stats = None
     # refinement_after() / cull_gaussians() apply the FastGS masks set by the trainer
     fastgs_supported = True
 
@@ -162,6 +164,9 @@ class VanillaGaussians(nn.Module):
     ) -> None:
         self.after_train(radii, xys_grad, last_size)
         if step % self.ctrl_cfg.refine_interval == 0:
+            # drive2sim: ghi thống kê densify trước khi refine (utils/densify_stats.py), nếu bật
+            if self.densify_stats is not None:
+                self.densify_stats.record(self, step)
             self.refinement_after(step, optimizer)
 
     def after_train(

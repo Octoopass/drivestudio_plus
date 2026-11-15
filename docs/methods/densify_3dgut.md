@@ -1,6 +1,6 @@
 # Densify và ngưỡng densify của 3DGUT
 
-**Trạng thái:** giải thích và kế hoạch. Ngưỡng densify của 3DGUT **chưa được chỉnh**: config `omnire_ut*.yaml`, `streetgs_ut*.yaml` dùng lại ngưỡng của 3DGS. Cách chỉnh (mục 4) và cách gắn vào code mà không sửa patch của Bosch (mục 5) chưa làm.
+**Trạng thái:** ngưỡng densify của 3DGUT **chưa được chỉnh**: config `omnire_ut*.yaml`, `streetgs_ut*.yaml` dùng lại ngưỡng của 3DGS. Module ghi thống kê densify (mục 5) đã có; hai run thử để chỉnh ngưỡng (mục 4, bước 1–2) đang chạy.
 
 Liên quan: `fastgs.md` (FastGS đổi quy tắc densify), `fastergs.md` (tăng tốc không đổi densify), `3dgeer.md` (renderer 3DGEER và ngưỡng riêng của nó).
 
@@ -57,7 +57,7 @@ Hướng khác (chưa chọn): đổi gradient 3D về "tương đương pixel" 
 
 Patch của Bosch (`base.py`, `postprocess_per_train_step`) giữ nguyên, để luôn chạy lại được đúng bản của Bosch và so sánh:
 
-- **Ghi thống kê densify**: một module riêng (cùng kiểu `drive2sim/recon/speedups/`), bật bằng một khối config (ví dụ `trainer.densify_stats.enabled`), mặc định tắt; chỉ đọc gradient đã có, không đổi việc densify.
+- **Ghi thống kê densify** (đã có): `drive2sim/recon/utils/densify_stats.py`, bật bằng `trainer.densify_stats.enabled` (stage: `--set train.drivestudio.densify_stats=true`), mặc định tắt. Ngay trước mỗi lần refine, mỗi lớp Gaussian ghi một dòng vào `densify_stats.jsonl` trong thư mục stage: các phân vị 50/75/90/95/99 % của đại lượng densify (trung bình trên các ảnh đã thấy Gaussian), ngưỡng, số và tỉ lệ Gaussian vượt ngưỡng. Chỉ đọc; móc vào `VanillaGaussians.postprocess_per_train_step` (code DriveStudio), không đụng nhánh `ut` trong `base.py`.
 - **Ngưỡng đã chỉnh**: một config biến thể kế thừa bằng `extends` (ví dụ `omnire_ut_calibrated.yaml` chỉ khác `omnire_ut.yaml` ở `densify_grad_thresh`), cộng một mục cấu hình của approach để chọn; config gốc của Bosch vẫn còn để so.
 - Nếu sau này cần đổi về gradient tương đương pixel (mục 4, hướng khác): cũng là module riêng bật bằng config, không sửa nhánh `ut` trong `base.py`.
 

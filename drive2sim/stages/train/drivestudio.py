@@ -109,6 +109,9 @@ class TrainDrivestudioParams(BaseModel):
             (``drive2sim/recon/utils/step_profile.py``); rỗng là không đo. Chỉ dùng trong run đo
             riêng, vì profiler làm chậm các bước được đo.
         profile_steps: Số bước mỗi lần đo.
+        densify_stats: Ghi phân bố của đại lượng densify ở mỗi lần refine vào
+            ``densify_stats.jsonl`` (``drive2sim/recon/utils/densify_stats.py``), để chỉnh ngưỡng
+            densify theo renderer (``docs/methods/densify_3dgut.md``). Chỉ đọc, không đổi kết quả.
         preload_device: Nơi giữ ảnh, mask, lidar đã nạp (``data.preload_device``). Mặc định
             ``cpu``: mỗi bước chỉ chuyển ảnh đang dùng lên GPU (train.py đã làm), nên tiết kiệm vài
             GB GPU mà kết quả như ``cuda``. OmniRe 3 camera trên T4 16 GB hết bộ nhớ ở bước ~8800
@@ -128,6 +131,7 @@ class TrainDrivestudioParams(BaseModel):
     overrides: dict[str, object] = {}
     profile_at: list[int] = []
     profile_steps: int = Field(default=30, ge=1)
+    densify_stats: bool = False
     preload_device: Literal["cpu", "cuda"] = "cpu"
 
     @field_validator("profile_at", mode="before")
@@ -313,6 +317,8 @@ def build_command(
     if params.profile_at:
         options["logging.profile_at"] = list(params.profile_at)
         options["logging.profile_steps"] = params.profile_steps
+    if params.densify_stats:
+        options["trainer.densify_stats.enabled"] = True
     options.update(params.overrides)
     command += [f"{key}={_format_value(value)}" for key, value in options.items()]
     return command

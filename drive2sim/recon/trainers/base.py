@@ -21,6 +21,7 @@ from drive2sim.recon.models.gaussians.basics import *
 from drive2sim.recon.utils.geometry import camera_shutter_fraction, interpolate_camera_poses
 from drive2sim.recon.speedups.fastgs import FastGS
 from drive2sim.recon.speedups.fastergs import FasterGS
+from drive2sim.recon.utils.densify_stats import DensifyStats
 
 logger = logging.getLogger()
 
@@ -72,6 +73,7 @@ class BasicTrainer(nn.Module):
         render: OmegaConf = None,
         fastgs: OmegaConf = None,
         fastergs: OmegaConf = None,
+        densify_stats: OmegaConf = None,
         res_schedule: OmegaConf = None,
         gaussian_optim_general_cfg: OmegaConf = None,
         gaussian_ctrl_general_cfg: OmegaConf = None,
@@ -91,6 +93,8 @@ class BasicTrainer(nn.Module):
         self.fastgs = FastGS(fastgs)
         # Faster-GS, phần Python (drive2sim/recon/speedups/fastergs.py); tắt thì chạy y như trước
         self.fastergs = FasterGS(fastergs)
+        # drive2sim: thống kê densify, chỉ đọc (drive2sim/recon/utils/densify_stats.py)
+        self.densify_stats = DensifyStats(densify_stats)
         self._last_render_inputs = None
         self._init_renderer()
         self.res_schedule = res_schedule
