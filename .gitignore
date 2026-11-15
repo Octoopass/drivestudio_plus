@@ -10,6 +10,8 @@ smpl_models/
 /data/
 /cache/
 /runs/
+# dữ liệu gốc chỉ đọc, đúng cấu trúc chính thức của từng dataset (ARCHITECTURE mục 3)
+/sources/
 # cổng của lần `make studio`/`make dev` gần nhất
 /.d2s-studio-ports.env
 # dữ liệu mẫu của `make demo`
