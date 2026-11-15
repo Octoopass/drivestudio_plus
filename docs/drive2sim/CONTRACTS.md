@@ -677,7 +677,7 @@ Dữ liệu gốc lớn (ví dụ KITTI-360 đủ khung, khoảng 8,8 GB một c
 {"kernels": [{"username": "alice", "kernel": "alice/d2s-ingest-nuscenes-mini-0061", "source": "alice/d2s-nuscenes-mini-raw", "commit": "c0ffee...", "pulled_utc": "2026-11-15T10:00:00+00:00"}]}
 ```
 
-Chưa chạy thật khi viết: ô cài môi trường của notebook ingest (`uv`, bản CPU của PyTorch 2.4.1 cho Python 3.10) chưa chạy trên Kaggle.
+Đã chạy thật 15/11/2026 với nuScenes `scene-0061` (ô cài môi trường chạy được trên CPU Kaggle). Chưa train run nào từ cảnh ingest trên Kaggle.
 
 ## 10. Quy tắc đặt tên và CLI
 
