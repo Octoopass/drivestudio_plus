@@ -35,6 +35,10 @@ from drive2sim.stages.scene_view import (
 )
 
 OUTPUT_NAME = "humanpose"
+# Dataset có bước chiếu box người của DriveStudio (nhánh --dataset của
+# recon/preprocess/smpl/run.py).
+# KITTI-360 có loader và config train nhưng chưa có bước này.
+SMPL_DATASETS = set(DRIVESTUDIO_DATASETS) - {"kitti360"}
 VIEW_DIR = "view"
 # Chỗ PHALP và 4D-Humans tìm SMPL, tính từ ~/.cache. Thiếu file thì PHALP tự wget một link đã chết
 # (github.com/classner/up, 404) rồi bỏ qua cảnh, script vẫn thoát 0.
@@ -82,7 +86,7 @@ def build_command(dataset: str, view_root: Path) -> list[str]:
     Raises:
         ValueError: Nếu dataset chưa có bước chiếu box người của DriveStudio.
     """
-    if dataset not in DRIVESTUDIO_DATASETS:
+    if dataset not in SMPL_DATASETS:
         raise ValueError(f"prep.smpl chưa hỗ trợ dataset {dataset}")
     return [
         sys.executable,

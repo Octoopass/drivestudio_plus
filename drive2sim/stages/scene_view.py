@@ -32,6 +32,7 @@ DRIVESTUDIO_DATASETS: dict[str, str] = {
     "argoverse2": "argoverse",
     "pandaset": "pandaset",
     "kitti": "kitti",
+    "kitti360": "kitti360",
     "nuplan": "nuplan",
     "physicalai": "physicalai",
 }
@@ -69,7 +70,7 @@ def build_view(
     if view_root.exists():
         shutil.rmtree(view_root)
     view.mkdir(parents=True)
-    skipped = set(exclude) | set(extra) | {"manifest.yaml", "splits", "reports"}
+    skipped = set(exclude) | set(extra) | {"splits", "reports"}
     for entry in sorted(scene_dir.iterdir()):
         if entry.name not in skipped:
             os.symlink(entry.resolve(), view / entry.name)
