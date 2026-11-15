@@ -27,6 +27,7 @@ ngắt, stage truyền ``--resume_from`` để train tiếp thay vì train lại
 Chưa chạy thật trên GPU: phần dựng lệnh có test, phần gọi DriveStudio sẽ kiểm tra trên Kaggle.
 """
 
+import os
 import sys
 from pathlib import Path
 from typing import ClassVar, Literal, Optional
@@ -102,6 +103,10 @@ class TrainDrivestudioParams(BaseModel):
             (``drive2sim/recon/utils/step_profile.py``); rỗng là không đo. Chỉ dùng trong run đo
             riêng, vì profiler làm chậm các bước được đo.
         profile_steps: Số bước mỗi lần đo.
+        preload_device: Nơi giữ ảnh, mask, lidar đã nạp (``data.preload_device``). Mặc định
+            ``cpu``: mỗi bước chỉ chuyển ảnh đang dùng lên GPU (train.py đã làm), nên tiết kiệm vài
+            GB GPU mà kết quả như ``cuda``. OmniRe 3 camera trên T4 16 GB hết bộ nhớ ở bước ~8800
+            khi để ``cuda`` (config gốc của DriveStudio).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -117,6 +122,7 @@ class TrainDrivestudioParams(BaseModel):
     overrides: dict[str, object] = {}
     profile_at: list[int] = []
     profile_steps: int = Field(default=30, ge=1)
+    preload_device: Literal["cpu", "cuda"] = "cpu"
 
     @field_validator("profile_at", mode="before")
     @classmethod
@@ -285,6 +291,7 @@ def build_command(
         "data.end_timestep": last,
         "data.pixel_source.cameras": camera_indices,
         "data.pixel_source.test_image_stride": stride,
+        "data.preload_device": params.preload_device,
     }
     if not has_sky_masks:
         options["data.pixel_source.load_sky_mask"] = False
@@ -389,7 +396,13 @@ class TrainDrivestudioStage(Stage):
             has_smpl=SMPL_ENTRY in extra,
             config_file=write_method_config(params, ctx.output_dir),
         )
-        env = {}
+        # Số Gaussian đổi liên tục (densify, cull): segment mở rộng đỡ phân mảnh bộ nhớ GPU
+        # (lần hết bộ nhớ trên Kaggle có 2,2 GB đã giữ mà không dùng được).
+        env = {
+            "PYTORCH_CUDA_ALLOC_CONF": os.environ.get(
+                "PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True"
+            )
+        }
         if SMPL_ENTRY in extra:
             # Có người (SMPL) thì trainer cần file mô hình SMPL. Tìm trước khi chạy, để báo rõ
             # ngay thay vì lỗi sau vài phút nạp dữ liệu. output_dir là
