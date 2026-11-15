@@ -13,7 +13,8 @@ data/kitti360/raw/
 ├── calibration/                 calib_cam_to_pose.txt, calib_cam_to_velo.txt, perspective.txt, image_02.yaml, image_03.yaml
 ├── data_poses.zip               hoặc data_poses/<chuỗi>/poses.txt (cam0_to_world.txt để kiểm tra chéo)
 ├── data_2d_raw/                 <chuỗi>_image_0X.tar, hoặc <chuỗi>/image_0X/data_rect|data_rgb/*.png đã giải nén
-└── data_3d_raw/                 <chuỗi>.tar, hoặc <chuỗi>/velodyne_points/data/*.bin
+├── data_3d_raw/                 <chuỗi>.tar, hoặc <chuỗi>/velodyne_points/data/*.bin
+└── data_3d_bboxes.zip           box 3D (tuỳ chọn), hoặc data_3d_bboxes/train/<chuỗi>.xml; tải ở mục "3D data & labels" (cần đăng nhập)
 ```
 
 - File `.tar` được đọc thẳng bằng `tarfile`, không giải nén gì vào thư mục nguồn.
@@ -41,13 +42,27 @@ data/kitti360_<chuỗi>/
 ├── ego_pose/<khung>.txt                  4×4, Velodyne → world; world = hệ Velodyne ở khung đầu của cảnh
 ├── extrinsics/<chỉ số camera>.txt        4×4, camera → Velodyne, trục OpenCV
 ├── intrinsics/<chỉ số camera>.txt        pinhole: fx fy cx cy k1 k2 p1 p2 k3 (méo 0); mắt cá: fx fy cx cy k1 k2 k3 k4
+├── instances/                            instances_info.json, frame_instances.json (khi nguồn có box, mục 3.1)
+├── dynamic_masks/{all,human,vehicle}/    <khung>_<chỉ số camera>.png, mặt nạ vùng box (mục 3.1)
 ├── frame_ids.txt                         số hiệu khung gốc theo thứ tự khung
 ├── timestamps.txt                        micro giây mỗi khung
-├── manifest.yaml                         model theo camera; track fisheye; lidars [velodyne]; cuboids none
+├── manifest.yaml                         model theo camera; track fisheye; lidars [velodyne]; cuboids gt (có box) hoặc none
 └── reports/validation.json
 ```
 
 Chỉ số camera theo thứ tự `image_00, image_01, image_02, image_03` (hoặc thứ tự của `--cameras`); `camera_id` giữ tên thư mục của KITTI-360. Khung KITTI của DriveStudio coi xe trùng hệ LiDAR, nên LiDAR không phải biến đổi. Định dạng intrinsics theo mô hình: CONTRACTS mục 2.1.
+
+### 3.1 Box 3D
+
+Converter đọc `data_3d_bboxes/train/<chuỗi>.xml` (`drive2sim/ingest/kitti360_boxes.py`) và ghi theo đúng định dạng script KITTI của DriveStudio (`drive2sim/recon/preprocess/kitti/process.py`, `save_objects`, `save_dynamic_mask`), để loader KITTI đọc được:
+
+- **Lớp**: chỉ giữ xe và người, đổi sang lớp của loader KITTI: `car` → Car; `truck`, `bus`, `trailer`, `caravan` → Truck; `train` → Tram; `person` → Pedestrian; `rider`, `bicycle`, `motorcycle` → Cyclist. Loader không có lớp riêng cho bus, rơ-moóc, xe máy.
+- **Vật**: nhận diện bằng cặp (`semanticId`, `instanceId`), đánh lại id từ 0. Vật chuyển động có một box mỗi khung (`timestamp` là số hiệu khung); vật đứng yên (`timestamp = -1`) có cùng box ở mọi khung từ `start_frame` tới `end_frame`. Cả hai đều thành node (xe đỗ cũng là node cứng, như DriveStudio làm với KITTI).
+- **Hình học**: `transform` của XML là trục box nhân kích thước; tách thành phép quay và `box_size = [dài, rộng, cao]`, tâm box là `obj_to_world`, đưa về world của cảnh (Velodyne ở khung đầu). Trên chuỗi 0003 mọi box xe có trục x dài nhất và z là chiều cao; 2 trong 1144 box có ma trận lật (định thức âm), được sửa bằng cách đổi chiều trục y.
+- **Mặt nạ vật động**: hình chữ nhật bao 8 góc box chiếu lên ảnh, chỉ khi **mọi** góc nằm trong ảnh (như DriveStudio); với camera mắt cá, góc lệch trục quá 1,45 rad coi như không thấy. `all`: mọi lớp; `human`: Pedestrian, Cyclist; `vehicle`: Car, Truck, Tram.
+- Nguồn không có box thì không ghi `instances/`, báo cáo có cảnh báo `boxes.missing`, `cuboids: none` (OmniRe bị khoá).
+
+Chuỗi 0003 (file `train/`): 37 xe con, 1 xe tải, 1 rơ-moóc chuyển động (box ở khung 104–865), 8 xe con và 2 xe tải đỗ; **không có người**. Kiểm tra bằng mắt 15/11/2026 trên 40 khung (bản 1/5 khung của teammate, từ khung 400): box chiếu lên `image_00`, `image_01` và mắt cá `image_02` trùng xe trong ảnh.
 
 ## 4. Chuỗi biến đổi
 
@@ -88,6 +103,8 @@ Chuỗi `2013_05_28_drive_0003_sync`, 30 khung từ khung gốc 167 (`--start-fr
 
 ## 7. Chưa làm
 
-- Box 3D (`data_3d_bboxes`): converter chưa đọc; `available.cuboids: none`, nên OmniRe, Street GS bị khoá trên cảnh KITTI-360. Hai approach đó cũng chưa có config dataset KITTI-360.
+- Train OmniRe, Street GS trên cảnh KITTI-360: cần loader KITTI đọc camera mắt cá và config dataset `kitti360` (đang làm, ARCHITECTURE mục 7.1).
+- `prep.smpl` (dựng người) trên ảnh mắt cá chưa thử; chuỗi 0003 không có người nên chưa cần.
+- Đoạn đường dài (cả chuỗi 1,4 km): chưa có cách chia và ghép đoạn.
 - `timestamps.txt` thật của ảnh và LiDAR (khi nguồn có) mới được đọc cho ảnh của camera đầu; LiDAR dùng cùng mốc.
 - Interpolate pose cho khung không có pose: không làm, như `kitti360Scripts`.

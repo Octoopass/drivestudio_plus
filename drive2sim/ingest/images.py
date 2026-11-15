@@ -1,13 +1,17 @@
-"""Đọc kích thước ảnh JPEG và PNG từ phần đầu file, không cần thư viện xử lý ảnh.
+"""Đọc kích thước ảnh JPEG và PNG, ghi mặt nạ PNG, không cần thư viện xử lý ảnh.
 
 Ingest, ``source inspect`` và bộ kiểm tra cần biết độ phân giải của ảnh camera nhưng chạy trong
 môi trường nhẹ (không có Pillow, OpenCV). Kích thước nằm sẵn trong phần đầu file: PNG ở khối
 ``IHDR``, JPEG ở khối ``SOF``. File này chứa:
 - ``IMAGE_SUFFIXES``: các đuôi file được coi là ảnh.
 - ``read_image_size``: trả về ``(rộng, cao)`` của một ảnh, hoặc ``None`` nếu không đọc được.
+- ``write_mask_png``: ghi mặt nạ xám 8 bit (0 hoặc 255) gồm các hình chữ nhật, như mặt nạ vật
+  động mà script tiền xử lý của DriveStudio ghi.
 """
 
 import struct
+import zlib
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Optional
 
@@ -72,3 +76,32 @@ def read_image_size(path: Path) -> Optional[tuple[int, int]]:
     except OSError:
         return None
     return None
+
+
+def _png_chunk(kind: bytes, data: bytes) -> bytes:
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+
+def write_mask_png(
+    path: Path, width: int, height: int, rects: Sequence[tuple[int, int, int, int]]
+) -> None:
+    """Ghi mặt nạ PNG xám 8 bit: 255 trong các hình chữ nhật ``(u0, v0, u1, v1)``, 0 ở ngoài.
+
+    ``u1``, ``v1`` không tính (như ``mask[v0:v1, u0:u1] = 255``); toạ độ bị kẹp vào ảnh.
+    """
+    blank = bytes(width + 1)  # mỗi dòng PNG bắt đầu bằng byte bộ lọc 0
+    rows = [blank] * height
+    for u0, v0, u1, v1 in rects:
+        u0, u1 = max(0, u0), min(width, u1)
+        for v in range(max(0, v0), min(height, v1)):
+            row = bytearray(rows[v])
+            row[1 + u0 : 1 + u1] = b"\xff" * max(0, u1 - u0)
+            rows[v] = bytes(row)
+    header = struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)
+    data = zlib.compress(b"".join(rows), 6)
+    path.write_bytes(
+        _PNG_SIGNATURE
+        + _png_chunk(b"IHDR", header)
+        + _png_chunk(b"IDAT", data)
+        + _png_chunk(b"IEND", b"")
+    )

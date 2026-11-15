@@ -31,12 +31,14 @@ File này chứa:
 - ``rig_extrinsics``, ``camera_intrinsics``: dựng extrinsics (camera → Velodyne) và intrinsics.
 - ``select_frames``: chọn đoạn khung liên tục theo pose có sẵn (như ``--max-gap`` của teammate).
 - ``ingest_kitti360``: hàm chính mà ``drive2sim/ingest/dispatch.py`` gọi.
+- ``_write_boxes``: box 3D chính thức → ``instances/`` và ``dynamic_masks/`` (``kitti360_boxes``).
 
 Chuỗi biến đổi đã kiểm trên dữ liệu thật (chiếu LiDAR lên ảnh, so ``cam0_to_world.txt``): xem
 ``docs/datasets/kitti360.md`` và ``drive2sim/scripts/check_kitti360_projection.py``.
 Viết bằng Python thuần (không numpy) để chạy trong môi trường nhẹ của CLI.
 """
 
+import json
 import re
 import shutil
 import tarfile
@@ -55,7 +57,9 @@ from drive2sim.core.camera import (
 )
 from drive2sim.core.schema import Check, ReportSummary, ValidationReport
 from drive2sim.engine.workdir import Workdir
+from drive2sim.ingest import kitti360_boxes
 from drive2sim.ingest.drivestudio import IngestError, default_scene_id
+from drive2sim.ingest.images import read_image_size, write_mask_png
 from drive2sim.ingest.manifest import build_manifest
 from drive2sim.ingest.validate import validate_scene
 
@@ -551,8 +555,9 @@ def ingest_kitti360(
     ``lidar/<khung>.bin`` (chép nguyên, hệ Velodyne), ``ego_pose/<khung>.txt`` (Velodyne → world,
     world là hệ Velodyne ở khung đầu của cảnh), ``extrinsics/<chỉ số>.txt``,
     ``intrinsics/<chỉ số>.txt``, ``frame_ids.txt`` (số hiệu khung gốc theo thứ tự khung),
-    ``timestamps.txt`` (micro giây); rồi chuyển sang ``data/<scene_id>/`` và ghi
-    ``manifest.yaml`` và ``reports/validation.json``.
+    ``timestamps.txt`` (micro giây), và khi nguồn có box 3D thì ``instances/``, ``dynamic_masks/``
+    (``_write_boxes``); rồi chuyển sang ``data/<scene_id>/`` và ghi ``manifest.yaml`` và
+    ``reports/validation.json``.
 
     Báo cáo kiểm tra có thêm: so pose camera 0 của cảnh với ``cam0_to_world.txt`` chính thức,
     sai số khớp Mei → OpenCV fisheye, mốc thời gian danh nghĩa, chỗ hở giữa các khung.
@@ -609,10 +614,11 @@ def ingest_kitti360(
         for name in ("images", "lidar", "ego_pose", "extrinsics", "intrinsics", "reports"):
             (temp_dir / name).mkdir(parents=True)
         extrinsics = rig_extrinsics(calib)
-        models, fits = [], {}
+        models, fits, intrinsic_values = [], {}, []
         for index, camera in enumerate(cameras):
             model, values, fit = camera_intrinsics(calib, camera)
             models.append(model)
+            intrinsic_values.append(values)
             if fit:
                 fits[camera] = fit
             (temp_dir / "intrinsics" / f"{index}.txt").write_text(
@@ -631,6 +637,17 @@ def ingest_kitti360(
             lidar.copy(frame, temp_dir / "lidar" / f"{t:03d}.bin")
             for index, camera in enumerate(cameras):
                 sources[camera].copy(frame, temp_dir / "images" / f"{t:03d}_{index}.png")
+        box_checks = _write_boxes(
+            raw_dir,
+            sequence,
+            temp_dir,
+            frames,
+            ego_poses,
+            world_from_global,
+            [extrinsics[camera] for camera in cameras],
+            models,
+            intrinsic_values,
+        )
         stamps, nominal = _timestamps_us(sources[cameras[0]], frames)
         (temp_dir / "frame_ids.txt").write_text("".join(f"{frame}\n" for frame in frames))
         (temp_dir / "timestamps.txt").write_text("".join(f"{stamp}\n" for stamp in stamps))
@@ -656,7 +673,7 @@ def ingest_kitti360(
     )
     files.dump(manifest, scene_dir / "manifest.yaml")
     report = validate_scene(scene_dir, manifest)
-    checks = [*report.checks, *extra_checks]
+    checks = [*report.checks, *extra_checks, *box_checks]
     report = ValidationReport(
         schema_version=report.schema_version,
         scene_id=report.scene_id,
@@ -669,6 +686,78 @@ def ingest_kitti360(
     )
     files.dump(report, scene_dir / "reports" / "validation.json")
     return scene_dir
+
+
+def _write_boxes(
+    raw_dir: Path,
+    sequence: str,
+    scene_dir: Path,
+    frames: list[int],
+    ego_poses: list[Matrix],
+    world_from_global: Matrix,
+    cam_to_ego: list[Matrix],
+    models: list[str],
+    intrinsic_values: list[list[float]],
+) -> list[Check]:
+    """Ghi ``instances/`` và ``dynamic_masks/{all,human,vehicle}/`` từ box 3D chính thức.
+
+    Định dạng như script KITTI của DriveStudio (``kitti360_boxes``). Nguồn không có box của chuỗi
+    thì không ghi gì và báo cảnh báo: cảnh vẫn dùng được cho approach không cần box (Street GS
+    không có xe động, ``gsplat_3dgut``), còn OmniRe sẽ bị khoá (``requires.cuboids``).
+
+    Returns:
+        Các phép kiểm tra thêm vào báo cáo.
+    """
+    text = kitti360_boxes.box_xml_text(raw_dir, sequence)
+    if text is None:
+        return [
+            _check(
+                "boxes.missing",
+                "warning",
+                f"không có box 3D của {sequence} ({kitti360_boxes.BOX_DIR}.zip hoặc "
+                f"{kitti360_boxes.BOX_DIR}/train/{sequence}.xml); cảnh không có xe, người riêng",
+                {},
+            )
+        ]
+    boxes = kitti360_boxes.read_boxes(text)
+    info, frame_instances = kitti360_boxes.build_instances(boxes, frames, world_from_global)
+    (scene_dir / "instances").mkdir(parents=True, exist_ok=True)
+    (scene_dir / "instances" / "instances_info.json").write_text(json.dumps(info, indent=1))
+    (scene_dir / "instances" / "frame_instances.json").write_text(
+        json.dumps(frame_instances, indent=1)
+    )
+    sizes = [
+        read_image_size(scene_dir / "images" / f"000_{index}.png") for index in range(len(models))
+    ]
+    for group in kitti360_boxes.MASK_GROUPS:
+        (scene_dir / "dynamic_masks" / group).mkdir(parents=True, exist_ok=True)
+    for t, ego in enumerate(ego_poses):
+        for index, model in enumerate(models):
+            width, height = sizes[index]
+            rects = kitti360_boxes.dynamic_mask_rects(
+                info, t, ego, cam_to_ego[index], model, intrinsic_values[index], width, height
+            )
+            for group, group_rects in rects.items():
+                write_mask_png(
+                    scene_dir / "dynamic_masks" / group / f"{t:03d}_{index}.png",
+                    width,
+                    height,
+                    group_rects,
+                )
+    classes: dict[str, int] = {}
+    for value in info.values():
+        classes[value["class_name"]] = classes.get(value["class_name"], 0) + 1
+    return [
+        _check(
+            "boxes.loaded",
+            "info",
+            f"{len(info)} vật có box trong cảnh",
+            {
+                "classes": classes,
+                "frames_with_boxes": sum(bool(v) for v in frame_instances.values()),
+            },
+        )
+    ]
 
 
 def _extra_checks(
