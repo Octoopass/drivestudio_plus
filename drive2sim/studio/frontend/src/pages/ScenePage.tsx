@@ -348,6 +348,7 @@ function Frames({ sceneId, numFrames, splits }: { sceneId: string; numFrames: nu
         </div>
         <span className="dense nowrap" style={{ minWidth: 113 }}>
           {t("scene.frames.frame", { frame, last })}
+          <span className="small faint" style={{ marginLeft: 8 }}>{t("scene.frames.fps", { fps: PLAY_FPS })}</span>
           {kind && <span className={`tag ${kind === "test" ? "warn" : ""}`} style={{ marginLeft: 8 }}>{kind}</span>}
         </span>
         <label className="field" style={{ minWidth: 227 }}>
