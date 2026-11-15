@@ -10,6 +10,18 @@ Faster-GS không đổi thuật toán 3DGS: densify, số Gaussian, chất lư�
 
 Bản gốc chạy trong NeRFICG, rasterizer riêng `FasterGSCudaBackend` chỉ nhận pinhole và SH, chỉ trả RGB; OmniRe cần độ sâu, alpha, fisheye, nên dự án không dùng bản này.
 
+## Giải thích từ nguyên lý gốc
+
+**Mục tiêu khác FastGS.** Faster-GS không đổi việc thêm, bớt Gaussian (densify, `densify_3dgut.md` mục 1) hay số Gaussian; nó chỉ làm **mỗi phép tính trên mỗi Gaussian nhanh hơn**, kết quả giữ nguyên (ảnh trùng từng bit, gradient lệch ở mức làm tròn). FastGS thì làm **ít Gaussian hơn**. Hai cách cộng được với nhau.
+
+**Nó tăng tốc phần nào.** Một bước train gồm: vẽ Gaussian thành ảnh (rasterizer, forward và backward), tính loss (có SSIM), cập nhật tham số (Adam), và phần riêng của từng method. Faster-GS nhắm vào rasterizer (chọn tile chính xác, sort tách hai bước, backward theo từng Gaussian), SSIM (fused SSIM) và Adam (fused Adam). Với 3DGS tĩnh, gần như cả bước là các phần này (paper ghi riêng cập nhật Adam đã chiếm 40–60 % thời gian), nên paper báo nhanh 4–5 lần (Mip-NeRF 360: 18 phút 44 giây → 4 phút 31 giây).
+
+**Vì sao với OmniRe chỉ nhanh khoảng 10 %: định luật Amdahl.** Phần nào không được tăng tốc thì giới hạn tổng. Profile run OmniRe gốc (`2d33`, bước 20 000, khoảng 403 ms GPU mỗi bước): rasterizer khoảng 9 %, optimizer khoảng 14 %, còn khoảng 77 % là phần của OmniRe (gom và biến đổi Gaussian theo node nền, xe, người; kernel lớn nhất `indexing_backward` khoảng 98 ms/bước ở cả run có và không có Faster-GS). Làm 23 % nhanh gấp đôi thì cả bước nhanh khoảng 1 / (0,77 + 0,23/2) ≈ 1,13 lần; làm nó nhanh vô hạn cũng chỉ được 1,3 lần.
+
+**Đã đo** (OmniRe, nuScenes `scene-0061`, `front3`, 30 000 bước, T4, một lần chạy mỗi cấu hình): rasterizer 35 → 28 ms, optimizer 57 → 46 ms ở bước 20 000; thời gian GPU mỗi bước giảm 16 % (bước 2000) và 12 % (bước 20 000); tổng thời gian train 3 giờ 39 phút → 3 giờ 18 phút (−9,6 %); chất lượng như cũ (PSNR 25,15 → 25,20); VRAM tăng khoảng 300 MB. Cộng FastGS (run `f8a6`): 2 giờ 29 phút, nhanh hơn FastGS riêng (2 giờ 47 phút) khoảng 11 %, đúng mức Faster-GS tự giảm được.
+
+**Chưa có so với paper:** dự án chưa port fused activations, buffer SH tách riêng; Z-order đang tắt; bỏ qua Gaussian không nhìn thấy khi cập nhật (skip invisible) đang dừng (mục dưới). Thiếu các phần này chỉ làm mức tăng tốc thấp hơn, không làm sai kết quả. Muốn OmniRe nhanh hơn nhiều phải giảm số Gaussian (FastGS) hoặc tối ưu phần gom Gaussian theo node; cả hai ngoài phạm vi Faster-GS.
+
 ## Áp dụng vào tầng nào
 
 | Phần | Tầng | Nơi sửa |
