@@ -229,9 +229,9 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
 const PLAY_FPS = 10;
 // Cửa sổ trượt quanh khung đang hiện: tải sẵn WINDOW khung phía trước và WINDOW khung phía sau
 // (lùi, tua lại cũng hiện ngay), bỏ các khung ra khỏi cửa sổ. Ảnh giải mã chiếm width × height × 4
-// byte: nuScenes 6 ảnh 1600×900 ≈ 35 MB mỗi khung, nên 21 khung ≈ 730 MB; KITTI-360 ≈ 20 MB mỗi
-// khung, ≈ 420 MB.
-const WINDOW = 10;
+// byte: nuScenes 6 ảnh 1600×900 ≈ 35 MB mỗi khung, nên 11 khung (66 ảnh) ≈ 380 MB; KITTI-360
+// 4 ảnh ≈ 20 MB mỗi khung, 11 khung (44 ảnh) ≈ 220 MB. Dùng chung cho mọi dataset.
+const WINDOW = 5;
 
 /**
  * Tải trước khung ảnh theo cửa sổ trượt ``[khung đang hiện − WINDOW, + WINDOW]`` (vòng về đầu
