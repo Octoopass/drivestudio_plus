@@ -227,44 +227,54 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
 // Tốc độ phát xem trước: các cảnh trong tool đều ~10 Hz (nuScenes nội suy lên 10 Hz, KITTI-360
 // 10 Hz); manifest chưa ghi tần số.
 const PLAY_FPS = 10;
-const PRELOAD_AHEAD = 8;
-const FRAME_CACHE = 64;
+// Ảnh giải mã chiếm width × height × 4 byte (nuScenes: 6 ảnh 1600×900 ≈ 35 MB mỗi khung), nên chỉ
+// giữ ảnh của các khung sắp phát: tối đa PRELOAD_AHEAD khung (≈ 0,5 giây, ≈ 175 MB với nuScenes).
+const PRELOAD_AHEAD = 5;
 
 /**
  * Tải trước khung ảnh: đường dẫn ảnh (``/frames/{i}``) rồi mọi ảnh của khung, giải mã sẵn
- * (``img.decode``), để khi đổi khung trình duyệt vẽ ngay. Giữ tối đa FRAME_CACHE khung gần nhất.
+ * (``img.decode``), để khi đổi khung trình duyệt vẽ ngay.
+ *
+ * Bộ nhớ: chỉ giữ tham chiếu tới ảnh của các khung trong cửa sổ ``(khung đang hiện, + PRELOAD_AHEAD]``;
+ * ``release`` (gọi mỗi lần đổi khung) bỏ tham chiếu các khung ngoài cửa sổ để trình duyệt thu hồi.
+ * Ảnh đang hiện do thẻ ``<img>`` trên trang giữ. Rời trang hoặc đổi cảnh thì bỏ hết.
  */
-function useFramePreloader(sceneId: string) {
+function useFramePreloader(sceneId: string, numFrames: number) {
   return useMemo(() => {
-    const cache = new Map<number, Promise<FrameImages>>();
-    const ready = new Set<number>();
-    const keep: HTMLImageElement[][] = [];
+    const pending = new Map<number, Promise<FrameImages>>();
+    const decoded = new Map<number, { data: FrameImages; imgs: HTMLImageElement[] }>();
+    let current = 0;
+    const inWindow = (index: number) => {
+      const ahead = (index - current + numFrames) % numFrames;
+      return ahead === 0 || ahead <= PRELOAD_AHEAD;
+    };
     const load = (index: number): Promise<FrameImages> => {
-      const hit = cache.get(index);
-      if (hit) return hit;
-      const promise = api<FrameImages>(`/api/scenes/${seg(sceneId)}/frames/${index}`).then(async (data) => {
-        const imgs = data.images.filter((image) => image.url).map((image) => {
-          const img = new Image();
-          img.src = image.url as string;
-          return img;
-        });
-        await Promise.all(imgs.map((img) => img.decode().catch(() => undefined)));
-        keep.push(imgs);
-        if (keep.length > FRAME_CACHE) keep.shift();
-        ready.add(index);
-        return data;
-      });
-      promise.catch(() => cache.delete(index));
-      cache.set(index, promise);
-      if (cache.size > FRAME_CACHE) {
-        const oldest = cache.keys().next().value as number;
-        cache.delete(oldest);
-        ready.delete(oldest);
-      }
+      const hit = decoded.get(index);
+      if (hit) return Promise.resolve(hit.data);
+      const running = pending.get(index);
+      if (running) return running;
+      const promise = api<FrameImages>(`/api/scenes/${seg(sceneId)}/frames/${index}`)
+        .then(async (data) => {
+          const imgs = data.images.filter((image) => image.url).map((image) => {
+            const img = new Image();
+            img.src = image.url as string;
+            return img;
+          });
+          await Promise.all(imgs.map((img) => img.decode().catch(() => undefined)));
+          // Trong lúc tải, khung đang hiện có thể đã đi xa: khung ngoài cửa sổ thì không giữ.
+          if (inWindow(index)) decoded.set(index, { data, imgs });
+          return data;
+        })
+        .finally(() => pending.delete(index));
+      pending.set(index, promise);
       return promise;
     };
-    return { load, isReady: (index: number) => ready.has(index) };
-  }, [sceneId]);
+    const release = (index: number) => {
+      current = index;
+      for (const key of [...decoded.keys()]) if (!inWindow(key)) decoded.delete(key);
+    };
+    return { load, release, isReady: (index: number) => decoded.has(index) };
+  }, [sceneId, numFrames]);
 }
 
 function Frames({ sceneId, numFrames, splits }: { sceneId: string; numFrames: number; splits: string[] }) {
@@ -275,7 +285,7 @@ function Frames({ sceneId, numFrames, splits }: { sceneId: string; numFrames: nu
   // Ảnh đang hiện: giữ khung cũ tới khi mọi ảnh của khung mới đã tải và giải mã xong, để không bị
   // trống, nhấp nháy giữa hai khung.
   const [shown, setShown] = useState<FrameImages | null>(null);
-  const frames = useFramePreloader(sceneId);
+  const frames = useFramePreloader(sceneId, numFrames);
   const frameRef = useRef(frame);
   frameRef.current = frame;
   const split = useApi<Split>(splitId ? `/api/scenes/${seg(sceneId)}/splits/${seg(splitId)}` : null);
@@ -288,6 +298,7 @@ function Frames({ sceneId, numFrames, splits }: { sceneId: string; numFrames: nu
   // Khung đang chọn: hiện ngay khi sẵn sàng (kéo thanh trượt nhanh thì chỉ hiện khung cuối).
   useEffect(() => {
     let cancelled = false;
+    frames.release(frame);
     frames.load(frame).then((data) => !cancelled && frameRef.current === frame && setShown(data)).catch(() => undefined);
     return () => {
       cancelled = true;
