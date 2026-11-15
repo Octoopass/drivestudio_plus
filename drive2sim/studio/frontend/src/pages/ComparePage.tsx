@@ -295,7 +295,7 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
                     <td className="small muted" style={{ maxWidth: 260 }}>
                       <ConfigText approachId={row.approach_id} options={row.options} preset={row.preset} />
                       <div>
-                        <SpeedupText speedups={row.speedups} />
+                        <SpeedupText speedups={row.speedups} compact />
                       </div>
                     </td>
                     {group.metrics.map((metric) => (
