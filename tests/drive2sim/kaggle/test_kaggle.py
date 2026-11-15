@@ -11,6 +11,7 @@
 """
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -80,9 +81,14 @@ class FakeKaggle(KaggleClient):
         """Trạng thái đặt sẵn."""
         return self.status
 
-    def kernel_output(self, slug: str, destination: Path) -> None:
-        """Chép output giả của notebook."""
-        shutil.copytree(self.root / "output" / slug.split("/")[1], destination, dirs_exist_ok=True)
+    def kernel_output(self, slug: str, destination: Path, file_pattern: Optional[str] = None) -> None:
+        """Chép output giả của notebook; như lệnh kaggle, chỉ file có đường dẫn khớp ``file_pattern``."""
+        source = self.root / "output" / slug.split("/")[1]
+        for path in source.rglob("*"):
+            name = path.relative_to(source).as_posix()
+            if path.is_file() and (file_pattern is None or re.search(file_pattern, name)):
+                (destination / name).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, destination / name)
 
 
 def make_workdir(root: Path) -> Workdir:
@@ -297,6 +303,17 @@ def test_resume_picks_newest_attempt_that_has_the_run(tmp_path: Path) -> None:
     kernels = ["alice/d2s-abc-3", "alice/d2s-abc-2", "alice/d2s-abc-1"]
     found = _find_previous_run(tmp_path, record, kernels)  # type: ignore[arg-type]
     assert found is not None and found.relative_to(tmp_path).parts[0] == "d2s-abc-2"
+
+
+def test_skip_local_cache_pattern(tmp_path: Path) -> None:
+    workdir = Workdir(tmp_path)
+    assert executor.skip_local_cache(workdir) is None
+    (workdir.cache_dir / SCENE / "prep.masks@0.1.0-ab12").mkdir(parents=True)
+    pattern = executor.skip_local_cache(workdir)
+    assert not re.search(pattern, f"cache/{SCENE}/prep.masks@0.1.0-ab12/sky/000.png")
+    assert not re.search(pattern, f"work/cache/{SCENE}/prep.masks@0.1.0-ab12/a.png")
+    assert re.search(pattern, f"cache/{SCENE}/prep.masks@0.1.0-cd34/sky/000.png")
+    assert re.search(pattern, f"runs/{SCENE}/omnire/{RUN_ID}/d2s/run.json")
 
 
 def test_pull_does_not_copy_process_files(tmp_path: Path) -> None:

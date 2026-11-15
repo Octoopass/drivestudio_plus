@@ -490,11 +490,26 @@ def pull_run_light(
     return files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
 
 
+def skip_local_cache(workdir: Workdir) -> Optional[str]:
+    """Biểu thức cho ``--file-pattern`` bỏ qua các kết quả cache máy đã có.
+
+    Output của notebook chứa cả ``cache/<cảnh>/<stage>@<khoá>/`` (mask, SMPL: hàng nghìn file nhỏ).
+    Lệnh ``kaggle`` tải từng file một, nên tải lại cache đã có tốn hàng chục phút; ``merge_output``
+    vốn cũng bỏ các mục cache đã có. ``None`` khi máy chưa có cache nào (tải hết).
+    """
+    entries = sorted(p for p in workdir.cache_dir.glob("*/*") if p.is_dir())
+    if not entries:
+        return None
+    skipped = "|".join(re.escape(f"cache/{p.parent.name}/{p.name}/") for p in entries)
+    return f"^(?!.*(?:{skipped}))"
+
+
 def pull_run(workdir: Workdir, run_id: str, client: Optional[KaggleClient] = None) -> RunRecord:
     """Tải output của notebook và ghép vào thư mục làm việc.
 
     Ghép ``d2s/`` của run theo ``_merge_d2s``: bản Kaggle thắng ở mọi stage nó có, stage chỉ có
-    trên máy được giữ lại. Chép thêm các kết quả cache mà máy chưa có; cache đã có giữ nguyên.
+    trên máy được giữ lại. Chép thêm các kết quả cache mà máy chưa có; cache đã có không tải lại
+    (``skip_local_cache``).
 
     Returns:
         ``run.json`` sau khi ghép.
@@ -515,7 +530,7 @@ def pull_run(workdir: Workdir, run_id: str, client: Optional[KaggleClient] = Non
         raise KaggleError(reason)
     with tempfile.TemporaryDirectory(dir=_staging(workdir)) as folder:
         output = Path(folder)
-        client.kernel_output(state.kernel, output)
+        client.kernel_output(state.kernel, output, skip_local_cache(workdir))
         try:
             remote.merge_output(workdir, run_dir, output)
         except FileNotFoundError:
