@@ -13,8 +13,8 @@ Luồng của ``ingest_on_kaggle``:
 2. Đẩy notebook (template ``templates/ingest.ipynb``) khi chưa có hoặc lần trước lỗi.
 3. Chờ notebook xong, tải các file nhỏ của cảnh về ``data/<scene_id>/``, ghi ``kaggle_scene.json``.
 
-File này chứa ``KaggleSceneRef``, ``IngestRequest``, ``load_scene_ref``, ``build_ingest_notebook``,
-``ingest_on_kaggle``.
+File này chứa ``KaggleSceneRef``, ``IngestRequest``, ``load_scene_refs``, ``load_scene_ref``,
+``build_ingest_notebook``, ``ingest_on_kaggle``.
 """
 
 import hashlib
@@ -46,7 +46,7 @@ _RUNNING = ("queued", "running", "new", "new_script", "cancel_requested")
 
 @dataclass
 class KaggleSceneRef:
-    """Nội dung ``data/<scene_id>/kaggle_scene.json``: cảnh nằm trong output của notebook nào.
+    """Một mục của ``data/<scene_id>/kaggle_scene.json``: notebook ingest của một tài khoản.
 
     Attributes:
         username: Tài khoản Kaggle sở hữu notebook (notebook private).
@@ -83,12 +83,33 @@ class IngestRequest:
         return f"d2s-ingest-{hashlib.sha256(text.encode()).hexdigest()[:8]}"
 
 
-def load_scene_ref(scene_root: Path) -> Optional[KaggleSceneRef]:
-    """Đọc ``kaggle_scene.json`` của cảnh; ``None`` nếu cảnh nằm trên máy."""
+def load_scene_refs(scene_root: Path) -> list[KaggleSceneRef]:
+    """Các notebook ingest giữ cảnh, mỗi tài khoản một notebook; rỗng nếu cảnh nằm trên máy.
+
+    Notebook private nên mỗi tài khoản Kaggle cần notebook ingest của riêng nó
+    (``kaggle_scene.json`` là ``{"kernels": [...]}``, CONTRACTS mục 9.4).
+    """
     path = scene_root / KAGGLE_SCENE_FILE
     if not path.is_file():
-        return None
-    return KaggleSceneRef(**json.loads(path.read_text("utf-8")))
+        return []
+    return [KaggleSceneRef(**entry) for entry in json.loads(path.read_text("utf-8"))["kernels"]]
+
+
+def load_scene_ref(scene_root: Path, username: str) -> Optional[KaggleSceneRef]:
+    """Notebook ingest của ``username`` giữ cảnh; ``None`` nếu tài khoản này chưa ingest."""
+    return next((ref for ref in load_scene_refs(scene_root) if ref.username == username), None)
+
+
+def _same_scene(local: Manifest, remote: Manifest) -> bool:
+    """Hai manifest mô tả cùng dữ liệu (bỏ qua phiên bản converter và thời điểm ingest)."""
+
+    def comparable(manifest: Manifest) -> dict:
+        data = manifest.model_dump(mode="json")
+        data["source"].pop("converter_version", None)
+        data.pop("created_utc", None)
+        return data
+
+    return comparable(local) == comparable(remote)
 
 
 def build_ingest_notebook(request: IngestRequest, commit: str, repo_url: str, branch: str) -> str:
@@ -192,7 +213,9 @@ def ingest_on_kaggle(
         Thư mục cảnh trên máy (chỉ có ``manifest.yaml``, ``reports/``, ``kaggle_scene.json``).
 
     Raises:
-        KaggleError: Nếu notebook lỗi, output không có cảnh, hoặc cảnh đã có trên máy.
+        KaggleError: Nếu notebook lỗi, output không có cảnh, hoặc cảnh đã có trên máy mà không
+            phải cảnh ingest trên Kaggle với cùng dữ liệu (chạy bằng tài khoản thứ hai thì thêm
+            notebook của tài khoản đó vào ``kaggle_scene.json``).
     """
     client = client or KaggleClient()
     kernel = f"{client.username()}/{request.kernel_name()}"
@@ -222,17 +245,26 @@ def ingest_on_kaggle(
         )
         if remote_dir is None:
             raise KaggleError(f"output của {kernel} không có manifest.yaml của {scene_id}")
-        files.load(remote_dir / "manifest.yaml", Manifest)  # kiểm schema trước khi ghi
+        remote_manifest = files.load(remote_dir / "manifest.yaml", Manifest)  # kiểm schema
         scene_dir = workdir.scene_dir(scene_id)
+        refs = load_scene_refs(scene_dir)
         if (scene_dir / "manifest.yaml").exists():
-            raise KaggleError(
-                f"cảnh {scene_id} đã có ở {workdir.relative(scene_dir)}; xoá bằng "
-                f"d2s scene delete {scene_id} rồi chạy lại"
-            )
-        scene_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(remote_dir / "manifest.yaml", scene_dir / "manifest.yaml")
-        if (remote_dir / "reports").is_dir():
-            shutil.copytree(remote_dir / "reports", scene_dir / "reports", dirs_exist_ok=True)
+            # Cảnh đã có: chỉ nhận thêm notebook của tài khoản khác cho cùng dữ liệu.
+            if not refs:
+                raise KaggleError(
+                    f"cảnh {scene_id} đã có trên máy ở {workdir.relative(scene_dir)}; xoá bằng "
+                    f"d2s scene delete {scene_id}, hoặc đặt --scene khác"
+                )
+            if not _same_scene(files.load(scene_dir / "manifest.yaml", Manifest), remote_manifest):
+                raise KaggleError(
+                    f"cảnh {scene_id} trên máy khác cảnh trong {kernel} (camera, khung...); "
+                    "đặt --scene khác"
+                )
+        else:
+            scene_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(remote_dir / "manifest.yaml", scene_dir / "manifest.yaml")
+            if (remote_dir / "reports").is_dir():
+                shutil.copytree(remote_dir / "reports", scene_dir / "reports", dirs_exist_ok=True)
     ref = KaggleSceneRef(
         username=kernel.split("/")[0],
         kernel=kernel,
@@ -240,5 +272,7 @@ def ingest_on_kaggle(
         commit=commit or result.get("commit", ""),
         pulled_utc=now(),
     )
-    (scene_dir / KAGGLE_SCENE_FILE).write_text(json.dumps(asdict(ref), indent=2), "utf-8")
+    refs = [other for other in refs if other.username != ref.username] + [ref]
+    content = {"kernels": [asdict(entry) for entry in refs]}
+    (scene_dir / KAGGLE_SCENE_FILE).write_text(json.dumps(content, indent=2), "utf-8")
     return scene_dir

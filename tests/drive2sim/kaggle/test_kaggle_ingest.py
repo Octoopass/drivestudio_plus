@@ -56,9 +56,9 @@ class FakeIngestKaggle(FakeKaggle):
             out = self.root / "output" / metadata["id"].split("/")[1]
             scene = out / "data" / SCENE
             files.dump(Manifest.model_validate(MANIFEST), scene / "manifest.yaml")
-            (scene / "images").mkdir()
+            (scene / "images").mkdir(exist_ok=True)
             (scene / "images" / "000_0.jpg").write_bytes(b"jpg")
-            (scene / "reports").mkdir()
+            (scene / "reports").mkdir(exist_ok=True)
             report = {"summary": {"errors": 0, "warnings": 1}, "checks": []}
             (scene / "reports" / "validation.json").write_text(json.dumps(report))
             result = {"scene_id": SCENE, "commit": COMMIT, "source": SOURCE, "exit_code": 0}
@@ -114,17 +114,31 @@ def test_ingest_writes_light_files_and_reuses_notebook(
         "manifest.yaml",
         "reports",
     ]
-    ref = ingest.load_scene_ref(scene_dir)
+    ref = ingest.load_scene_ref(scene_dir, "alice")
     assert ref is not None and ref.kernel == kernel and ref.commit == COMMIT
     assert workdir.load_scene(SCENE).manifest.scene_id == SCENE
     with pytest.raises(ValueError, match="chỉ có trên Kaggle"):
         validate_scene(scene_dir, workdir.load_scene(SCENE).manifest)
 
-    # Gọi lại cùng tham số: dùng lại notebook đã xong, không đẩy lại; cảnh đã có thì báo rõ.
+    # Gọi lại cùng tham số: dùng lại notebook đã xong, không đẩy lại.
     pushes = len(fake.kernels)
-    with pytest.raises(KaggleError, match="đã có"):
-        ingest.ingest_on_kaggle(workdir, REQUEST, client=fake, sleep=lambda s: None)
+    ingest.ingest_on_kaggle(workdir, REQUEST, client=fake, sleep=lambda s: None)
     assert len(fake.kernels) == pushes
+    assert [r.username for r in ingest.load_scene_refs(scene_dir)] == ["alice"]
+
+    # Tài khoản thứ hai ingest cùng cảnh: thêm notebook của nó, giữ của alice.
+    fake.user = "bob"
+    ingest.ingest_on_kaggle(workdir, REQUEST, client=fake, sleep=lambda s: None)
+    refs = ingest.load_scene_refs(scene_dir)
+    assert [(r.username, r.kernel) for r in refs] == [
+        ("alice", kernel),
+        ("bob", f"bob/{REQUEST.kernel_name()}"),
+    ]
+
+    # Cảnh cùng tên mà ingest trên máy (không có kaggle_scene.json): không đè.
+    (scene_dir / KAGGLE_SCENE_FILE).unlink()
+    with pytest.raises(KaggleError, match="đã có trên máy"):
+        ingest.ingest_on_kaggle(workdir, REQUEST, client=fake, sleep=lambda s: None)
 
 
 def test_ingest_from_notebook_output_and_failed_notebook(
@@ -152,7 +166,7 @@ def test_push_run_attaches_ingest_notebook(
     (scene_dir / "images").rmdir()
     kernel = f"alice/{REQUEST.kernel_name()}"
     ref = ingest.KaggleSceneRef("alice", kernel, SOURCE, COMMIT, "2026-11-15T00:00:00+00:00")
-    (scene_dir / KAGGLE_SCENE_FILE).write_text(json.dumps(ref.__dict__))
+    (scene_dir / KAGGLE_SCENE_FILE).write_text(json.dumps({"kernels": [ref.__dict__]}))
     # Output của notebook ingest trên Kaggle giả.
     out = fake.root / "output" / kernel.split("/")[1] / "data" / SCENE
     files.dump(Manifest.model_validate(MANIFEST), out / "manifest.yaml")
@@ -178,10 +192,10 @@ def test_push_run_attaches_ingest_notebook(
     materialize(read_bundle(bundle_dir), working, input_root)
     assert (working.scene_dir(SCENE) / "images" / "000_0.jpg").is_file()
 
-    # Tài khoản khác không đọc được notebook ingest private của alice.
+    # Tài khoản khác không đọc được notebook ingest private của alice: phải tự ingest.
     (workdir.find_run(RUN_ID) / "d2s" / executor.STATE_FILE).unlink()
     fake.user = "bob"
-    with pytest.raises(KaggleError, match="notebook .* của tài khoản alice"):
+    with pytest.raises(KaggleError, match="tài khoản alice.*chạy d2s kaggle ingest bằng bob"):
         executor.push_run(workdir, RUN_ID, client=fake)
 
 
@@ -189,7 +203,7 @@ def test_local_run_on_kaggle_scene_is_refused(
     tmp_path: Path, capsys: pytest.CaptureFixture
 ) -> None:
     workdir = make_workdir(tmp_path / "work")
-    (workdir.scene_dir(SCENE) / KAGGLE_SCENE_FILE).write_text("{}")
+    (workdir.scene_dir(SCENE) / KAGGLE_SCENE_FILE).write_text('{"kernels": []}')
     code = main(
         [
             "run",

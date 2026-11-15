@@ -148,11 +148,11 @@ def code_source(branch: str = DEFAULT_BRANCH) -> tuple[str, str]:
         raise KaggleError(str(error)) from None
 
 
-def _load_scene_ref(scene_root: Path) -> Optional["KaggleSceneRef"]:
+def _load_scene_refs(scene_root: Path) -> list["KaggleSceneRef"]:
     """``kaggle_scene.json`` của cảnh (đọc trễ để tránh vòng import với ``kaggle.ingest``)."""
-    from drive2sim.kaggle.ingest import load_scene_ref
+    from drive2sim.kaggle.ingest import load_scene_refs
 
-    return load_scene_ref(scene_root)
+    return load_scene_refs(scene_root)
 
 
 def _ensure_scene_dataset(
@@ -298,14 +298,17 @@ def push_run(
     commit, repo_url = code_source(branch)
     scene = workdir.load_scene(record.scene_id)
     scene_kernels: list[str] = []
-    remote_scene = _load_scene_ref(scene.root)
-    if remote_scene is not None:
-        # Cảnh đã ingest trên Kaggle (d2s kaggle ingest): gắn output notebook ingest, không upload.
-        if remote_scene.username != username:
+    remote_scenes = _load_scene_refs(scene.root)
+    if remote_scenes:
+        # Cảnh đã ingest trên Kaggle (d2s kaggle ingest): gắn output notebook ingest của chính
+        # tài khoản đang đăng nhập (notebook private), không upload cảnh.
+        remote_scene = next((ref for ref in remote_scenes if ref.username == username), None)
+        if remote_scene is None:
+            owners = ", ".join(ref.username for ref in remote_scenes)
             raise KaggleError(
-                f"cảnh {record.scene_id} nằm trong notebook {remote_scene.kernel} của tài khoản "
-                f"{remote_scene.username}, còn lệnh kaggle đang đăng nhập {username}: notebook "
-                "private nên tài khoản này không đọc được; đổi lại khoá hoặc ingest lại"
+                f"cảnh {record.scene_id} mới ingest trên Kaggle bằng tài khoản {owners}, còn lệnh "
+                f"kaggle đang đăng nhập {username}: notebook private nên tài khoản này không đọc "
+                f"được; chạy d2s kaggle ingest bằng {username} trước (cùng tham số)"
             )
         dataset = remote_scene.kernel
         scene_kernels = [remote_scene.kernel]
