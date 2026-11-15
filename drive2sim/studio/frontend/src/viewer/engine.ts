@@ -26,6 +26,22 @@ export interface SceneCamera {
   K: number[][];
 }
 
+/**
+ * Trục "lên" của hệ world suy từ pose camera (như ``up_axis_from_cameras`` khi xuất PLY). Hệ world
+ * của DriveStudio lấy theo camera trước ở khung đầu, nên trục lên tuỳ dataset (nuScenes, KITTI:
+ * -y; Waymo: z). Camera gắn trên xe gần thẳng đứng: cộng hướng lên (-y của camera OpenCV, cột 2 của
+ * c2w) của mọi camera, mọi khung rồi chọn trục gần nhất. `null` nếu không có camera.
+ */
+export function upAxisFromCameras(cameras: SceneCamera[]): UpAxis | null {
+  const total = [0, 0, 0];
+  for (const camera of cameras)
+    for (const m of camera.c2w) for (let r = 0; r < 3; r++) total[r] -= m[r * 4 + 1];
+  const index = [0, 1, 2].reduce((best, i) => (Math.abs(total[i]) > Math.abs(total[best]) ? i : best), 0);
+  if (!total[index]) return null;
+  const name = (["x", "y", "z"] as const)[index];
+  return (total[index] > 0 ? name : `-${name}`) as UpAxis;
+}
+
 /** Giá trị ở phân vị q (0–1) của một mảng đã sắp. */
 function quantile(sorted: Float32Array, q: number): number {
   return sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor(q * (sorted.length - 1))))];

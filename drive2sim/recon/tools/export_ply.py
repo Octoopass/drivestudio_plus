@@ -38,10 +38,35 @@ def gaussians_from_state(sd):
     return dict(means=means, scales=scales, quats=quats, f_dc=f_dc, f_rest=f_rest, opac=opac)
 
 
-PLY_COMMENT = "drive2sim up=+z frame=drivestudio_world units=m"
+CAMERAS_FILE = "cameras.json"
 
 
-def write_ply(g, path):
+def up_axis_from_cameras(path):
+    """Trục "lên" của hệ world, suy từ pose camera (``cameras.json`` cạnh checkpoint), ví dụ ``-y``.
+
+    Hệ world của DriveStudio lấy theo camera trước ở khung đầu, nên trục lên tuỳ dataset: nuScenes,
+    KITTI, PandaSet... (extrinsic kiểu OpenCV) là ``-y``; Waymo là ``+z``. Camera gắn trên xe gần
+    thẳng đứng, nên lấy trung bình hướng lên của mọi camera (``-y`` của camera OpenCV) rồi chọn trục
+    gần nhất. ``None`` nếu không có file hoặc không có camera.
+    """
+    if not os.path.isfile(path):
+        return None
+    total = np.zeros(3)
+    for camera in json.load(open(path)).get("cameras", []):
+        for c2w in camera.get("c2w", []):
+            total -= np.asarray(c2w, dtype=float).reshape(4, 4)[:3, 1]
+    if not total.any():
+        return None
+    index = int(np.argmax(np.abs(total)))
+    return ("+" if total[index] > 0 else "-") + "xyz"[index]
+
+
+def ply_comment(up):
+    """Dòng ``comment`` trong phần đầu PLY; trang Xem 3D đọc trục lên từ đây khi kéo thả file."""
+    return (f"drive2sim up={up} " if up else "drive2sim ") + "frame=drivestudio_world units=m"
+
+
+def write_ply(g, path, up=None):
     n = len(g["means"])
     cols = [g["means"], torch.zeros(n, 3), g["f_dc"], g["f_rest"], g["opac"], g["scales"], g["quats"]]
     data = torch.cat(cols, 1).cpu().numpy().astype(np.float32)
@@ -52,7 +77,7 @@ def write_ply(g, path):
     for i, k in enumerate(names):
         arr[k] = data[:, i]
     # drive2sim: tag the frame so viewers (Studio's 3D page) pick the right up axis on import.
-    PlyData([PlyElement.describe(arr, "vertex")], comments=[PLY_COMMENT]).write(path)
+    PlyData([PlyElement.describe(arr, "vertex")], comments=[ply_comment(up)]).write(path)
 
 
 def main():
@@ -88,13 +113,15 @@ def main():
     keep = torch.sigmoid(allg["opac"][:, 0]) > a.min_opacity
     allg = {k: v[keep] for k, v in allg.items()}
     ply_path = os.path.join(a.out, "scene.ply")
-    write_ply(allg, ply_path)
+    up = up_axis_from_cameras(os.path.join(os.path.dirname(a.ckpt), CAMERAS_FILE))
+    write_ply(allg, ply_path, up)
 
     s = torch.exp(allg["scales"]).max(1).values
     sidecar = {
         "source_checkpoint": os.path.abspath(a.ckpt),
         "step": int(ck.get("step", -1)),
         "frame": "drivestudio world frame (as stored in the checkpoint; no normalisation)",
+        "up_axis": up,
         "units": "metres",
         "layout": "INRIA 3DGS: xyz, f_dc(SH0), f_rest(SH1-3, channel-major), opacity(logit), scale(log), rot(wxyz)",
         "dynamic_actors": "excluded" if a.rigid_frame < 0 else f"RigidNodes baked at frame {a.rigid_frame}",

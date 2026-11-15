@@ -14,7 +14,7 @@ import { ErrorBox, InfoTip, Note, PageHead, Segmented } from "../components/ui";
 import { RoadScene } from "../components/Illustration";
 import { useI18n } from "../i18n";
 import { go } from "../router";
-import { SplatViewer, type SceneCamera, type SplatSource, type UpAxis } from "../viewer/engine";
+import { SplatViewer, upAxisFromCameras, type SceneCamera, type SplatSource, type UpAxis } from "../viewer/engine";
 
 /** Trục lên ghi trong phần đầu file PLY do tool xuất ("comment drive2sim up=+z ..."), nếu có. */
 async function headerUpAxis(picked: File): Promise<UpAxis | null> {
@@ -173,10 +173,13 @@ export function ViewerPage({ runId }: { runId?: string }) {
       if (!sources.length) return;
       const total = await v.load(sources, actorIds, (fraction) => alive && setProgress(fraction));
       if (!alive || total === null) return;
-      // Trục lên: file của tool ghi sẵn trong phần đầu PLY; run của tool là hệ DriveStudio (Z+);
-      // file lạ thì đoán từ hình dạng cảnh (mặt đất phẳng, nhà và cây mọc lên).
+      // Trục lên: run của tool suy từ pose camera (hệ world DriveStudio tuỳ dataset: nuScenes -y,
+      // Waymo z); file kéo thả đọc phần đầu PLY do tool ghi; file lạ thì đoán từ hình dạng cảnh
+      // (mặt đất phẳng, nhà và cây mọc lên).
       const axis: UpAxis =
-        source === "file" && file ? ((await headerUpAxis(file)) ?? v.estimateUpAxis() ?? "-y") : "z";
+        source === "file" && file
+          ? ((await headerUpAxis(file)) ?? v.estimateUpAxis() ?? "-y")
+          : ((loadedCameras?.length ? upAxisFromCameras(loadedCameras) : null) ?? v.estimateUpAxis() ?? "z");
       if (!alive) return;
       v.setUpAxis(axis);
       setUp(axis);

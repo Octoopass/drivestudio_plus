@@ -22,7 +22,13 @@ import os
 
 import torch
 
-from drive2sim.recon.tools.export_ply import gaussians_from_state, quat_to_mat, write_ply
+from drive2sim.recon.tools.export_ply import (
+    CAMERAS_FILE,
+    gaussians_from_state,
+    quat_to_mat,
+    up_axis_from_cameras,
+    write_ply,
+)
 
 SCHEMA_VERSION = "d2s-preview/0.1"
 
@@ -73,10 +79,12 @@ def main() -> None:
     models = torch.load(args.ckpt, map_location="cpu")["models"]
     print("các node trong checkpoint:", list(models))
 
+    up = up_axis_from_cameras(os.path.join(os.path.dirname(args.ckpt), CAMERAS_FILE))
     background = gaussians_from_state(models["Background"])
     write_ply(
         _filter(background, _visible(background, args.min_opacity)),
         os.path.join(args.out, "background.ply"),
+        up,
     )
     sh_degree = int(round((background["f_rest"].shape[1] // 3 + 1) ** 0.5)) - 1
 
@@ -91,7 +99,11 @@ def main() -> None:
         for index, track_id in enumerate(track_ids):
             keep = (owner == index) & _visible(gaussians, args.min_opacity)
             if keep.any():
-                write_ply(_filter(gaussians, keep), os.path.join(args.out, "actors", f"{track_id}.ply"))
+                write_ply(
+                    _filter(gaussians, keep),
+                    os.path.join(args.out, "actors", f"{track_id}.ply"),
+                    up,
+                )
                 rigid_actors.append(track_id)
 
     box_only: list[str] = []
