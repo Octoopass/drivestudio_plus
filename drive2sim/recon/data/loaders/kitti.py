@@ -152,6 +152,11 @@ class KITTICameraData(CameraData):
         return torch.from_numpy(np.stack(cam_to_worlds, axis=0)).float()
     
 class KITTIPixelSource(ScenePixelSource):
+    # drive2sim: lớp camera và danh sách camera để dựng SMPL là thuộc tính lớp, để loader
+    # KITTI-360 (loaders/kitti360.py) kế thừa mà không chép lại load_cameras, load_objects.
+    CAMERA_DATA_CLASS = KITTICameraData
+    SMPL_CAMERA_LIST = AVAILABLE_CAM_LIST
+
     def __init__(
         self,
         dataset_name: str,
@@ -173,7 +178,7 @@ class KITTIPixelSource(ScenePixelSource):
         
         for idx, cam_id in enumerate(self.camera_list):
             logger.info(f"Loading camera {cam_id}")
-            camera = KITTICameraData(
+            camera = self.CAMERA_DATA_CLASS(
                 dataset_name=self.dataset_name,
                 data_path=self.data_path,
                 cam_id=cam_id,
@@ -281,8 +286,8 @@ class KITTIPixelSource(ScenePixelSource):
         if self.data_cfg.load_smpl:
             # Collect camera-to-world matrices for all available cameras
             cam_to_worlds = {}
-            for cam_id in AVAILABLE_CAM_LIST:
-                cam_to_worlds[cam_id] = KITTICameraData.get_camera2worlds(
+            for cam_id in self.SMPL_CAMERA_LIST:
+                cam_to_worlds[cam_id] = self.CAMERA_DATA_CLASS.get_camera2worlds(
                     self.data_path, 
                     str(cam_id), 
                     self.start_timestep, 
