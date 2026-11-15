@@ -699,6 +699,7 @@ Chưa chạy thật khi viết: ô cài môi trường của notebook ingest (`u
 | Dataset cảnh trên Kaggle, thư mục cảnh trên VM Colab | `d2s-scene-<cảnh>-<commit converter>` | `d2s-scene-nuscenes-0061-96876ad` |
 | Notebook ingest trên Kaggle | `d2s-ingest-<nguồn bỏ d2s-, raw>[-<số của --sequence>]`, hoặc `d2s-ingest-<--scene>` | `d2s-ingest-nuscenes-mini-0061`, `d2s-ingest-kitti360-0003` |
 | Dataset dữ liệu gốc trên Kaggle (người dùng tạo) | `d2s-raw-<dataset>-<phần>` | `d2s-raw-kitti360-0003`, `d2s-raw-nuscenes-mini` |
+| Dataset mô hình trên Kaggle (người dùng tạo, có bản quyền riêng) | `d2s-model-<tên>` | `d2s-model-smpl` (đặt vào `D2S_KAGGLE_SMPL_DATASET`) |
 
 ### 10.2 File và thư mục
 

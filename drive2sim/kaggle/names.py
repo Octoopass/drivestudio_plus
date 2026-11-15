@@ -11,6 +11,8 @@ Kaggle), tối đa 50 ký tự (giới hạn tiêu đề notebook và dataset c�
   dụ ``d2s-ingest-nuscenes-mini-0061``.
 - Dataset dữ liệu gốc (người dùng tự tạo): ``d2s-raw-<dataset>-<phần>``, ví dụ
   ``d2s-raw-kitti360-0003``.
+- Dataset mô hình có bản quyền riêng (người dùng tự tạo): ``d2s-model-<tên>``, ví dụ
+  ``d2s-model-smpl``.
 
 ``<cảnh>`` là ``<dataset>-<số cuối của chuỗi gốc>`` (``nuscenes_scene-0061`` → ``nuscenes-0061``,
 ``kitti360_2013_05_28_drive_0003_sync`` → ``kitti360-0003``). ``<biến thể>``: lựa chọn của mọi
