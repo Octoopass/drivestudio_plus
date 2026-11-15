@@ -26,7 +26,7 @@ Cảnh dùng:
 | `20261115-124649-omnire-6b85` | Xong (`quynhctrc`) | OmniRe | 3DGEER | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 21,66 | 0,744 | 0,317 | 23,39 / 24,42 / 24,09 | 2 giờ 34 phút | 3,6 GB | 0,44 triệu |
 | `20261115-132753-omnire-ac56` | Xong (`quanlam`): mốc để chỉnh ngưỡng, ghi thống kê densify (`docs/methods/densify_3dgut.md` mục 5) | OmniRe | 3DGS | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 2 000 | | | | | | | |
 | `20261115-132747-omnire-ca4b` | Xong (`quynhctrc`): 3DGUT nhánh Bosch densify ít hơn 3DGS 60–380 lần (`docs/methods/densify_3dgut.md` mục 5) | OmniRe | 3DGUT | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 2 000 | | | | | | | |
-| `20261115-183826-omnire-b8a9` | Đang chạy (`quynhctrc`): 3DGEER densify mỗi 100 bước như 3DGS (`refine_interval=100`, Bosch để 300), so đường học với `f8a6`, `6b85` | OmniRe | 3DGEER | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 3 000 | | | | | | | |
+| `20261115-183826-omnire-b8a9` | Xong (`quynhctrc`): 3DGEER densify mỗi 100 bước như 3DGS (`refine_interval=100`, Bosch để 300), so đường học với `f8a6`, `6b85` | OmniRe | 3DGEER | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 3 000 | 20,56 | 0,710 | 0,380 | 22,08 / 22,22 / 22,10 | 17 phút | | 1,32 triệu |
 | (kế hoạch) | Sau khi chỉnh ngưỡng | OmniRe | 3DGUT (ngưỡng đã chỉnh) | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | | | | | | | |
 | (kế hoạch, tuỳ chọn) | | OmniRe | 3DGUT (ngưỡng gốc của Bosch) | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | | | | | | | |
 | `20261114-123228-streetgs-60ad` | Đã tạo, chưa đẩy | Street GS | 3DGS | | | nuScenes `scene-0061` | `front1` | 172 / 19 | 800×450 | 30 000 | | | | | | | |
@@ -36,6 +36,7 @@ Ghi chú:
 - 3DGEER, 3DGUT chỉ dùng phần Python của Faster-GS (fused Adam, fused SSIM, bớt chờ GPU); phần kernel chỉ có cho 3DGS.
 - Ngưỡng densify của 3DGUT: `docs/methods/densify_3dgut.md`.
 - Run `6b85` (3DGEER) thấp hơn run `f8a6` (3DGS, cùng FastGS + Faster-GS) 3,35 dB, và PSNR trên ảnh train cũng thấp (~21–22 dB ở cuối, run `2d33` ~26,5 dB): model học thiếu, không phải học vẹt. Số Gaussian nền gần như không tăng (0,96 triệu lúc đầu, cao nhất ~1,02 triệu ở bước 3000; run `2d33` lên 2,8 triệu) rồi giảm còn 0,29 triệu. Nghi densify của nhánh `geer` (ngưỡng 0,01 trên `geer_gradient`) quá ít; **chưa kiểm chứng**, cần so với log của `f8a6` (cùng FastGS) và thống kê densify của 3DGEER.
+- So với `f8a6` (cùng FastGS + Faster-GS): 3DGEER bản Bosch densify mỗi 300 bước (`refine_interval`), 3DGS mỗi 100. Run `b8a9` (3DGEER, densify mỗi 100 bước, 3000 bước) thu hẹp phần lớn khoảng cách ở 3000 bước đầu. PSNR train trung bình cộng dồn tới bước 3000: `f8a6` 20,41, `6b85` 19,65, `b8a9` 20,19 (khoảng cách 0,76 → 0,22 dB); Gaussian nền: 1,30 / 1,02 / 1,16 triệu. Còn ~0,2–0,3 dB có từ bước 500, trước khi densify bắt đầu (cả ba run cùng 0,96 triệu Gaussian): phần này do renderer, không do densify. Chưa biết khoảng cách ở 30 000 bước khi densify cùng nhịp; cần run đủ.
 
 ## Fisheye (pinhole + mắt cá)
 
