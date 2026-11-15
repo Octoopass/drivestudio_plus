@@ -34,6 +34,8 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Optional
 
+from drive2sim.core import subprocs
+
 Runner = Callable[[Sequence[str]], "subprocess.CompletedProcess[str]"]
 
 
@@ -70,7 +72,7 @@ RATE_LIMIT_WAITS_S = (60, 180, 600)
 def _run_cli(command: Sequence[str]) -> "subprocess.CompletedProcess[str]":
     """Chạy một lệnh ``kaggle``; không ném lỗi khi lệnh thoát khác 0 (``KaggleClient`` xử lý)."""
     try:
-        return subprocess.run(list(command), capture_output=True, text=True, timeout=CLI_TIMEOUT_S)
+        return subprocs.run(command, CLI_TIMEOUT_S)
     except FileNotFoundError:
         raise KaggleError("chưa có lệnh kaggle; cài bằng: pip install kaggle") from None
     except subprocess.TimeoutExpired:

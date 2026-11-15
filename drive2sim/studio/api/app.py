@@ -217,7 +217,11 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        """Bật theo dõi Kaggle, Colab khi mở; khi tắt Studio, chờ run đang chạy xong rồi thoát."""
+        """Bật theo dõi Kaggle, Colab khi mở; khi tắt Studio (Ctrl+C) thì thoát ngay.
+
+        Run đang chạy trên máy bị huỷ (chạy tiếp được), lệnh ``kaggle``/``colab`` đang chạy (đẩy,
+        tải) bị dừng; mở lại Studio thì vòng theo dõi tự tải lại run đã xong trên Kaggle.
+        """
         watchers: list[RemoteWatcher] = []
         if kaggle_watch_s:
             watchers.append(

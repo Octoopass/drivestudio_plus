@@ -21,8 +21,9 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
+from drive2sim.core import subprocs
 from drive2sim.engine.registry import REGISTRY, StageRegistry
-from drive2sim.engine.run import RunActiveError, execute_run
+from drive2sim.engine.run import RunActiveError, execute_run, request_cancel, run_is_active
 from drive2sim.engine.workdir import Workdir
 from drive2sim.studio.api.events import EventBroker
 
@@ -136,10 +137,17 @@ class RunQueue:
         self._executor.submit(lambda: None).result(timeout)
 
     def shutdown(self) -> None:
-        """Dừng nhận run mới, bỏ các run còn chờ, và chờ run đang chạy xong; gọi khi tắt Studio.
+        """Dừng nhận run mới, bỏ các run còn chờ, huỷ run đang chạy; gọi khi tắt Studio.
 
-        Run bị bỏ vẫn ở ``pending`` trong ``run.json``, bấm chạy tiếp khi mở lại Studio.
+        Run bị bỏ vẫn ở ``pending`` trong ``run.json``; run đang chạy dừng trong khoảng một giây
+        (``request_cancel``, như nút huỷ) và thành ``cancelled``. Cả hai bấm chạy tiếp khi mở lại
+        Studio; stage đã xong không chạy lại.
         """
+        with self._lock:
+            busy = [Path(key) for key in self._busy]
+        for run_dir in busy:
+            if run_is_active(run_dir):
+                request_cancel(run_dir)
         self._executor.shutdown(wait=True, cancel_futures=True)
 
 
@@ -159,6 +167,7 @@ class BackgroundJobs:
         self._jobs: dict[str, dict] = {}
         self._lock = threading.Lock()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="d2s-ingest")
+        self._stopping = threading.Event()
 
     def submit(self, kind: str, label: str, work: Callable[[], Optional[str]]) -> dict:
         """Xếp một việc vào hàng đợi.
@@ -195,8 +204,14 @@ class BackgroundJobs:
         try:
             result = work()
         except Exception as error:
-            logger.exception("job %s failed", job_id)
-            self._update(job_id, status="failed", error=str(error), finished_at=time.time())
+            message = str(error)
+            if self._stopping.is_set():
+                # Bị dừng vì tắt Studio (shutdown): không phải lỗi, không in traceback.
+                logger.warning("dừng việc %s vì tắt Studio", self._jobs[job_id]["label"])
+                message = "dừng vì tắt Studio"
+            else:
+                logger.exception("job %s failed", job_id)
+            self._update(job_id, status="failed", error=message, finished_at=time.time())
         else:
             self._update(job_id, status="succeeded", result=result, finished_at=time.time())
 
@@ -220,5 +235,13 @@ class BackgroundJobs:
         self._executor.submit(lambda: None).result(timeout)
 
     def shutdown(self) -> None:
-        """Bỏ các việc còn chờ và chờ việc đang chạy xong; gọi khi tắt Studio."""
-        self._executor.shutdown(wait=True, cancel_futures=True)
+        """Bỏ các việc còn chờ, dừng lệnh ``kaggle``/``colab`` đang chạy, rồi chờ việc kết thúc.
+
+        Gọi khi tắt Studio. Việc đẩy, tải Kaggle hay Colab đang chạy kết thúc với lỗi ngay
+        (``subprocs.terminate_all``); tải dở không ghép gì vào run, mở lại Studio thì tự tải lại.
+        Ingest chạy trong Python nên vẫn chờ xong.
+        """
+        self._stopping.set()
+        self._executor.shutdown(wait=False, cancel_futures=True)
+        subprocs.terminate_all()
+        self._executor.shutdown(wait=True)

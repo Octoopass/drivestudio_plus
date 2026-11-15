@@ -355,10 +355,10 @@ def test_client_parses_cli_output(tmp_path: Path) -> None:
 
 
 def test_missing_cli_reports_install_hint(monkeypatch: pytest.MonkeyPatch) -> None:
-    def missing(command: Sequence[str], **kwargs: object) -> Optional[Done]:
+    def missing(command: Sequence[str], timeout: float) -> Optional[Done]:
         raise FileNotFoundError(command[0])
 
-    monkeypatch.setattr(client_module.subprocess, "run", missing)
+    monkeypatch.setattr(client_module.subprocs, "run", missing)
     with pytest.raises(ColabError, match="uv tool install google-colab-cli"):
         REAL_RUN_CLI(["colab", "sessions"], 10)
     assert ColabClient(runner=REAL_RUN_CLI).version() is None

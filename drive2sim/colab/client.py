@@ -34,6 +34,8 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Optional
 
+from drive2sim.core import subprocs
+
 Runner = Callable[[Sequence[str], float], "subprocess.CompletedProcess[str]"]
 
 # GPU mà ``colab new --gpu`` nhận; giá trị lạ bị CLI âm thầm đổi thành A100, nên kiểm tra trước.
@@ -59,7 +61,7 @@ def _run_cli(command: Sequence[str], timeout_s: float) -> "subprocess.CompletedP
         ColabError: Nếu chưa cài lệnh ``colab``.
     """
     try:
-        return subprocess.run(list(command), capture_output=True, text=True, timeout=timeout_s)
+        return subprocs.run(command, timeout_s)
     except FileNotFoundError:
         raise ColabError(INSTALL_HINT) from None
     except subprocess.TimeoutExpired:
