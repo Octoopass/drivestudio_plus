@@ -11,7 +11,7 @@ Ký hiệu:
 
 Cảnh dùng:
 - nuScenes `scene-0061`: 191 khung (nội suy lên 10 Hz), ~19 s, 91 m, 6 camera pinhole 1600×900.
-- KITTI-360 `2013_05_28_drive_0003_sync`: 864 khung (khung gốc 167–1030), 1289 m, 2 pinhole 1408×376 + 2 mắt cá 1400×1400, 45 vật có box, không có người.
+- KITTI-360 `2013_05_28_drive_0003_sync`: 864 khung (khung gốc 167–1030), 1289 m, 2 pinhole 1408×376 + 2 mắt cá 1400×1400, 45 xe có box và 1 người đi bộ (khung 629–662).
 
 ## Pinhole
 

@@ -62,7 +62,7 @@ Converter đọc `data_3d_bboxes/train/<chuỗi>.xml` (`drive2sim/ingest/kitti36
 - **Mặt nạ vật động**: hình chữ nhật bao 8 góc box chiếu lên ảnh, chỉ khi **mọi** góc nằm trong ảnh (như DriveStudio); với camera mắt cá, góc lệch trục quá 1,45 rad coi như không thấy. `all`: mọi lớp; `human`: Pedestrian, Cyclist; `vehicle`: Car, Truck, Tram.
 - Nguồn không có box thì không ghi `instances/`, báo cáo có cảnh báo `boxes.missing`, `cuboids: none` (OmniRe bị khoá).
 
-Chuỗi 0003 (file `train/`): 37 xe con, 1 xe tải, 1 rơ-moóc chuyển động (box ở khung 104–865), 8 xe con và 2 xe tải đỗ; **không có người**. Kiểm tra bằng mắt 15/11/2026 trên 40 khung (bản 1/5 khung của teammate, từ khung 400): box chiếu lên `image_00`, `image_01` và mắt cá `image_02` trùng xe trong ảnh.
+Chuỗi 0003 (file `train/`): 37 xe con, 1 xe tải, 1 rơ-moóc chuyển động (box ở khung 104–865), 8 xe con và 2 xe tải đỗ; **1 người đi bộ** (khung 629–662). Nhãn người đi bộ trong file là `pedestrian`: bản đầu của converter đổi nhãn `person` nên bỏ sót người (sửa 15/11/2026). Mọi chuỗi train đều có người: 0000 có 60 người đi bộ, 0009 có 85, 0010 có 73 (cộng người đi xe, nhãn `rider`). Kiểm tra bằng mắt 15/11/2026 trên 40 khung (bản 1/5 khung của teammate, từ khung 400): box chiếu lên `image_00`, `image_01` và mắt cá `image_02` trùng xe trong ảnh.
 
 ## 4. Chuỗi biến đổi
 
@@ -104,7 +104,7 @@ Chuỗi `2013_05_28_drive_0003_sync`, 30 khung từ khung gốc 167 (`--start-fr
 ## 7. Chưa làm
 
 - Train OmniRe, Street GS trên cảnh KITTI-360: cần loader KITTI đọc camera mắt cá và config dataset `kitti360` (đang làm, ARCHITECTURE mục 7.1).
-- `prep.smpl` (dựng người) trên ảnh mắt cá chưa thử; chuỗi 0003 không có người nên chưa cần.
+- `prep.smpl` (dựng người bằng SMPL) chưa có nhánh KITTI-360: cảnh có người thì `prep.smpl` báo lỗi. Hướng sửa: thêm nhánh KITTI-360 chạy 4D-Humans trên hai camera pinhole (như nhánh KITTI), hoặc để người thành node biến dạng khi không có SMPL.
 - Đoạn đường dài (cả chuỗi 1,4 km): chưa có cách chia và ghép đoạn.
 - `timestamps.txt` thật của ảnh và LiDAR (khi nguồn có) mới được đọc cho ảnh của camera đầu; LiDAR dùng cùng mốc.
 - Interpolate pose cho khung không có pose: không làm, như `kitti360Scripts`.

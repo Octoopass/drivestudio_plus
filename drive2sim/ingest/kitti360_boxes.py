@@ -13,8 +13,10 @@ Quy ước của file XML (``kitti360Scripts``, ``helpers/annotation.py``):
 - vật đứng yên có ``timestamp = -1`` và có mặt từ ``start_frame`` tới ``end_frame``; vật chuyển
   động có một phần tử cho mỗi khung, ``timestamp`` là số hiệu khung.
 
-Trên dữ liệu chuỗi 0003 (kiểm tra 15/11/2026): mọi box xe có trục x dài nhất (chiều dài), z là
-chiều cao; 2 trong 1144 box có ma trận lật (định thức âm), được sửa bằng cách đổi chiều trục y.
+Nhãn trong ``train/*.xml`` của 9 chuỗi (đếm 15/11/2026): car, pedestrian, rider, bicycle, truck,
+trailer, motorcycle, bus, caravan, train (cùng các nhãn tĩnh như building, lamp). Người đi bộ mang
+nhãn ``pedestrian``. Trên chuỗi 0003: mọi box xe có trục x dài nhất (chiều dài), z là chiều cao; 2
+trong 1144 box có ma trận lật (định thức âm), được sửa bằng cách đổi chiều trục y.
 
 File này chứa ``CLASS_MAP``, ``Box``, ``box_xml_text``, ``read_boxes``, ``build_instances``,
 ``project_rect``, ``dynamic_mask_rects``.
@@ -42,7 +44,7 @@ CLASS_MAP = {
     "trailer": "Truck",
     "caravan": "Truck",
     "train": "Tram",
-    "person": "Pedestrian",
+    "pedestrian": "Pedestrian",  # nhãn người đi bộ trong data_3d_bboxes (không phải "person")
     "rider": "Cyclist",
     "bicycle": "Cyclist",
     "motorcycle": "Cyclist",

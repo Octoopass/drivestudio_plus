@@ -67,6 +67,9 @@ OBJECTS = [
     # xe tải đỗ, ma trận lật
     {"label": "truck", "semantic": 27, "instance": 1, "timestamp": -1, "start": 8, "end": 20,
      "transform": transform(1.0, (8.0, 2.5, 3.2), (30.0, -4.0, 1.6), flip_y=True)},
+    # người đi bộ: nhãn "pedestrian" của KITTI-360
+    {"label": "pedestrian", "semantic": 24, "instance": 3, "timestamp": 10,
+     "transform": transform(0.0, (0.6, 0.6, 1.7), (8.0, -1.0, 0.85))},
     # không phải xe hay người: bỏ
     {"label": "building", "semantic": 11, "instance": 2, "timestamp": -1, "start": 0, "end": 99,
      "transform": transform(0.0, (20.0, 10.0, 8.0), (50.0, 50.0, 4.0))},
@@ -79,6 +82,7 @@ def test_read_boxes_separates_size_and_fixes_flipped_matrix() -> None:
         ("Car", (26, 5), (9,)),
         ("Car", (26, 5), (10,)),
         ("Truck", (27, 1), (8, 9)),
+        ("Pedestrian", (24, 3), (10,)),
     ]
     assert boxes[2].frames == tuple(range(8, 21))
     assert boxes[0].size == pytest.approx([4.5, 1.9, 1.6])
@@ -94,7 +98,8 @@ def test_build_instances_maps_frames_and_world() -> None:
     shift[0][3] = -10.0  # world của cảnh: world của chuỗi dời 10 m
     info, frame_instances = kitti360_boxes.build_instances(boxes, [8, 9, 10, 11], shift)
     assert sorted(frame_instances) == ["0", "1", "2", "3"]
-    assert frame_instances == {"0": [1], "1": [0, 1], "2": [0, 1], "3": [1]}
+    assert frame_instances == {"0": [1], "1": [0, 1], "2": [0, 1, 2], "3": [1]}
+    assert info["2"]["class_name"] == "Pedestrian"
     car = info["0"]
     assert car["class_name"] == "Car" and car["id"] == 0
     assert car["frame_annotations"]["frame_idx"] == [1, 2]
@@ -156,14 +161,14 @@ def test_ingest_writes_instances_and_masks(tmp_path: Path) -> None:
     assert manifest.available.cuboids == "gt"
     info = json.loads((scene_dir / "instances" / "instances_info.json").read_text())
     frame_instances = json.loads((scene_dir / "instances" / "frame_instances.json").read_text())
-    assert {v["class_name"] for v in info.values()} == {"Car", "Truck"}
+    assert {v["class_name"] for v in info.values()} == {"Car", "Truck", "Pedestrian"}
     assert len(frame_instances) == manifest.timeline.num_frames == 5
     for group in ("all", "human", "vehicle"):
         assert read_image_size(scene_dir / "dynamic_masks" / group / "000_2.png") == (1400, 1400)
         assert read_image_size(scene_dir / "dynamic_masks" / group / "004_0.png") == (1408, 376)
     report = files.load(scene_dir / "reports" / "validation.json", ValidationReport)
     checks = {check.check_id: check for check in report.checks}
-    assert checks["boxes.loaded"].details["classes"] == {"Car": 1, "Truck": 1}
+    assert checks["boxes.loaded"].details["classes"] == {"Car": 1, "Truck": 1, "Pedestrian": 1}
 
 
 def test_ingest_without_boxes_warns(tmp_path: Path) -> None:

@@ -68,7 +68,7 @@ Trên giao diện có thể cho chọn approach sớm để người dùng biế
 ### 6.1 Nguồn dữ liệu được hỗ trợ
 
 - Waymo, nuScenes, nuPlan, Argoverse 2, PandaSet, KITTI, PhysicalAI.
-- KITTI-360: 2 camera pinhole (đã rectify), 2 camera mắt cá (mô hình Mei, đổi gần đúng sang OpenCV fisheye), LiDAR Velodyne, pose chính thức; box 3D khi nguồn có `data_3d_bboxes` (chuỗi 0003: xe, không có người) (`docs/datasets/kitti360.md`).
+- KITTI-360: 2 camera pinhole (đã rectify), 2 camera mắt cá (mô hình Mei, đổi gần đúng sang OpenCV fisheye), LiDAR Velodyne, pose chính thức; box 3D khi nguồn có `data_3d_bboxes` (chuỗi 0003: 45 xe, 1 người đi bộ) (`docs/datasets/kitti360.md`).
 - CARLA: dữ liệu sinh từ CARLA cho track fisheye (rig 4–6 camera fisheye, có pose, depth và box ground truth).
 - Dữ liệu riêng của mentor: định dạng chưa biết; đi qua một converter riêng khi có thông tin.
 - Ảnh kèm pose dạng COLMAP.
