@@ -59,12 +59,21 @@ class KaggleError(RuntimeError):
     """Lỗi khi gọi Kaggle: chưa cài lệnh ``kaggle``, chưa có khoá API, hoặc lệnh báo lỗi."""
 
 
+# Một lệnh kaggle chạy lâu nhất bao lâu. Tải output của một run (vài GB, hàng nghìn file) qua mạng
+# chậm mất hơn một giờ (đã gặp: 2,4 GB ở khoảng 0,7 MB/s), nên để 6 giờ.
+CLI_TIMEOUT_S = 6 * 3600
+
+
 def _run_cli(command: Sequence[str]) -> "subprocess.CompletedProcess[str]":
     """Chạy một lệnh ``kaggle``; không ném lỗi khi lệnh thoát khác 0 (``KaggleClient`` xử lý)."""
     try:
-        return subprocess.run(list(command), capture_output=True, text=True, timeout=3600)
+        return subprocess.run(list(command), capture_output=True, text=True, timeout=CLI_TIMEOUT_S)
     except FileNotFoundError:
         raise KaggleError("chưa có lệnh kaggle; cài bằng: pip install kaggle") from None
+    except subprocess.TimeoutExpired:
+        raise KaggleError(
+            f"lệnh {' '.join(command[:3])} chạy quá {CLI_TIMEOUT_S // 3600} giờ; chạy lại lệnh"
+        ) from None
 
 
 class KaggleClient:
