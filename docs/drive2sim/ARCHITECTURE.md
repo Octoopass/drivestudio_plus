@@ -404,7 +404,7 @@ drivestudio_plus/                          branch drive2sim
 ├── pyproject.toml                         package drive2sim; pip install -e .
 ├── requirements.txt                       thư viện nặng (PyTorch, gsplat-geer, ...)
 ├── docs/
-│   ├── datasets/                          hướng dẫn tải và tiền xử lý: <dataset>.md, human_pose.md
+│   ├── datasets/                          hướng dẫn tải và tiền xử lý: <dataset>.md, human_pose.md; overview.md (so sánh camera, độ dài cảnh, quãng đường)
 │   ├── methods/                           ghi chú phương pháp: 3dgeer.md, fastgs.md
 │   ├── media/                             hình cho README
 │   └── drive2sim/                         SPEC.md, ARCHITECTURE.md, CONTRACTS.md
