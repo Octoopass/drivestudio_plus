@@ -23,7 +23,8 @@ Cảnh dùng:
 | `20261114-123155-omnire-453a` | Xong | OmniRe | 3DGS | có | | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 25,02 | 0,777 | 0,268 | 24,09 / 24,73 / 24,61 | 2 giờ 47 phút | 4,4 GB | 0,55 triệu |
 | `20261114-123210-omnire-f8a6` | Xong | OmniRe | 3DGS | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 25,01 | 0,778 | 0,269 | 24,15 / 24,75 / 24,62 | 2 giờ 29 phút | 4,7 GB | 0,55 triệu |
 | `20261115-124649-omnire-6b85` | Đang chạy (`quynhctrc`) | OmniRe | 3DGEER | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | | | | | | | |
-| (kế hoạch) | Chạy thử để chỉnh ngưỡng densify | OmniRe | 3DGUT | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 2 000 | | | | | | | |
+| `20261115-132753-omnire-ac56` | Đang chạy (`quanlam`): mốc để chỉnh ngưỡng, ghi thống kê densify | OmniRe | 3DGS | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 2 000 | | | | | | | |
+| `20261115-132747-omnire-ca4b` | Đang chạy (`quynhctrc`): chỉnh ngưỡng densify, ghi thống kê densify | OmniRe | 3DGUT | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 2 000 | | | | | | | |
 | (kế hoạch) | Sau khi chỉnh ngưỡng | OmniRe | 3DGUT (ngưỡng đã chỉnh) | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | | | | | | | |
 | (kế hoạch, tuỳ chọn) | | OmniRe | 3DGUT (ngưỡng gốc của Bosch) | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | | | | | | | |
 | `20261114-123228-streetgs-60ad` | Đã tạo, chưa đẩy | Street GS | 3DGS | | | nuScenes `scene-0061` | `front1` | 172 / 19 | 800×450 | 30 000 | | | | | | | |
