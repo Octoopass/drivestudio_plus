@@ -41,6 +41,21 @@ Ghi chú:
 | (kế hoạch) | Chạy thử đo VRAM, tốc độ | OmniRe | thắng ở bảng pinhole (3DGEER hoặc 3DGUT) | có | có | KITTI-360 0003 đủ khung | `image_00`–`image_03` | 864 | pinhole 704×188, mắt cá 700×700 | 2 000 | | | | | | |
 | (kế hoạch) | Theo kết quả chạy thử | OmniRe | như trên | có | có | KITTI-360 0003 đủ khung | `image_00`–`image_03` | 864 (hoặc chia đoạn) | pinhole 704×188, mắt cá 700×700 | 30 000 | | | | | | |
 
+### Thí nghiệm: hai loại camera có gộp được vào một model không
+
+Câu hỏi: thêm camera mắt cá vào cùng model với camera pinhole có làm kém phần pinhole không (hai loại camera "không fuse được"), hay bổ sung được vùng hai bên. Ba run chỉ khác camera dùng để train; cùng cảnh KITTI-360 0003, cùng đoạn khung, renderer, cấu hình, số bước (theo kết quả chạy thử ở bảng trên).
+
+| Run | Trạng thái | Approach | Renderer | FGS | FrGS | Dataset, cảnh | Camera train | Khung | Độ phân giải | Iter | PSNR `image_00`/`01` (pinhole) | PSNR `image_02`/`03` (mắt cá) | PSNR chung | Thời gian train | VRAM đỉnh | Gaussian |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| (kế hoạch) | | OmniRe | thắng ở bảng pinhole | có | có | KITTI-360 0003 | chỉ pinhole: `image_00`, `image_01` | như run đủ ở trên | pinhole 704×188 | như run đủ | | | | | | |
+| (kế hoạch) | | OmniRe | như trên | có | có | KITTI-360 0003 | chỉ mắt cá: `image_02`, `image_03` | như trên | mắt cá 700×700 | như trên | | | | | | |
+| (kế hoạch) | | OmniRe | như trên | có | có | KITTI-360 0003 | cả 4 camera | như trên | như trên | như trên | | | | | | |
+
+Đọc kết quả:
+- PSNR trên ảnh pinhole của run "cả 4 camera" thấp hơn rõ run "chỉ pinhole": thêm mắt cá làm hỏng phần pinhole (hai loại camera xung đột: calib, màu, độ nét).
+- Ngang hoặc cao hơn: gộp được; run "cả 4 camera" còn phủ thêm hai bên hông.
+- Thêm: render camera pinhole ảo đặt đúng vị trí `image_00` từ model "chỉ mắt cá", so với ảnh `image_00` thật, để biết dựng chỉ từ mắt cá mất bao nhiêu khi xem dạng ảnh thường.
+
 Ghi chú:
 - Chỉ 3DGEER và 3DGUT vẽ được camera mắt cá, nên bảng này không có 3DGS.
 - Với cả 864 khung × 4 camera, 30 000 bước chỉ cho mỗi ảnh được học khoảng 7 lần; chia và ghép đoạn đường làm sau.
