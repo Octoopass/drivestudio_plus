@@ -15,6 +15,7 @@ Cần GPU, gói ``hmr2`` (``third_party/Humans4D``) và ``phalp`` (``envs/instal
 file ``SMPL_NEUTRAL.pkl`` (``drive2sim.paths.find_smpl_model``) và cảnh có box 3D.
 """
 
+import json
 import os
 import shutil
 import sys
@@ -46,6 +47,19 @@ SMPL_CACHE_PATHS = (
     Path("phalp/3D/models/smpl/SMPL_NEUTRAL.pkl"),
     Path("4DHumans/data/smpl/SMPL_NEUTRAL.pkl"),
 )
+
+
+# Lớp người trong instances_info.json của khung KITTI (loader KITTI, SMPLNODE_CLASSES).
+HUMAN_CLASSES = frozenset({"Pedestrian", "Person_sitting"})
+
+
+def scene_humans(scene_root: Path) -> int:
+    """Số người (lớp ``HUMAN_CLASSES``) trong ``instances/instances_info.json`` của cảnh."""
+    path = scene_root / "instances" / "instances_info.json"
+    if not path.is_file():
+        return 0
+    info = json.loads(path.read_text("utf-8"))
+    return sum(value.get("class_name") in HUMAN_CLASSES for value in info.values())
 
 
 def link_smpl_model(model: Path, cache_dir: Path) -> list[Path]:
@@ -128,6 +142,22 @@ class PrepSmplStage(Stage):
         Raises:
             RuntimeError: Nếu quy trình lỗi hoặc không ghi ra ``humanpose/smpl.pkl``.
         """
+        dataset = ctx.scene.manifest.source.dataset
+        if dataset not in SMPL_DATASETS:
+            # Dataset chưa có bước chiếu box người (KITTI-360): cảnh không có người thì không có
+            # gì để dựng; trả thư mục rỗng, train.drivestudio thấy thiếu smpl.pkl thì tắt
+            # load_smpl. Cảnh có người thì báo lỗi thay vì train mà bỏ người.
+            humans = scene_humans(ctx.scene.root)
+            if humans:
+                raise RuntimeError(
+                    f"prep.smpl chưa hỗ trợ dataset {dataset}, mà cảnh có {humans} người "
+                    "(instances/instances_info.json)"
+                )
+            (ctx.output_dir / LOG_FILE).write_text(
+                f"cảnh {dataset} không có người: bỏ qua bước dựng SMPL\n", "utf-8"
+            )
+            ctx.progress(1.0, "cảnh không có người, bỏ qua SMPL")
+            return {"smpl": ctx.output_dir}
         # Cảnh nằm ở <thư mục làm việc>/data/<cảnh>/ (trên Kaggle: dưới /kaggle/input, khi đó
         # find_smpl_model tìm trong các dataset đã gắn).
         model = find_smpl_model(ctx.scene.root.parent.parent)

@@ -382,7 +382,8 @@ class TrainDrivestudioStage(Stage):
                     if (inputs["masks"] / name).exists()
                 }
             )
-        if "smpl" in inputs:
+        # prep.smpl trả thư mục rỗng khi cảnh không có người (dataset chưa có bước dựng người).
+        if "smpl" in inputs and (inputs["smpl"] / SMPL_ENTRY / "smpl.pkl").is_file():
             extra[SMPL_ENTRY] = inputs["smpl"] / SMPL_ENTRY
         view_root = ctx.output_dir / VIEW_DIR
         build_view(ctx.scene.root, view_root, exclude=(*MASK_ENTRIES, SMPL_ENTRY), extra=extra)

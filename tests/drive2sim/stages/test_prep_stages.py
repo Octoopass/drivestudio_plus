@@ -11,6 +11,7 @@ thư mục cảnh ảo. File này kiểm tra:
 - approach ``omnire`` có cả hai stage, ``streetgs`` chỉ có stage mask.
 """
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -221,3 +222,21 @@ def test_smpl_refuses_dataset_without_human_box_step(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="kitti360"):
         build_smpl_command("kitti360", tmp_path)
     assert "kitti" in build_smpl_command("kitti", tmp_path)
+
+
+def test_smpl_skips_scene_without_people_when_dataset_has_no_step(tmp_path: Path) -> None:
+    scene = make_scene(tmp_path)
+    ctx = Context(scene, tmp_path / "cache" / "smpl")
+    kitti = dict(
+        MANIFEST, scene_id="kitti360_0003", source=dict(MANIFEST["source"], dataset="kitti360")
+    )
+    ctx.scene = Scene(scene.name, scene, Manifest.model_validate(kitti))
+    (scene / "instances").mkdir()
+    cars = {"0": {"id": 0, "class_name": "Car"}}
+    (scene / "instances" / "instances_info.json").write_text(json.dumps(cars))
+    assert PrepSmplStage().run(ctx, {}, NoParams()) == {"smpl": ctx.output_dir}
+    assert not (ctx.output_dir / "humanpose").exists()
+    people = {**cars, "1": {"id": 1, "class_name": "Pedestrian"}}
+    (scene / "instances" / "instances_info.json").write_text(json.dumps(people))
+    with pytest.raises(RuntimeError, match="1 người"):
+        PrepSmplStage().run(ctx, {}, NoParams())

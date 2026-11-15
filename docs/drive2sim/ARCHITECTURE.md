@@ -532,7 +532,7 @@ Mỗi stage là một lớp đăng ký theo tên, theo interface ở CONTRACTS m
 | `prep.select` | Chọn camera, đoạn khung, độ phân giải | có | |
 | `prep.undistort` | Khử méo về pinhole cho approach chỉ nhận pinhole | có | `data.pixel_source.undistort` của loader PhysicalAI |
 | `prep.masks_segformer` | Mask bầu trời và mask vật động tinh; cần GPU (`D2S_DEVICE`) | có | `drive2sim/recon/preprocess/masks/segformer_hf.py` |
-| `prep.smpl` | Tư thế người cho OmniRe; cần GPU, `hmr2` và box 3D | có | `drive2sim/recon/preprocess/smpl/run.py`, `extract.py` |
+| `prep.smpl` | Tư thế người cho OmniRe; cần GPU, `hmr2` và box 3D. Dataset chưa có bước chiếu box người (KITTI-360): cảnh không có người thì bỏ qua (trả thư mục rỗng, `train.drivestudio` tắt `load_smpl`), có người thì báo lỗi | có | `drive2sim/recon/preprocess/smpl/run.py`, `extract.py` |
 | `init.lidar` | Điểm khởi tạo từ LiDAR | có | `get_lidar_samples` trong `drive2sim/recon/data/driving_dataset.py` |
 | `init.depth` | Điểm khởi tạo từ pose dataset + depth metric | có | Chưa có |
 | `init.slam` | Pose và điểm từ SLAM, khi rig không có pose | có | Chưa có |
