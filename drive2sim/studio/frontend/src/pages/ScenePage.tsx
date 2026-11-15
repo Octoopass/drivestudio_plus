@@ -227,17 +227,20 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
 // Tốc độ phát xem trước: các cảnh trong tool đều ~10 Hz (nuScenes nội suy lên 10 Hz, KITTI-360
 // 10 Hz); manifest chưa ghi tần số.
 const PLAY_FPS = 10;
-// Ảnh giải mã chiếm width × height × 4 byte (nuScenes: 6 ảnh 1600×900 ≈ 35 MB mỗi khung), nên chỉ
-// giữ ảnh của các khung sắp phát: tối đa PRELOAD_AHEAD khung (≈ 0,5 giây, ≈ 175 MB với nuScenes).
-const PRELOAD_AHEAD = 5;
+// Cửa sổ trượt quanh khung đang hiện: tải sẵn WINDOW khung phía trước và WINDOW khung phía sau
+// (lùi, tua lại cũng hiện ngay), bỏ các khung ra khỏi cửa sổ. Ảnh giải mã chiếm width × height × 4
+// byte: nuScenes 6 ảnh 1600×900 ≈ 35 MB mỗi khung, nên 21 khung ≈ 730 MB; KITTI-360 ≈ 20 MB mỗi
+// khung, ≈ 420 MB.
+const WINDOW = 10;
 
 /**
- * Tải trước khung ảnh: đường dẫn ảnh (``/frames/{i}``) rồi mọi ảnh của khung, giải mã sẵn
+ * Tải trước khung ảnh theo cửa sổ trượt ``[khung đang hiện − WINDOW, + WINDOW]`` (vòng về đầu
+ * khi tới cuối): đường dẫn ảnh (``/frames/{i}``) rồi mọi ảnh của khung, giải mã sẵn
  * (``img.decode``), để khi đổi khung trình duyệt vẽ ngay.
  *
- * Bộ nhớ: chỉ giữ tham chiếu tới ảnh của các khung trong cửa sổ ``(khung đang hiện, + PRELOAD_AHEAD]``;
- * ``release`` (gọi mỗi lần đổi khung) bỏ tham chiếu các khung ngoài cửa sổ để trình duyệt thu hồi.
- * Ảnh đang hiện do thẻ ``<img>`` trên trang giữ. Rời trang hoặc đổi cảnh thì bỏ hết.
+ * ``slide(khung)`` (gọi mỗi lần đổi khung) dời cửa sổ: bỏ tham chiếu các khung đã ra ngoài để
+ * trình duyệt thu hồi bộ nhớ, rồi tải các khung mới vào, khung gần trước, phía trước trước phía
+ * sau. Rời trang hoặc đổi cảnh thì bỏ hết.
  */
 function useFramePreloader(sceneId: string, numFrames: number) {
   return useMemo(() => {
@@ -246,7 +249,7 @@ function useFramePreloader(sceneId: string, numFrames: number) {
     let current = 0;
     const inWindow = (index: number) => {
       const ahead = (index - current + numFrames) % numFrames;
-      return ahead === 0 || ahead <= PRELOAD_AHEAD;
+      return ahead <= WINDOW || numFrames - ahead <= WINDOW;
     };
     const load = (index: number): Promise<FrameImages> => {
       const hit = decoded.get(index);
@@ -261,7 +264,7 @@ function useFramePreloader(sceneId: string, numFrames: number) {
             return img;
           });
           await Promise.all(imgs.map((img) => img.decode().catch(() => undefined)));
-          // Trong lúc tải, khung đang hiện có thể đã đi xa: khung ngoài cửa sổ thì không giữ.
+          // Trong lúc tải, cửa sổ có thể đã trượt đi: khung ngoài cửa sổ thì không giữ.
           if (inWindow(index)) decoded.set(index, { data, imgs });
           return data;
         })
@@ -269,11 +272,15 @@ function useFramePreloader(sceneId: string, numFrames: number) {
       pending.set(index, promise);
       return promise;
     };
-    const release = (index: number) => {
+    const slide = (index: number) => {
       current = index;
       for (const key of [...decoded.keys()]) if (!inWindow(key)) decoded.delete(key);
+      for (let k = 1; k <= WINDOW; k++) {
+        load((index + k) % numFrames).catch(() => undefined);
+        load((index - k + numFrames) % numFrames).catch(() => undefined);
+      }
     };
-    return { load, release, isReady: (index: number) => decoded.has(index) };
+    return { load, slide, isReady: (index: number) => decoded.has(index) };
   }, [sceneId, numFrames]);
 }
 
@@ -298,15 +305,15 @@ function Frames({ sceneId, numFrames, splits }: { sceneId: string; numFrames: nu
   // Khung đang chọn: hiện ngay khi sẵn sàng (kéo thanh trượt nhanh thì chỉ hiện khung cuối).
   useEffect(() => {
     let cancelled = false;
-    frames.release(frame);
     frames.load(frame).then((data) => !cancelled && frameRef.current === frame && setShown(data)).catch(() => undefined);
+    frames.slide(frame);
     return () => {
       cancelled = true;
     };
   }, [frame, frames]);
 
-  // Phát: PLAY_FPS khung/giây; khung kế chưa tải xong thì chờ (chậm lại chứ không giật, không trống);
-  // luôn tải trước PRELOAD_AHEAD khung phía sau.
+  // Phát: PLAY_FPS khung/giây; khung kế chưa tải xong thì chờ (chậm lại chứ không giật, không trống).
+  // Cửa sổ tải trước do slide() lo mỗi lần đổi khung.
   useEffect(() => {
     if (!playing) return;
     let timer = 0;
@@ -314,7 +321,6 @@ function Frames({ sceneId, numFrames, splits }: { sceneId: string; numFrames: nu
     const step = () => {
       const current = frameRef.current;
       const next = current >= last ? 0 : current + 1;
-      for (let k = 1; k <= PRELOAD_AHEAD; k++) frames.load((current + k) % numFrames).catch(() => undefined);
       if (frames.isReady(next)) setFrame(next);
       if (!stopped) timer = window.setTimeout(step, 1000 / PLAY_FPS);
     };
