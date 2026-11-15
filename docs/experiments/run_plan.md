@@ -23,7 +23,7 @@ Cảnh dùng:
 | `20261114-123142-omnire-8d9c` | Xong | OmniRe | 3DGS | | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 25,20 | 0,785 | 0,251 | 24,38 / 25,04 / 24,81 | 3 giờ 18 phút | 6,9 GB | 1,52 triệu |
 | `20261114-123155-omnire-453a` | Xong | OmniRe | 3DGS | có | | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 25,02 | 0,777 | 0,268 | 24,09 / 24,73 / 24,61 | 2 giờ 47 phút | 4,4 GB | 0,55 triệu |
 | `20261114-123210-omnire-f8a6` | Xong | OmniRe | 3DGS | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 25,01 | 0,778 | 0,269 | 24,15 / 24,75 / 24,62 | 2 giờ 29 phút | 4,7 GB | 0,55 triệu |
-| `20261115-124649-omnire-6b85` | Đang chạy (`quynhctrc`) | OmniRe | 3DGEER | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | | | | | | | |
+| `20261115-124649-omnire-6b85` | Xong (`quynhctrc`) | OmniRe | 3DGEER | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 21,66 | 0,744 | 0,317 | 23,39 / 24,42 / 24,09 | 2 giờ 34 phút | 3,6 GB | 0,44 triệu |
 | `20261115-132753-omnire-ac56` | Đang chạy (`quanlam`): mốc để chỉnh ngưỡng, ghi thống kê densify | OmniRe | 3DGS | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 2 000 | | | | | | | |
 | `20261115-132747-omnire-ca4b` | Đang chạy (`quynhctrc`): chỉnh ngưỡng densify, ghi thống kê densify | OmniRe | 3DGUT | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 2 000 | | | | | | | |
 | (kế hoạch) | Sau khi chỉnh ngưỡng | OmniRe | 3DGUT (ngưỡng đã chỉnh) | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | | | | | | | |
@@ -34,6 +34,7 @@ Ghi chú:
 - Run `2d33`, `8d9c` bật đo profile ở bước 2000 và 20 000, các run khác không: chênh thời gian có thể bị phóng đại một chút.
 - 3DGEER, 3DGUT chỉ dùng phần Python của Faster-GS (fused Adam, fused SSIM, bớt chờ GPU); phần kernel chỉ có cho 3DGS.
 - Ngưỡng densify của 3DGUT: `docs/methods/densify_3dgut.md`.
+- Run `6b85` (3DGEER) thấp hơn run `f8a6` (3DGS, cùng FastGS + Faster-GS) 3,35 dB, và PSNR trên ảnh train cũng thấp (~21–22 dB ở cuối, run `2d33` ~26,5 dB): model học thiếu, không phải học vẹt. Số Gaussian nền gần như không tăng (0,96 triệu lúc đầu, cao nhất ~1,02 triệu ở bước 3000; run `2d33` lên 2,8 triệu) rồi giảm còn 0,29 triệu. Nghi densify của nhánh `geer` (ngưỡng 0,01 trên `geer_gradient`) quá ít; **chưa kiểm chứng**, cần so với log của `f8a6` (cùng FastGS) và thống kê densify của 3DGEER.
 
 ## Fisheye (pinhole + mắt cá)
 
