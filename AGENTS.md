@@ -27,6 +27,21 @@ Quy tắc:
 - `tests/drive2sim/core/test_contracts_examples.py` đọc mọi ví dụ JSON/YAML có `schema_version` trong `CONTRACTS.md` và kiểm tra theo schema. Sửa định dạng file thì sửa cả ví dụ trong docs và schema trong `drive2sim/core/schema.py`, nếu không test sẽ báo lỗi.
 - Thông tin về paper, repo, số liệu: kiểm tra trong mã nguồn hoặc tài liệu gốc rồi mới ghi vào docs; chỗ nào chưa kiểm tra thì ghi rõ "chưa kiểm tra".
 
+### 2.1 Phân tích trước khi thay đổi
+
+Áp dụng cho mọi quyết định thay đổi kiến trúc, hành vi, code hay thuật toán: sửa lỗi, tối ưu, đổi cách hoạt động, thêm cơ chế mới. Chỉ implement khi phân tích cho thấy thay đổi là một cải tiến.
+
+1. **Hiểu hệ thống hiện tại từ code, không đoán.** Đọc code của phần liên quan và lần theo luồng chạy thật: ai gọi, dữ liệu đi qua đâu, trạng thái lưu ở đâu, phần nào khác phụ thuộc vào nó. Xác định nguyên nhân gốc bằng bằng chứng (dòng code, log, phép đo), không dừng ở triệu chứng.
+2. **Ghép ý tưởng sửa với cách hệ thống đang chạy.** Mô tả cụ thể sẽ đổi gì, ở đâu, thay đổi đó đi qua những luồng nào và ảnh hưởng tới những chỗ nào khác (dataset, renderer, executor, Studio, CLI, docs, test).
+3. **Phân tích đánh đổi.** Nêu rõ ưu điểm, nhược điểm, cái giá phải trả (bộ nhớ, tốc độ, độ phức tạp, tương thích với dữ liệu và run cũ, rủi ro gây lỗi) và các phương án khác, kể cả "không đổi gì". Có số liệu thì thay số vào (dung lượng, thời gian, tỉ lệ); ghi rõ chỗ nào đã đo, chỗ nào mới ước tính.
+4. **Kết luận thay đổi thuộc loại nào:**
+   - **Cải tiến**: tốt hơn rõ ràng, cái giá nhỏ hoặc không có. Implement.
+   - **Đánh đổi**: được cái này, mất cái kia. Trình bày cho người dùng quyết định trước khi làm.
+   - **Không đáng hoặc dễ gây lỗi**: lợi ích nhỏ so với rủi ro và độ phức tạp. Không làm; ghi lại lý do.
+5. **Sau khi implement, kiểm chứng đúng điều đã dự đoán** (test, phép đo, chạy thử) và báo kết quả thật, kể cả khi khác dự đoán.
+
+Phân tích ngắn hay dài tuỳ độ lớn của thay đổi, nhưng không bỏ bước nào. Khi trình bày cho người dùng, đặt phân tích trước, đề xuất sau.
+
 ## 3. Đặt code ở đâu, đặt tên ra sao
 
 - Chỗ đặt file mới: theo bảng ở `ARCHITECTURE.md` mục 3.1. Không thêm thư mục mã mới ở gốc repo; ở gốc chỉ có `docs/`, `tests/`, `third_party/`, `envs/` và file cấu hình.
