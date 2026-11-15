@@ -8,6 +8,7 @@ File này kiểm tra:
 - cảnh chỉ có trên Kaggle không chạy được trên máy, không kiểm tra lại được trên máy.
 """
 
+import base64
 import json
 import re
 import shutil
@@ -45,6 +46,11 @@ class FakeIngestKaggle(FakeKaggle):
         super().__init__(root)
         self.datasets[SOURCE] = ["v1.0-mini"]
         self.patterns: list[Optional[str]] = []
+        self.logs: dict[str, str] = {}
+
+    def kernel_logs(self, slug: str) -> str:
+        """Log của notebook (notebook ingest in file nhỏ của cảnh vào đây)."""
+        return self.logs.get(slug, "")
 
     def push_kernel(self, folder: Path) -> None:
         """Nhớ notebook; notebook ingest thì ghi luôn output của nó."""
@@ -65,6 +71,15 @@ class FakeIngestKaggle(FakeKaggle):
             signature = json.loads(text.split('result.update(json.loads(r"""')[1].split('"""')[0])
             result = {"scene_id": SCENE, "commit": COMMIT, "exit_code": 0, **signature}
             (out / "ingest_result.json").write_text(json.dumps(result))
+            light = {
+                "result": result,
+                "files": {
+                    "manifest.yaml": (scene / "manifest.yaml").read_text(),
+                    "reports/validation.json": json.dumps(report),
+                },
+            }
+            encoded = base64.b64encode(json.dumps(light).encode()).decode()
+            self.logs[metadata["id"]] = f"pip ...\n{ingest.LIGHT_MARKER} {encoded}\n"
 
     def kernel_status(self, slug: str) -> str:
         """Notebook chưa đẩy thì báo 404 như Kaggle."""
@@ -228,3 +243,21 @@ def test_local_run_on_kaggle_scene_is_refused(
     )
     assert code == 1
     assert "chỉ có trên Kaggle" in json.loads(capsys.readouterr().out)["error"]["message"]
+
+
+def test_complete_notebook_without_log_result_is_rerun(
+    tmp_path: Path, fake: FakeIngestKaggle
+) -> None:
+    workdir = Workdir(tmp_path / "work")
+    workdir.root.mkdir()
+    ingest.ingest_on_kaggle(workdir, REQUEST, client=fake, sleep=lambda s: None)
+    kernel = f"alice/{REQUEST.kernel_name()}"
+    fake.logs[kernel] = "log của template cũ, không có kết quả"
+    (workdir.scene_dir(SCENE) / KAGGLE_SCENE_FILE).unlink()
+    (workdir.scene_dir(SCENE) / "manifest.yaml").unlink()
+    pushes = []
+    original = fake.push_kernel
+    fake.push_kernel = lambda folder: (pushes.append(folder), original(folder))  # type: ignore
+    ingest.ingest_on_kaggle(workdir, REQUEST, client=fake, sleep=lambda s: None)
+    assert len(pushes) == 1
+    assert fake.patterns == []  # không liệt kê output

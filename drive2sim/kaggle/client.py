@@ -304,6 +304,20 @@ class KaggleClient:
             if isinstance(row, dict)
         ]
 
+    def kernel_logs(self, slug: str) -> str:
+        """Log của lần chạy mới nhất (``kaggle kernels logs``): nối mọi dòng thành một chuỗi.
+
+        Log chứa những gì tiến trình ghi ra stdout, stderr (không có phần in ra trong ô của
+        notebook). Kaggle CLI trả một mảng JSON ``[{"stream_name", "data"}, ...]``; không đọc
+        được JSON thì trả nguyên văn.
+        """
+        text = self._call("kernels", "logs", slug)
+        try:
+            entries = json.loads(text)
+        except ValueError:
+            return text
+        return "".join(entry.get("data", "") for entry in entries if isinstance(entry, dict))
+
     def kernel_output(
         self, slug: str, destination: Path, file_pattern: Optional[str] = None
     ) -> None:

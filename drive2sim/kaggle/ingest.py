@@ -11,13 +11,16 @@ Luồng của ``ingest_on_kaggle``:
 1. Tên notebook ``<người dùng>/d2s-ingest-<nguồn>-<chuỗi>`` (``kaggle/names.py``), nên gọi lại
    cùng tham số thì dùng lại notebook đã chạy (chờ tiếp nếu đang chạy, tải về nếu đã xong).
 2. Đẩy notebook (template ``templates/ingest.ipynb``) khi chưa có hoặc lần trước lỗi.
-3. Chờ notebook xong, tải các file nhỏ của cảnh về ``data/<scene_id>/``, ghi ``kaggle_scene.json``.
+3. Chờ notebook xong, đọc các file nhỏ của cảnh từ log notebook (``read_light_files``), ghi vào
+   ``data/<scene_id>/`` cùng ``kaggle_scene.json``.
 
 File này chứa ``KaggleSceneRef``, ``IngestRequest``, ``load_scene_refs``, ``load_scene_ref``,
 ``build_ingest_notebook``, ``ingest_on_kaggle``.
 """
 
+import base64
 import json
+import re
 import shutil
 import tempfile
 import time
@@ -37,8 +40,9 @@ from drive2sim.kaggle.executor import code_source
 
 TEMPLATE = paths.PACKAGE_DIR / "kaggle" / "templates" / "ingest.ipynb"
 RESULT_FILE = "ingest_result.json"  # notebook ghi scene_id vào output
-# File nhỏ của cảnh được tải về máy; ảnh, LiDAR, mặt nạ ở lại Kaggle.
-LIGHT_FILES = r"(ingest_result\.json|manifest\.yaml|reports/[^/]+\.json)$"
+# Notebook in file nhỏ của cảnh (kết quả, manifest.yaml, reports/*.json) vào log, sau chữ này,
+# dạng base64 của JSON; ảnh, LiDAR, mặt nạ ở lại Kaggle.
+LIGHT_MARKER = "D2S_INGEST_LIGHT"
 POLL_S = 60
 WAIT_S = 6 * 3600  # notebook ingest lâu nhất 6 giờ thì thôi chờ (chạy lại lệnh để chờ tiếp)
 _RUNNING = ("queued", "running", "new", "new_script", "cancel_requested")
@@ -196,15 +200,26 @@ def _wait(
         waited += POLL_S
 
 
-def _signature(client: KaggleClient, kernel: str, workdir: Workdir) -> Optional[dict]:
-    """Nguồn và tham số mà notebook ingest đã chạy (``ingest_result.json``); ``None`` nếu thiếu."""
-    with tempfile.TemporaryDirectory(dir=workdir.root) as folder:
-        client.kernel_output(kernel, Path(folder), file_pattern=r"ingest_result\.json$")
-        path = next(Path(folder).rglob(RESULT_FILE), None)
-        if path is None:
-            return None
-        result = json.loads(path.read_text("utf-8"))
-        return {key: result.get(key) for key in ("source", "path", "args")}
+def read_light_files(client: KaggleClient, kernel: str) -> Optional[dict]:
+    """File nhỏ của cảnh mà notebook ingest in vào log (dòng ``LIGHT_MARKER``).
+
+    Không dùng ``kaggle kernels output``: lệnh đó liệt kê mọi file của output trước khi lọc,
+    mà output của một cảnh lớn có hàng chục nghìn file, đủ để Kaggle trả 429 (đã gặp với
+    KITTI-360 0003). Đọc log chỉ tốn một lệnh API.
+
+    Returns:
+        ``{"result": <ingest_result.json>, "files": {đường dẫn trong cảnh: nội dung}}``, hoặc
+        ``None`` nếu log không có dòng đánh dấu (notebook theo template cũ, hoặc chưa xong).
+    """
+    match = re.search(LIGHT_MARKER + r" ([A-Za-z0-9+/=]+)", client.kernel_logs(kernel))
+    if match is None:
+        return None
+    return json.loads(base64.b64decode(match.group(1)).decode("utf-8"))
+
+
+def _signature(light: dict) -> dict:
+    """Nguồn và tham số mà notebook ingest đã chạy."""
+    return {key: light["result"].get(key) for key in ("source", "path", "args")}
 
 
 def ingest_on_kaggle(
@@ -244,7 +259,12 @@ def ingest_on_kaggle(
     except KaggleError:
         status = ""  # notebook chưa có
     commit = ""
-    if status == "complete" and _signature(client, kernel, workdir) != request.signature():
+    light = read_light_files(client, kernel) if status == "complete" else None
+    if status == "complete" and light is None:
+        # Notebook theo template cũ (không in file nhỏ vào log): chạy lại, chỉ tốn CPU.
+        notify(f"{kernel} chưa có kết quả trong log, chạy lại notebook")
+        status = ""
+    if light is not None and _signature(light) != request.signature():
         # Cùng tên nhưng lần trước ingest với nguồn hoặc tham số khác: chạy lại sẽ ghi đè output
         # mà run cũ có thể đang dùng, nên từ chối.
         raise KaggleError(
@@ -254,24 +274,27 @@ def ingest_on_kaggle(
     if status in ("", "error", "cancel_acknowledged"):
         commit = _push(client, request, kernel, branch)
         notify(f"đã đẩy notebook ingest {kernel}")
+        light = None
     status = _wait(client, kernel, timeout_s, sleep, notify)
     if status != "complete":
         raise KaggleError(
             f"notebook {kernel} kết thúc với trạng thái {status}; xem log trên Kaggle"
         )
+    light = light or read_light_files(client, kernel)
+    if light is None:
+        raise KaggleError(f"log của {kernel} không có kết quả ingest ({LIGHT_MARKER})")
+    result = light["result"]
+    scene_id = result["scene_id"]
+    if "manifest.yaml" not in light["files"]:
+        raise KaggleError(f"kết quả của {kernel} không có manifest.yaml của {scene_id}")
     with tempfile.TemporaryDirectory(dir=workdir.root) as folder:
-        output = Path(folder)
-        client.kernel_output(kernel, output, file_pattern=LIGHT_FILES)
-        result_path = next(output.rglob(RESULT_FILE), None)
-        if result_path is None:
-            raise KaggleError(f"output của {kernel} không có {RESULT_FILE}: ingest chưa xong")
-        result = json.loads(result_path.read_text("utf-8"))
-        scene_id = result["scene_id"]
-        remote_dir = next(
-            (p.parent for p in output.rglob("manifest.yaml") if p.parent.name == scene_id), None
-        )
-        if remote_dir is None:
-            raise KaggleError(f"output của {kernel} không có manifest.yaml của {scene_id}")
+        remote_dir = Path(folder)
+        for name, text in light["files"].items():
+            target = (remote_dir / name).resolve()
+            if remote_dir.resolve() not in target.parents:  # chỉ ghi bên trong thư mục tạm
+                raise KaggleError(f"đường dẫn lạ trong kết quả của {kernel}: {name}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, "utf-8")
         remote_manifest = files.load(remote_dir / "manifest.yaml", Manifest)  # kiểm schema
         scene_dir = workdir.scene_dir(scene_id)
         refs = load_scene_refs(scene_dir)
