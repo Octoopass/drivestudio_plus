@@ -85,8 +85,22 @@ g2d = (J Jᵀ)⁻¹ J · g3d
 
 **Đã kiểm tra** (test CPU, PyTorch thật): dựng `g3d = Jᵀ g2d` với `J` tính bằng autograd, module tính ngược đúng `g2d` (sai số tương đối dưới 1e-4) với camera pinhole và mắt cá OpenCV, camera xoay trong world; điểm sau camera pinhole cho 0; cùng `g3d`, điểm xa gấp đôi cho `g2d` gấp đôi (`g2d ≈ g3d · z/f`).
 
-**Chưa kiểm tra trên run thật.** Kế hoạch:
-1. Run chạy thử 2000 bước OmniRe 3DGUT với `ut_densify=native` và 3DGS (đều bật `densify_stats`) cho phân bố thô; tỉ lệ giữa hai phân bố phải cỡ `f/z` như mục 3 dự đoán.
+**Kết quả bước 1** (16/11/2026; run `ca4b` 3DGUT nhánh Bosch, `ac56` 3DGS; cùng OmniRe + FastGS + Faster-GS, nuScenes `scene-0061` `front3`, 2000 bước; Gaussian nền):
+
+| Bước | Tỉ lệ vượt ngưỡng 3DGUT | Tỉ lệ vượt ngưỡng 3DGS | Phân vị 50 / 90 / 99 %, 3DGUT ÷ 3DGS |
+|---|---|---|---|
+| 100 | 0,008 % | 0,48 % | 0,13 / 0,16 / 0,15 |
+| 300 | 0,007 % | 1,30 % | 0,10 / 0,11 / 0,10 |
+| 600 | 0,006 % | 2,28 % | 0,07 / 0,07 / 0,07 |
+| 1000 | 0,017 % | 4,41 % | 0,04 / 0,04 / 0,05 |
+| 1900 | 0,040 % | 4,60 % | 0,03 / 0,04 / 0,07 |
+
+- **Đúng chiều dự đoán (mục 3 đã sửa):** tỉ lệ Gaussian vượt ngưỡng của 3DGUT thấp hơn 3DGS 60–380 lần; số Gaussian nền của 3DGUT giảm (0,96 → 0,88 triệu) trong khi 3DGS tăng (→ 1,14 triệu).
+- **Đúng cỡ lúc đầu:** ở bước 100 tỉ lệ ~0,13–0,16, ứng với 1,58 / z ở z ≈ 10–12 m, hợp với khoảng cách điển hình của cảnh.
+- **Lệch so với lý thuyết:** tỉ lệ giảm dần theo bước train (0,15 → 0,04), trong khi `1,58 / z` chỉ phụ thuộc hình học. Đại lượng của 3DGS tăng dần (phân vị 99 %: 3,1e-4 → 1,1e-3) còn của 3DGUT gần như đứng yên (~5–8e-5). Một nguyên nhân có thể: 3DGS dùng `absgrad` (cộng độ lớn gradient từng pixel), 3DGUT lấy độ lớn sau khi cộng, nên khi ảnh render đã gần đúng, các gradient pixel triệt tiêu nhau ở 3DGUT mà không triệt tiêu ở 3DGS. **Chưa kiểm chứng.**
+- Hệ quả: một ngưỡng cố định chia 10 không đủ (tỉ lệ đổi theo thời gian), nên gradient tương đương pixel (bước 2) đáng thử trước; nó vẫn không lấy lại được phần `absgrad` (mục 5).
+
+Kế hoạch còn lại:
 2. Chạy thử 2000 bước 3DGUT với `ut_densify=screen`: tỉ lệ Gaussian vượt ngưỡng phải gần 3DGS mà không chỉnh gì.
 3. Lặp lại bước 2 trên KITTI-360 (độ phân giải khác, có mắt cá): nếu vẫn gần, phép đổi không phụ thuộc dataset.
 4. Run 3DGUT 30 000 bước với `ut_densify=screen` để so renderer.
