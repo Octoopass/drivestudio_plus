@@ -99,6 +99,21 @@ def load_state(run_dir: Path) -> Optional[KaggleState]:
     return KaggleState(**json.loads(path.read_text("utf-8"))) if path.is_file() else None
 
 
+def _other_account(client: KaggleClient, state: KaggleState) -> Optional[str]:
+    """Lý do khi lệnh ``kaggle`` đang đăng nhập tài khoản khác tài khoản đã đẩy run.
+
+    ``None`` nếu cùng tài khoản hoặc không biết đang đăng nhập ai. Notebook và dataset của tool
+    là private, nên chỉ tài khoản đã đẩy run mới xem, tải được.
+    """
+    username, _ = client.login()
+    if username is None or username == state.username:
+        return None
+    return (
+        f"run đã đẩy bằng tài khoản Kaggle {state.username} (notebook private), còn lệnh kaggle "
+        f"đang đăng nhập {username}: đổi lại khoá API của {state.username} để xem và tải run này"
+    )
+
+
 def _save_state(run_dir: Path, state: KaggleState) -> None:
     (run_dir / D2S_DIR / STATE_FILE).write_text(json.dumps(asdict(state), indent=2), "utf-8")
 
@@ -249,7 +264,7 @@ def push_run(
 
     Raises:
         KaggleError: Nếu chưa cài hoặc chưa đăng nhập Kaggle, commit chưa push, run đã xong, hoặc
-            notebook trước còn đang chạy.
+            notebook trước còn đang chạy, hoặc lần đẩy trước dùng tài khoản Kaggle khác.
     """
     client = client or KaggleClient()
     run_dir = workdir.find_run(run_id)
@@ -262,6 +277,14 @@ def push_run(
         if status in ("queued", "running", "new", "new_script", "cancel_requested"):
             raise KaggleError(f"notebook {previous.kernel} còn đang {status}; chờ xong rồi đẩy")
     username = client.username()
+    if previous is not None and previous.username != username:
+        # Lần đẩy sau chạy tiếp từ output của các notebook trước, private của tài khoản cũ.
+        raise KaggleError(
+            f"run đã đẩy bằng tài khoản Kaggle {previous.username}, còn lệnh kaggle đang đăng "
+            f"nhập {username}: tài khoản mới không đọc được notebook cũ để chạy tiếp. Đổi lại "
+            f"khoá của {previous.username}, hoặc xoá {D2S_DIR}/{STATE_FILE} của run để chạy lại "
+            f"từ đầu bằng {username}"
+        )
     commit, repo_url = code_source(branch)
     scene = workdir.load_scene(record.scene_id)
     dataset = _ensure_scene_dataset(
@@ -342,7 +365,7 @@ def kernel_state(workdir: Workdir, run_id: str, client: Optional[KaggleClient] =
     try:
         status, error = client.kernel_status(state.kernel), None
     except KaggleError as failure:
-        status, error = None, str(failure)
+        status, error = None, _other_account(client, state) or str(failure)
     return {**asdict(state), "status": status, "status_error": error}
 
 
@@ -368,8 +391,8 @@ def pull_run(workdir: Workdir, run_id: str, client: Optional[KaggleClient] = Non
         ``run.json`` sau khi ghép.
 
     Raises:
-        KaggleError: Nếu run chưa đẩy lên Kaggle, đang chạy trên máy, hoặc output không có run
-            này.
+        KaggleError: Nếu run chưa đẩy lên Kaggle, đang chạy trên máy, lệnh ``kaggle`` đang đăng
+            nhập tài khoản khác tài khoản đã đẩy run, hoặc output không có run này.
     """
     client = client or KaggleClient()
     run_dir = workdir.find_run(run_id)
@@ -378,6 +401,9 @@ def pull_run(workdir: Workdir, run_id: str, client: Optional[KaggleClient] = Non
     state = load_state(run_dir)
     if state is None:
         raise KaggleError(f"run {run_id} chưa đẩy lên Kaggle")
+    reason = _other_account(client, state)
+    if reason:
+        raise KaggleError(reason)
     with tempfile.TemporaryDirectory(dir=_staging(workdir)) as folder:
         output = Path(folder)
         client.kernel_output(state.kernel, output)

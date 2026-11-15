@@ -56,11 +56,11 @@ def setup_status() -> dict:
 
 @router.post("/setup/token")
 def setup_token(body: TokenBody) -> dict:
-    """Lưu khoá API vào thư mục cấu hình của Kaggle CLI (quyền ``600``); không trả lại khoá.
+    """Lưu khoá API vào đúng chỗ Kaggle CLI đọc (quyền ``600``); không trả lại khoá.
 
     Returns:
-        ``{"kind", "path"}``. Khoá sai dạng trả ``400``; đã có khoá mà ``replace`` là ``false``
-        trả ``409``.
+        ``{"kind", "path", "note"}`` (``setup.save_token``). Khoá sai dạng trả ``400``; đã có
+        khoá mà ``replace`` là ``false`` trả ``409``.
     """
     return setup.save_token(body.token, body.username, body.replace)
 

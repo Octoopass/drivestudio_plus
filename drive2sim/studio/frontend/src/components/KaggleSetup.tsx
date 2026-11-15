@@ -11,7 +11,14 @@ import { ErrorBox, InfoTip, useToast } from "./ui";
 export interface KaggleSetupStatus {
   ready: boolean;
   cli: { installed: boolean; version: string | null };
-  credentials: { source: "env" | "access_token" | "kaggle.json" | "oauth" | null; config_dir: string };
+  credentials: {
+    // source: nguồn khoá đứng đầu theo thứ tự Kaggle CLI đọc; active: nguồn CLI thật sự dùng (CLI
+    // bỏ qua token sai); warning khác null khi hai cái khác nhau.
+    source: "env" | "access_token" | "kaggle.json" | "oauth" | null;
+    active: "access_token" | "kaggle.json" | "oauth" | null;
+    warning: string | null;
+    config_dir: string;
+  };
   account: { ok: boolean; username: string | null; error: string | null };
   gpu: { used_h: number | null; remaining_h: number | null; total_h: number | null; refresh_at: string | null } | null;
   code: { ok: boolean; commit: string | null; error: string | null; dirty: boolean };
@@ -66,10 +73,14 @@ export function KaggleSetup({ onStatus }: { onStatus?: (status: KaggleSetupStatu
     setSaving(true);
     setSaveError(null);
     try {
-      await post("/api/kaggle/setup/token", { token, username: legacy ? username : null, replace });
+      const saved = await post<{ note: string | null }>("/api/kaggle/setup/token", {
+        token,
+        username: legacy ? username : null,
+        replace,
+      });
       setToken("");
       setEditing(false);
-      toast({ kind: "ok", title: t("kaggle.setup.saved") });
+      toast({ kind: "ok", title: t("kaggle.setup.saved"), detail: saved.note ?? undefined });
       await runCheck();
     } catch (err) {
       setSaveError(asApiError(err));
@@ -102,8 +113,12 @@ export function KaggleSetup({ onStatus }: { onStatus?: (status: KaggleSetupStatu
           <Check state={status.cli.installed ? "ok" : "bad"} label={t("kaggle.setup.cli")}>
             {status.cli.installed ? `Kaggle CLI ${status.cli.version}` : <code>pip install kaggle</code>}
           </Check>
-          <Check state={status.credentials.source ? "ok" : "bad"} label={t("kaggle.setup.credentials")}>
+          <Check
+            state={!status.credentials.source ? "bad" : status.credentials.warning ? "warn" : "ok"}
+            label={t("kaggle.setup.credentials")}
+          >
             {status.credentials.source ? t(`kaggle.setup.source.${status.credentials.source}`) : t("kaggle.setup.no_key")}
+            {status.credentials.warning && <span className="muted"> {status.credentials.warning}</span>}
             <InfoTip>{t("kaggle.setup.config_dir", { dir: status.credentials.config_dir })}</InfoTip>
           </Check>
           <Check state={status.account.ok ? "ok" : "bad"} label={t("kaggle.setup.account")}>

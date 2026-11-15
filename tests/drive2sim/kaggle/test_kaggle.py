@@ -42,14 +42,19 @@ class FakeKaggle(KaggleClient):
         self.datasets: dict[str, list[str]] = {}
         self.kernels: dict[str, dict] = {}
         self.status = "complete"
+        self.user = "alice"  # tài khoản lệnh kaggle đang đăng nhập
 
     @staticmethod
     def _unused(command: object) -> None:
         raise AssertionError("FakeKaggle không chạy lệnh")
 
+    def login(self) -> tuple[str, str]:
+        """Tài khoản đang đăng nhập, đặt bằng ``self.user``."""
+        return self.user, "access_token"
+
     def username(self) -> str:
-        """Người dùng cố định."""
-        return "alice"
+        """Tài khoản đang đăng nhập."""
+        return self.user
 
     def dataset_exists(self, slug: str) -> bool:
         """Dataset đã tạo trong bộ nhớ chưa."""
@@ -267,8 +272,12 @@ def test_client_parses_cli_output(tmp_path: Path) -> None:
         client.push_kernel(tmp_path)
     with pytest.raises(KaggleError, match="khoá API"):
         client.username()
-    (tmp_path / "kaggle.json").write_text(json.dumps({"username": "bob", "key": "k"}))
-    assert client.username() == "bob"
+    # Tài khoản lấy từ kaggle config view: CLI tự bỏ token sai, nên chỉ lệnh này biết đang dùng gì.
+    legacy = KaggleClient(
+        runner=lambda command: Done(0, "- username: bob\n- auth_method: LEGACY_API_KEY\n"),
+        config_dir=tmp_path,
+    )  # type: ignore[arg-type]
+    assert legacy.login() == ("bob", "kaggle.json") and legacy.username() == "bob"
 
 
 def test_resume_picks_newest_attempt_that_has_the_run(tmp_path: Path) -> None:
@@ -377,3 +386,27 @@ def test_kernel_state_survives_cli_failure(setup: tuple[Workdir, FakeKaggle]) ->
     result = executor.kernel_state(workdir, RUN_ID, client=fake)
     assert result["kernel"] == "alice/d2s-x-1" and result["status"] is None
     assert "401" in result["status_error"]
+
+
+def test_other_account_is_named(setup: tuple[Workdir, FakeKaggle]) -> None:
+    """Run đẩy bằng tài khoản khác: báo rõ cần đổi lại khoá nào, không chạy tiếp, không tải."""
+    workdir, fake = setup
+    run_dir = workdir.find_run(RUN_ID)
+    state = {
+        "username": "alice", "kernel": "alice/d2s-x-1", "attempt": 1, "dataset": "alice/d",
+        "commit": "abc", "pushed_utc": "2026-11-13T10:00:00+00:00", "pulled_utc": None,
+    }  # fmt: skip
+    (run_dir / D2S_DIR / "kaggle.json").write_text(json.dumps(state))
+
+    def forbidden(slug: str) -> str:
+        raise KaggleError("403 Forbidden")
+
+    fake.kernel_status = forbidden  # type: ignore[method-assign]
+    fake.user = "bob"
+    result = executor.kernel_state(workdir, RUN_ID, client=fake)
+    assert "alice" in result["status_error"] and "bob" in result["status_error"]
+    with pytest.raises(KaggleError, match="đổi lại khoá API của alice"):
+        executor.pull_run(workdir, RUN_ID, client=fake)
+    fake.kernel_status = lambda slug: "error"  # type: ignore[method-assign]
+    with pytest.raises(KaggleError, match="không đọc được notebook cũ"):
+        executor.push_run(workdir, RUN_ID, client=fake)

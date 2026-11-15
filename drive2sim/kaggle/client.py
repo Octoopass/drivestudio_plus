@@ -3,9 +3,19 @@
 Tool không import thư viện Kaggle mà chạy lệnh ``kaggle`` trong tiến trình con, nên máy không
 dùng Kaggle không cần cài gì thêm, và test thay được toàn bộ Kaggle bằng một hàm giả.
 
-Cần: ``pip install kaggle`` và khoá API (trang Settings của Kaggle, mục API): token mới
-(``~/.kaggle/access_token``) hoặc ``~/.kaggle/kaggle.json`` kiểu cũ, hoặc biến môi trường
-``KAGGLE_USERNAME``, ``KAGGLE_KEY``. Cờ của các lệnh đã kiểm với Kaggle CLI 2.2.5.
+Cần: ``pip install kaggle`` và khoá API (trang Settings của Kaggle, mục API). Kaggle CLI 2.2.5
+(``kagglesdk/kaggle_env.py``, ``KaggleApi.authenticate``) tìm khoá theo thứ tự:
+
+1. Token mới: biến ``KAGGLE_API_TOKEN`` (giá trị hoặc đường dẫn file), rồi
+   ``~/.kaggle/access_token`` (luôn ở ``~/.kaggle``, không theo ``KAGGLE_CONFIG_DIR``). CLI chỉ
+   lấy token đầu tiên tìm thấy; token đó sai hoặc đã thu hồi thì bị bỏ qua không báo và CLI xuống
+   bước 2 (đã thử: ``KAGGLE_API_TOKEN`` sai thì file ``access_token`` cũng không được đọc).
+2. Khoá kiểu cũ: biến ``KAGGLE_USERNAME`` và ``KAGGLE_KEY``, hoặc ``kaggle.json`` trong thư mục
+   cấu hình (``KAGGLE_CONFIG_DIR``; không đặt thì ``~/.kaggle``, trên Linux khi chưa có thư mục đó
+   thì ``$XDG_CONFIG_HOME/kaggle`` hoặc ``~/.config/kaggle``).
+3. Đăng nhập OAuth (``kaggle auth login``): ``~/.kaggle/credentials.json``.
+
+Cờ của các lệnh đã kiểm với Kaggle CLI 2.2.5.
 
 File này chứa:
 - ``KaggleError``: lỗi khi gọi Kaggle (chưa cài, chưa đăng nhập, lệnh lỗi).
@@ -18,11 +28,31 @@ import json
 import os
 import re
 import subprocess
+import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Optional
 
 Runner = Callable[[Sequence[str]], "subprocess.CompletedProcess[str]"]
+
+
+# Giá trị ``auth_method`` mà ``kaggle config view`` in ra, đổi sang tên nguồn khoá của tool.
+AUTH_METHODS = {"ACCESS_TOKEN": "access_token", "LEGACY_API_KEY": "kaggle.json", "OAUTH": "oauth"}
+
+
+def default_config_dir() -> Path:
+    """Thư mục cấu hình (chứa ``kaggle.json``) theo đúng cách Kaggle CLI chọn."""
+    if os.environ.get("KAGGLE_CONFIG_DIR"):
+        return Path(os.environ["KAGGLE_CONFIG_DIR"])
+    folder = Path.home() / ".kaggle"
+    if sys.platform.startswith("linux") and not folder.exists():
+        return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "kaggle"
+    return folder
+
+
+def default_token_dir() -> Path:
+    """Thư mục Kaggle CLI đọc ``access_token`` và ``credentials.json``: luôn ``~/.kaggle``."""
+    return Path.home() / ".kaggle"
 
 
 class KaggleError(RuntimeError):
@@ -43,14 +73,20 @@ class KaggleClient:
     Args:
         runner: Hàm chạy một lệnh và trả ``CompletedProcess``; mặc định ``_run_cli``. Test
             truyền hàm giả.
-        config_dir: Thư mục chứa ``kaggle.json``; mặc định ``~/.kaggle``.
+        config_dir: Thư mục chứa ``kaggle.json``; mặc định như Kaggle CLI (``default_config_dir``).
+        token_dir: Thư mục chứa ``access_token`` và ``credentials.json``; mặc định ``~/.kaggle``
+            (Kaggle CLI cố định chỗ này).
     """
 
-    def __init__(self, runner: Optional[Runner] = None, config_dir: Optional[Path] = None) -> None:
+    def __init__(
+        self,
+        runner: Optional[Runner] = None,
+        config_dir: Optional[Path] = None,
+        token_dir: Optional[Path] = None,
+    ) -> None:
         self._runner = runner or _run_cli
-        self._config_dir = config_dir or Path(
-            os.environ.get("KAGGLE_CONFIG_DIR", Path.home() / ".kaggle")
-        )
+        self._config_dir = config_dir or default_config_dir()
+        self._token_dir = token_dir or default_token_dir()
 
     def _call(self, *args: str) -> str:
         """Chạy ``kaggle <args>``.
@@ -67,30 +103,41 @@ class KaggleClient:
             raise KaggleError(f"kaggle {args[0]} {args[1]} lỗi: {' '.join(message[-3:])}")
         return result.stdout
 
-    def username(self) -> str:
-        """Tên người dùng Kaggle.
+    def login(self) -> tuple[Optional[str], Optional[str]]:
+        """Tài khoản và nguồn khoá Kaggle CLI thật sự dùng (``kaggle config view``).
 
-        Thứ tự: biến ``KAGGLE_USERNAME``; ``kaggle.json`` kiểu cũ; dòng ``- username: ...`` của
-        ``kaggle config view`` (cách duy nhất với token mới ``access_token``).
+        Khác ``credential_source`` (chỉ xem file, biến môi trường nào đang có): CLI kiểm token với
+        Kaggle và bỏ qua token sai, nên chỉ lệnh này biết đang đăng nhập bằng gì.
+
+        Returns:
+            ``(tên người dùng, nguồn khoá)``; nguồn là ``access_token``, ``kaggle.json``, ``oauth``
+            (``AUTH_METHODS``). ``(None, None)`` nếu chưa đăng nhập được.
+        """
+        try:
+            result = self._runner(["kaggle", "config", "view"])
+        except KaggleError:
+            return None, None
+        text = (result.stdout or "") if result.returncode == 0 else ""
+        user = re.search(r"^- username: (\S+)", text, re.MULTILINE)
+        method = re.search(r"^- auth_method: (\S+)", text, re.MULTILINE)
+        username = user.group(1) if user and user.group(1) != "None" else None
+        if username is None:
+            return None, None
+        return username, AUTH_METHODS.get(method.group(1)) if method else None
+
+    def username(self) -> str:
+        """Tên người dùng Kaggle mà lệnh ``kaggle`` đang đăng nhập (``login``).
 
         Raises:
-            KaggleError: Nếu chưa có khoá API.
+            KaggleError: Nếu chưa đăng nhập được.
         """
-        if os.environ.get("KAGGLE_USERNAME"):
-            return os.environ["KAGGLE_USERNAME"]
-        path = self._config_dir / "kaggle.json"
-        try:
-            return json.loads(path.read_text("utf-8"))["username"]
-        except (OSError, ValueError, KeyError):
-            pass
-        result = self._runner(["kaggle", "config", "view"])
-        match = re.search(r"^- username: (\S+)", result.stdout or "", re.MULTILINE)
-        if result.returncode == 0 and match and match.group(1) != "None":
-            return match.group(1)
-        raise KaggleError(
-            "chưa có khoá API Kaggle; tạo token ở trang Settings của Kaggle, mục API, rồi làm "
-            "theo hướng dẫn ở đó"
-        )
+        username, _ = self.login()
+        if username is None:
+            raise KaggleError(
+                "chưa có khoá API Kaggle dùng được; tạo token ở trang Settings của Kaggle, "
+                "mục API, rồi làm theo hướng dẫn ở đó"
+            )
+        return username
 
     def dataset_exists(self, slug: str) -> bool:
         """Kiểm tra dataset ``<người dùng>/<tên>`` đã có trên Kaggle chưa.
@@ -160,7 +207,7 @@ class KaggleClient:
 
     @property
     def config_dir(self) -> Path:
-        """Thư mục cấu hình của Kaggle CLI (``KAGGLE_CONFIG_DIR`` hoặc ``~/.kaggle``)."""
+        """Thư mục chứa ``kaggle.json`` của Kaggle CLI (``default_config_dir``)."""
         return self._config_dir
 
     def version(self) -> Optional[str]:
@@ -172,24 +219,33 @@ class KaggleClient:
         match = re.search(r"(\d+\.\d+(?:\.\d+)?)", result.stdout or "")
         return match.group(1) if result.returncode == 0 and match else None
 
+    @property
+    def token_dir(self) -> Path:
+        """Thư mục chứa ``access_token`` và ``credentials.json`` (``~/.kaggle``)."""
+        return self._token_dir
+
     def credential_source(self) -> Optional[str]:
-        """Khoá API đang lấy từ đâu, theo thứ tự Kaggle CLI đọc; ``None`` nếu chưa có khoá.
+        """Nguồn khoá API đứng đầu theo thứ tự Kaggle CLI đọc (đầu file); ``None`` nếu chưa có.
+
+        Chỉ xem file và biến môi trường nào đang có, không kiểm khoá còn dùng được không; nguồn
+        CLI thật sự dùng là ``login``.
 
         Returns:
             ``env`` (biến môi trường), ``access_token`` (token mới), ``kaggle.json`` (kiểu cũ),
             ``oauth`` (``kaggle auth login``), hoặc ``None``.
         """
-        if os.environ.get("KAGGLE_API_TOKEN") or (
-            os.environ.get("KAGGLE_USERNAME") and os.environ.get("KAGGLE_KEY")
-        ):
+        if os.environ.get("KAGGLE_API_TOKEN"):
             return "env"
-        for name, source in (
-            ("access_token", "access_token"),
-            ("kaggle.json", "kaggle.json"),
-            ("credentials.json", "oauth"),
+        if any(
+            (self._token_dir / name).is_file() for name in ("access_token", "access_token.txt")
         ):
-            if (self._config_dir / name).is_file():
-                return source
+            return "access_token"
+        if os.environ.get("KAGGLE_USERNAME") and os.environ.get("KAGGLE_KEY"):
+            return "env"
+        if (self._config_dir / "kaggle.json").is_file():
+            return "kaggle.json"
+        if (self._token_dir / "credentials.json").is_file():
+            return "oauth"
         return None
 
     def quota(self) -> list[dict[str, object]]:

@@ -28,6 +28,8 @@ def no_real_kaggle(
     monkeypatch.setattr(client, "_run_cli", _blocked_cli)
     config: Path = tmp_path_factory.mktemp("kaggle_config")
     monkeypatch.setenv("KAGGLE_CONFIG_DIR", str(config))
+    # access_token, credentials.json: Kaggle CLI luôn đọc ở ~/.kaggle; đổi sang thư mục tạm.
+    monkeypatch.setattr(client, "default_token_dir", lambda: config)
     monkeypatch.delenv("KAGGLE_USERNAME", raising=False)
     monkeypatch.delenv("KAGGLE_KEY", raising=False)
     monkeypatch.delenv("KAGGLE_API_TOKEN", raising=False)
