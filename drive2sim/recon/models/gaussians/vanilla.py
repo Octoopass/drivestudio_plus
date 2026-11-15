@@ -426,13 +426,14 @@ class VanillaGaussians(nn.Module):
         activated_rotations = self.get_quats
         actovated_colors = rgbs
         
-        # collect gaussians information
+        # drive2sim: filter_mask luôn toàn True; lấy qua mặt nạ chỉ thêm một bản sao và một backward
+        # kiểu scatter (indexing_backward, ~30 ms/bước trên 1 triệu Gaussian), nên dùng thẳng tensor.
         gs_dict = dict(
-            _means=self._means[filter_mask],
-            _opacities=activated_opacities[filter_mask],
-            _rgbs=actovated_colors[filter_mask],
-            _scales=activated_scales[filter_mask],
-            _quats=activated_rotations[filter_mask],
+            _means=self._means,
+            _opacities=activated_opacities,
+            _rgbs=actovated_colors,
+            _scales=activated_scales,
+            _quats=activated_rotations,
         )
         
         # check nan and inf in gs_dict

@@ -339,7 +339,7 @@ class RigidNodes(VanillaGaussians):
         rot_cur_frame = quat_to_rotmat(
             self.quat_act(quats_cur_frame)
         )                                                          # (num_instances, 3, 3)
-        rot_per_pts = rot_cur_frame[self.point_ids[..., 0]]        # (num_points, 3, 3)
+        rot_per_pts = torch.index_select(rot_cur_frame, 0, self.point_ids[..., 0])        # (num_points, 3, 3)
         
         if self.in_test_set and (
             self.cur_frame - 1 > 0 and self.cur_frame + 1 < self.num_frames
@@ -355,7 +355,7 @@ class RigidNodes(VanillaGaussians):
             )
         else:
             trans_cur_frame = self.instances_trans[self.cur_frame] # (num_instances, 3)
-        trans_per_pts = trans_cur_frame[self.point_ids[..., 0]]
+        trans_per_pts = torch.index_select(trans_cur_frame, 0, self.point_ids[..., 0])
         
         # transform the means to world space
         means = torch.bmm(
@@ -371,7 +371,7 @@ class RigidNodes(VanillaGaussians):
         assert quats.shape[0] == self.point_ids.shape[0], \
             "its a bug here, we need to pass the mask for points_ids"
         global_quats_cur_frame = self.instances_quats[self.cur_frame]
-        global_quats_per_pts = global_quats_cur_frame[self.point_ids[..., 0]]
+        global_quats_per_pts = torch.index_select(global_quats_cur_frame, 0, self.point_ids[..., 0])
             
         global_quats_per_pts = self.quat_act(global_quats_per_pts)
         _quats = self.quat_act(quats)
@@ -403,13 +403,14 @@ class RigidNodes(VanillaGaussians):
         activated_rotations = self.quat_act(world_quats)
         actovated_colors = rgbs
         
-        # collect gaussians information
+        # drive2sim: filter_mask luôn toàn True; lấy qua mặt nạ chỉ thêm một bản sao và một backward
+        # kiểu scatter (indexing_backward, ~30 ms/bước trên 1 triệu Gaussian), nên dùng thẳng tensor.
         gs_dict = dict(
-            _means=world_means[filter_mask],
-            _opacities=activated_opacities[filter_mask],
-            _rgbs=actovated_colors[filter_mask],
-            _scales=activated_scales[filter_mask],
-            _quats=activated_rotations[filter_mask],
+            _means=world_means,
+            _opacities=activated_opacities,
+            _rgbs=actovated_colors,
+            _scales=activated_scales,
+            _quats=activated_rotations,
         )
         
         # check nan and inf in gs_dict
@@ -420,7 +421,7 @@ class RigidNodes(VanillaGaussians):
                 raise ValueError(f"Inf detected in gaussian {k} at step {self.step}")
         
         self._gs_cache = {
-            "_scales": activated_scales[filter_mask],
+            "_scales": activated_scales,
         }
         return gs_dict
 

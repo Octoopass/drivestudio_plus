@@ -38,7 +38,7 @@ class DeformableNodes(RigidNodes):
         """
         assert local_means.shape[0] == self.point_ids.shape[0], \
             "its a bug here, we need to pass the mask for points_ids"
-        nonrigid_embed = self.instances_embedding[self.point_ids[..., 0]]
+        nonrigid_embed = torch.index_select(self.instances_embedding, 0, self.point_ids[..., 0])
         ins_height = self.instances_size[self.point_ids[..., 0]][..., 2]
         x = local_means.data / ins_height[:, None] * 2
         t = self.normalized_timestamps[self.cur_frame]
@@ -91,13 +91,14 @@ class DeformableNodes(RigidNodes):
         activated_rotations = self.quat_act(world_quats)
         actovated_colors = rgbs
         
-        # collect gaussians information
+        # drive2sim: filter_mask luôn toàn True; lấy qua mặt nạ chỉ thêm một bản sao và một backward
+        # kiểu scatter (indexing_backward, ~30 ms/bước trên 1 triệu Gaussian), nên dùng thẳng tensor.
         gs_dict = dict(
-            _means=world_means[filter_mask],
-            _opacities=activated_opacities[filter_mask],
-            _rgbs=actovated_colors[filter_mask],
-            _scales=activated_scales[filter_mask],
-            _quats=activated_rotations[filter_mask],
+            _means=world_means,
+            _opacities=activated_opacities,
+            _rgbs=actovated_colors,
+            _scales=activated_scales,
+            _quats=activated_rotations,
         )
 
         # check nan in gs_dict
@@ -108,8 +109,8 @@ class DeformableNodes(RigidNodes):
                 raise ValueError(f"Inf detected in gaussian {k} at step {self.step}")
                 
         self._gs_cache = {
-            "_scales": activated_scales[filter_mask],
-            "local_xyz_deformed": means[filter_mask] if delta_xyz is not None else None,
+            "_scales": activated_scales,
+            "local_xyz_deformed": means if delta_xyz is not None else None,
         }
         return gs_dict
 
