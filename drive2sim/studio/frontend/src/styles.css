@@ -310,7 +310,6 @@ tr:hover .row-actions, tr:focus-within .row-actions { opacity: 1; }
 .id { font-weight: 500; }
 td .id, td.id { white-space: nowrap; }
 @media (hover: none) { tr .row-actions { opacity: 1; } }
-.heat { white-space: nowrap; border-radius: 7px; padding: 2px 9px; color: #10151a; font-weight: 600; display: inline-block; min-width: 65px; text-align: right; }
 
 /* ------------------------------------------------------------------ thông báo, trạng thái trống */
 

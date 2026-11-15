@@ -37,35 +37,16 @@ function writePref(key: string, value: string): void {
 }
 
 /**
- * Ô metric tô màu so với các run khác trong cột: tốt nhất xanh lá, kém nhất đỏ. So theo số đang hiện
- * (đã làm tròn): hai ô cùng hiện 0.785 thì cùng màu dù số thật lệch ở chữ số sau; cả cột hiện cùng
- * một số thì không tô.
+ * Ô metric; số tốt nhất của cột in đậm. So theo số đang hiện (đã làm tròn): mọi ô hiện cùng số tốt
+ * nhất đều in đậm; cả cột hiện cùng một số thì không in đậm ô nào.
  */
-function Heat({ text, value, cells, better }: { text: string; value: number | null; cells: { text: string; value: number }[]; better?: "high" | "low" }) {
-  const shown = new Map<string, number[]>();
-  for (const cell of cells) shown.set(cell.text, [...(shown.get(cell.text) ?? []), cell.value]);
-  if (value == null || !better || shown.size < 2) return <span className={value == null ? "faint" : undefined}>{text}</span>;
-  const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
-  const levels = [...shown.values()].map(mean);
-  const min = Math.min(...levels);
-  const max = Math.max(...levels);
-  const rank = (mean(shown.get(text) ?? [value]) - min) / (max - min);
-  const goodness = better === "low" ? 1 - rank : rank;
-  return (
-    <span className="heat" style={{ background: heatColor(goodness) }}>
-      {text}
-    </span>
-  );
-}
-
-/**
- * Màu nền ô theo mức tốt trong cột (0 kém nhất, 1 tốt nhất): nửa tốt xanh lá, nửa kém đỏ, càng xa
- * giữa càng đậm; giữa cột gần như xám nhạt. Nền luôn sáng để chữ tối đọc được ở cả hai giao diện.
- */
-function heatColor(goodness: number): string {
-  const strength = Math.min(1, Math.abs(goodness - 0.5) * 2);
-  const hue = goodness >= 0.5 ? 135 : 0;
-  return `hsl(${hue} ${Math.round(65 * strength)}% ${Math.round(90 - 22 * strength)}%)`;
+function Best({ text, value, cells, better }: { text: string; value: number | null; cells: { text: string; value: number }[]; better?: "high" | "low" }) {
+  if (value == null) return <span className="faint">{text}</span>;
+  const shown = new Set(cells.map((cell) => cell.text));
+  if (!better || shown.size < 2) return <span>{text}</span>;
+  const pick = better === "high" ? Math.max : Math.min;
+  const best = cells.find((cell) => cell.value === pick(...cells.map((c) => c.value)));
+  return text === best?.text ? <strong>{text}</strong> : <span>{text}</span>;
 }
 
 /** Dấu tam giác cảnh báo cạnh tiêu đề cột hoặc biểu đồ; bấm hoặc rê chuột để đọc lý do. */
@@ -312,7 +293,7 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
                     </td>
                     {group.metrics.map((metric) => (
                       <td key={metric.key} className={metric.key === "gpu" ? "small nowrap" : sort.key === metric.key ? "num sorted-col" : "num"}>
-                        <Heat text={metric.format(row)} value={metric.value(row)} cells={block.rows.flatMap((r) => { const v = metric.value(r); return v == null ? [] : [{ text: metric.format(r), value: v }]; })} better={metric.better} />
+                        <Best text={metric.format(row)} value={metric.value(row)} cells={block.rows.flatMap((r) => { const v = metric.value(r); return v == null ? [] : [{ text: metric.format(r), value: v }]; })} better={metric.better} />
                       </td>
                     ))}
                   </tr>
