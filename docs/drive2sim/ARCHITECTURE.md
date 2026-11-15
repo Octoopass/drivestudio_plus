@@ -392,6 +392,10 @@ Approach `gsplat_3dgut` (trainer gsplat, cảnh tĩnh) chỉ có renderer 3DGUT,
 
 ```
 drivestudio_plus/                          branch drive2sim
+├── data/                                  (không commit) dữ liệu
+│   ├── <dataset>/raw/                     dữ liệu gốc tải về, giữ nguyên cấu trúc chính thức (vd. data/nuscenes/raw/, data/kitti360/raw/); đưa cho d2s scene ingest
+│   └── <scene_id>/                        cảnh đã ingest (CONTRACTS mục 2.1), vd. data/nuscenes_scene-0061/
+├── cache/  runs/                          (không commit) kết quả dùng chung của stage, kết quả từng run (CONTRACTS mục 5, 6)
 ├── pyproject.toml                         package drive2sim; pip install -e .
 ├── requirements.txt                       thư viện nặng (PyTorch, gsplat-geer, ...)
 ├── docs/
@@ -441,7 +445,7 @@ drivestudio_plus/                          branch drive2sim
 
 Chú thích: **(khung)** là thư mục đã tạo nhưng chưa có code: package Python chỉ có `__init__.py` rỗng, thư mục khác giữ bằng `.gitkeep`. **(chưa có)** là file chưa tạo. Tên file liệt kê trong các thư mục (khung) là tên dự kiến theo CONTRACTS mục 10, tạo khi viết code.
 
-Ở gốc repo chỉ còn những thứ không phải code của package: `docs/`, `tests/`, `third_party/`, `envs/`, `pyproject.toml`, `requirements.txt`. Dữ liệu cũng nằm ở gốc repo nhưng không commit (`.gitignore`): `data/`, `cache/`, `runs/` là thư mục làm việc mặc định khi chạy từ gốc repo (CONTRACTS mục 10.4), còn `sources/<dataset>/` giữ dữ liệu gốc chỉ đọc theo đúng cấu trúc chính thức của dataset (ví dụ `sources/nuscenes/` có `v1.0-mini/`, `samples/`, `sweeps/`, `maps/`; `sources/kitti360/` có `calibration/`, `data_2d_raw/`, `data_3d_raw/`, `data_poses.zip`), là thư mục đưa cho `d2s scene ingest`. Config method, config dataset, file approach và assets đều nằm trong package, nên cài bằng `pip install` là có đủ; code tìm chúng qua `drive2sim/paths.py`, không phụ thuộc thư mục đang đứng.
+Ở gốc repo chỉ còn những thứ không phải code của package: `docs/`, `tests/`, `third_party/`, `envs/`, `pyproject.toml`, `requirements.txt`. Config method, config dataset, file approach và assets đều nằm trong package, nên cài bằng `pip install` là có đủ; code tìm chúng qua `drive2sim/paths.py`, không phụ thuộc thư mục đang đứng.
 
 Phân chia trong `drive2sim/recon/`:
 - `preprocess/` chỉ chạy một lần trên dữ liệu gốc, ghi ra thư mục DriveStudio; `data/` chỉ đọc thư mục đó khi train. Loader không import gì từ `preprocess/`.

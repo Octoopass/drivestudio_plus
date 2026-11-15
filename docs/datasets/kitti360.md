@@ -6,8 +6,10 @@ License dữ liệu: CC BY-NC-SA 3.0.
 
 ## 1. Cần có
 
+Trong repo, đặt ở `data/kitti360/raw/` (như `data/nuscenes/raw/` của nuScenes, ARCHITECTURE mục 3):
+
 ```
-<thư mục KITTI-360>/
+data/kitti360/raw/
 ├── calibration/                 calib_cam_to_pose.txt, calib_cam_to_velo.txt, perspective.txt, image_02.yaml, image_03.yaml
 ├── data_poses.zip               hoặc data_poses/<chuỗi>/poses.txt (cam0_to_world.txt để kiểm tra chéo)
 ├── data_2d_raw/                 <chuỗi>_image_0X.tar, hoặc <chuỗi>/image_0X/data_rect|data_rgb/*.png đã giải nén
