@@ -546,7 +546,6 @@
   "speedup.fastergs.two_stage_sort": "sort tách hai bước",
   "speedup.fastergs.per_gaussian_backward": "backward theo từng Gaussian",
   "speedup.fastergs.morton_order": "Z-order",
-  "speedup.techniques": "{count} kỹ thuật",
   "errors.colab_failed": "Colab báo lỗi",
   "activity.kind.colab_push": "đẩy lên Colab",
   "activity.kind.colab_pull": "tải từ Colab",

@@ -15,7 +15,6 @@ import type { List, Manifest, ReportRow, SceneDetail, Video } from "../api/types
 import { GroupedBarChart, Legend, MultiLineChart, ScatterChart, seriesColor, StackedBarChart, type Point } from "../components/charts";
 import { duration, Empty, ErrorBox, InfoTip, Loading, PageHead, Panel, Segmented, Tabs, turbo } from "../components/ui";
 import { ConfigText } from "../components/ConfigText";
-import { SpeedupText } from "../components/SpeedupText";
 import { useI18n } from "../i18n";
 import { BetterArrow, isComparable, SUMMARY_GROUP, visibleGroups, type MetricDef, type MetricKey } from "../metrics";
 import { go, href } from "../router";
@@ -294,9 +293,6 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
                     {!currentSplit && !grouped && <td className="small nowrap">{row.split_id}</td>}
                     <td className="small muted" style={{ maxWidth: 260 }}>
                       <ConfigText approachId={row.approach_id} options={row.options} preset={row.preset} />
-                      <div>
-                        <SpeedupText speedups={row.speedups} compact />
-                      </div>
                     </td>
                     {group.metrics.map((metric) => (
                       <td key={metric.key} className={metric.key === "gpu" ? "small nowrap" : sort.key === metric.key ? "num sorted-col" : "num"}>

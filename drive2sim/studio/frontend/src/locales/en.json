@@ -546,7 +546,6 @@
   "speedup.fastergs.two_stage_sort": "two-stage sort",
   "speedup.fastergs.per_gaussian_backward": "per-Gaussian backward",
   "speedup.fastergs.morton_order": "Z-order",
-  "speedup.techniques": "{count} techniques",
   "errors.colab_failed": "Colab reported an error",
   "activity.kind.colab_push": "push to Colab",
   "activity.kind.colab_pull": "pull from Colab",
