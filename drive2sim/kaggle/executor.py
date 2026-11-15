@@ -27,7 +27,7 @@ import shutil
 import tempfile
 import time
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from string import Template
@@ -37,12 +37,14 @@ from drive2sim import paths
 from drive2sim.core import files
 from drive2sim.core.schema import RunRecord
 from drive2sim.engine import remote
+from drive2sim.engine.approaches import load_approach
 from drive2sim.engine.run import (
     D2S_DIR,
     RUN_FILE,
     run_is_active,
 )
 from drive2sim.engine.workdir import Workdir
+from drive2sim.kaggle import names
 from drive2sim.kaggle.bundle import write_bundle
 from drive2sim.kaggle.client import KaggleClient, KaggleError
 
@@ -73,6 +75,8 @@ class KaggleState:
         commit: Commit của code mà notebook dùng.
         pushed_utc: Thời điểm đẩy.
         pulled_utc: Thời điểm tải kết quả về gần nhất.
+        kernels: Notebook của mọi lần đẩy, cũ trước mới sau (``kernel`` là phần tử cuối); để
+            chạy tiếp gắn đúng output các lần trước dù quy tắc đặt tên đổi.
     """
 
     username: str
@@ -82,6 +86,7 @@ class KaggleState:
     commit: str
     pushed_utc: str
     pulled_utc: Optional[str] = None
+    kernels: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """Nội dung dạng dict, để ghi JSON."""
@@ -148,6 +153,22 @@ def code_source(branch: str = DEFAULT_BRANCH) -> tuple[str, str]:
         raise KaggleError(str(error)) from None
 
 
+def _previous_kernels(previous: Optional[KaggleState], run_id: str) -> list[str]:
+    """Notebook của các lần đẩy trước, cũ trước mới sau.
+
+    ``kaggle.json`` ghi từ trước khi có trường ``kernels`` thì dựng lại tên theo quy tắc cũ
+    ``d2s-<hash8 của run_id>-<lần đẩy>``.
+    """
+    if previous is None:
+        return []
+    if previous.kernels:
+        return list(previous.kernels)
+    return [
+        f"{previous.username}/d2s-{_hash8(run_id)}-{number}"
+        for number in range(1, previous.attempt + 1)
+    ]
+
+
 def _load_scene_refs(scene_root: Path) -> list["KaggleSceneRef"]:
     """``kaggle_scene.json`` của cảnh (đọc trễ để tránh vòng import với ``kaggle.ingest``)."""
     from drive2sim.kaggle.ingest import load_scene_refs
@@ -164,10 +185,13 @@ def _ensure_scene_dataset(
     khác thì upload dataset mới. Thư mục upload dựng bằng hard link khi được, để không tốn gấp
     đôi dung lượng.
     """
-    slug = f"{username}/d2s-{_hash8(f'{scene_id}@{converter_version}')}"
-    if client.dataset_exists(slug):
-        wait_dataset_ready(client, slug)
-        return slug
+    slug = f"{username}/{names.scene_dataset(scene_id, converter_version)}"
+    # Dataset đặt tên theo quy tắc cũ (băm) vẫn dùng lại, để không upload lại cảnh đã có.
+    legacy = f"{username}/d2s-{_hash8(f'{scene_id}@{converter_version}')}"
+    for existing in (slug, legacy):
+        if client.dataset_exists(existing):
+            wait_dataset_ready(client, existing)
+            return existing
     staging = workdir.root / STAGING_DIR / "upload" / slug.split("/")[1]
     shutil.rmtree(staging, ignore_errors=True)
     staging.mkdir(parents=True)
@@ -330,14 +354,18 @@ def push_run(
             )
         sources.append(smpl_dataset)
     attempt = previous.attempt + 1 if previous else 1
-    kernel = f"{username}/d2s-{_hash8(run_id)}-{attempt}"
+    defaults = {
+        name: option.default
+        for name, option in load_approach(record.approach.approach_id).options.items()
+    }
+    kernel = f"{username}/" + names.train_kernel(
+        record.scene_id, run_id, attempt, record.approach.options, defaults
+    )
+    history = _previous_kernels(previous, run_id)
     # Gắn output của tối đa MAX_RESUME_SOURCES lần đẩy trước, mới nhất trước: lần gần nhất có thể
     # lỗi trước khi ghi được gì (ví dụ lúc cài môi trường), khi đó notebook chạy tiếp từ lần cũ hơn
     # còn kết quả thay vì train lại từ đầu.
-    resume = [
-        f"{username}/d2s-{_hash8(run_id)}-{number}"
-        for number in range(attempt - 1, max(0, attempt - 1 - MAX_RESUME_SOURCES), -1)
-    ]
+    resume = list(reversed(history))[:MAX_RESUME_SOURCES]
     bundle = write_bundle(run_dir, workdir, dataset, resume)
 
     with tempfile.TemporaryDirectory(dir=_staging(workdir)) as folder:
@@ -362,7 +390,9 @@ def push_run(
         (folder_path / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2))
         client.push_kernel(folder_path)
 
-    state = KaggleState(username, kernel, attempt, dataset, commit, _now())
+    state = KaggleState(
+        username, kernel, attempt, dataset, commit, _now(), kernels=history + [kernel]
+    )
     _save_state(run_dir, state)
     return state
 

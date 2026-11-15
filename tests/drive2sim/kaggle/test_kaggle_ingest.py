@@ -61,7 +61,9 @@ class FakeIngestKaggle(FakeKaggle):
             (scene / "reports").mkdir(exist_ok=True)
             report = {"summary": {"errors": 0, "warnings": 1}, "checks": []}
             (scene / "reports" / "validation.json").write_text(json.dumps(report))
-            result = {"scene_id": SCENE, "commit": COMMIT, "source": SOURCE, "exit_code": 0}
+            text = "".join(notebook["cells"][-1]["source"])
+            signature = json.loads(text.split('result.update(json.loads(r"""')[1].split('"""')[0])
+            result = {"scene_id": SCENE, "commit": COMMIT, "exit_code": 0, **signature}
             (out / "ingest_result.json").write_text(json.dumps(result))
 
     def kernel_status(self, slug: str) -> str:
@@ -134,6 +136,12 @@ def test_ingest_writes_light_files_and_reuses_notebook(
         ("alice", kernel),
         ("bob", f"bob/{REQUEST.kernel_name()}"),
     ]
+
+    # Cùng tên notebook nhưng tham số khác: không ghi đè output notebook cũ.
+    other = ingest.IngestRequest(SOURCE, "", ("--sequence", "scene-0061", "--num-frames", "5"))
+    assert other.kernel_name() == REQUEST.kernel_name()
+    with pytest.raises(KaggleError, match="tham số khác"):
+        ingest.ingest_on_kaggle(workdir, other, client=fake, sleep=lambda s: None)
 
     # Cảnh cùng tên mà ingest trên máy (không có kaggle_scene.json): không đè.
     (scene_dir / KAGGLE_SCENE_FILE).unlink()

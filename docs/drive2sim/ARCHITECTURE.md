@@ -431,7 +431,7 @@ drivestudio_plus/                          branch drive2sim
 │   ├── stages/                            commands.py, scene_view.py; prep/masks_segformer.py, prep/smpl.py, train/drivestudio.py, train/gsplat_3dgut.py, eval/standard.py, export/ply_world.py, export/preview.py (đã có); init/, render/ (khung)
 │   ├── engine/                            stage.py, registry.py, resolve.py, approaches.py, workdir.py, scenes.py, cache.py, run.py, report.py, housekeeping.py (xoá, dọn cache), remote.py (phần chung của executor Kaggle và Colab: kiểm tra commit, ghép output tải về)
 │   ├── approaches/                        omnire.yaml, streetgs.yaml, gsplat_3dgut.yaml
-│   ├── kaggle/                            client.py, bundle.py, executor.py, ingest.py (ingest trên Kaggle), setup.py, templates/run.ipynb, templates/ingest.ipynb
+│   ├── kaggle/                            client.py, bundle.py, executor.py, ingest.py (ingest trên Kaggle), names.py (tên notebook và dataset, CONTRACTS mục 10.1), setup.py, templates/run.ipynb, templates/ingest.ipynb
 │   ├── colab/                             client.py, executor.py, setup.py, templates/job.sh (mục 2.16)
 │   ├── sim/                   (khung)     renderer.py (L2), actors.py (L3), server/ (L4; protos/ từ NuRec)
 │   ├── studio/                            api/ (app.py, state.py, events.py, jobs.py, kaggle_watch.py, colab_watch.py, remote_watch.py, routes/<nhóm>.py); frontend/ (Vite + React: src/pages/, src/components/, src/viewer/ (Spark), src/live.tsx, src/locales/, src/api/generated/, dist/ đã build); viz/ (khung)

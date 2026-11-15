@@ -43,6 +43,7 @@ from drive2sim.core.schema import RunRecord
 from drive2sim.engine import remote
 from drive2sim.engine.run import D2S_DIR, RUN_FILE, run_is_active
 from drive2sim.engine.workdir import Workdir
+from drive2sim.kaggle import names
 from drive2sim.kaggle.bundle import write_bundle
 
 STATE_FILE = "colab.json"
@@ -96,10 +97,6 @@ class ColabState:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-def _hash8(text: str) -> str:
-    return hashlib.sha256(text.encode()).hexdigest()[:8]
 
 
 def load_state(run_dir: Path) -> Optional[ColabState]:
@@ -550,7 +547,8 @@ def push_run(
                 f"{paths.SMPL_MODEL_ENV} tới nó (tải ở https://smpl.is.tue.mpg.de)"
             )
     scene = workdir.load_scene(record.scene_id)
-    scene_key = _hash8(f"{record.scene_id}@{scene.manifest.source.converter_version}")
+    # Cùng tên với dataset cảnh trên Kaggle (kaggle/names.py), đọc là biết cảnh nào.
+    scene_key = names.scene_dataset(record.scene_id, scene.manifest.source.converter_version)
     run_rel = run_dir.relative_to(workdir.root).as_posix()
     session_gpu = _ensure_session(client, session, gpu)
 

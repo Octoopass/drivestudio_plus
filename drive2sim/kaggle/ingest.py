@@ -8,7 +8,7 @@ của nó. Trên máy chỉ còn các file nhỏ của cảnh (``manifest.yaml``
 notebook train thay vì upload cảnh.
 
 Luồng của ``ingest_on_kaggle``:
-1. Tên notebook ``<người dùng>/d2s-ingest-<hash8>`` băm từ nguồn và tham số ingest, nên gọi lại
+1. Tên notebook ``<người dùng>/d2s-ingest-<nguồn>-<chuỗi>`` (``kaggle/names.py``), nên gọi lại
    cùng tham số thì dùng lại notebook đã chạy (chờ tiếp nếu đang chạy, tải về nếu đã xong).
 2. Đẩy notebook (template ``templates/ingest.ipynb``) khi chưa có hoặc lần trước lỗi.
 3. Chờ notebook xong, tải các file nhỏ của cảnh về ``data/<scene_id>/``, ghi ``kaggle_scene.json``.
@@ -17,7 +17,6 @@ File này chứa ``KaggleSceneRef``, ``IngestRequest``, ``load_scene_refs``, ``l
 ``build_ingest_notebook``, ``ingest_on_kaggle``.
 """
 
-import hashlib
 import json
 import shutil
 import tempfile
@@ -32,6 +31,7 @@ from drive2sim import paths
 from drive2sim.core import files
 from drive2sim.core.schema import Manifest
 from drive2sim.engine.workdir import KAGGLE_SCENE_FILE, Workdir
+from drive2sim.kaggle import names
 from drive2sim.kaggle.client import KaggleClient, KaggleError
 from drive2sim.kaggle.executor import code_source
 
@@ -50,7 +50,7 @@ class KaggleSceneRef:
 
     Attributes:
         username: Tài khoản Kaggle sở hữu notebook (notebook private).
-        kernel: Notebook ingest ``<người dùng>/d2s-ingest-<hash8>``.
+        kernel: Notebook ingest, ví dụ ``<người dùng>/d2s-ingest-nuscenes-mini-0061``.
         source: Dataset hoặc notebook chứa dữ liệu gốc.
         commit: Commit của code đã ingest.
         pulled_utc: Thời điểm tải các file nhỏ về.
@@ -77,10 +77,18 @@ class IngestRequest:
     path: str = ""
     args: Sequence[str] = field(default_factory=tuple)
 
+    def option(self, flag: str) -> Optional[str]:
+        """Giá trị của một tuỳ chọn trong ``args`` (ví dụ ``--sequence``), hoặc ``None``."""
+        args = list(self.args)
+        return args[args.index(flag) + 1] if flag in args[:-1] else None
+
     def kernel_name(self) -> str:
-        """Tên notebook (không có người dùng), băm từ nguồn và tham số."""
-        text = json.dumps([self.source, self.path, list(self.args)])
-        return f"d2s-ingest-{hashlib.sha256(text.encode()).hexdigest()[:8]}"
+        """Tên notebook (không có người dùng), theo ``--scene`` hoặc nguồn và ``--sequence``."""
+        return names.ingest_kernel(self.option("--scene"), self.option("--sequence"), self.source)
+
+    def signature(self) -> dict:
+        """Nguồn và tham số; notebook ghi lại để biết lần ingest trước có cùng yêu cầu không."""
+        return {"source": self.source, "path": self.path, "args": list(self.args)}
 
 
 def load_scene_refs(scene_root: Path) -> list[KaggleSceneRef]:
@@ -123,6 +131,7 @@ def build_ingest_notebook(request: IngestRequest, commit: str, repo_url: str, br
         "source_name": request.source.split("/")[-1],
         "source_path": request.path,
         "ingest_args": json.dumps(list(request.args)),
+        "signature": json.dumps(request.signature()),
         "commit": commit,
         "repo_url": repo_url,
         "branch": branch,
@@ -187,6 +196,17 @@ def _wait(
         waited += POLL_S
 
 
+def _signature(client: KaggleClient, kernel: str, workdir: Workdir) -> Optional[dict]:
+    """Nguồn và tham số mà notebook ingest đã chạy (``ingest_result.json``); ``None`` nếu thiếu."""
+    with tempfile.TemporaryDirectory(dir=workdir.root) as folder:
+        client.kernel_output(kernel, Path(folder), file_pattern=r"ingest_result\.json$")
+        path = next(Path(folder).rglob(RESULT_FILE), None)
+        if path is None:
+            return None
+        result = json.loads(path.read_text("utf-8"))
+        return {key: result.get(key) for key in ("source", "path", "args")}
+
+
 def ingest_on_kaggle(
     workdir: Workdir,
     request: IngestRequest,
@@ -224,6 +244,13 @@ def ingest_on_kaggle(
     except KaggleError:
         status = ""  # notebook chưa có
     commit = ""
+    if status == "complete" and _signature(client, kernel, workdir) != request.signature():
+        # Cùng tên nhưng lần trước ingest với nguồn hoặc tham số khác: chạy lại sẽ ghi đè output
+        # mà run cũ có thể đang dùng, nên từ chối.
+        raise KaggleError(
+            f"notebook {kernel} đã ingest với nguồn hoặc tham số khác; đặt --scene <tên khác> để "
+            "có notebook riêng"
+        )
     if status in ("", "error", "cancel_acknowledged"):
         commit = _push(client, request, kernel, branch)
         notify(f"đã đẩy notebook ingest {kernel}")
