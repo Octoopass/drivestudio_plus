@@ -38,9 +38,19 @@ Lúc bắt đầu không biết chỗ nào cần bao nhiêu đốm: đốm khở
 
 ## 3. Vì sao ngưỡng của 3DGS không hợp với 3DGUT
 
-**Suy luận (chưa đo).** Một đốm ở độ sâu `z` trước camera tiêu cự `f` (pixel): dời đốm 1 mét theo phương ngang thì điểm chiếu dời khoảng `f / z` pixel. Theo quy tắc chuỗi, gradient theo vị trí 3D ≈ gradient theo pixel × `f / z`. Với ảnh nuScenes 800 px ngang (`f` khoảng 630 px), đốm cách 20 m có gradient 3D lớn hơn gradient pixel khoảng 30 lần; đốm gần lớn hơn nữa, đốm rất xa nhỏ hơn. Giống như đọc nhiệt kế độ F bằng mốc "sốt 38" của độ C.
+**Suy luận (chưa đo).** Đại lượng của 3DGS (`base.py`, nhánh `default`) là gradient theo tâm trên ảnh **tính bằng pixel rồi nhân `W/2`, `H/2`** (đổi sang toạ độ chuẩn hoá [−1, 1] như 3DGS gốc); đại lượng của 3DGUT là gradient theo tâm 3D (mét), không nhân gì. Một đốm ở độ sâu `z` trước camera tiêu cự `f` (pixel): dời đốm 1 m theo phương ngang thì điểm chiếu dời khoảng `f / z` pixel, nên theo quy tắc chuỗi gradient 3D ≈ gradient pixel × `f / z`. Tỉ lệ giữa hai đại lượng:
 
-**Hệ quả dự đoán:** với ngưỡng 0,0005, phần lớn đốm 3DGUT vượt ngưỡng, số đốm tăng nhanh (dễ hết VRAM), và đốm gần camera được ưu tiên quá mức so với đốm xa. FastGS che bớt (đốm phải qua cả cửa gradient lẫn cửa điểm sai), nhưng khi cửa gradient quá dễ qua thì mọi thứ dựa vào điểm sai.
+```
+đại lượng 3DGUT / đại lượng 3DGS ≈ (f / z) / (W / 2) = 2f / (W · z)
+```
+
+Ảnh nuScenes 800 px ngang (`f` ≈ 633 px): ≈ 1,58 / z (z tính bằng mét), tức bằng nhau ở 1,6 m, nhỏ hơn ~3 lần ở 5 m, ~13 lần ở 20 m, ~30 lần ở 50 m.
+
+**Yếu tố thứ hai, cùng hướng: `absgrad`.** OmniRe đặt `trainer.render.absgrad: true`. Với 3DGS, gsplat cộng **độ lớn** gradient từ từng pixel (không triệt tiêu); với 3DGUT, nhánh `ut` lấy giá trị tuyệt đối **sau khi** cộng gradient có dấu, nên các phần ngược chiều triệt tiêu trước. Tổng có dấu không lớn hơn tổng độ lớn, nên đại lượng 3DGUT còn nhỏ hơn nữa, theo mức tuỳ cảnh.
+
+**Hệ quả dự đoán:** với cùng ngưỡng 0,0005, phần lớn đốm 3DGUT **không** vượt ngưỡng, nên 3DGUT **densify quá ít** (ít Gaussian, có thể mờ), không phải quá nhiều. (Bản trước của mục này dự đoán ngược lại vì bỏ sót hệ số `W/2`; sửa 15/11/2026.)
+
+**Kiểm tra:** run chạy thử `ca4b` (3DGUT nhánh Bosch) và `ac56` (3DGS) ghi phân bố đại lượng densify (`densify_stats.jsonl`); lý thuyết đúng nếu các phân vị của 3DGUT nhỏ hơn của 3DGS cỡ 1,58 / z với z điển hình của cảnh (vài đến vài chục mét), có thể nhỏ hơn nữa do `absgrad`, và tỉ lệ đốm vượt ngưỡng của 3DGUT thấp hơn hẳn.
 
 ### Ngưỡng chỉnh được phụ thuộc gì
 
@@ -69,7 +79,7 @@ g2d = (J Jᵀ)⁻¹ J · g3d
 
 `J` chứa tiêu cự, khoảng cách và mô hình ống kính của đúng camera đã render bước đó, nên ba yếu tố làm ngưỡng phụ thuộc dataset (mục 3) bị khử trong phép đổi. Rồi nhân `W/2`, `H/2` và `batch_size` như nhánh 3DGS của `base.py`, so với cùng `densify_grad_thresh` của 3DGS.
 
-**Xấp xỉ.** 3DGUT chiếu Gaussian bằng các điểm sigma (unscented transform), không qua đúng một tâm 2D; `g3d` còn phần do hình dạng ảnh chiếu đổi theo vị trí. Phép đổi giữ phần đi qua tâm, nên kết quả gần chứ không trùng 3DGS. Mỗi bước train chỉ dùng một ảnh, nên `J` của bước đó xác định rõ (giống 3DGS cộng dồn gradient trên ảnh theo từng bước).
+**Xấp xỉ.** 3DGUT chiếu Gaussian bằng các điểm sigma (unscented transform), không qua đúng một tâm 2D; `g3d` còn phần do hình dạng ảnh chiếu đổi theo vị trí. Phép đổi giữ phần đi qua tâm, nên kết quả gần chứ không trùng 3DGS. Phép đổi cũng **không khôi phục được `absgrad`** (mục 3): thông tin từng pixel đã mất khi cộng, nên sau khi đổi, đại lượng 3DGUT có lẽ vẫn nhỏ hơn 3DGS một phần tuỳ cảnh. Nếu phần lệch này lớn, cách so công bằng là đặt 3DGS cũng không `absgrad`, hoặc nhân một hệ số đo được. Mỗi bước train chỉ dùng một ảnh, nên `J` của bước đó xác định rõ (giống 3DGS cộng dồn gradient trên ảnh theo từng bước).
 
 **Cài đặt** (`drive2sim/recon/trainers/screen_grad.py`): `ScreenGradMultiTrainer` là lớp con của `MultiTrainer` (OmniRe, Street GS); với renderer `ut`, trước khi gọi `postprocess_per_train_step` của lớp cha, nó thay `info["means3d"].grad` bằng `[g2d_x, g2d_y, 0]` đã nhân hệ số (code densify chỉ dùng độ lớn của vectơ). `J` tính bằng sai phân trung tâm qua `project_camera_model` (bước bằng 1/1000 khoảng cách tới camera). Code của Bosch không đổi. Bật: `--set train.drivestudio.ut_densify=screen` (đặt `trainer.type`); mặc định `native` là nhánh của Bosch.
 
