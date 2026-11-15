@@ -24,6 +24,7 @@ from drive2sim.engine.stage import NoParams, Scene
 from drive2sim.stages.prep import masks_segformer, smpl
 from drive2sim.stages.prep.masks_segformer import PrepMasksSegformerParams, PrepMasksSegformerStage
 from drive2sim.stages.prep.smpl import PrepSmplStage
+from drive2sim.stages.prep.smpl import build_command as build_smpl_command
 from drive2sim.stages.scene_view import build_view, collect_outputs
 from drive2sim.stages.train import drivestudio
 from drive2sim.stages.train.drivestudio import TrainDrivestudioParams, TrainDrivestudioStage
@@ -69,7 +70,8 @@ def test_build_view_links_excludes_and_extras(tmp_path: Path) -> None:
         scene, tmp_path / "view", exclude=["humanpose"], extra={"sky_masks": extra_dir}
     )
     names = sorted(entry.name for entry in view.iterdir())
-    assert names == ["dynamic_masks", "images", "sky_masks"]
+    # manifest.yaml có trong view để loader đọc mô hình camera (loader KITTI-360)
+    assert names == ["dynamic_masks", "images", "manifest.yaml", "sky_masks"]
     assert all((view / name).is_symlink() for name in names)
     assert (view / "sky_masks").resolve() == extra_dir.resolve()
     # dựng lại thì view cũ bị thay
@@ -212,3 +214,10 @@ def test_approaches_include_prep_stages() -> None:
     assert stages["omnire"][:2] == ["prep.masks_segformer", "prep.smpl"]
     assert stages["streetgs"][0] == "prep.masks_segformer"
     assert "prep.smpl" not in stages["streetgs"]
+
+
+def test_smpl_refuses_dataset_without_human_box_step(tmp_path: Path) -> None:
+    # KITTI-360 train được bằng DriveStudio nhưng chưa có bước chiếu box người
+    with pytest.raises(ValueError, match="kitti360"):
+        build_smpl_command("kitti360", tmp_path)
+    assert "kitti" in build_smpl_command("kitti", tmp_path)

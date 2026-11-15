@@ -36,6 +36,8 @@ def get_layout(dataset_type: str):
         layout = layout_nuplan
     elif dataset_type == "physicalai":
         layout = layout_physicalai
+    elif dataset_type == "kitti360":
+        layout = layout_kitti360
     else:
         raise ValueError(f"dataset_type {dataset_type} not supported")
     return layout
@@ -404,6 +406,52 @@ def layout_physicalai(
     min_y, max_y = filled_y.min(), filled_y.max() + 1
     min_x, max_x = filled_x.min(), filled_x.max() + 1
     return tiled_img[min_y:max_y, min_x:max_x]
+
+def layout_kitti360(
+    imgs: List[np.array], cam_names: List[str]
+) -> np.array:
+    """Ghép ảnh các camera KITTI-360 thành một ảnh (drive2sim).
+
+    Bố cục:
+
+        ###########################
+        #  image_00  #  image_01  #   (pinhole 1408x376)
+        ###########################
+        #  image_02  #  image_03  #   (mắt cá 1400x1400)
+        ###########################
+
+    Ảnh được đổi về cùng chiều rộng, giữ tỉ lệ; hàng, cột không có camera nào được chọn thì bỏ.
+
+    Args:
+        imgs: Ảnh của từng camera, dạng ``(cao, rộng, kênh)``.
+        cam_names: Tên camera theo cùng thứ tự, là ``camera_id`` trong manifest.
+
+    Returns:
+        Ảnh ghép kiểu float32.
+
+    Raises:
+        ValueError: Nếu không có camera KITTI-360 nào trong ``cam_names``.
+    """
+    positions = {"image_00": (0, 0), "image_01": (0, 1), "image_02": (1, 0), "image_03": (1, 1)}
+    selected = [(positions[name], imgs[idx]) for idx, name in enumerate(cam_names) if name in positions]
+    if not selected:
+        raise ValueError("No KITTI-360 cameras found in cam_names")
+    channel = selected[0][1].shape[-1]
+    tile_width = max(img.shape[1] for _, img in selected)
+    tiles = []
+    for position, img in selected:
+        height = round(img.shape[0] * tile_width / img.shape[1])
+        img = cv2.resize(img, (tile_width, height)).reshape(height, tile_width, channel)
+        tiles.append((position, img))
+    rows = sorted({row for (row, _), _ in tiles})
+    cols = sorted({col for (_, col), _ in tiles})
+    row_heights = [max(img.shape[0] for (r, _), img in tiles if r == row) for row in rows]
+    tiled_img = np.zeros((sum(row_heights), len(cols) * tile_width, channel), dtype=np.float32)
+    for (row, col), img in tiles:
+        top = sum(row_heights[:rows.index(row)])
+        left = cols.index(col) * tile_width
+        tiled_img[top:top + img.shape[0], left:left + tile_width] = img
+    return tiled_img
 
 def dump_3d_bbox_on_image(
     coords, img,

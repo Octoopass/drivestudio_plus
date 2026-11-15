@@ -5,6 +5,8 @@ Máy test không có GPU nên không chạy DriveStudio thật. File này kiểm
 - ``train.drivestudio`` chọn đúng file config có sẵn theo tổ hợp tham số, từ chối tổ hợp chưa có
   config, và dựng câu lệnh đúng: split đổi sang ``test_image_stride``, đoạn khung, chỉ số camera
   theo manifest, thư mục log trùng thư mục stage, ``--resume_from`` khi có checkpoint dở;
+- cảnh KITTI-360 chọn config ``kitti360/4cams`` hoặc ``kitti360/2cams`` theo số camera, và hai
+  config này gộp ``extends`` ra đúng loader;
 - ``run`` của stage train trả về thư mục model khi có checkpoint cuối, báo lỗi khi thiếu;
 - ``run_logged`` ghi log và báo lỗi kèm phần cuối log khi lệnh thất bại;
 - ``eval.standard`` đọc file metric mới nhất của DriveStudio và ghi ``summary.json`` hợp lệ;
@@ -152,6 +154,70 @@ def test_dataset_config_for() -> None:
         dataset_config_for("nuscenes", 2)
     with pytest.raises(ValueError, match="chưa có loader"):
         dataset_config_for("colmap", 1)
+
+
+def kitti360_manifest() -> Manifest:
+    """Manifest của cảnh KITTI-360: hai camera pinhole, hai camera mắt cá."""
+    cameras = [
+        {"camera_id": camera_id, "model": model, "resolution": size, "shutter": "GLOBAL"}
+        for camera_id, model, size in (
+            ("image_00", "opencv_pinhole", [1408, 376]),
+            ("image_01", "opencv_pinhole", [1408, 376]),
+            ("image_02", "opencv_fisheye", [1400, 1400]),
+            ("image_03", "opencv_fisheye", [1400, 1400]),
+        )
+    ]
+    return Manifest.model_validate(
+        {
+            **MANIFEST,
+            "scene_id": "kitti360_2013_05_28_drive_0003_sync",
+            "source": {**MANIFEST["source"], "dataset": "kitti360", "converter": "kitti360"},
+            "track": "fisheye",
+            "cameras": cameras,
+            "timeline": {"reference_sensor": "image_00", "num_frames": 20},
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "cameras,config,undistort",
+    [
+        (["image_00", "image_01", "image_02", "image_03"], "kitti360/4cams", "false"),
+        (["image_00", "image_01"], "kitti360/2cams", None),
+    ],
+)
+def test_kitti360_config_resolves(
+    tmp_path: Path, cameras: list[str], config: str, undistort: object
+) -> None:
+    split = Split.model_validate(
+        {
+            **SPLIT,
+            "scene_id": "kitti360_2013_05_28_drive_0003_sync",
+            "frame_range": [0, 19],
+            "cameras": cameras,
+            "train": [[0, cameras[0]]],
+            "test": [],
+        }
+    )
+    params = TrainDrivestudioParams(method="omnire")
+    command = build_command(params, split, kitti360_manifest(), tmp_path, tmp_path)
+    assert option(command, "dataset") == config
+    assert option(command, "data.pixel_source.cameras") == str(list(range(len(cameras)))).replace(
+        " ", ""
+    )
+    if undistort is None:
+        assert not any(part.startswith("data.pixel_source.undistort=") for part in command)
+    else:
+        assert option(command, "data.pixel_source.undistort") == undistort
+    data = load_config(paths.CONFIGS_DIR / "datasets" / f"{config}.yaml")["data"]
+    assert data["dataset"] == "kitti360"
+    pixel = data["pixel_source"]
+    assert pixel["type"] == "drive2sim.recon.data.loaders.kitti360.KITTI360PixelSource"
+    assert len(pixel["cameras"]) == len(pixel["downscale_when_loading"]) == len(cameras)
+    assert pixel["undistort"] is False
+    assert data["lidar_source"]["type"] == "drive2sim.recon.data.loaders.kitti.KITTILiDARSource"
+    with pytest.raises(ValueError, match="kitti360/2cams"):
+        dataset_config_for("kitti360", 3)
 
 
 def test_build_command_resumes(tmp_path: Path) -> None:

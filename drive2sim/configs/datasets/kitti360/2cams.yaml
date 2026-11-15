@@ -1,0 +1,8 @@
+# KITTI-360 with two cameras, e.g. the pinhole pair image_00, image_01 (pinhole-only selection,
+# trainable with the default 3DGS renderer). Everything else as kitti360/4cams.
+extends: 4cams.yaml
+
+data:
+  pixel_source:
+    cameras: [0, 1] # which cameras to use
+    downscale_when_loading: [2, 2] # the size of the images to load
