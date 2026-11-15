@@ -121,6 +121,8 @@
   "scene.cameras.shutter": "Shutter",
   "scene.frames.frame": "Khung {frame} / {last}",
   "scene.frames.missing": "không có ảnh",
+  "scene.kaggle.title": "Cảnh này được nạp trên Kaggle: ảnh, LiDAR, mask nằm trên Kaggle, máy này chỉ có manifest và báo cáo kiểm tra, nên không xem được ảnh ở đây.",
+  "scene.kaggle.detail": "Notebook nạp cảnh: {kernel}. Các tab Camera, Kiểm tra vẫn xem được. Run của cảnh này phải chạy trên Kaggle (executor kaggle); notebook train tự gắn output của notebook nạp cảnh.",
   "scene.frames.split": "Hiện split",
   "scene.frames.none": "không hiện",
   "scene.frames.train": "train",

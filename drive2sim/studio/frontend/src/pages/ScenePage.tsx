@@ -23,7 +23,7 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
 
   if (scene.error) return <div className="page"><ErrorBox error={scene.error} /></div>;
   if (!scene.data) return <div className="page"><Loading rows={5} /></div>;
-  const { manifest, validation, splits } = scene.data;
+  const { manifest, validation, splits, kaggle } = scene.data;
 
   const revalidate = async () => {
     try {
@@ -106,7 +106,15 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
           ]}
         />
         <div className="panel-body">
-          {tab === "frames" && <Frames sceneId={sceneId} numFrames={manifest.timeline.num_frames} splits={splits} />}
+          {tab === "frames" &&
+            (kaggle ? (
+              <div className="stack" style={{ gap: 8 }}>
+                <p>{t("scene.kaggle.title")}</p>
+                <p className="small muted">{t("scene.kaggle.detail", { kernel: kaggle.map((k) => k.kernel).join(", ") })}</p>
+              </div>
+            ) : (
+              <Frames sceneId={sceneId} numFrames={manifest.timeline.num_frames} splits={splits} />
+            ))}
           {tab === "splits" && (
             <Splits
               sceneId={sceneId}

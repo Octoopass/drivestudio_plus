@@ -121,6 +121,8 @@
   "scene.cameras.shutter": "Shutter",
   "scene.frames.frame": "Frame {frame} / {last}",
   "scene.frames.missing": "no image",
+  "scene.kaggle.title": "This scene was ingested on Kaggle: images, LiDAR and masks live on Kaggle; this machine only has the manifest and the validation report, so images cannot be shown here.",
+  "scene.kaggle.detail": "Ingest notebook: {kernel}. The Cameras and Checks tabs still work. Runs of this scene must use the Kaggle executor; the training notebook attaches the ingest notebook's output.",
   "scene.frames.split": "Show split",
   "scene.frames.none": "none",
   "scene.frames.train": "train",

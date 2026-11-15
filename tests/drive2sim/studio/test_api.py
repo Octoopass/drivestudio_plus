@@ -184,6 +184,7 @@ def test_scenes_and_splits(client: TestClient) -> None:
     scene = client.get(f"/api/scenes/{SCENE}").json()
     assert scene["manifest"]["scene_id"] == SCENE
     assert scene["validation"]["summary"]["errors"] == 0
+    assert scene["kaggle"] is None
     frame = client.get(f"/api/scenes/{SCENE}/frames/3").json()
     assert frame["images"][0] == {
         "camera_id": "CAM_FRONT",
@@ -210,6 +211,13 @@ def test_scenes_and_splits(client: TestClient) -> None:
     assert extra.status_code == 400
     missing = client.get("/api/scenes/nuscenes_scene-9999")
     assert missing.status_code == 404 and missing.json()["error"]["code"] == "not_found"
+
+
+def test_scene_ingested_on_kaggle(client: TestClient, tmp_path: Path) -> None:
+    kernels = [{"username": "u", "kernel": "u/d2s-ingest-x", "source": "u/d2s-raw-x"}]
+    scene_file = tmp_path / "work" / "data" / SCENE / "kaggle_scene.json"
+    scene_file.write_text(json.dumps({"kernels": kernels}))
+    assert client.get(f"/api/scenes/{SCENE}").json()["kaggle"] == kernels
 
 
 def test_colab_setup_route(client: TestClient) -> None:

@@ -33,6 +33,8 @@ export interface SceneDetail {
   manifest: Manifest;
   validation: ValidationReport | null;
   splits: string[];
+  /** Notebook ingest trên Kaggle khi cảnh được nạp ở đó (máy không có ảnh); ``null`` nếu cảnh ở máy. */
+  kaggle: { username: string; kernel: string; source: string }[] | null;
 }
 
 export interface FrameImages {

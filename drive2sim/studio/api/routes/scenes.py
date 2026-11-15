@@ -18,6 +18,8 @@ from typing import Optional
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict
 
+from drive2sim.engine.workdir import KAGGLE_SCENE_FILE
+
 from drive2sim.core import files
 from drive2sim.engine import housekeeping, scenes
 from drive2sim.ingest.images import IMAGE_SUFFIXES
@@ -61,16 +63,21 @@ def get_scene(scene_id: str, request: Request) -> dict:
     """Trả về manifest, báo cáo kiểm tra và danh sách split của một cảnh.
 
     Returns:
-        ``{"manifest", "validation", "splits"}``; ``validation`` là ``null`` nếu chưa có báo cáo.
+        ``{"manifest", "validation", "splits", "kaggle"}``; ``validation`` là ``null`` nếu chưa có
+        báo cáo; ``kaggle`` là danh sách notebook ingest (``kaggle_scene.json``) nếu cảnh được nạp
+        trên Kaggle (máy chỉ có manifest và báo cáo, không có ảnh), ngược lại ``null``.
     """
     workdir = state_of(request).workdir
     scene = workdir.load_scene(scene_id)
     report_path = scene.root / "reports" / "validation.json"
     validation = json.loads(report_path.read_text("utf-8")) if report_path.is_file() else None
+    kaggle_path = scene.root / KAGGLE_SCENE_FILE
+    kaggle = json.loads(kaggle_path.read_text("utf-8"))["kernels"] if kaggle_path.is_file() else None
     return {
         "manifest": scene.manifest.model_dump(mode="json"),
         "validation": validation,
         "splits": [split.split_id for split in scenes.list_splits(workdir, scene_id)],
+        "kaggle": kaggle,
     }
 
 
