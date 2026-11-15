@@ -1,6 +1,6 @@
 # Densify và ngưỡng densify của 3DGUT
 
-**Trạng thái:** ngưỡng densify của 3DGUT **chưa được chỉnh**: config `omnire_ut*.yaml`, `streetgs_ut*.yaml` dùng lại ngưỡng của 3DGS. Module ghi thống kê densify (mục 5) đã có; hai run thử để chỉnh ngưỡng (mục 4, bước 1–2) đang chạy.
+**Trạng thái:** nhánh 3DGUT của Bosch dùng lại ngưỡng của 3DGS cho một đại lượng khác thang đo. Đã có: module ghi thống kê densify, và trainer đổi gradient 3DGUT về gradient tương đương pixel (mục 5) để dùng lại ngưỡng 3DGS mà không phụ thuộc dataset; cả hai bật bằng tham số, mặc định tắt. Đang chạy thử trên nuScenes; chưa có kết quả.
 
 Liên quan: `fastgs.md` (FastGS đổi quy tắc densify), `fastergs.md` (tăng tốc không đổi densify), `3dgeer.md` (renderer 3DGEER và ngưỡng riêng của nó).
 
@@ -55,14 +55,38 @@ Chọn ngưỡng theo số đo, như Bosch làm với 3DGEER, sao cho hai render
 3. **Chọn ngưỡng 3DGUT** là phân vị cho cùng phần trăm đó (khớp phân vị).
 4. **Kiểm chứng:** run 3DGUT đủ 30 000 bước với ngưỡng mới; số Gaussian cuối và VRAM phải cùng cỡ run 3DGS tương ứng; ghi ngưỡng và số đo làm căn cứ.
 
-Hướng khác (chưa chọn): đổi gradient 3D về "tương đương pixel" bằng cách nhân `z / f` cho từng đốm trước khi so ngưỡng, để dùng lại được 0,0005. Đúng về nguyên lý hơn, nhưng phải chọn `f`, `z` của camera nào khi một đốm thấy từ nhiều camera; khớp phân vị đơn giản hơn và đủ cho việc so renderer.
+Hướng tổng quát hơn (đã chọn, mục 5): đổi gradient 3D về gradient tương đương pixel qua Jacobian của phép chiếu, dùng lại ngưỡng của 3DGS.
 
-## 5. Gắn vào code mà không sửa patch của Bosch (kế hoạch)
+## 5. Đổi về gradient tương đương pixel: không phụ thuộc dataset
+
+Khớp phân vị (mục 4) cho một ngưỡng chỉ đúng với một cảnh, một độ phân giải. Cách tổng quát là đổi chính đại lượng densify của 3DGUT về đại lượng mà 3DGS dùng, rồi dùng lại ngưỡng của 3DGS.
+
+**Lý thuyết.** Gọi `u` là vị trí tâm Gaussian trên ảnh (pixel), `X` là vị trí tâm trong world. Phép chiếu `u = π(X)` có Jacobian `J = ∂u/∂X` (ma trận 2×3); với pinhole, trong hệ camera, `J = [[fx/z, 0, −fx·x/z²], [0, fy/z, −fy·y/z²]]`; với mắt cá và F-Theta là đạo hàm của mô hình tương ứng tại góc của điểm. Nếu loss chỉ phụ thuộc `X` qua `u` thì theo quy tắc chuỗi `g3d = Jᵀ · g2d` (`g3d = ∂L/∂X`, `g2d = ∂L/∂u`). Biết `g3d` (3DGUT có), tìm `g2d` bằng nghiệm bình phương tối thiểu:
+
+```
+g2d = (J Jᵀ)⁻¹ J · g3d
+```
+
+`J` chứa tiêu cự, khoảng cách và mô hình ống kính của đúng camera đã render bước đó, nên ba yếu tố làm ngưỡng phụ thuộc dataset (mục 3) bị khử trong phép đổi. Rồi nhân `W/2`, `H/2` và `batch_size` như nhánh 3DGS của `base.py`, so với cùng `densify_grad_thresh` của 3DGS.
+
+**Xấp xỉ.** 3DGUT chiếu Gaussian bằng các điểm sigma (unscented transform), không qua đúng một tâm 2D; `g3d` còn phần do hình dạng ảnh chiếu đổi theo vị trí. Phép đổi giữ phần đi qua tâm, nên kết quả gần chứ không trùng 3DGS. Mỗi bước train chỉ dùng một ảnh, nên `J` của bước đó xác định rõ (giống 3DGS cộng dồn gradient trên ảnh theo từng bước).
+
+**Cài đặt** (`drive2sim/recon/trainers/screen_grad.py`): `ScreenGradMultiTrainer` là lớp con của `MultiTrainer` (OmniRe, Street GS); với renderer `ut`, trước khi gọi `postprocess_per_train_step` của lớp cha, nó thay `info["means3d"].grad` bằng `[g2d_x, g2d_y, 0]` đã nhân hệ số (code densify chỉ dùng độ lớn của vectơ). `J` tính bằng sai phân trung tâm qua `project_camera_model` (bước bằng 1/1000 khoảng cách tới camera). Code của Bosch không đổi. Bật: `--set train.drivestudio.ut_densify=screen` (đặt `trainer.type`); mặc định `native` là nhánh của Bosch.
+
+**Đã kiểm tra** (test CPU, PyTorch thật): dựng `g3d = Jᵀ g2d` với `J` tính bằng autograd, module tính ngược đúng `g2d` (sai số tương đối dưới 1e-4) với camera pinhole và mắt cá OpenCV, camera xoay trong world; điểm sau camera pinhole cho 0; cùng `g3d`, điểm xa gấp đôi cho `g2d` gấp đôi (`g2d ≈ g3d · z/f`).
+
+**Chưa kiểm tra trên run thật.** Kế hoạch:
+1. Run chạy thử 2000 bước OmniRe 3DGUT với `ut_densify=native` và 3DGS (đều bật `densify_stats`) cho phân bố thô; tỉ lệ giữa hai phân bố phải cỡ `f/z` như mục 3 dự đoán.
+2. Chạy thử 2000 bước 3DGUT với `ut_densify=screen`: tỉ lệ Gaussian vượt ngưỡng phải gần 3DGS mà không chỉnh gì.
+3. Lặp lại bước 2 trên KITTI-360 (độ phân giải khác, có mắt cá): nếu vẫn gần, phép đổi không phụ thuộc dataset.
+4. Run 3DGUT 30 000 bước với `ut_densify=screen` để so renderer.
+
+## 6. Gắn vào code mà không sửa patch của Bosch
 
 Patch của Bosch (`base.py`, `postprocess_per_train_step`) giữ nguyên, để luôn chạy lại được đúng bản của Bosch và so sánh:
 
 - **Ghi thống kê densify** (đã có): `drive2sim/recon/utils/densify_stats.py`, bật bằng `trainer.densify_stats.enabled` (stage: `--set train.drivestudio.densify_stats=true`), mặc định tắt. Ngay trước mỗi lần refine, mỗi lớp Gaussian ghi một dòng vào `densify_stats.jsonl` trong thư mục stage: các phân vị 50/75/90/95/99 % của đại lượng densify (trung bình trên các ảnh đã thấy Gaussian), ngưỡng, số và tỉ lệ Gaussian vượt ngưỡng. Chỉ đọc; móc vào `VanillaGaussians.postprocess_per_train_step` (code DriveStudio), không đụng nhánh `ut` trong `base.py`.
 - **Ngưỡng đã chỉnh**: một config biến thể kế thừa bằng `extends` (ví dụ `omnire_ut_calibrated.yaml` chỉ khác `omnire_ut.yaml` ở `densify_grad_thresh`), cộng một mục cấu hình của approach để chọn; config gốc của Bosch vẫn còn để so.
-- Nếu sau này cần đổi về gradient tương đương pixel (mục 4, hướng khác): cũng là module riêng bật bằng config, không sửa nhánh `ut` trong `base.py`.
+- **Gradient tương đương pixel** (đã có, mục 5): lớp trainer con chọn bằng `trainer.type`, không sửa nhánh `ut` trong `base.py`.
 
 Run so sánh luôn ghi config nào đã dùng (`run.json`, `summary.json`), nên phân biệt được ngưỡng Bosch và ngưỡng đã chỉnh.

@@ -125,6 +125,13 @@ def test_build_command_translates_split(tmp_path: Path) -> None:
     stats = TrainDrivestudioParams(method="omnire", renderer="3dgut", densify_stats=True)
     stats_command = build_command(stats, split, manifest, view_root, output_dir)
     assert option(stats_command, "trainer.densify_stats.enabled") in ("True", "true")
+    assert not any(part.startswith("trainer.type=") for part in stats_command)  # native
+    screen = TrainDrivestudioParams(method="omnire", renderer="3dgut", ut_densify="screen")
+    screen_command = build_command(screen, split, manifest, view_root, output_dir)
+    assert option(screen_command, "trainer.type") == drivestudio.SCREEN_GRAD_TRAINER
+    other = TrainDrivestudioParams(method="omnire", renderer="3dgeer", ut_densify="screen")
+    other_command = build_command(other, split, manifest, view_root, output_dir)
+    assert not any(part.startswith("trainer.type=") for part in other_command)
     # --set train.drivestudio.profile_at=2000,20000 cho ra chuỗi; tham số tự đổi sang số
     assert TrainDrivestudioParams(method="omnire", profile_at=["2000", "20000"]).profile_at == [
         2000,

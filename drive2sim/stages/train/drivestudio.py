@@ -80,6 +80,8 @@ CONFIG_FILES: dict[tuple[str, str, bool, bool, bool], str] = {
     ("deformablegs", "3dgs", True, False, False): "deformablegs.yaml",
 }
 RESUME_CHECKPOINT = "checkpoint_resume.pth"
+# Trainer densify 3DGUT theo gradient tương đương pixel (ut_densify=screen)
+SCREEN_GRAD_TRAINER = "drive2sim.recon.trainers.screen_grad.ScreenGradMultiTrainer"
 VIEW_DIR = "scene_view"
 # Mục lấy từ artifact của prep.masks_segformer và prep.smpl, đè lên mục cùng tên của cảnh.
 MASK_ENTRIES = ("sky_masks", "fine_dynamic_masks")
@@ -109,6 +111,11 @@ class TrainDrivestudioParams(BaseModel):
             (``drive2sim/recon/utils/step_profile.py``); rỗng là không đo. Chỉ dùng trong run đo
             riêng, vì profiler làm chậm các bước được đo.
         profile_steps: Số bước mỗi lần đo.
+        ut_densify: Renderer 3DGUT densify theo gì: ``native`` là nhánh ``ut`` của Bosch
+            (gradient theo tâm 3D, ngưỡng của 3DGS không hợp); ``screen`` đổi gradient đó sang
+            gradient tương đương pixel qua Jacobian của phép chiếu
+            (``drive2sim/recon/trainers/screen_grad.py``) để dùng lại ngưỡng của 3DGS. Renderer
+            khác bỏ qua.
         densify_stats: Ghi phân bố của đại lượng densify ở mỗi lần refine vào
             ``densify_stats.jsonl`` (``drive2sim/recon/utils/densify_stats.py``), để chỉnh ngưỡng
             densify theo renderer (``docs/methods/densify_3dgut.md``). Chỉ đọc, không đổi kết quả.
@@ -131,6 +138,7 @@ class TrainDrivestudioParams(BaseModel):
     overrides: dict[str, object] = {}
     profile_at: list[int] = []
     profile_steps: int = Field(default=30, ge=1)
+    ut_densify: Literal["native", "screen"] = "native"
     densify_stats: bool = False
     preload_device: Literal["cpu", "cuda"] = "cpu"
 
@@ -317,6 +325,8 @@ def build_command(
     if params.profile_at:
         options["logging.profile_at"] = list(params.profile_at)
         options["logging.profile_steps"] = params.profile_steps
+    if params.renderer == "3dgut" and params.ut_densify == "screen":
+        options["trainer.type"] = SCREEN_GRAD_TRAINER
     if params.densify_stats:
         options["trainer.densify_stats.enabled"] = True
     options.update(params.overrides)

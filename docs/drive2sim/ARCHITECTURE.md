@@ -428,7 +428,7 @@ drivestudio_plus/                          branch drive2sim
 │   │   │   ├── smpl/                      run.py, extract.py, postprocess.py
 │   │   │   └── multiprocess.py
 │   │   ├── models/                        gaussians/, nodes/, modules.py, losses.py, human_body.py
-│   │   ├── trainers/                      base.py, single.py, scene_graph.py
+│   │   ├── trainers/                      base.py, single.py, scene_graph.py, screen_grad.py (densify 3DGUT theo gradient tương đương pixel)
 │   │   ├── rendering/                     videos.py
 │   │   ├── utils/                         camera, geometry, logging, misc, visualization, backup
 │   │   └── tools/                         train.py, eval.py, viewer.py, export_ply.py, gather_results.py (thay dần bằng stage và CLI); train_gsplat_3dgut.py (trainer gsplat 3DGUT, cảnh tĩnh)
