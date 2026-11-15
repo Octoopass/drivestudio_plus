@@ -62,7 +62,7 @@ from drive2sim.engine.machine import current_machine, package_versions, same_mac
 from drive2sim.engine.registry import REGISTRY, StageRegistry
 from drive2sim.engine.resolve import Plan, validate_params, wire_inputs
 from drive2sim.engine.stage import SCENE_INPUT, Scene, StageCancelledError
-from drive2sim.engine.workdir import Workdir
+from drive2sim.engine.workdir import KAGGLE_SCENE_FILE, Workdir, WorkdirError
 
 D2S_DIR = "d2s"
 RUN_FILE = "run.json"
@@ -221,7 +221,13 @@ def create_run(
 
     Raises:
         FileExistsError: Nếu thư mục run đã tồn tại.
+        WorkdirError: Nếu cảnh chỉ có trên Kaggle mà ``executor`` không phải ``kaggle``.
     """
+    if executor != "kaggle" and (scene.root / KAGGLE_SCENE_FILE).is_file():
+        raise WorkdirError(
+            f"cảnh {scene.scene_id} chỉ có trên Kaggle (ingest bằng d2s kaggle ingest, máy không "
+            "có ảnh và LiDAR); chạy run bằng --executor kaggle"
+        )
     run_id = run_id or identifiers.make_run_id(plan.approach_id)
     run_dir = workdir.run_dir(scene.scene_id, plan.approach_id, run_id)
     (run_dir / D2S_DIR).mkdir(parents=True, exist_ok=False)

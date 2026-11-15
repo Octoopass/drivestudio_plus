@@ -31,7 +31,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from string import Template
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from drive2sim import paths
 from drive2sim.core import files
@@ -45,6 +45,9 @@ from drive2sim.engine.run import (
 from drive2sim.engine.workdir import Workdir
 from drive2sim.kaggle.bundle import write_bundle
 from drive2sim.kaggle.client import KaggleClient, KaggleError
+
+if TYPE_CHECKING:
+    from drive2sim.kaggle.ingest import KaggleSceneRef
 
 STATE_FILE = "kaggle.json"
 TEMPLATE = paths.PACKAGE_DIR / "kaggle" / "templates" / "run.ipynb"
@@ -66,7 +69,7 @@ class KaggleState:
         username: Người dùng Kaggle.
         kernel: Notebook của lần đẩy mới nhất, ``<người dùng>/<tên>``.
         attempt: Lần đẩy thứ mấy (1, 2...); mỗi lần là một notebook riêng.
-        dataset: Dataset chứa cảnh.
+        dataset: Dataset chứa cảnh, hoặc notebook ingest giữ cảnh (cảnh ingest trên Kaggle).
         commit: Commit của code mà notebook dùng.
         pushed_utc: Thời điểm đẩy.
         pulled_utc: Thời điểm tải kết quả về gần nhất.
@@ -143,6 +146,13 @@ def code_source(branch: str = DEFAULT_BRANCH) -> tuple[str, str]:
         return remote.code_source(branch, REPO_ENV, _git)
     except remote.RemoteError as error:
         raise KaggleError(str(error)) from None
+
+
+def _load_scene_ref(scene_root: Path) -> Optional["KaggleSceneRef"]:
+    """``kaggle_scene.json`` của cảnh (đọc trễ để tránh vòng import với ``kaggle.ingest``)."""
+    from drive2sim.kaggle.ingest import load_scene_ref
+
+    return load_scene_ref(scene_root)
 
 
 def _ensure_scene_dataset(
@@ -287,12 +297,26 @@ def push_run(
         )
     commit, repo_url = code_source(branch)
     scene = workdir.load_scene(record.scene_id)
-    dataset = _ensure_scene_dataset(
-        client, workdir, username, record.scene_id, scene.manifest.source.converter_version
-    )
+    scene_kernels: list[str] = []
+    remote_scene = _load_scene_ref(scene.root)
+    if remote_scene is not None:
+        # Cảnh đã ingest trên Kaggle (d2s kaggle ingest): gắn output notebook ingest, không upload.
+        if remote_scene.username != username:
+            raise KaggleError(
+                f"cảnh {record.scene_id} nằm trong notebook {remote_scene.kernel} của tài khoản "
+                f"{remote_scene.username}, còn lệnh kaggle đang đăng nhập {username}: notebook "
+                "private nên tài khoản này không đọc được; đổi lại khoá hoặc ingest lại"
+            )
+        dataset = remote_scene.kernel
+        scene_kernels = [remote_scene.kernel]
+        sources: list[str] = []
+    else:
+        dataset = _ensure_scene_dataset(
+            client, workdir, username, record.scene_id, scene.manifest.source.converter_version
+        )
+        sources = [dataset]
     # Run có dựng người (prep.smpl) thì trainer cần file mô hình SMPL, file có bản quyền nên không
     # đi kèm repo: người dùng tự đưa nó lên một dataset private và đặt tên dataset ở biến này.
-    sources = [dataset]
     if any(stage.stage_id == "prep.smpl" for stage in record.stages):
         smpl_dataset = os.environ.get(SMPL_DATASET_ENV, "").strip()
         if not smpl_dataset:
@@ -329,7 +353,7 @@ def push_run(
             "machine_shape": accelerator,
             "enable_internet": True,
             "dataset_sources": sources,
-            "kernel_sources": resume,
+            "kernel_sources": scene_kernels + resume,
             "competition_sources": [],
         }
         (folder_path / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2))

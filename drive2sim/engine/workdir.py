@@ -23,6 +23,9 @@ from drive2sim.core.schema import Manifest, Split
 from drive2sim.engine.stage import Scene
 
 WORKDIR_ENV = "D2S_WORKDIR"
+# Cảnh chỉ có file nhỏ trên máy, dữ liệu nằm trong output của notebook ingest trên Kaggle
+# (CONTRACTS mục 9.4, ``drive2sim/kaggle/ingest.py``).
+KAGGLE_SCENE_FILE = "kaggle_scene.json"
 # File đánh dấu thư mục chứa dữ liệu mẫu (giả) do ``drive2sim/scripts/make_demo.py`` tạo.
 DEMO_MARKER = "DEMO"
 

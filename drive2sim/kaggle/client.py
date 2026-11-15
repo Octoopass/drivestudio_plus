@@ -282,12 +282,17 @@ class KaggleClient:
             if isinstance(row, dict)
         ]
 
-    def kernel_output(self, slug: str, destination: Path) -> None:
+    def kernel_output(
+        self, slug: str, destination: Path, file_pattern: Optional[str] = None
+    ) -> None:
         """Tải output của notebook về ``destination``.
 
         Args:
             slug: Định danh đầy đủ của notebook.
             destination: Thư mục nhận file.
+            file_pattern: Biểu thức chính quy; chỉ tải file có đường dẫn khớp (``--file-pattern``
+                của Kaggle CLI), ví dụ chỉ các file nhỏ của một cảnh.
         """
         destination.mkdir(parents=True, exist_ok=True)
-        self._call("kernels", "output", slug, "-p", str(destination))
+        extra = ["--file-pattern", file_pattern] if file_pattern else []
+        self._call("kernels", "output", slug, "-p", str(destination), *extra)

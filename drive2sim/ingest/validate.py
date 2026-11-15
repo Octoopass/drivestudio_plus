@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Optional
 
 from drive2sim.core.schema import SCHEMA_VERSIONS, Check, Manifest, ReportSummary, ValidationReport
+from drive2sim.engine.workdir import KAGGLE_SCENE_FILE
 from drive2sim.ingest.images import read_image_size
 from drive2sim.ingest.manifest import frame_indices
 
@@ -80,7 +81,16 @@ def validate_scene(scene_dir: Path, manifest: Manifest) -> ValidationReport:
 
     Returns:
         Báo cáo kiểm tra; ``summary.errors > 0`` nghĩa là cảnh không dùng được.
+
+    Raises:
+        ValueError: Nếu cảnh chỉ có trên Kaggle (``kaggle_scene.json``): máy không có ảnh, LiDAR
+            để kiểm tra; báo cáo đã kiểm lúc ingest trên Kaggle nằm trong ``reports/``.
     """
+    if (scene_dir / KAGGLE_SCENE_FILE).is_file():
+        raise ValueError(
+            f"cảnh {scene_dir.name} chỉ có trên Kaggle; báo cáo kiểm tra lúc ingest ở "
+            "reports/validation.json"
+        )
     checks: list[Check] = []
     frames = range(manifest.timeline.num_frames)
     for index, camera in enumerate(manifest.cameras):

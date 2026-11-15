@@ -1,23 +1,27 @@
 """Nhóm lệnh ``d2s kaggle``: chạy run trên Kaggle (ARCHITECTURE mục 2.8, CONTRACTS mục 9.2).
 
 File này chứa:
-- ``register``: thêm các lệnh ``kaggle push``, ``status``, ``pull``, ``run``.
+- ``register``: thêm các lệnh ``kaggle push``, ``status``, ``pull``, ``ingest``, ``run``.
 - ``push``: đẩy một run lên Kaggle (lần sau chạy tiếp từ output lần trước).
 - ``status``: trạng thái notebook của run.
 - ``pull``: tải kết quả về, ghép vào thư mục làm việc.
+- ``ingest``: ingest một cảnh trên Kaggle từ dữ liệu gốc đã có trên Kaggle (CONTRACTS mục 9.4).
 - ``run_bundle``: chạy trên Kaggle (notebook gọi): dựng thư mục làm việc từ gói job rồi chạy run.
 
 ``d2s run start --executor kaggle`` tạo run rồi gọi ``push``.
 """
 
 import argparse
+import json
 from pathlib import Path
 
 from drive2sim.cli.output import emit, event_printer, info
+from drive2sim.cli.scene import add_ingest_options, ingest_arguments
 from drive2sim.engine.run import execute_run
 from drive2sim.engine.workdir import Workdir
 from drive2sim.kaggle import executor
 from drive2sim.kaggle.bundle import materialize, read_bundle
+from drive2sim.kaggle.ingest import IngestRequest, ingest_on_kaggle
 
 
 def register(
@@ -47,6 +51,18 @@ def register(
                 help="GPU của Kaggle, ví dụ NvidiaTeslaT4 (mặc định), NvidiaL4",
             )
         parser.set_defaults(handler=handler)
+    ingest_parser = actions.add_parser(
+        "ingest", parents=[common], help="ingest một cảnh trên Kaggle từ dữ liệu gốc trên Kaggle"
+    )
+    ingest_parser.add_argument(
+        "source", help="dataset hoặc notebook chứa dữ liệu gốc, <người dùng>/<tên>"
+    )
+    ingest_parser.add_argument(
+        "--path", default="", help="thư mục con trong nguồn chứa dữ liệu gốc, ví dụ kitti360"
+    )
+    ingest_parser.add_argument("--branch", default=executor.DEFAULT_BRANCH)
+    add_ingest_options(ingest_parser)
+    ingest_parser.set_defaults(handler=ingest)
     run_parser = actions.add_parser(
         "run", parents=[common], help="(trong notebook Kaggle) chạy run từ gói job"
     )
@@ -98,6 +114,32 @@ def pull(args: argparse.Namespace) -> int:
     hint = "" if record.status == "succeeded" else f"; chạy tiếp: d2s kaggle push {args.run_id}"
     emit(args, record.model_dump(mode="json"), f"run {record.run_id}: {record.status}{hint}")
     return 0 if record.status == "succeeded" else 1
+
+
+def ingest(args: argparse.Namespace) -> int:
+    """Ingest một cảnh trên Kaggle; chờ notebook xong rồi ghi file nhỏ của cảnh về máy.
+
+    Args:
+        args: Tham số dòng lệnh: ``source``, ``path``, ``branch`` và tuỳ chọn của ``scene ingest``.
+
+    Returns:
+        ``0`` nếu báo cáo kiểm tra của cảnh không có lỗi, ``1`` nếu có.
+    """
+    workdir = Workdir.from_env(args.workdir)
+    request = IngestRequest(args.source, args.path, tuple(ingest_arguments(args)))
+    scene_dir = ingest_on_kaggle(
+        workdir, request, branch=args.branch, notify=lambda message: info(args, message)
+    )
+    report = json.loads((scene_dir / "reports" / "validation.json").read_text("utf-8"))
+    summary = report["summary"]
+    emit(
+        args,
+        {"scene_id": scene_dir.name, "validation": report},
+        f"cảnh {scene_dir.name} nằm trên Kaggle, đã ghi file nhỏ vào "
+        f"{workdir.relative(scene_dir)}; kiểm tra {summary['errors']} lỗi, "
+        f"{summary['warnings']} cảnh báo",
+    )
+    return 0 if summary["errors"] == 0 else 1
 
 
 def run_bundle(args: argparse.Namespace) -> int:

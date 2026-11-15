@@ -52,8 +52,11 @@ data/<scene_id>/
 ├── dynamic_masks/<khung>_<camera>.png    # nếu script sinh từ box
 ├── manifest.yaml                # tool ghi khi ingest
 ├── splits/<split_id>.json
-└── reports/validation.json
+├── reports/validation.json
+└── kaggle_scene.json            # chỉ có khi cảnh ingest trên Kaggle (mục 9.4)
 ```
+
+Cảnh ingest bằng `d2s kaggle ingest` (mục 9.4) chỉ có `manifest.yaml`, `reports/`, `splits/` và `kaggle_scene.json` trên máy; ảnh, LiDAR, pose nằm trong output của notebook ingest trên Kaggle.
 
 - `<khung>` là chỉ số 3 chữ số (`000`), `<camera>` là chỉ số camera của DriveStudio cho dataset đó.
 - Cách lưu pose khác nhau giữa các dataset và **được giữ nguyên**, vì mỗi dataset đọc bằng loader riêng của nó (`drive2sim/recon/data/loaders/<dataset>.py`): Waymo, Argoverse, KITTI, nuPlan lưu `ego_pose/<khung>.txt` và `extrinsics/<camera>.txt`; PandaSet lưu `ego_pose/` và `extrinsics/<khung>_<camera>.txt`; nuScenes lưu `extrinsics/<khung>_<camera>.txt` và `lidar_pose/`. Bảng đầy đủ ở `ARCHITECTURE.md` mục 2.2.
@@ -660,6 +663,22 @@ Run được tạo trên máy (`executor: colab`) rồi đẩy lên một VM Goo
 
 Chưa chạy thật: mọi đoạn mã chạy trên VM đã chạy trong test với một VM giả (thư mục tạm), nhưng chưa chạy trên Colab; giới hạn kích thước một request upload của Colab, thời gian cài môi trường trên VM và việc `uv venv --python 3.10` trên Colab chưa kiểm tra.
 
+### 9.4 Ingest trên Kaggle
+
+Dữ liệu gốc lớn (ví dụ KITTI-360 đủ khung, khoảng 8,8 GB một chuỗi) không cần nằm trên máy, và cảnh ingest từ nó không cần upload từ máy. Dữ liệu gốc là một dataset private hoặc output của một notebook trên Kaggle; `d2s kaggle ingest <nguồn> [--path <thư mục con>] [tuỳ chọn của scene ingest]` ingest ngay trên Kaggle (`drive2sim/kaggle/ingest.py`):
+
+- **Notebook** `<người dùng>/d2s-ingest-<hash8>`, private, chỉ CPU, có internet, sinh từ `drive2sim/kaggle/templates/ingest.ipynb`. `hash8` băm từ nguồn, `--path` và tuỳ chọn ingest, nên chạy lại cùng lệnh thì dùng lại notebook: đang chạy thì chờ tiếp, đã xong thì chỉ tải về, lỗi hoặc chưa có thì đẩy (lại). Nguồn là dataset (`kaggle datasets` thấy nó) thì gắn qua `dataset_sources`, không thì coi là notebook và gắn qua `kernel_sources`.
+- Notebook clone đúng commit như mục 9.2 (không cần submodule), cài môi trường nhẹ trong venv Python 3.10: tool, numpy 1.23.5, PyTorch 2.4.1 bản CPU (mã tiền xử lý import torch), `nuscenes-devkit` 1.2.0, OpenCV. Nó tìm thư mục nguồn theo tên dưới `/kaggle/input` (sâu tối đa ba mức), chạy `d2s scene ingest <nguồn>/<--path> --workdir /kaggle/working <tuỳ chọn>`, rồi chỉ giữ `data/<scene_id>/` và `ingest_result.json` (`scene_id`, `commit`, `source`, `exit_code`) trong output. Mã thoát 1 (báo cáo kiểm tra có lỗi) vẫn giữ cảnh để xem báo cáo.
+- Lệnh chờ notebook xong (hỏi mỗi 60 giây, tối đa 6 giờ), tải về **chỉ** `ingest_result.json`, `manifest.yaml` và `reports/*.json` (`kaggle kernels output --file-pattern`), ghi vào `data/<scene_id>/` cùng `kaggle_scene.json`; từ chối nếu cảnh đã có trên máy. Mã thoát 1 nếu báo cáo có lỗi.
+- `kaggle push` của run trên cảnh có `kaggle_scene.json` không upload cảnh: notebook train gắn output của notebook ingest qua `kernel_sources` (trước các notebook chạy tiếp), `kaggle.json` ghi notebook đó ở trường `dataset`; `d2s kaggle run` tìm cảnh theo `manifest.yaml` như mục 9.2. Notebook ingest private, nên phải đẩy run bằng đúng tài khoản đã ingest; khác thì `push` từ chối.
+- Cảnh như vậy không chạy được trên máy hay Colab (máy không có ảnh): `run start` với `--executor local` hoặc `colab` báo lỗi, `scene validate` cũng vậy.
+
+```json
+{"username": "alice", "kernel": "alice/d2s-ingest-1a2b3c4d", "source": "alice/d2s-nuscenes-mini-raw", "commit": "c0ffee...", "pulled_utc": "2026-11-15T10:00:00+00:00"}
+```
+
+Chưa chạy thật khi viết: ô cài môi trường của notebook ingest (`uv`, bản CPU của PyTorch 2.4.1 cho Python 3.10) chưa chạy trên Kaggle.
+
 ## 10. Quy tắc đặt tên và CLI
 
 ### 10.1 Định danh
@@ -723,6 +742,7 @@ Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dà
 | `d2s run resume <run_id>` | Chạy tiếp từ stage dở |
 | `d2s run status <run_id>` / `d2s run list [--scene <scene_id>]` / `d2s run cancel <run_id>` / `d2s run delete <run_id>` | Theo dõi, liệt kê, huỷ, xoá thư mục run |
 | `d2s kaggle push <run_id> [--branch <branch>] [--accelerator <GPU>]` / `d2s kaggle status <run_id>` / `d2s kaggle pull <run_id>` | Đẩy run lên Kaggle (lần sau chạy tiếp), xem trạng thái notebook, tải kết quả về (mục 9.2); `push` do `run start --executor kaggle` tự gọi |
+| `d2s kaggle ingest <nguồn> [--path <thư mục con>] [--branch <branch>] [tuỳ chọn của scene ingest]` | Ingest một cảnh trên Kaggle từ dữ liệu gốc là dataset hoặc output notebook trên Kaggle; chờ xong rồi ghi file nhỏ của cảnh về `data/<scene_id>/` (mục 9.4) |
 | `d2s kaggle run <gói> [--input-root <thư mục>]` | Chỉ dùng trên máy chạy (notebook Kaggle, job trên VM Colab): dựng thư mục làm việc từ gói job rồi chạy run |
 | `d2s colab push <run_id> [--branch <branch>] [--gpu <GPU>] [--session <tên>]` / `d2s colab status <run_id>` / `d2s colab logs <run_id> [--follow]` / `d2s colab pull <run_id> [--keep-session]` / `d2s colab stop <run_id>` | Chạy run trên VM Colab (mục 9.3): đẩy và chạy job tách khỏi kết nối, xem trạng thái và log cuối, đọc log tới khi xong, tải kết quả về (run xong thì tắt phiên), tắt phiên; `push` do `run start --executor colab` tự gọi |
 | `d2s report <run_id>...` | Bảng so sánh nhiều run |

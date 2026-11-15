@@ -48,6 +48,36 @@ def register(
         "ingest", parents=[common], help="chuyển một cảnh của dữ liệu gốc sang dữ liệu chuẩn"
     )
     ingest.add_argument("path", type=Path, help="thư mục dữ liệu gốc")
+    add_ingest_options(ingest)
+    ingest.set_defaults(handler=ingest_scene)
+    validate = actions.add_parser("validate", parents=[common], help="kiểm tra lại một cảnh")
+    validate.add_argument("scene_id")
+    validate.set_defaults(handler=validate_scene_command)
+    delete = actions.add_parser("delete", parents=[common], help="xoá cảnh, split, cache và run")
+    delete.add_argument("scene_id")
+    delete.set_defaults(handler=delete_scene)
+
+
+# Tuỳ chọn của scene ingest, theo thứ tự in ra lệnh (``ingest_arguments``): tên cờ, tên thuộc tính.
+INGEST_FLAGS = (
+    ("--source-type", "source_type"),
+    ("--version", "version"),
+    ("--sequence", "sequence"),
+    ("--scene", "scene_id"),
+    ("--interpolate-n", "interpolate_n"),
+    ("--workers", "workers"),
+    ("--start-frame", "start_frame"),
+    ("--num-frames", "num_frames"),
+    ("--cameras", "cameras"),
+    ("--max-gap", "max_gap"),
+)
+
+
+def add_ingest_options(ingest: argparse.ArgumentParser) -> None:
+    """Thêm các tuỳ chọn của ``scene ingest`` (trừ thư mục nguồn) vào một parser.
+
+    ``d2s scene ingest`` và ``d2s kaggle ingest`` dùng chung, nên hai lệnh nhận cùng tuỳ chọn.
+    """
     ingest.add_argument("--source-type", help="dataset gốc; bỏ trống thì tự nhận dạng")
     ingest.add_argument("--version", help="phiên bản hoặc split, ví dụ v1.0-mini, training")
     ingest.add_argument("--sequence", help="chuỗi (cảnh gốc) cần ingest, ví dụ scene-0061")
@@ -82,13 +112,20 @@ def register(
         help="KITTI-360: hai khung liền nhau cách nhau quá số này (theo số hiệu gốc) thì cắt "
         f"đoạn (mặc định {kitti360.DEFAULT_MAX_GAP})",
     )
-    ingest.set_defaults(handler=ingest_scene)
-    validate = actions.add_parser("validate", parents=[common], help="kiểm tra lại một cảnh")
-    validate.add_argument("scene_id")
-    validate.set_defaults(handler=validate_scene_command)
-    delete = actions.add_parser("delete", parents=[common], help="xoá cảnh, split, cache và run")
-    delete.add_argument("scene_id")
-    delete.set_defaults(handler=delete_scene)
+
+
+def ingest_arguments(args: argparse.Namespace) -> list[str]:
+    """Dựng lại tuỳ chọn của ``scene ingest`` từ ``args`` (bỏ tuỳ chọn để trống).
+
+    Returns:
+        Ví dụ ``["--sequence", "scene-0061", "--interpolate-n", "4", ...]``.
+    """
+    arguments: list[str] = []
+    for flag, attribute in INGEST_FLAGS:
+        value = getattr(args, attribute)
+        if value is not None:
+            arguments += [flag, str(value)]
+    return arguments
 
 
 def list_scenes(args: argparse.Namespace) -> int:
