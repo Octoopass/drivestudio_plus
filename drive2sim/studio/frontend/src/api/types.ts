@@ -55,6 +55,8 @@ export interface CheckResult {
 }
 
 export interface RunDetail extends RunRecord {
+  /** Trạng thái phía Kaggle khi run chưa tải về (runStatus.ts); ``null`` với run khác. */
+  remote?: { pushed: boolean; status: string | null; checked_utc: string | null } | null;
   summary: Summary | null;
   env: EnvRecord | null;
   run_dir: string;

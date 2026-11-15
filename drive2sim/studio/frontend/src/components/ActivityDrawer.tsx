@@ -5,18 +5,19 @@
 // xem ở tab Kaggle/Colab của trang run.
 import { Square } from "lucide-react";
 import { asApiError, post, seg, useApi } from "../api/client";
-import type { List, RunRecord } from "../api/types";
+import type { List } from "../api/types";
 import { useI18n } from "../i18n";
 import { useLive } from "../live";
 import { href } from "../router";
+import { runStatus, type RunItem } from "../runStatus";
 import { ago, Drawer, Empty, Status, useToast } from "./ui";
 
 export function ActivityDrawer({ onClose }: { onClose: () => void }) {
   const { t, locale } = useI18n();
   const live = useLive();
   const toast = useToast();
-  const running = useApi<List<RunRecord>>(`/api/runs?status=running&_=${live.tick}`);
-  const pending = useApi<List<RunRecord>>(`/api/runs?status=pending&_=${live.tick}`);
+  const running = useApi<List<RunItem>>(`/api/runs?status=running&_=${live.tick}`);
+  const pending = useApi<List<RunItem>>(`/api/runs?status=pending&_=${live.tick}`);
   const all = [...(running.data?.items ?? []), ...(pending.data?.items ?? [])];
   const runs = all.filter((run) => run.executor === "local");
   const remote = all.filter((run) => run.executor !== "local");
@@ -73,6 +74,7 @@ export function ActivityDrawer({ onClose }: { onClose: () => void }) {
                 {run.run_id}
               </a>
               <span className="small faint">{run.executor === "kaggle" ? "Kaggle" : "Colab"}</span>
+              <Status value={runStatus(run, live.statuses[run.run_id])} />
             </div>
           ))}
         </section>

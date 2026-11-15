@@ -81,8 +81,10 @@ class FakeKaggle(KaggleClient):
         """Trạng thái đặt sẵn."""
         return self.status
 
-    def kernel_output(self, slug: str, destination: Path, file_pattern: Optional[str] = None) -> None:
-        """Chép output giả của notebook; như lệnh kaggle, chỉ file có đường dẫn khớp ``file_pattern``."""
+    def kernel_output(
+        self, slug: str, destination: Path, file_pattern: Optional[str] = None
+    ) -> None:
+        """Chép output giả; như lệnh kaggle, chỉ file có đường dẫn khớp ``file_pattern``."""
         source = self.root / "output" / slug.split("/")[1]
         for path in source.rglob("*"):
             name = path.relative_to(source).as_posix()
@@ -479,3 +481,22 @@ def test_pull_light_reads_small_files_from_log(
     fake.kernel_logs = lambda slug: "log cũ không có kết quả"  # type: ignore
     with pytest.raises(KaggleError, match="không có kết quả nhỏ"):
         executor.pull_run_light(workdir, RUN_ID, client=fake)
+
+
+def test_remote_status_for_studio(tmp_path: Path) -> None:
+    from drive2sim.studio.api.routes.runs import _remote
+
+    workdir = make_workdir(tmp_path)
+    run_dir = workdir.find_run(RUN_ID)
+    record = files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
+    assert _remote(workdir, record) == {"pushed": False, "status": None, "checked_utc": None}
+    state = {"username": "u", "kernel": "u/k-1", "attempt": 1, "dataset": "u/d", "commit": "c"}
+    (run_dir / D2S_DIR / executor.STATE_FILE).write_text(
+        json.dumps({**state, "pushed_utc": "2026-11-15T00:00:00+00:00"})
+    )
+    executor.record_status(run_dir, "u/k-0", "complete")  # notebook cũ: bỏ qua
+    assert _remote(workdir, record)["status"] is None
+    executor.record_status(run_dir, "u/k-1", "running")
+    remote = _remote(workdir, record)
+    assert remote["pushed"] and remote["status"] == "running" and remote["checked_utc"]
+    assert _remote(workdir, record.model_copy(update={"status": "succeeded"})) is None

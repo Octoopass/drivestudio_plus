@@ -17,10 +17,11 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useApi } from "../api/client";
-import type { List, RunRecord } from "../api/types";
+import type { List } from "../api/types";
 import { useI18n } from "../i18n";
 import { useLive } from "../live";
 import { href, type Page, type Route } from "../router";
+import { runStatus, type RunItem } from "../runStatus";
 import { ActivityDrawer } from "./ActivityDrawer";
 import { InfoTip } from "./ui";
 import { CommandPalette } from "./CommandPalette";
@@ -117,10 +118,14 @@ export function Layout({ route, children }: { route: Route; children: ReactNode 
   const [palette, setPalette] = useState(false);
   const [activity, setActivity] = useState(false);
   // "Đang chạy" = đang chạy + đang chờ, cùng cách đếm với trang Tổng quan và ngăn Hoạt động.
-  const running = useApi<List<RunRecord>>(`/api/runs?status=running&_=${live.tick}`);
-  const pending = useApi<List<RunRecord>>(`/api/runs?status=pending&_=${live.tick}`);
+  const running = useApi<List<RunItem>>(`/api/runs?status=running&_=${live.tick}`);
+  const pending = useApi<List<RunItem>>(`/api/runs?status=pending&_=${live.tick}`);
   const studio = useApi<{ workdir: string; demo: boolean }>("/api/studio");
-  const runningCount = (running.data?.total ?? 0) + (pending.data?.total ?? 0);
+  // Chỉ đếm run thật sự đang chạy hoặc chờ máy; run Kaggle đã xong mà chưa tải về, hay chưa đẩy
+  // lên, không tính (runStatus.ts).
+  const runningCount = [...(running.data?.items ?? []), ...(pending.data?.items ?? [])].filter((r) =>
+    ["running", "pending"].includes(runStatus(r, live.statuses[r.run_id])),
+  ).length;
   const activeJobs = live.jobs.filter((job) => job.status === "queued" || job.status === "running").length;
   const busy = runningCount + activeJobs;
 

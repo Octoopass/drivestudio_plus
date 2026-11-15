@@ -110,6 +110,7 @@ class KaggleWatcher(RemoteWatcher):
             except KaggleError as error:
                 failures.append(error)
                 continue
+            executor.record_status(run_dir, state.kernel, status)
             if status not in FINISHED:
                 continue
             run_id = run_dir.name

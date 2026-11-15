@@ -79,6 +79,10 @@ class KaggleState:
         pulled_utc: Thời điểm tải kết quả về gần nhất.
         kernels: Notebook của mọi lần đẩy, cũ trước mới sau (``kernel`` là phần tử cuối); để
             chạy tiếp gắn đúng output các lần trước dù quy tắc đặt tên đổi.
+        remote_status: Trạng thái notebook ``kernel`` lần hỏi Kaggle gần nhất (``running``,
+            ``complete``...), để Studio hiện run đang chạy hay đã xong trên Kaggle trước khi tải
+            về; ``None`` nếu chưa hỏi được.
+        checked_utc: Thời điểm hỏi đó.
     """
 
     username: str
@@ -89,6 +93,8 @@ class KaggleState:
     pushed_utc: str
     pulled_utc: Optional[str] = None
     kernels: list[str] = field(default_factory=list)
+    remote_status: Optional[str] = None
+    checked_utc: Optional[str] = None
 
     def to_dict(self) -> dict:
         """Nội dung dạng dict, để ghi JSON."""
@@ -122,6 +128,18 @@ def _other_account(client: KaggleClient, state: KaggleState) -> Optional[str]:
         f"run đã đẩy bằng tài khoản Kaggle {state.username} (notebook private), còn lệnh kaggle "
         f"đang đăng nhập {username}: đổi lại khoá API của {state.username} để xem và tải run này"
     )
+
+
+def record_status(run_dir: Path, kernel: str, status: str) -> None:
+    """Ghi trạng thái vừa hỏi được của notebook ``kernel`` vào ``kaggle.json``.
+
+    Bỏ qua nếu run đã được đẩy lại sang notebook khác trong lúc hỏi.
+    """
+    state = load_state(run_dir)
+    if state is None or state.kernel != kernel:
+        return
+    state.remote_status, state.checked_utc = status, _now()
+    _save_state(run_dir, state)
 
 
 def _save_state(run_dir: Path, state: KaggleState) -> None:
@@ -423,6 +441,7 @@ def kernel_state(workdir: Workdir, run_id: str, client: Optional[KaggleClient] =
     # kaggle.json, để Studio còn hiện notebook nào, đẩy lúc nào và cho tải kết quả về.
     try:
         status, error = client.kernel_status(state.kernel), None
+        record_status(workdir.find_run(run_id), state.kernel, status)
     except KaggleError as failure:
         status, error = None, _other_account(client, state) or str(failure)
     return {**asdict(state), "status": status, "status_error": error}

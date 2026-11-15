@@ -18,10 +18,9 @@ from typing import Optional
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict
 
-from drive2sim.engine.workdir import KAGGLE_SCENE_FILE
-
 from drive2sim.core import files
 from drive2sim.engine import housekeeping, scenes
+from drive2sim.engine.workdir import KAGGLE_SCENE_FILE
 from drive2sim.ingest.images import IMAGE_SUFFIXES
 from drive2sim.ingest.validate import validate_scene
 from drive2sim.studio.api.state import state_of
@@ -72,7 +71,9 @@ def get_scene(scene_id: str, request: Request) -> dict:
     report_path = scene.root / "reports" / "validation.json"
     validation = json.loads(report_path.read_text("utf-8")) if report_path.is_file() else None
     kaggle_path = scene.root / KAGGLE_SCENE_FILE
-    kaggle = json.loads(kaggle_path.read_text("utf-8"))["kernels"] if kaggle_path.is_file() else None
+    kaggle = None
+    if kaggle_path.is_file():
+        kaggle = json.loads(kaggle_path.read_text("utf-8"))["kernels"]
     return {
         "manifest": scene.manifest.model_dump(mode="json"),
         "validation": validation,

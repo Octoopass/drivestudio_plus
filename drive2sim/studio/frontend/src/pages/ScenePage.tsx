@@ -4,11 +4,12 @@
 import { Pause, Play, RefreshCw, Trash2, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { asApiError, del, post, seg, useApi, type ApiError } from "../api/client";
-import type { FrameImages, List, RunRecord, SceneDetail, Split } from "../api/types";
+import type { FrameImages, List, SceneDetail, Split } from "../api/types";
 import { ago, Confirm, Empty, ErrorBox, InfoTip, Loading, PageHead, Panel, Status, Tabs, useToast, yesNo } from "../components/ui";
 import { useI18n } from "../i18n";
 import { useLive } from "../live";
 import { go, href } from "../router";
+import { runStatus, type RunItem } from "../runStatus";
 
 type Tab = "frames" | "splits" | "cameras" | "checks" | "runs";
 
@@ -17,7 +18,7 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
   const toast = useToast();
   const live = useLive();
   const scene = useApi<SceneDetail>(`/api/scenes/${seg(sceneId)}`);
-  const runs = useApi<List<RunRecord>>(`/api/runs?scene_id=${seg(sceneId)}&_=${live.tick}`);
+  const runs = useApi<List<RunItem>>(`/api/runs?scene_id=${seg(sceneId)}&_=${live.tick}`);
   const [tab, setTab] = useState<Tab>("frames");
   const [deleting, setDeleting] = useState(false);
 
@@ -192,7 +193,7 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
                         <td className="id">{run.run_id}</td>
                         <td>{run.split_id}</td>
                         <td>{run.approach.approach_id}</td>
-                        <td><Status value={live.statuses[run.run_id] ?? run.status} /></td>
+                        <td><Status value={runStatus(run, live.statuses[run.run_id])} /></td>
                         <td className="num muted">{ago(run.created_utc ?? null, locale)}</td>
                       </tr>
                     ))}

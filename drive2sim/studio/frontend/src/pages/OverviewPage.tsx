@@ -3,7 +3,7 @@
 import { Play, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useApi } from "../api/client";
-import type { CacheList, List, Manifest, ReportRow, RunRecord } from "../api/types";
+import type { CacheList, List, Manifest, ReportRow } from "../api/types";
 import { RoadScene } from "../components/Illustration";
 import { IngestDrawer } from "../components/IngestDrawer";
 import { ago, bytes, Empty, fixed, Loading, PageHead, Panel, Status } from "../components/ui";
@@ -11,12 +11,13 @@ import { useI18n } from "../i18n";
 import { BetterArrow, isComparable } from "../metrics";
 import { useLive } from "../live";
 import { go, href } from "../router";
+import { runStatus, type RunItem } from "../runStatus";
 import { SceneCard } from "./ScenesPage";
 
 export function OverviewPage() {
   const { t, locale } = useI18n();
   const live = useLive();
-  const runs = useApi<List<RunRecord>>(`/api/runs?_=${live.tick}`);
+  const runs = useApi<List<RunItem>>(`/api/runs?_=${live.tick}`);
   const scenes = useApi<List<Manifest>>(`/api/scenes?_=${live.tick}`);
   const report = useApi<List<ReportRow>>(`/api/report?_=${live.tick}`);
   const cache = useApi<CacheList>("/api/cache");
@@ -24,7 +25,7 @@ export function OverviewPage() {
 
   const all = runs.data?.items ?? [];
   // "Đang chạy" ở mọi chỗ của Studio = run đang chạy + run đang chờ (cùng cách đếm với menu).
-  const active = all.filter((r) => ["running", "pending"].includes(live.statuses[r.run_id] ?? r.status));
+  const active = all.filter((r) => ["running", "pending"].includes(runStatus(r, live.statuses[r.run_id])));
   const counts = {
     succeeded: all.filter((r) => r.status === "succeeded").length,
     failed: all.filter((r) => r.status === "failed").length,
@@ -94,7 +95,7 @@ export function OverviewPage() {
           )}
           {active.map((run) => {
             const progress = live.progress[run.run_id];
-            const status = live.statuses[run.run_id] ?? run.status;
+            const status = runStatus(run, live.statuses[run.run_id]);
             const done = (run.stages ?? []).filter((s) => s.status === "succeeded").length;
             return (
               <a key={run.run_id} href={href({ page: "run", runId: run.run_id })} style={{ display: "block", padding: "15px 20px", borderBottom: "1px solid var(--line)", textDecoration: "none" }}>
@@ -165,7 +166,7 @@ export function OverviewPage() {
                     <td className="id">{run.run_id}</td>
                     <td className="ellipsis" style={{ maxWidth: 301 }}>{run.scene_id}</td>
                     <td>{run.approach.approach_id}</td>
-                    <td><Status value={live.statuses[run.run_id] ?? run.status} /></td>
+                    <td><Status value={runStatus(run, live.statuses[run.run_id])} /></td>
                     <td className="num muted">{ago(run.created_utc ?? null, locale)}</td>
                   </tr>
                 ))}

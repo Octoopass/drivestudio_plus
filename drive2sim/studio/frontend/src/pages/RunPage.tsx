@@ -15,6 +15,7 @@ import { useI18n } from "../i18n";
 import { useLive } from "../live";
 import { BetterArrow, visibleGroups } from "../metrics";
 import { go, href } from "../router";
+import { runStatus } from "../runStatus";
 
 type Tab = "result" | "metrics" | "stages" | "artifacts" | "videos" | "logs" | "kaggle" | "colab";
 
@@ -130,7 +131,7 @@ export function RunPage({ runId }: { runId: string }) {
         meta={
           <>
             <div className="row wrap" style={{ gap: 12 }}>
-              <Status value={status} />
+              <Status value={runStatus(data, live.statuses.__run__)} />
               {data.approach.quick && (
                 <span className="tag warn row" style={{ gap: 4 }}>
                   <Zap size={15} />

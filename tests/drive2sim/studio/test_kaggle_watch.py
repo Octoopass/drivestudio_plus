@@ -65,6 +65,9 @@ def test_watch_queues_pull_once_when_finished(tmp_path: Path) -> None:
     watcher = KaggleWatcher(work, jobs, client_factory=lambda: client)  # type: ignore[arg-type]
     assert watcher.check_once() == ["run-a"]
     assert jobs.submitted == [("kaggle_pull", "tự tải run-a từ Kaggle")]
+    # trạng thái vừa hỏi được ghi vào kaggle.json, để Studio hiện run đang chạy hay đã xong
+    states = {d.name: s.remote_status for d, s in watched_runs(work)}
+    assert states == {"run-a": "complete", "run-b": "running"}
     client.calls.clear()
     assert watcher.check_once() == []  # run-a đã xếp việc: không hỏi lại
     assert client.calls == ["alice/run-b"]

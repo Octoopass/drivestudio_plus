@@ -44,6 +44,8 @@ from drive2sim.engine.run import (
     reset_stage,
     run_is_active,
 )
+from drive2sim.engine.workdir import Workdir
+from drive2sim.kaggle import executor as kaggle_executor
 from drive2sim.stages.commands import CAMERAS_FILE
 from drive2sim.studio.api.events import stream_events
 from drive2sim.studio.api.routes import colab, kaggle
@@ -85,6 +87,24 @@ def _load(request: Request, run_id: str) -> tuple[Path, RunRecord]:
     """Tìm thư mục run và đọc ``run.json``."""
     run_dir = state_of(request).workdir.find_run(run_id)
     return run_dir, files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
+
+
+def _remote(workdir: Workdir, record: RunRecord) -> Optional[dict]:
+    """Trạng thái phía Kaggle của run chưa tải về (``kaggle.json``); ``None`` với run khác.
+
+    Run Kaggle giữ ``pending`` trên máy tới khi tải về, nên Studio dựa vào đây để hiện run chưa
+    đẩy, đang chạy hay đã xong trên Kaggle. ``status`` là trạng thái notebook lần hỏi gần nhất
+    (``None`` nếu chưa hỏi được, ví dụ run đẩy bằng tài khoản Kaggle khác).
+    """
+    if record.executor != "kaggle" or record.status != "pending":
+        return None
+    try:
+        state = kaggle_executor.load_state(workdir.find_run(record.run_id))
+    except (OSError, ValueError, TypeError):
+        state = None
+    if state is None:
+        return {"pushed": False, "status": None, "checked_utc": None}
+    return {"pushed": True, "status": state.remote_status, "checked_utc": state.checked_utc}
 
 
 def _claim(request: Request, run_dir: Path, run_id: str) -> None:
@@ -131,19 +151,28 @@ def get_runs(
     """Liệt kê run, mới nhất trước; lọc theo ``scene_id`` và ``status``.
 
     Returns:
-        ``{"items": [run.json, ...], "total": n}``.
+        ``{"items": [run.json cộng "remote", ...], "total": n}``; ``remote`` theo ``_remote``.
     """
-    records = list_runs(state_of(request).workdir, scene_id)
-    items = [r.model_dump(mode="json") for r in records if status in (None, r.status)]
+    workdir = state_of(request).workdir
+    records = list_runs(workdir, scene_id)
+    items = [
+        {**r.model_dump(mode="json"), "remote": _remote(workdir, r)}
+        for r in records
+        if status in (None, r.status)
+    ]
     return {"items": items, "total": len(items)}
 
 
 @router.get("/api/runs/{run_id}")
 def get_run(run_id: str, request: Request) -> dict:
-    """Trả về ``run.json`` cộng ``summary`` (nếu đã có) và ``env`` (nội dung ``env.json``)."""
+    """Trả về ``run.json`` cộng ``remote`` (``_remote``), ``summary`` (nếu đã có), ``env``.
+
+    ``env`` là nội dung ``env.json``.
+    """
     run_dir, record = _load(request, run_id)
     summary = load_summary(run_dir)
     data = record.model_dump(mode="json")
+    data["remote"] = _remote(state_of(request).workdir, record)
     data["summary"] = summary.model_dump(mode="json") if summary else None
     env = load_env(run_dir)
     data["env"] = env.model_dump(mode="json") if env else None

@@ -3,34 +3,37 @@
 import { Cloud, Play, RotateCcw, Search, Square, Trash2, Zap } from "lucide-react";
 import { useMemo, useState } from "react";
 import { asApiError, del, post, seg, useApi } from "../api/client";
-import type { List, Manifest, RunRecord } from "../api/types";
+import type { List, Manifest } from "../api/types";
 import { ago, Confirm, Empty, ErrorBox, Loading, optionsText, PageHead, Segmented, Status, useToast } from "../components/ui";
 import { ConfigText } from "../components/ConfigText";
 import { useI18n } from "../i18n";
 import { useLive } from "../live";
 import { go, href } from "../router";
+import { runStatus, type RunItem } from "../runStatus";
 
-const STATUSES = ["all", "running", "pending", "succeeded", "failed", "cancelled"] as const;
+// Bốn trạng thái cuối chỉ có ở run Kaggle chưa tải về (runStatus.ts); chỉ hiện khi có run.
+const STATUSES = ["all", "running", "pending", "succeeded", "failed", "cancelled", "remote_done", "remote_failed", "remote_unknown", "not_pushed"] as const;
+const REMOTE_ONLY = new Set(["remote_done", "remote_failed", "remote_unknown", "not_pushed"]);
 type Filter = (typeof STATUSES)[number];
 
 export function RunsPage({ sceneId = "", status = "all" }: { sceneId?: string; status?: string }) {
   const { t, locale } = useI18n();
   const live = useLive();
   const toast = useToast();
-  const runs = useApi<List<RunRecord>>(`/api/runs?_=${live.tick}`);
+  const runs = useApi<List<RunItem>>(`/api/runs?_=${live.tick}`);
   const scenes = useApi<List<Manifest>>("/api/scenes");
   const [query, setQuery] = useState("");
-  const [deleting, setDeleting] = useState<RunRecord | null>(null);
+  const [deleting, setDeleting] = useState<RunItem | null>(null);
   const filter = (STATUSES as readonly string[]).includes(status) ? (status as Filter) : "all";
 
   const all = useMemo(
-    () => (runs.data?.items ?? []).map((r) => ({ ...r, status: (live.statuses[r.run_id] ?? r.status) as RunRecord["status"] })),
+    () => (runs.data?.items ?? []).map((r) => ({ ...r, status: (live.statuses[r.run_id] ?? r.status) as RunItem["status"], shown: runStatus(r, live.statuses[r.run_id]) })),
     [runs.data, live.statuses],
   );
-  const counts = Object.fromEntries(STATUSES.map((s) => [s, s === "all" ? all.length : all.filter((r) => r.status === s).length]));
+  const counts = Object.fromEntries(STATUSES.map((s) => [s, s === "all" ? all.length : all.filter((r) => r.shown === s).length]));
   const rows = all.filter(
     (r) =>
-      (filter === "all" || r.status === filter) &&
+      (filter === "all" || r.shown === filter) &&
       (!sceneId || r.scene_id === sceneId) &&
       `${r.run_id} ${r.approach.approach_id} ${optionsText(r.approach.options ?? {})}`.toLowerCase().includes(query.toLowerCase()),
   );
@@ -62,7 +65,7 @@ export function RunsPage({ sceneId = "", status = "all" }: { sceneId?: string; s
           label={t("runs.filter.status")}
           value={filter}
           onChange={(value) => go({ page: "runs", sceneId: sceneId || undefined, status: value === "all" ? undefined : value })}
-          options={STATUSES.map((s) => ({ value: s, label: `${s === "all" ? t("runs.filter.all") : t(`common.status.${s}`)} ${counts[s]}` }))}
+          options={STATUSES.filter((s) => !REMOTE_ONLY.has(s) || counts[s] > 0 || s === filter).map((s) => ({ value: s, label: `${s === "all" ? t("runs.filter.all") : t(`common.status.${s}`)} ${counts[s]}` }))}
         />
         <select value={sceneId} onChange={(e) => go({ page: "runs", sceneId: e.target.value || undefined, status: filter === "all" ? undefined : filter })} aria-label={t("runs.table.scene")}>
           <option value="">{t("runs.filter.all_scenes")}</option>
@@ -120,7 +123,7 @@ export function RunsPage({ sceneId = "", status = "all" }: { sceneId?: string; s
                         <ConfigText approachId={run.approach.approach_id} options={run.approach.options ?? {}} preset={run.approach.preset} />
                       </td>
                       <td>
-                        <Status value={run.status} />
+                        <Status value={run.shown} />
                         {run.status === "running" && (
                           <div className="progress" style={{ marginTop: 7 }} title={progress?.message}>
                             <i style={{ width: `${Math.round(((done + (progress?.fraction ?? 0)) / Math.max(1, (run.stages ?? []).length)) * 100)}%` }} />
@@ -130,7 +133,7 @@ export function RunsPage({ sceneId = "", status = "all" }: { sceneId?: string; s
                       <td className="num muted nowrap">{ago(run.created_utc ?? null, locale)}</td>
                       <td className="actions" onClick={(e) => e.stopPropagation()}>
                         <span className="row-actions row" style={{ gap: 2, justifyContent: "flex-end" }}>
-                          {(run.status === "running" || run.status === "pending") && (
+                          {(run.status === "running" || run.status === "pending") && run.executor === "local" && (
                             <button className="btn sm ghost icon" title={t("run.action.cancel")} aria-label={t("run.action.cancel")} onClick={() => act(t("run.toast.cancel_requested"), `/api/runs/${seg(run.run_id)}/cancel`)}>
                               <Square size={16} />
                             </button>
