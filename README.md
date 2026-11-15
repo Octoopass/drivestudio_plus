@@ -78,6 +78,8 @@ Install with `pip install -e .` from the repository root (or keep `export PYTHON
 | `streetgs_fastgs.yaml` | Street Gaussians | 3DGS | off | on |
 | `streetgs_geer_fastgs.yaml` | Street Gaussians | 3DGEER | off | on |
 | `omnire_fastgs.yaml` | OmniRe | 3DGS | off | on |
+| `omnire_ut.yaml` | OmniRe | 3DGUT | off | off |
+| `omnire_geer_fastgs.yaml`, `omnire_ut_fastgs.yaml` | OmniRe | 3DGEER, 3DGUT | off | on |
 | `*_fastergs.yaml` (one per config above, e.g. `streetgs_geer_fastgs_fastergs.yaml`, `omnire_fastergs_nocampose.yaml`) | same | same | same | same, plus Faster-GS (Python part) |
 
 3DGEER cannot optimise camera poses, so every 3DGUT / 3DGEER config removes `CamPose`; the other new configs remove it too, so that runs differ only in the renderer or the densification rule. The 3DGEER configs use `densify_grad_thresh: 0.01` and `refine_interval: 300`, because 3DGEER's densification gradients are much larger than those of 3DGS.

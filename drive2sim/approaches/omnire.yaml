@@ -28,7 +28,7 @@ groups:                           # nhóm mục cấu hình trên Studio, theo t
 
 options:
   renderer:
-    choices: [3dgs, 3dgeer]
+    choices: [3dgs, 3dgut, 3dgeer]
     default: 3dgs
     group: core
     label: "Renderer"
@@ -36,9 +36,11 @@ options:
     camera_models:                # loại camera từng renderer vẽ được (recon/trainers/base.py)
       - [opencv_pinhole]
       - [opencv_pinhole, opencv_fisheye, ftheta]
-    labels: ["3DGS (gốc)", "3DGEER"]
+      - [opencv_pinhole, opencv_fisheye, ftheta]
+    labels: ["3DGS (gốc)", "3DGUT", "3DGEER"]
     descriptions:
       - "Cách vẽ gốc của 3D Gaussian Splatting, cho camera pinhole."
+      - "Renderer của NVIDIA (3D Gaussian Unscented Transform): vẽ được cho camera có độ méo ống kính lớn. Không dùng cùng CamPose. Ngưỡng densify chưa chỉnh riêng cho 3DGUT."
       - "Renderer của Bosch Research (docs/methods/3dgeer.md): chiếu chính xác cho camera góc rộng và mắt cá. Không dùng cùng CamPose."
   campose:
     choices: [false, true]
@@ -76,21 +78,23 @@ constraints:
   - when: {renderer: 3dgeer}
     forbid: {campose: true}
     reason: "3DGEER không tối ưu được pose camera"
-  - when: {renderer: 3dgeer}
-    forbid: {fastgs: true}
-    reason: "chưa có config OmniRe cho 3DGEER kèm FastGS"
+  - when: {renderer: 3dgut}
+    forbid: {campose: true}
+    reason: "3DGUT không tối ưu được pose camera"
   - when: {fastgs: true}
     forbid: {campose: true}
     reason: "config FastGS của OmniRe tắt CamPose"
 
 presets:
   paper: {campose: true}       # omnire.yaml gốc của DriveStudio
+  ut: {renderer: 3dgut}
   geer: {renderer: 3dgeer}
   fastgs: {fastgs: true}
   fastergs: {fastergs: true}
 
 preset_help:
   paper: "Cấu hình gốc của DriveStudio (omnire.yaml): 3DGS, bật CamPose."
+  ut: "Renderer 3DGUT, tắt CamPose."
   geer: "Renderer 3DGEER, tắt CamPose."
   fastgs: "Quy tắc FastGS, tắt CamPose."
   fastergs: "Bật tăng tốc Faster-GS (phần Python) trên cấu hình mặc định: 3DGS, tắt CamPose."

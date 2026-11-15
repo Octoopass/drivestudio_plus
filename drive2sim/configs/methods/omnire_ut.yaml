@@ -1,0 +1,8 @@
+# OmniRe rendered with 3DGUT (gsplat-geer fork, render_mode: ut). CamPose removed, as for 3DGEER, so that
+# default / ut / geer runs differ only in the renderer. Densification values are the 3DGS defaults, not
+# calibrated for UT (UT densifies on the 3D mean gradient, not the 2D one). Untested.
+# Kế thừa omnire_nocampose.yaml bằng extends (CONTRACTS mục 10.5).
+extends: omnire_nocampose.yaml
+trainer:
+  render:
+    render_mode: ut # one of default | ut | geer (key added by the Bosch 3DGEER patch)

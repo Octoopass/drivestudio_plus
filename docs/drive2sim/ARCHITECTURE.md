@@ -576,13 +576,14 @@ Các config hiện có của teammate map sang tổ hợp cấu hình:
 | Config hiện có | Tổ hợp cấu hình tương ứng |
 |---|---|
 | `streetgs_nocampose.yaml` / `omnire_nocampose.yaml` | renderer 3dgs, campose tắt, fastgs tắt |
-| `streetgs_ut.yaml` | renderer 3dgut, campose tắt |
+| `streetgs_ut.yaml` / `omnire_ut.yaml` | renderer 3dgut, campose tắt (ngưỡng densify của 3DGS, chưa chỉnh cho 3DGUT) |
 | `streetgs_geer.yaml` / `omnire_geer.yaml` | renderer 3dgeer, campose tắt |
 | `streetgs_fastgs.yaml` / `omnire_fastgs.yaml` | renderer 3dgs, campose tắt, fastgs bật |
-| `streetgs_geer_fastgs.yaml` | renderer 3dgeer, campose tắt, fastgs bật |
+| `streetgs_geer_fastgs.yaml` / `omnire_geer_fastgs.yaml` | renderer 3dgeer, campose tắt, fastgs bật |
+| `omnire_ut_fastgs.yaml` | renderer 3dgut, campose tắt, fastgs bật |
 | `<config trên>` + `_fastergs` (ví dụ `omnire_fastgs_fastergs.yaml`, `omnire_fastergs_nocampose.yaml`) | như config gốc, fastergs bật (phần Python của Faster-GS, `docs/methods/fastergs.md`) |
 
-Tên renderer theo CONTRACTS mục 10.3 (`3dgs`, `3dgut`, `3dgeer`); engine đổi sang `render_mode` của DriveStudio (`default`, `ut`, `geer`). Ràng buộc đã biết: renderer `3dgeer` không đi với campose bật, vì 3DGEER không tối ưu được pose camera. Các config 3DGEER của teammate còn đổi `densify_grad_thresh: 0.01` và `refine_interval: 300` (README của fork); hai giá trị này đi theo lựa chọn renderer `3dgeer`.
+Tên renderer theo CONTRACTS mục 10.3 (`3dgs`, `3dgut`, `3dgeer`); engine đổi sang `render_mode` của DriveStudio (`default`, `ut`, `geer`). Ràng buộc đã biết: renderer `3dgeer` và `3dgut` không đi với campose bật, vì hai renderer này không tối ưu được pose camera. OmniRe có đủ 3DGS, 3DGUT, 3DGEER với mọi tổ hợp FastGS và Faster-GS (campose tắt), để so renderer khi giữ nguyên phần còn lại. Các config 3DGEER của teammate còn đổi `densify_grad_thresh: 0.01` và `refine_interval: 300` (README của fork); hai giá trị này đi theo lựa chọn renderer `3dgeer`.
 
 ### 4.6 kaggle, colab
 

@@ -79,7 +79,7 @@ def test_params_pick_existing_config() -> None:
 
 def test_params_reject_missing_combination() -> None:
     with pytest.raises(ValidationError, match="chưa có config"):
-        TrainDrivestudioParams(method="omnire", renderer="3dgut")
+        TrainDrivestudioParams(method="omnire", renderer="3dgut", campose=True)
 
 
 def test_build_command_translates_split(tmp_path: Path) -> None:
@@ -406,3 +406,14 @@ def test_preview_stage_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert commands[0][commands[0].index("--source_run") + 1] == "runs/s/omnire/r1"
     with pytest.raises(ValueError):
         stage.run(FakeContext(output_dir), {"model": tmp_path / "m"}, params)
+
+
+def test_omnire_renderer_configs_resolve() -> None:
+    """OmniRe có đủ 3DGS, 3DGUT, 3DGEER với mọi tổ hợp FastGS, Faster-GS (không CamPose)."""
+    for renderer in ("3dgs", "3dgut", "3dgeer"):
+        for fastgs in (False, True):
+            for fastergs in (False, True):
+                params = TrainDrivestudioParams(
+                    method="omnire", renderer=renderer, fastgs=fastgs, fastergs=fastergs
+                )
+                assert params.config_key in drivestudio.CONFIG_FILES

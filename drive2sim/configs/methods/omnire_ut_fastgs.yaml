@@ -1,0 +1,14 @@
+# OmniRe rendered with 3DGUT plus FastGS-style multi-view densification and pruning (docs/methods/fastgs.md). Untested.
+# Chỉ khác omnire_ut.yaml ở khối trainer.fastgs (kế thừa bằng extends, CONTRACTS mục 10.5).
+extends: omnire_ut.yaml
+trainer:
+  fastgs: # multi-view densification / pruning in the spirit of FastGS, see docs/methods/fastgs.md
+    enabled: true
+    num_views: 10             # training views sampled per scoring pass
+    loss_thresh: 0.1          # normalised L1 error above which a pixel counts as high-error
+    score_thresh: 1.0         # blend-weighted high-error pixels per visible view needed to densify (tune per scene)
+    densify_unseen: false     # let gaussians that no sampled view saw densify on gradient alone
+    prune: true
+    prune_from: 15000
+    prune_min_opacity: 0.1
+    prune_score_thresh: 0.9
