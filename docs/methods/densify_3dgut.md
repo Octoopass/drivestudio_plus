@@ -42,6 +42,10 @@ Lúc bắt đầu không biết chỗ nào cần bao nhiêu đốm: đốm khở
 
 **Hệ quả dự đoán:** với ngưỡng 0,0005, phần lớn đốm 3DGUT vượt ngưỡng, số đốm tăng nhanh (dễ hết VRAM), và đốm gần camera được ưu tiên quá mức so với đốm xa. FastGS che bớt (đốm phải qua cả cửa gradient lẫn cửa điểm sai), nhưng khi cửa gradient quá dễ qua thì mọi thứ dựa vào điểm sai.
 
+### Ngưỡng chỉnh được phụ thuộc gì
+
+Theo công thức trên (gradient 3D ≈ gradient pixel × `f / z`), tỉ lệ giữa hai đại lượng phụ thuộc cả renderer lẫn dataset: tiêu cự tính bằng pixel `f` (camera và độ phân giải lúc train; nuScenes 800×450: f ≈ 630 px, KITTI-360 pinhole 704×188: f ≈ 276 px), phân bố khoảng cách `z` của Gaussian (cảnh), và loại camera (mắt cá không có một `f` cố định: số pixel dời khi dời 1 m đổi theo góc lệch trục). Ngưỡng 3DGS ít phụ thuộc hơn vì đã đo bằng pixel. Nên ngưỡng 3DGUT khớp phân vị trên một cảnh, một độ phân giải chỉ chắc đúng ở đó; đổi dataset hoặc độ phân giải thì đo lại (bật `densify_stats` ở run chạy thử). Nếu ngưỡng chỉnh trên nuScenes cho tỉ lệ vượt ngưỡng lệch nhiều trên KITTI-360, đó là lý do làm hướng "gradient tương đương pixel" ở mục 4.
+
 ## 4. Cách chỉnh (kế hoạch)
 
 Chọn ngưỡng theo số đo, như Bosch làm với 3DGEER, sao cho hai renderer densify với **cùng cường độ**:
