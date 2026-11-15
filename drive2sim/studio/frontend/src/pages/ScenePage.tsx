@@ -2,8 +2,8 @@
 // thời gian, phím trái/phải, nút phát), split (tạo, xoá, chạy), camera, báo cáo kiểm tra, và các
 // run trên cảnh.
 import { Pause, Play, RefreshCw, Trash2, Plus } from "lucide-react";
-import { useEffect, useState } from "react";
-import { asApiError, del, post, seg, useApi, type ApiError } from "../api/client";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { api, asApiError, del, post, seg, useApi, type ApiError } from "../api/client";
 import type { FrameImages, List, SceneDetail, Split } from "../api/types";
 import { ago, Confirm, Empty, ErrorBox, InfoTip, Loading, PageHead, Panel, Status, Tabs, useToast, yesNo } from "../components/ui";
 import { useI18n } from "../i18n";
@@ -224,12 +224,60 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
   );
 }
 
+// Tốc độ phát xem trước: các cảnh trong tool đều ~10 Hz (nuScenes nội suy lên 10 Hz, KITTI-360
+// 10 Hz); manifest chưa ghi tần số.
+const PLAY_FPS = 10;
+const PRELOAD_AHEAD = 8;
+const FRAME_CACHE = 64;
+
+/**
+ * Tải trước khung ảnh: đường dẫn ảnh (``/frames/{i}``) rồi mọi ảnh của khung, giải mã sẵn
+ * (``img.decode``), để khi đổi khung trình duyệt vẽ ngay. Giữ tối đa FRAME_CACHE khung gần nhất.
+ */
+function useFramePreloader(sceneId: string) {
+  return useMemo(() => {
+    const cache = new Map<number, Promise<FrameImages>>();
+    const ready = new Set<number>();
+    const keep: HTMLImageElement[][] = [];
+    const load = (index: number): Promise<FrameImages> => {
+      const hit = cache.get(index);
+      if (hit) return hit;
+      const promise = api<FrameImages>(`/api/scenes/${seg(sceneId)}/frames/${index}`).then(async (data) => {
+        const imgs = data.images.filter((image) => image.url).map((image) => {
+          const img = new Image();
+          img.src = image.url as string;
+          return img;
+        });
+        await Promise.all(imgs.map((img) => img.decode().catch(() => undefined)));
+        keep.push(imgs);
+        if (keep.length > FRAME_CACHE) keep.shift();
+        ready.add(index);
+        return data;
+      });
+      promise.catch(() => cache.delete(index));
+      cache.set(index, promise);
+      if (cache.size > FRAME_CACHE) {
+        const oldest = cache.keys().next().value as number;
+        cache.delete(oldest);
+        ready.delete(oldest);
+      }
+      return promise;
+    };
+    return { load, isReady: (index: number) => ready.has(index) };
+  }, [sceneId]);
+}
+
 function Frames({ sceneId, numFrames, splits }: { sceneId: string; numFrames: number; splits: string[] }) {
   const { t } = useI18n();
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [splitId, setSplitId] = useState(splits[0] ?? "");
-  const images = useApi<FrameImages>(`/api/scenes/${seg(sceneId)}/frames/${frame}`);
+  // Ảnh đang hiện: giữ khung cũ tới khi mọi ảnh của khung mới đã tải và giải mã xong, để không bị
+  // trống, nhấp nháy giữa hai khung.
+  const [shown, setShown] = useState<FrameImages | null>(null);
+  const frames = useFramePreloader(sceneId);
+  const frameRef = useRef(frame);
+  frameRef.current = frame;
   const split = useApi<Split>(splitId ? `/api/scenes/${seg(sceneId)}/splits/${seg(splitId)}` : null);
   const last = numFrames - 1;
   const width = 100 / numFrames;
@@ -237,11 +285,34 @@ function Frames({ sceneId, numFrames, splits }: { sceneId: string; numFrames: nu
   const trainFrames = new Set((split.data?.train ?? []).map(([f]) => f));
   const kind = testFrames.has(frame) ? "test" : trainFrames.has(frame) ? "train" : null;
 
+  // Khung đang chọn: hiện ngay khi sẵn sàng (kéo thanh trượt nhanh thì chỉ hiện khung cuối).
+  useEffect(() => {
+    let cancelled = false;
+    frames.load(frame).then((data) => !cancelled && frameRef.current === frame && setShown(data)).catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [frame, frames]);
+
+  // Phát: PLAY_FPS khung/giây; khung kế chưa tải xong thì chờ (chậm lại chứ không giật, không trống);
+  // luôn tải trước PRELOAD_AHEAD khung phía sau.
   useEffect(() => {
     if (!playing) return;
-    const timer = window.setInterval(() => setFrame((f) => (f >= last ? 0 : f + 1)), 400);
-    return () => window.clearInterval(timer);
-  }, [playing, last]);
+    let timer = 0;
+    let stopped = false;
+    const step = () => {
+      const current = frameRef.current;
+      const next = current >= last ? 0 : current + 1;
+      for (let k = 1; k <= PRELOAD_AHEAD; k++) frames.load((current + k) % numFrames).catch(() => undefined);
+      if (frames.isReady(next)) setFrame(next);
+      if (!stopped) timer = window.setTimeout(step, 1000 / PLAY_FPS);
+    };
+    step();
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
+  }, [playing, last, numFrames, frames]);
 
   const onKey = (event: React.KeyboardEvent) => {
     if (event.key === "ArrowRight") setFrame((f) => Math.min(last, f + 1));
@@ -297,9 +368,9 @@ function Frames({ sceneId, numFrames, splits }: { sceneId: string; numFrames: nu
         </div>
       )}
       <div className="frames">
-        {(images.data?.images ?? []).map((image) => (
+        {(shown?.images ?? []).map((image) => (
           <figure key={image.camera_id}>
-            {image.url ? <img src={image.url} alt={`${image.camera_id}, ${frame}`} /> : <div className="missing">{t("scene.frames.missing")}</div>}
+            {image.url ? <img src={image.url} alt={`${image.camera_id}, ${shown?.frame_index}`} /> : <div className="missing">{t("scene.frames.missing")}</div>}
             <figcaption>{image.camera_id}</figcaption>
           </figure>
         ))}
