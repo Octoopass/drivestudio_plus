@@ -132,6 +132,10 @@ def test_build_command_translates_split(tmp_path: Path) -> None:
     other = TrainDrivestudioParams(method="omnire", renderer="3dgeer", ut_densify="screen")
     other_command = build_command(other, split, manifest, view_root, output_dir)
     assert not any(part.startswith("trainer.type=") for part in other_command)
+    assert not any("refine_interval" in part for part in command)  # mặc định theo config
+    every = TrainDrivestudioParams(method="omnire", renderer="3dgeer", refine_interval=100)
+    every_command = build_command(every, split, manifest, view_root, output_dir)
+    assert option(every_command, "trainer.gaussian_ctrl_general_cfg.refine_interval") == "100"
     # --set train.drivestudio.profile_at=2000,20000 cho ra chuỗi; tham số tự đổi sang số
     assert TrainDrivestudioParams(method="omnire", profile_at=["2000", "20000"]).profile_at == [
         2000,

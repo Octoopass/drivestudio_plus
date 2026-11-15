@@ -116,6 +116,9 @@ class TrainDrivestudioParams(BaseModel):
             gradient tương đương pixel qua Jacobian của phép chiếu
             (``drive2sim/recon/trainers/screen_grad.py``) để dùng lại ngưỡng của 3DGS. Renderer
             khác bỏ qua.
+        refine_interval: Densify, prune mỗi bao nhiêu bước
+            (``trainer.gaussian_ctrl_general_cfg.refine_interval``); bỏ trống thì theo config
+            (3DGS 100; 3DGEER 300 theo Bosch). Dùng để so renderer với cùng nhịp densify.
         densify_stats: Ghi phân bố của đại lượng densify ở mỗi lần refine vào
             ``densify_stats.jsonl`` (``drive2sim/recon/utils/densify_stats.py``), để chỉnh ngưỡng
             densify theo renderer (``docs/methods/densify_3dgut.md``). Chỉ đọc, không đổi kết quả.
@@ -139,6 +142,7 @@ class TrainDrivestudioParams(BaseModel):
     profile_at: list[int] = []
     profile_steps: int = Field(default=30, ge=1)
     ut_densify: Literal["native", "screen"] = "native"
+    refine_interval: Optional[int] = Field(default=None, ge=1)
     densify_stats: bool = False
     preload_device: Literal["cpu", "cuda"] = "cpu"
 
@@ -327,6 +331,8 @@ def build_command(
         options["logging.profile_steps"] = params.profile_steps
     if params.renderer == "3dgut" and params.ut_densify == "screen":
         options["trainer.type"] = SCREEN_GRAD_TRAINER
+    if params.refine_interval is not None:
+        options["trainer.gaussian_ctrl_general_cfg.refine_interval"] = params.refine_interval
     if params.densify_stats:
         options["trainer.densify_stats.enabled"] = True
     options.update(params.overrides)
