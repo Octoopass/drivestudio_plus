@@ -1,5 +1,8 @@
-// Ngăn kéo "Hoạt động": các run đang chạy hoặc đang chờ (kèm tiến độ trực tiếp, nút huỷ) và các việc
-// nền từ lúc mở Studio (ingest, Kaggle).
+// Ngăn kéo "Hoạt động": các run đang chạy hoặc đang chờ trên máy này (kèm tiến độ trực tiếp, nút huỷ),
+// run gửi lên Kaggle hoặc Colab mà chưa tải kết quả về, và các việc nền từ lúc mở Studio (ingest,
+// Kaggle). Run Kaggle/Colab giữ trạng thái "pending" trên máy tới khi tải về, dù notebook đang chạy
+// hay đã xong; nên tách riêng, không có nút huỷ (huỷ ở đây không dừng được notebook), trạng thái thật
+// xem ở tab Kaggle/Colab của trang run.
 import { Square } from "lucide-react";
 import { asApiError, post, seg, useApi } from "../api/client";
 import type { List, RunRecord } from "../api/types";
@@ -14,7 +17,9 @@ export function ActivityDrawer({ onClose }: { onClose: () => void }) {
   const toast = useToast();
   const running = useApi<List<RunRecord>>(`/api/runs?status=running&_=${live.tick}`);
   const pending = useApi<List<RunRecord>>(`/api/runs?status=pending&_=${live.tick}`);
-  const runs = [...(running.data?.items ?? []), ...(pending.data?.items ?? [])];
+  const all = [...(running.data?.items ?? []), ...(pending.data?.items ?? [])];
+  const runs = all.filter((run) => run.executor === "local");
+  const remote = all.filter((run) => run.executor !== "local");
 
   const cancel = async (runId: string) => {
     try {
@@ -58,6 +63,20 @@ export function ActivityDrawer({ onClose }: { onClose: () => void }) {
           );
         })}
       </section>
+      {remote.length > 0 && (
+        <section className="stack" style={{ gap: 10 }}>
+          <h3>{t("activity.remote.title")}</h3>
+          <p className="small muted">{t("activity.remote.hint")}</p>
+          {remote.map((run) => (
+            <div key={run.run_id} className="panel row" style={{ padding: "12px 15px" }}>
+              <a href={href({ page: "run", runId: run.run_id })} onClick={onClose} className="id grow ellipsis">
+                {run.run_id}
+              </a>
+              <span className="small faint">{run.executor === "kaggle" ? "Kaggle" : "Colab"}</span>
+            </div>
+          ))}
+        </section>
+      )}
       <section className="stack" style={{ gap: 10 }}>
         <h3>{t("activity.jobs.title")}</h3>
         {live.jobs.length === 0 ? (
