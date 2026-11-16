@@ -42,6 +42,7 @@
   --font-dense: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   --font-code: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
   --nav-w: 272px;
+  --nav-w-collapsed: 68px;
   color-scheme: light;
 }
 
@@ -142,7 +143,17 @@ code { font-family: var(--font-code); font-size: 13.5px; background: var(--raise
 
 /* ------------------------------------------------------------------ khung ứng dụng */
 
-.shell { display: grid; grid-template-columns: var(--nav-w) 1fr; height: 100%; }
+.shell { display: grid; grid-template-columns: var(--nav-w) 1fr; height: 100%; transition: grid-template-columns 0.18s ease; }
+/* Thanh điều hướng thu gọn: chỉ còn icon; tên nhóm thành đường kẻ; số run đang chạy thành nhãn nhỏ
+   ở góc icon. */
+.shell.nav-collapsed { grid-template-columns: var(--nav-w-collapsed) 1fr; }
+.nav-collapsed .nav { padding: 18px 8px; }
+.nav-collapsed .brand { justify-content: center; padding: 6px 0 23px; }
+.nav-collapsed .brand-name, .nav-collapsed .nav a .label-long { display: none; }
+.nav-collapsed .nav-group { font-size: 0; height: 1px; background: var(--line); margin: 12px 10px; }
+.nav-collapsed .nav a { justify-content: center; padding: 10px 0; position: relative; }
+.nav-collapsed .nav a .count { position: absolute; top: 2px; right: 6px; margin: 0; font-size: 11.5px; }
+.nav-toggle { margin-left: -8px; }
 .nav {
   background: var(--panel);
   border-right: 1px solid var(--line);
@@ -540,7 +551,8 @@ pre.log {
   .shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   .nav { flex-direction: row; overflow-x: auto; padding: 10px; border-right: none; border-bottom: 1px solid var(--line); align-items: center; }
   .brand { padding: 0 10px 0 2px; }
-  .brand-name, .nav-group, .nav-foot, .nav a .label-long { display: none; }
+  .brand-name, .nav-group, .nav-foot, .nav a .label-long, .nav a .count, .nav-toggle { display: none; }
+  .shell.nav-collapsed { grid-template-columns: 1fr; }
   .nav a { flex: none; }
   .grid-2 { grid-template-columns: 1fr; }
   .frames { grid-template-columns: repeat(2, minmax(0, 1fr)); }

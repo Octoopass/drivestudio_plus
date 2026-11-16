@@ -10,6 +10,8 @@
   "nav.group.data": "Data",
   "nav.group.experiments": "Experiments",
   "nav.group.results": "Results",
+  "nav.collapse": "Collapse sidebar (Ctrl+B)",
+  "nav.expand": "Expand sidebar (Ctrl+B)",
   "nav.crumbs": "Breadcrumb",
   "nav.search.button": "Find scenes, runs, pages",
   "nav.activity.title": "Activity",

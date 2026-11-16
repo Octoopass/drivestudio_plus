@@ -10,6 +10,8 @@
   "nav.group.data": "Dữ liệu",
   "nav.group.experiments": "Thí nghiệm",
   "nav.group.results": "Kết quả",
+  "nav.collapse": "Thu gọn thanh bên (Ctrl+B)",
+  "nav.expand": "Mở rộng thanh bên (Ctrl+B)",
   "nav.crumbs": "Vị trí trang",
   "nav.search.button": "Tìm cảnh, run, trang",
   "nav.activity.title": "Hoạt động",

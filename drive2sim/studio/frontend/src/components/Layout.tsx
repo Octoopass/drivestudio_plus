@@ -1,4 +1,5 @@
-// Khung trang: thanh điều hướng bên trái, thanh trên có đường dẫn trang, nút hoạt động (run đang
+// Khung trang: thanh điều hướng bên trái (thu gọn còn icon bằng nút đầu thanh trên hoặc Ctrl+B, nhớ
+// trong trình duyệt), thanh trên có đường dẫn trang, nút hoạt động (run đang
 // chạy và việc nền), ô tìm nhanh (Ctrl+K), nút đổi giao diện sáng/tối và ngôn ngữ.
 import {
   Box,
@@ -10,6 +11,8 @@ import {
   ListChecks,
   Monitor,
   Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   Play,
   Search,
   Sun,
@@ -111,11 +114,44 @@ function Crumbs({ route }: { route: Route }) {
   );
 }
 
+const NAV_KEY = "d2s.nav.collapsed";
+function readFlag(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+function writeFlag(key: string, value: boolean): void {
+  try {
+    localStorage.setItem(key, value ? "1" : "0");
+  } catch {
+    // Không lưu được (chế độ riêng tư): chỉ mất việc nhớ trạng thái.
+  }
+}
+
 export function Layout({ route, children }: { route: Route; children: ReactNode }) {
   const { t, locale, setLocale } = useI18n();
   const live = useLive();
   const [theme, nextTheme] = useTheme();
   const [palette, setPalette] = useState(false);
+  // Thu gọn thanh điều hướng còn icon, để trang (bảng so sánh, Xem 3D) rộng hơn.
+  const [collapsed, setCollapsed] = useState<boolean>(() => readFlag(NAV_KEY));
+  const toggleNav = () =>
+    setCollapsed((value) => {
+      writeFlag(NAV_KEY, !value);
+      return !value;
+    });
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
+        event.preventDefault();
+        toggleNav();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const [activity, setActivity] = useState(false);
   // "Đang chạy" = đang chạy + đang chờ, cùng cách đếm với trang Tổng quan và ngăn Hoạt động.
   const running = useApi<List<RunItem>>(`/api/runs?status=running&_=${live.tick}`);
@@ -146,7 +182,7 @@ export function Layout({ route, children }: { route: Route; children: ReactNode 
 
   const ThemeIcon = theme === "dark" ? Moon : theme === "light" ? Sun : Monitor;
   return (
-    <div className="shell">
+    <div className={`shell${collapsed ? " nav-collapsed" : ""}`}>
       <nav className="nav" aria-label="drive2sim">
         <a className="brand" href="#/">
           <span className="brand-mark" aria-hidden="true">
@@ -163,7 +199,7 @@ export function Layout({ route, children }: { route: Route; children: ReactNode 
               <a key={item.key} href={href(item.route)} aria-current={item.pages.includes(route.page) ? "page" : undefined} title={t(item.key)}>
                 {item.icon}
                 <span className="label-long">{t(item.key)}</span>
-                {item.key === "nav.menu.runs" && runningCount > 0 && <span className="count label-long">{runningCount}</span>}
+                {item.key === "nav.menu.runs" && runningCount > 0 && <span className="count">{runningCount}</span>}
               </a>
             ))}
           </div>
@@ -171,6 +207,15 @@ export function Layout({ route, children }: { route: Route; children: ReactNode 
       </nav>
       <div className="main">
         <header className="topbar">
+          <button
+            className="btn ghost icon nav-toggle"
+            onClick={toggleNav}
+            title={t(collapsed ? "nav.expand" : "nav.collapse")}
+            aria-label={t(collapsed ? "nav.expand" : "nav.collapse")}
+            aria-expanded={!collapsed}
+          >
+            {collapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
+          </button>
           <Crumbs route={route} />
           {studio.data?.demo && (
             <span className="demo-badge">
