@@ -311,7 +311,9 @@ def test_resume_picks_newest_attempt_that_has_the_run(tmp_path: Path) -> None:
 
 def test_skip_local_cache_pattern(tmp_path: Path) -> None:
     workdir = Workdir(tmp_path)
-    assert executor.skip_local_cache(workdir) is None
+    pattern = executor.skip_local_cache(workdir)  # chưa có cache: vẫn bỏ wheel đã build
+    assert not re.search(pattern, "wheels/0123abcd/gsplat-1.5.3-cp310-linux_x86_64.whl")
+    assert re.search(pattern, f"cache/{SCENE}/prep.masks@0.1.0-ab12/sky/000.png")
     (workdir.cache_dir / SCENE / "prep.masks@0.1.0-ab12").mkdir(parents=True)
     pattern = executor.skip_local_cache(workdir)
     assert not re.search(pattern, f"cache/{SCENE}/prep.masks@0.1.0-ab12/sky/000.png")
@@ -591,3 +593,56 @@ def test_status_commands_time_out_quickly(monkeypatch: pytest.MonkeyPatch) -> No
     with pytest.raises(KaggleError):
         REAL_RUN_CLI(["kaggle", "kernels", "output", "alice/x"])
     assert timeouts == [client_module.STATUS_TIMEOUT_S, client_module.CLI_TIMEOUT_S]
+
+
+def test_wheel_kernel_picks_newest_finished_notebook_of_same_account(
+    setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nguồn wheel: notebook mới nhất đã xong của cùng tài khoản; bỏ notebook chưa xong, đã xoá."""
+    workdir, fake = setup
+    for run_id, user, kernel, pushed in (
+        ("20261112-000000-omnire-0001", "alice", "alice/old-1", "2026-11-12T00:00:00"),
+        ("20261112-000001-omnire-0002", "alice", "alice/running-1", "2026-11-14T00:00:00"),
+        ("20261112-000002-omnire-0003", "alice", "alice/gone-1", "2026-11-15T00:00:00"),
+        ("20261112-000003-omnire-0004", "bob", "bob/new-1", "2026-11-16T00:00:00"),
+        ("20261112-000004-omnire-0005", "alice", "alice/done-1", "2026-11-13T00:00:00"),
+    ):
+        add_other_run(workdir, run_id, user, {}, kernel)
+        state_path = workdir.find_run(run_id) / D2S_DIR / executor.STATE_FILE
+        state = {**json.loads(state_path.read_text()), "pushed_utc": pushed}
+        state_path.write_text(json.dumps(state))
+    statuses = {"alice/old-1": "complete", "alice/running-1": "running", "alice/done-1": "error"}
+
+    def status(slug: str) -> str:
+        if slug not in statuses:
+            raise KaggleError("404 not found")
+        return statuses[slug]
+
+    monkeypatch.setattr(fake, "kernel_status", status)
+    assert executor.wheel_kernel(fake, workdir, "alice") == "alice/done-1"
+    assert executor.wheel_kernel(fake, workdir, "carol") is None
+
+
+def test_new_account_gets_local_cache_as_dataset(
+    setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Tài khoản chưa có notebook nào có SMPL: upload cache trên máy thành dataset, dùng lại."""
+    monkeypatch.setenv("D2S_KAGGLE_SMPL_DATASET", "carol/smpl-model")
+    workdir, fake = setup
+    fake.user = "carol"
+    add_other_run(workdir, "20261112-000000-omnire-0001", "alice", {}, "alice/old-1")
+    entry = workdir.cache_dir / SCENE / CACHE_KEY
+    entry.mkdir(parents=True)
+    (entry / "artifact.json").write_text("{}")
+    (entry / "smpl.npz").write_bytes(b"x")
+    state = executor.push_run(workdir, RUN_ID, client=fake)
+    metadata = fake.kernels[state.kernel]["metadata"]
+    cache_sets = [d for d in metadata["dataset_sources"] if "/d2s-cache-" in d]
+    assert len(cache_sets) == 1 and cache_sets[0].startswith("carol/")
+    assert metadata["kernel_sources"] == []  # notebook của alice: tài khoản khác, không đọc được
+    uploaded = fake.root / "input" / cache_sets[0].split("/")[1] / "cache" / SCENE / CACHE_KEY
+    assert (uploaded / "smpl.npz").is_file()
+    # đẩy lần nữa (run khác cùng cảnh): dùng lại dataset, không upload lại
+    count = len(fake.datasets)
+    assert executor.cache_dataset(fake, workdir, workdir_record(workdir), "carol", {"prep.smpl"})
+    assert len(fake.datasets) == count

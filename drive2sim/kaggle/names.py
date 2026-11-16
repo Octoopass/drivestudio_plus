@@ -111,6 +111,14 @@ def scene_dataset(scene_id: str, converter_version: str) -> str:
     return _fit(f"d2s-scene-{scene_label(scene_id)}", "", version)
 
 
+def cache_dataset(scene_id: str, keys_hash: str) -> str:
+    """Tên dataset chứa kết quả cache (mask, SMPL) của cảnh upload từ máy.
+
+    Khoá cache đổi thì là dataset mới (``keys_hash``: băm của các khoá).
+    """
+    return _fit(f"d2s-cache-{scene_label(scene_id)}", "", slug(keys_hash))
+
+
 def ingest_kernel(scene: Optional[str], sequence: Optional[str], source: str) -> str:
     """Tên notebook ingest: theo ``--scene`` nếu có, không thì theo nguồn và ``--sequence``.
 

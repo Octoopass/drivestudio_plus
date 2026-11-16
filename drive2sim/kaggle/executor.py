@@ -40,6 +40,7 @@ from drive2sim.core import files
 from drive2sim.core.schema import RunRecord
 from drive2sim.engine import remote
 from drive2sim.engine.approaches import load_approach
+from drive2sim.engine.cache import ARTIFACT_FILE
 from drive2sim.engine.run import (
     D2S_DIR,
     RUN_FILE,
@@ -59,6 +60,7 @@ STAGING_DIR = ".kaggle"  # trong thư mục làm việc: thư mục tạm khi up
 DEFAULT_BRANCH = "drive2sim"
 DEFAULT_ACCELERATOR = "NvidiaTeslaT4"  # machine_shape của Kaggle: GPU T4 x2
 MAX_RESUME_SOURCES = 5  # số lần đẩy trước được gắn vào notebook mới
+WHEEL_CANDIDATES = 5  # số notebook mới nhất thử khi tìm nguồn wheel
 DATASET_WAIT_S = 900  # chờ Kaggle xử lý xong dataset cảnh vừa upload, tối đa 15 phút
 DATASET_POLL_S = 10
 SMPL_DATASET_ENV = "D2S_KAGGLE_SMPL_DATASET"  # dataset private chứa SMPL_NEUTRAL.pkl
@@ -207,6 +209,13 @@ def cache_kernels(
     Returns:
         Định danh notebook, mỗi notebook một lần, run mới nhất trước.
     """
+    return _cache_sources(client, workdir, record, username)[0]
+
+
+def _cache_sources(
+    client: KaggleClient, workdir: Workdir, record: RunRecord, username: str
+) -> tuple[list[str], set[str]]:
+    """Như ``cache_kernels``, kèm các ``stage_id`` chưa notebook nào cùng tài khoản có cache."""
     wanted = {stage.stage_id: stage.params for stage in record.stages}
     missing = set(wanted)
     found: list[str] = []
@@ -244,7 +253,75 @@ def cache_kernels(
             continue
         found.append(state.kernel)
         missing -= covers
-    return found
+    return found, missing
+
+
+def cache_dataset(
+    client: KaggleClient, workdir: Workdir, record: RunRecord, username: str, stage_ids: set[str]
+) -> Optional[str]:
+    """Dataset private chứa cache trên máy (mask, SMPL) cho các stage ``stage_ids`` của run.
+
+    Output notebook chỉ tài khoản đã chạy mới đọc được, nên tài khoản mới (chưa có run nào)
+    phải tính lại mask, SMPL (khoảng 1,6 giờ GPU với nuScenes ``scene-0061``) dù máy đã có sẵn.
+    Ở đây upload kết quả cache trên máy (vài chục MB) thành dataset của tài khoản đang đăng
+    nhập, gắn vào notebook; ``materialize`` chép ``cache/<cảnh>/<khoá>/`` sang như với output
+    notebook, engine vẫn so khoá.
+
+    Chọn khoá như ``cache_kernels``: stage của run khác cùng cảnh, cùng ``stage_id``, cùng tham
+    số, đã xong, có ``cache_key`` mà máy có thư mục cache đầy đủ (``artifact.json``). Tên dataset
+    gồm băm các khoá, nên dataset đã có thì dùng lại, không upload lại.
+
+    Returns:
+        Định danh dataset, hoặc ``None`` nếu máy không có cache nào dùng được.
+    """
+    wanted = {s.stage_id: s.params for s in record.stages if s.stage_id in stage_ids}
+    keys: set[str] = set()
+    for run_path in (workdir.runs_dir / record.scene_id).glob(f"*/*/{D2S_DIR}/{RUN_FILE}"):
+        try:
+            other = files.load(run_path, RunRecord)
+        except (OSError, ValueError):
+            continue
+        for stage in other.stages:
+            if (
+                stage.stage_id in wanted
+                and stage.cache_key
+                and stage.status == "succeeded"
+                and stage.params == wanted[stage.stage_id]
+                and (workdir.cache_dir / stage.cache_key / ARTIFACT_FILE).is_file()
+            ):
+                keys.add(stage.cache_key)
+    if not keys:
+        return None
+    slug = f"{username}/" + names.cache_dataset(record.scene_id, _hash8("|".join(sorted(keys))))
+    if client.dataset_exists(slug):
+        wait_dataset_ready(client, slug)
+        return slug
+    staging = workdir.root / STAGING_DIR / "upload" / slug.split("/")[1]
+    shutil.rmtree(staging, ignore_errors=True)
+    for key in sorted(keys):
+        target = staging / "cache" / key
+        shutil.copytree(workdir.cache_dir / key, target, copy_function=_link_or_copy)
+    metadata = {
+        "title": f"d2s cache {record.scene_id}"[:50],
+        "id": slug,
+        "description": "Kết quả cache (mask, SMPL) của drive2sim, dùng lại giữa các run.",
+        "licenses": [{"name": "other"}],
+    }
+    (staging / "dataset-metadata.json").write_text(json.dumps(metadata, indent=2), "utf-8")
+    try:
+        client.create_dataset(staging)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    wait_dataset_ready(client, slug)
+    return slug
+
+
+def _link_or_copy(src: str, dst: str) -> None:
+    """Hard link nếu được (không tốn thêm dung lượng), không thì chép."""
+    try:
+        os.link(src, dst)
+    except OSError:
+        shutil.copy2(src, dst)
 
 
 def _load_scene_refs(scene_root: Path) -> list["KaggleSceneRef"]:
@@ -445,8 +522,18 @@ def push_run(
     # còn kết quả thay vì train lại từ đầu.
     resume = list(reversed(history))[:MAX_RESUME_SOURCES]
     bundle = write_bundle(run_dir, workdir, dataset, resume)
-    # Gắn thêm output của run khác đã có mask, SMPL mà run này cần, để khỏi tính lại.
-    reuse = [k for k in cache_kernels(client, workdir, record, username) if k not in resume]
+    # Gắn thêm output của run khác đã có mask, SMPL mà run này cần, để khỏi tính lại, và output có
+    # wheel đã build (khỏi build lại môi trường khoảng 25 phút).
+    kernels, missing = _cache_sources(client, workdir, record, username)
+    reuse = [k for k in kernels if k not in resume]
+    # Tài khoản chưa có notebook nào có cache đó (ví dụ tài khoản mới): upload cache trên máy.
+    if missing and not resume:
+        cached = cache_dataset(client, workdir, record, username, missing)
+        if cached and cached not in sources:
+            sources.append(cached)
+    wheels = wheel_kernel(client, workdir, username)
+    if wheels and wheels not in resume and wheels not in reuse:
+        reuse.append(wheels)
 
     with tempfile.TemporaryDirectory(dir=_staging(workdir)) as folder:
         folder_path = Path(folder)
@@ -570,17 +657,45 @@ def pull_run_light(
 
 
 def skip_local_cache(workdir: Workdir) -> Optional[str]:
-    """Biểu thức cho ``--file-pattern`` bỏ qua các kết quả cache máy đã có.
+    """Biểu thức cho ``--file-pattern`` bỏ qua phần output máy không cần tải.
 
-    Output của notebook chứa cả ``cache/<cảnh>/<stage>@<khoá>/`` (mask, SMPL: hàng nghìn file nhỏ).
-    Lệnh ``kaggle`` tải từng file một, nên tải lại cache đã có tốn hàng chục phút; ``merge_output``
-    vốn cũng bỏ các mục cache đã có. ``None`` khi máy chưa có cache nào (tải hết).
+    Output của notebook chứa cả ``cache/<cảnh>/<stage>@<khoá>/`` (mask, SMPL: hàng nghìn file nhỏ)
+    và ``wheels/`` (gói đã build để notebook sau dùng lại, vài trăm MB, máy không dùng). Lệnh
+    ``kaggle`` tải từng file một, nên tải lại cache đã có tốn hàng chục phút; ``merge_output`` vốn
+    cũng bỏ các mục cache đã có.
     """
     entries = sorted(p for p in workdir.cache_dir.glob("*/*") if p.is_dir())
-    if not entries:
-        return None
-    skipped = "|".join(re.escape(f"cache/{p.parent.name}/{p.name}/") for p in entries)
+    skipped = "|".join(
+        ["wheels/"] + [re.escape(f"cache/{p.parent.name}/{p.name}/") for p in entries]
+    )
     return f"^(?!.*(?:{skipped}))"
+
+
+def wheel_kernel(client: KaggleClient, workdir: Workdir, username: str) -> Optional[str]:
+    """Notebook mới nhất đã chạy xong của cùng tài khoản, để notebook mới lấy wheel đã build.
+
+    Notebook nào cũng lưu wheel của gsplat-geer, nvdiffrast, pytorch3d... vào ``wheels/`` trong
+    output (``envs/install_main.sh``, biến ``D2S_WHEEL_CACHE``): wheel tự build hoặc wheel lấy lại
+    từ notebook trước. Gắn notebook mới nhất là đủ; nó chưa có wheel (chạy trước khi có cơ chế này)
+    thì notebook mới build như cũ rồi lưu. Duyệt ``kaggle.json`` của mọi run trên máy, mới nhất
+    trước; bỏ notebook đã xoá hoặc chưa xong.
+    """
+    states = []
+    for state_path in workdir.runs_dir.glob(f"*/*/*/{D2S_DIR}/{STATE_FILE}"):
+        try:
+            state = load_state(state_path.parents[1])
+        except (OSError, ValueError, TypeError):
+            continue
+        if state is not None and state.username == username:
+            states.append(state)
+    for state in sorted(states, key=lambda s: s.pushed_utc, reverse=True)[:WHEEL_CANDIDATES]:
+        try:
+            status = client.kernel_status(state.kernel)
+        except KaggleError:
+            continue
+        if status in ("complete", "error"):
+            return state.kernel
+    return None
 
 
 def pull_run(workdir: Workdir, run_id: str, client: Optional[KaggleClient] = None) -> RunRecord:

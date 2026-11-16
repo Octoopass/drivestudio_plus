@@ -43,11 +43,68 @@ NMR="git+https://github.com/shubham-goel/NMR.git@e990b3c70f48d39231f607c79d76ce3
 GEER_DIR="${D2S_GEER_DIR:-$HOME/.cache/drive2sim/3dgeer}"
 
 pip() { "$PY" -m pip "$@"; }
-# Gói build từ mã nguồn (CUDA): pip giấu output của bước build ("No available output"), nên ghi đủ
-# log ra file và in phần cuối khi lỗi.
+
+# Bước 4, 5, 7, 8 build CUDA: nvcc phải cùng major với CUDA của PyTorch (cu121 → 12.x), nếu không
+# torch báo "The detected CUDA version mismatches". Image Kaggle từ 11/2026 chỉ có nvcc 13.0: khi đó cài
+# CUDA 12.8 riêng (envs/install_cuda.sh, khoảng 3 GB) rồi build bằng bản đó. Chỉ gọi khi thật sự phải
+# build (không có wheel dựng sẵn, xem build), nên dùng lại wheel thì bỏ qua cả bước này.
+CUDA_READY=0
+ensure_cuda() {
+  [ "$CUDA_READY" = 1 ] && return 0
+  CUDA_READY=1
+  local torch_major nvcc_major
+  torch_major="$("$PY" -c 'import torch; print((torch.version.cuda or "").split(".")[0])')"
+  nvcc_major="$(nvcc --version 2>/dev/null | sed -n 's/.*release \([0-9]*\)\..*/\1/p')"
+  if [ -n "$torch_major" ] && [ "$nvcc_major" != "$torch_major" ]; then
+    echo "nvcc ${nvcc_major:-không có} khác CUDA $torch_major của PyTorch: cài CUDA 12.8 riêng"
+    CUDA_HOME="$(bash "$REPO/envs/install_cuda.sh" "${D2S_CUDA_PREFIX:-$HOME/.cache/drive2sim/cuda-12.8}")"
+    export CUDA_HOME PATH="$CUDA_HOME/bin:$PATH"
+  fi
+  echo "nvcc: $(command -v nvcc || echo 'không có') $(nvcc --version 2>/dev/null | tail -1); CUDA_HOME=${CUDA_HOME:-}"
+}
+
+# Gói build từ mã nguồn (CUDA), mất hàng chục phút mỗi lần cài. Có D2S_WHEEL_SOURCES (các thư mục,
+# cách nhau bằng ":", ví dụ /kaggle/input là output notebook trước) thì tìm wheel đã build cùng khoá
+# trong wheels/<khoá>/ và cài thẳng; không có thì build. Có D2S_WHEEL_CACHE thì wheel (build mới
+# hay tìm thấy) được chép vào <D2S_WHEEL_CACHE>/<khoá>/, để lần sau dùng lại. Khoá gồm gói (URL kèm
+# commit, hoặc commit của thư mục mã nguồn), bản PyTorch, kiến trúc GPU và bản Python.
+# pip giấu output của bước build ("No available output"), nên ghi đủ log ra file và in phần cuối khi
+# lỗi.
 build() {
-  local log
+  local spec="$1" log key found dir
+  local ident="$spec"
+  [ -d "$spec/.git" ] || [ -f "$spec/.git" ] && ident="$spec@$(git -C "$spec" rev-parse HEAD)"
+  key="$(printf '%s|%s|%s|%s' "$ident" "$TORCH" "${TORCH_CUDA_ARCH_LIST:-}" \
+    "$("$PY" -c 'import sys; print(sys.version_info[:2])')" | sha256sum | cut -c1-16)"
+  found=""
+  local sources="${D2S_WHEEL_SOURCES:-}"
+  for dir in ${sources//:/ }; do
+    [ -d "$dir" ] || continue
+    found="$(find "$dir" -path "*/wheels/$key/*.whl" -print -quit 2>/dev/null || true)"
+    [ -n "$found" ] && break
+  done
   log="$(mktemp "${TMPDIR:-/tmp}/d2s-build.XXXXXX")"
+  if [ -n "$found" ]; then
+    echo "dùng lại wheel đã build: $(basename "$found") (khoá $key)"
+    if [ -n "${D2S_WHEEL_CACHE:-}" ]; then
+      mkdir -p "$D2S_WHEEL_CACHE/$key" && cp "$found" "$D2S_WHEEL_CACHE/$key/"
+    fi
+    pip install "$found" >"$log" 2>&1 || { tail -n 40 "$log"; return 1; }
+    return 0
+  fi
+  ensure_cuda
+  if [ -n "${D2S_WHEEL_CACHE:-}" ]; then
+    # Build thành wheel (không kèm phụ thuộc) rồi cài wheel đó, để lưu được cho lần sau.
+    mkdir -p "$D2S_WHEEL_CACHE/$key"
+    if ! "$PY" -m pip wheel -v --no-deps -w "$D2S_WHEEL_CACHE/$key" "$@" >"$log" 2>&1 \
+      || ! "$PY" -m pip install "$D2S_WHEEL_CACHE/$key"/*.whl >>"$log" 2>&1; then
+      echo "build lỗi: pip wheel $*; 80 dòng cuối của $log:"
+      tail -n 80 "$log"
+      rm -rf "$D2S_WHEEL_CACHE/$key"
+      return 1
+    fi
+    return 0
+  fi
   if ! "$PY" -m pip install -v "$@" >"$log" 2>&1; then
     echo "build lỗi: pip install $*; 80 dòng cuối của $log:"
     tail -n 80 "$log"
@@ -75,21 +132,8 @@ if want 3; then
   pip install -r "$REPO/requirements.txt"
 fi
 
-# Bước 4, 5, 7, 8 build CUDA: nvcc phải cùng major với CUDA của PyTorch (cu121 → 12.x), nếu không
-# torch báo "The detected CUDA version mismatches". Image Kaggle từ 11/2026 chỉ có nvcc 13.0: khi đó cài
-# CUDA 12.8 riêng (envs/install_cuda.sh) rồi build bằng bản đó.
-if [ "$FROM" -le 8 ]; then
-  torch_major="$("$PY" -c 'import torch; print((torch.version.cuda or "").split(".")[0])')"
-  nvcc_major="$(nvcc --version 2>/dev/null | sed -n 's/.*release \([0-9]*\)\..*/\1/p')"
-  if [ -n "$torch_major" ] && [ "$nvcc_major" != "$torch_major" ]; then
-    echo "nvcc ${nvcc_major:-không có} khác CUDA $torch_major của PyTorch: cài CUDA 12.8 riêng"
-    CUDA_HOME="$(bash "$REPO/envs/install_cuda.sh" "${D2S_CUDA_PREFIX:-$HOME/.cache/drive2sim/cuda-12.8}")"
-    export CUDA_HOME PATH="$CUDA_HOME/bin:$PATH"
-  fi
-fi
 
 if want 4; then
-  echo "nvcc: $(command -v nvcc || echo 'không có') $(nvcc --version 2>/dev/null | tail -1); CUDA_HOME=${CUDA_HOME:-}"
   # Bản fork của dự án (submodule third_party/gsplat-geer, docs/methods/fastergs.md): gsplat-geer
   # của Bosch cộng kỹ thuật Faster-GS, mặc định tắt nên khi không bật cho kết quả như bản gốc.
   # Repo clone kèm --recurse-submodules (notebook Kaggle) thì dùng luôn; không có thì clone bản Bosch.
