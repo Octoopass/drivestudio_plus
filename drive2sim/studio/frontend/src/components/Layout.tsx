@@ -1,5 +1,5 @@
-// Khung trang: thanh điều hướng bên trái (thu gọn còn icon bằng nút đầu thanh trên hoặc Ctrl+B, nhớ
-// trong trình duyệt), thanh trên có đường dẫn trang, nút hoạt động (run đang
+// Khung trang: thanh điều hướng bên trái, rộng vừa nội dung (thu gọn còn icon bằng nút cạnh logo hoặc
+// Ctrl+B, nhớ trong trình duyệt), thanh trên có đường dẫn trang, nút hoạt động (run đang
 // chạy và việc nền), ô tìm nhanh (Ctrl+K), nút đổi giao diện sáng/tối và ngôn ngữ.
 import {
   Box,
@@ -184,14 +184,25 @@ export function Layout({ route, children }: { route: Route; children: ReactNode 
   return (
     <div className={`shell${collapsed ? " nav-collapsed" : ""}`}>
       <nav className="nav" aria-label="drive2sim">
-        <a className="brand" href="#/">
-          <span className="brand-mark" aria-hidden="true">
-            <Gauge size={20} />
-          </span>
-          <span className="brand-name">
-            drive<b>2</b>sim
-          </span>
-        </a>
+        <div className="brand-row">
+          <a className="brand" href="#/">
+            <span className="brand-mark" aria-hidden="true">
+              <Gauge size={20} />
+            </span>
+            <span className="brand-name">
+              drive<b>2</b>sim
+            </span>
+          </a>
+          <button
+            className="btn ghost icon nav-toggle"
+            onClick={toggleNav}
+            title={t(collapsed ? "nav.expand" : "nav.collapse")}
+            aria-label={t(collapsed ? "nav.expand" : "nav.collapse")}
+            aria-expanded={!collapsed}
+          >
+            {collapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
+          </button>
+        </div>
         {MENU.map((section) => (
           <div key={section.group ?? "top"} style={{ display: "contents" }}>
             {section.group && <div className="nav-group">{t(section.group)}</div>}
@@ -207,15 +218,6 @@ export function Layout({ route, children }: { route: Route; children: ReactNode 
       </nav>
       <div className="main">
         <header className="topbar">
-          <button
-            className="btn ghost icon nav-toggle"
-            onClick={toggleNav}
-            title={t(collapsed ? "nav.expand" : "nav.collapse")}
-            aria-label={t(collapsed ? "nav.expand" : "nav.collapse")}
-            aria-expanded={!collapsed}
-          >
-            {collapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
-          </button>
           <Crumbs route={route} />
           {studio.data?.demo && (
             <span className="demo-badge">
