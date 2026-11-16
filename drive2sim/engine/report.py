@@ -25,7 +25,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from pydantic_core import to_jsonable_python
+
 from drive2sim.core.schema import RunRecord
+from drive2sim.engine.registry import REGISTRY, StageRegistry
 from drive2sim.engine.run import D2S_DIR, list_runs, load_env, load_summary
 from drive2sim.engine.workdir import Workdir, WorkdirError
 
@@ -121,6 +124,7 @@ class ReportRow:
     software: Optional[str] = None
     speedups: list[str] = field(default_factory=list)
     stage_times: dict[str, dict[str, object]] = field(default_factory=dict)
+    train_params: dict[str, object] = field(default_factory=dict)
 
 
 def avg_error(psnr: float, ssim: float, lpips: float) -> float:
@@ -244,6 +248,7 @@ def report_rows(
             train_time_s=sum(s.duration_s for s in train_stages) if train_stages else None,
             recon_time_s=recon_time(record),
             peak_vram_mb=max((s.peak_vram_mb for s in train_stages), default=None) or None,
+            train_params=train_params(record),
         )
         key = (record.scene_id, record.split_id)
         if key not in splits:
@@ -293,6 +298,44 @@ def report_rows(
             row.speedups = list(summary.speedups)
         rows.append(row)
     return sorted(rows, key=lambda row: (row.psnr is None, -(row.psnr or 0.0)))
+
+
+# Tham số của stage train đã có cột riêng (num_iters), lặp lại cấu hình approach (method), hoặc chỉ
+# bật đo đạc (thống kê densify, profile), không đổi kết quả của model.
+_SHOWN_ELSEWHERE = {"method", "num_iters", "densify_stats", "profile_at", "profile_steps"}
+
+
+def train_params(record: RunRecord, registry: StageRegistry = REGISTRY) -> dict[str, object]:
+    """Tham số stage train khác mặc định mà cấu hình approach không nói lên.
+
+    Hai run cùng cấu hình approach (ví dụ cùng renderer, FastGS, Faster-GS) có thể khác nhau ở tham
+    số stage đặt bằng ``--set train.drivestudio.refine_interval=50``; không hiện ra thì trang so
+    sánh trông như hai run giống hệt. Bỏ tham số trùng tên với lựa chọn của approach, ``method``,
+    ``num_iters`` (có cột riêng) và ``overrides`` rỗng; ``overrides`` khác rỗng thì trải ra từng
+    khoá. Stage không còn trong bảng stage thì bỏ qua.
+
+    Returns:
+        ``{tên: giá trị}``, ví dụ ``{"refine_interval": 50}``.
+    """
+    shown = _SHOWN_ELSEWHERE | set(record.approach.options)
+    found: dict[str, object] = {}
+    for stage in record.stages:
+        if not stage.stage_id.startswith(TRAIN_PREFIX) or stage.stage_id not in registry:
+            continue
+        fields = registry.get(stage.stage_id).Params.model_fields
+        defaults = {
+            name: to_jsonable_python(field.get_default(call_default_factory=True))
+            for name, field in fields.items()
+            if not field.is_required()
+        }
+        for name, value in stage.params.items():
+            if name in shown or name not in defaults or value == defaults[name]:
+                continue
+            if name == "overrides" and isinstance(value, dict):
+                found.update(value)
+            else:
+                found[name] = value
+    return found
 
 
 def split_info(workdir: Workdir, scene_id: str, split_id: str) -> dict[str, object]:

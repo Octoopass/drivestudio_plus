@@ -16,7 +16,7 @@ export interface RemoteState {
   checked_utc: string | null;
 }
 
-export type RunItem = RunRecord & { remote?: RemoteState | null };
+export type RunItem = RunRecord & { remote?: RemoteState | null; train_params?: Record<string, unknown> };
 
 export function runStatus(run: RunItem, live?: string): string {
   const status = live ?? run.status;

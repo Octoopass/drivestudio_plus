@@ -15,6 +15,7 @@ from drive2sim.engine.report import (
     preview_stats,
     recon_time,
     rows_to_csv,
+    train_params,
 )
 
 
@@ -113,3 +114,46 @@ def test_split_info_reads_split_and_manifest(tmp_path: Path) -> None:
     assert info["source_resolution"] == "1600x900"
     assert (info["train_images"], info["test_images"]) == (len(SPLIT["train"]), len(SPLIT["test"]))
     assert info["test_every"] == 8  # every_nth_frame:8
+
+
+def test_train_params_shows_only_non_default_params_not_in_approach_options() -> None:
+    """Hai run cùng cấu hình approach phân biệt được bằng tham số stage khác mặc định."""
+    from pydantic import BaseModel
+
+    from drive2sim.engine.registry import StageRegistry
+
+    class Params(BaseModel):
+        method: str  # bắt buộc: không có giá trị mặc định
+        renderer: str = "3dgs"
+        num_iters: int | None = None
+        refine_interval: int | None = None
+        densify_stats: bool = False
+        overrides: dict = {}
+
+    class Train:
+        pass
+
+    Train.Params = Params  # type: ignore[attr-defined]
+    registry = StageRegistry()
+    registry._stages = {"train.drivestudio": Train}  # type: ignore[attr-defined]
+    record = make_record(
+        [
+            StageRecord(
+                stage_id="train.drivestudio",
+                status="succeeded",
+                params={
+                    "method": "omnire",
+                    "renderer": "3dgeer",  # lựa chọn của approach: đã hiện ở cấu hình
+                    "num_iters": 3000,  # có cột riêng
+                    "refine_interval": 50,
+                    "densify_stats": True,  # chỉ đo đạc
+                    "overrides": {"model.Background.ctrl.densify_grad_thresh": 0.0001},
+                },
+            )
+        ]
+    )
+    record.approach.options = {"renderer": "3dgeer"}
+    assert train_params(record, registry) == {
+        "refine_interval": 50,
+        "model.Background.ctrl.densify_grad_thresh": 0.0001,
+    }

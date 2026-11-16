@@ -32,6 +32,7 @@ from drive2sim.core.schema import Preview, RunRecord
 from drive2sim.engine import housekeeping
 from drive2sim.engine.artifacts import run_artifacts, train_curve
 from drive2sim.engine.render_check import render_readiness
+from drive2sim.engine.report import train_params
 from drive2sim.engine.run import (
     D2S_DIR,
     LOG_FILE,
@@ -159,12 +160,17 @@ def get_runs(
     """Liệt kê run, mới nhất trước; lọc theo ``scene_id`` và ``status``.
 
     Returns:
-        ``{"items": [run.json cộng "remote", ...], "total": n}``; ``remote`` theo ``_remote``.
+        ``{"items": [run.json cộng "remote", "train_params", ...], "total": n}``; ``remote`` theo
+        ``_remote``, ``train_params`` theo ``report.train_params``.
     """
     workdir = state_of(request).workdir
     records = list_runs(workdir, scene_id)
     items = [
-        {**r.model_dump(mode="json"), "remote": _remote(workdir, r)}
+        {
+            **r.model_dump(mode="json"),
+            "remote": _remote(workdir, r),
+            "train_params": train_params(r),
+        }
         for r in records
         if status in (None, r.status)
     ]
@@ -180,6 +186,7 @@ def get_run(run_id: str, request: Request) -> dict:
     run_dir, record = _load(request, run_id)
     summary = load_summary(run_dir)
     data = record.model_dump(mode="json")
+    data["train_params"] = train_params(record)
     data["remote"] = _remote(state_of(request).workdir, record)
     data["summary"] = summary.model_dump(mode="json") if summary else None
     env = load_env(run_dir)

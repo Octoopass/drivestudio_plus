@@ -163,7 +163,7 @@ export function RunPage({ runId }: { runId: string }) {
               <div>
                 <dt>{t("run.facts.options")}</dt>
                 <dd>
-                  <ConfigText approachId={data.approach.approach_id} options={data.approach.options ?? {}} preset={data.approach.preset} />
+                  <ConfigText approachId={data.approach.approach_id} options={data.approach.options ?? {}} preset={data.approach.preset} params={data.train_params} />
                   {summary?.speedups && summary.speedups.length > 0 && (
                     <div>
                       <SpeedupText speedups={summary.speedups} />

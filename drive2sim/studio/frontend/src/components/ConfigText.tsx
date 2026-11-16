@@ -28,12 +28,29 @@ function same(a: unknown, b: unknown): boolean {
   return typeof a === typeof b && a === b;
 }
 
-export function ConfigText({ approachId, options, preset }: { approachId: string; options: Record<string, OptionValue>; preset?: string | null }) {
+/** Tham số stage train khác mặc định (``train_params`` của API), ví dụ ``refine_interval=50``. */
+function paramsText(params: Record<string, unknown> | undefined): string[] {
+  return Object.entries(params ?? {}).map(([name, value]) => `${name}=${typeof value === "object" ? JSON.stringify(value) : String(value)}`);
+}
+
+export function ConfigText({
+  approachId,
+  options,
+  preset,
+  params,
+}: {
+  approachId: string;
+  options: Record<string, OptionValue>;
+  preset?: string | null;
+  /** Tham số stage train khác mặc định: hai run cùng cấu hình approach vẫn phân biệt được. */
+  params?: Record<string, unknown>;
+}) {
   const { t } = useI18n();
   const approaches = useApproaches();
   const approach = approaches?.[approachId];
+  const extra = paramsText(params);
   if (!approach) {
-    const raw = Object.entries(options).map(([name, value]) => `${name}=${String(value)}`).join(", ");
+    const raw = [...Object.entries(options).map(([name, value]) => `${name}=${String(value)}`), ...extra].join(", ");
     return <>{raw || "–"}</>;
   }
   const defaults = Object.fromEntries(Object.entries(approach.options ?? {}).map(([name, spec]) => [name, spec.default]));
@@ -50,6 +67,6 @@ export function ConfigText({ approachId, options, preset }: { approachId: string
       const label = spec?.labels?.[index] ?? String(value);
       return `${spec?.label ?? key}: ${label}`;
     });
-  const parts = [name ?? (changed.length ? null : t("config.default")), ...changed].filter(Boolean);
+  const parts = [name ?? (changed.length ? null : t("config.default")), ...changed, ...extra].filter(Boolean);
   return <>{parts.join(" · ")}</>;
 }

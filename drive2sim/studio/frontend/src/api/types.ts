@@ -57,6 +57,8 @@ export interface CheckResult {
 export interface RunDetail extends RunRecord {
   /** Trạng thái phía Kaggle khi run chưa tải về (runStatus.ts); ``null`` với run khác. */
   remote?: { pushed: boolean; status: string | null; checked_utc: string | null } | null;
+  /** Tham số stage train khác mặc định (``report.train_params``), ví dụ ``{"refine_interval": 50}``. */
+  train_params?: Record<string, unknown>;
   summary: Summary | null;
   env: EnvRecord | null;
   run_dir: string;
@@ -112,6 +114,7 @@ export interface ReportRow {
   software: string | null;
   speedups: string[];
   stage_times: Record<string, { seconds: number; reused: boolean }>;
+  train_params: Record<string, unknown>;
 }
 
 /** Sự kiện SSE của engine (CONTRACTS mục 11.4). */

@@ -120,7 +120,7 @@ export function RunsPage({ sceneId = "", status = "all" }: { sceneId?: string; s
                       <td className="ellipsis" style={{ maxWidth: 276 }}>{run.scene_id}</td>
                       <td>{run.split_id}</td>
                       <td className="small muted" style={{ maxWidth: 327 }}>
-                        <ConfigText approachId={run.approach.approach_id} options={run.approach.options ?? {}} preset={run.approach.preset} />
+                        <ConfigText approachId={run.approach.approach_id} options={run.approach.options ?? {}} preset={run.approach.preset} params={run.train_params} />
                       </td>
                       <td>
                         <Status value={run.shown} />
