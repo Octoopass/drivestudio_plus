@@ -15,6 +15,7 @@ from drive2sim.cli.output import emit, format_table, format_value, parse_set
 from drive2sim.core.schema import Split
 from drive2sim.engine.approaches import list_approach_ids, load_approach
 from drive2sim.engine.environment import environment_check
+from drive2sim.engine.registry import produces_artifact
 from drive2sim.engine.resolve import QUICK_NUM_ITERS, Plan, camera_support, resolve
 from drive2sim.engine.run import preview_reuse
 from drive2sim.engine.stage import Scene
@@ -191,7 +192,7 @@ def check_approach(args: argparse.Namespace) -> int:
     # Môi trường Python của máy này (chỉ có ý nghĩa khi chạy trên máy; Kaggle cài trong notebook).
     env = environment_check(
         load_approach(plan.approach_id).codebase,
-        needs_smpl="prep.smpl" in [stage.stage_id for stage in plan.stages],
+        needs_smpl=produces_artifact((stage.stage_id for stage in plan.stages), "smpl"),
         workdir_root=workdir.root,
     )
     env_lines = []

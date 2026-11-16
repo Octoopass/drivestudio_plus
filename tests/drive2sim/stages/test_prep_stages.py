@@ -216,7 +216,8 @@ def test_approaches_include_prep_stages() -> None:
         ]
         for name in ("omnire", "streetgs")
     }
-    assert stages["omnire"][:2] == ["prep.masks_segformer", "prep.smpl"]
+    # stage SMPL do mục cấu hình smpl chọn: prep.smpl_release hoặc prep.smpl
+    assert stages["omnire"][:2] == ["prep.masks_segformer", "${options.smpl}"]
     assert stages["streetgs"][0] == "prep.masks_segformer"
     assert "prep.smpl" not in stages["streetgs"]
 

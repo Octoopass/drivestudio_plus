@@ -41,6 +41,7 @@ from drive2sim.colab.client import GPUS, ColabClient, ColabError, ColabSessionLo
 from drive2sim.core import files
 from drive2sim.core.schema import RunRecord
 from drive2sim.engine import remote
+from drive2sim.engine.registry import produces_artifact
 from drive2sim.engine.run import D2S_DIR, RUN_FILE, run_is_active
 from drive2sim.engine.workdir import Workdir
 from drive2sim.kaggle import names
@@ -538,7 +539,7 @@ def push_run(
     # Run dựng người (prep.smpl) cần file mô hình SMPL, có bản quyền nên không đi kèm repo: lấy
     # file trên máy (như run chạy trên máy) rồi upload riêng lên VM, không qua git.
     smpl_model = None
-    if any(stage.stage_id == "prep.smpl" for stage in record.stages):
+    if produces_artifact((stage.stage_id for stage in record.stages), "smpl"):
         smpl_model = paths.find_smpl_model(workdir.root)
         if smpl_model is None:
             raise ColabError(

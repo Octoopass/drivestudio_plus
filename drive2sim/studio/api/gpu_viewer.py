@@ -33,6 +33,7 @@ import yaml
 from drive2sim.core import files
 from drive2sim.core.schema import RunRecord
 from drive2sim.engine import gpu_process
+from drive2sim.engine.registry import produces_artifact
 from drive2sim.engine.render_check import CHECKPOINT, render_readiness
 from drive2sim.engine.run import D2S_DIR, RUN_FILE
 from drive2sim.engine.workdir import Workdir
@@ -112,7 +113,7 @@ def prepare(workdir: Workdir, run_dir: Path) -> tuple[Path, Path, Path]:
             continue
         folder = workdir.cache_dir / stage.cache_key
         names = MASK_ENTRIES if stage.stage_id.startswith("prep.masks") else ()
-        if stage.stage_id == "prep.smpl":
+        if produces_artifact([stage.stage_id], "smpl"):
             names = (SMPL_ENTRY,)
         extra.update({name: folder / name for name in names if (folder / name).exists()})
     out = run_dir / D2S_DIR / VIEWER_DIR

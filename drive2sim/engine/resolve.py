@@ -274,6 +274,9 @@ def _choice_block(
     if isinstance(choice, str) and choice in registry:
         if registry.get(choice).uses_lidar and not manifest.available.lidar:
             return f"{choice} cần LiDAR nhưng cảnh {manifest.scene_id} không có LiDAR"
+        reason = registry.get(choice).unavailable_reason(manifest)
+        if reason:
+            return reason
     allowed = choice_camera_models(approach.options[option_name], choice)
     if allowed is not None and not _has_undistort(approach):
         used = cameras if cameras is not None else [c.camera_id for c in manifest.cameras]
@@ -476,6 +479,13 @@ def _data_reasons(
         reasons.append(BlockReason("approach cần box 3D nhưng cảnh không có box"))
     # Stage cố định (không do mục cấu hình chọn) cần LiDAR mà cảnh không có: khoá cả approach.
     # Stage do mục cấu hình chọn thì đã báo ở lựa chọn đó (_choice_block).
+    # Stage cố định có điều kiện riêng (Stage.unavailable_reason) mà cảnh không thoả: khoá cả
+    # approach.
+    for entry, stage_id in zip(approach.stages, stage_ids):
+        if option_reference(entry.stage) is None and stage_id in registry:
+            reason = registry.get(stage_id).unavailable_reason(manifest)
+            if reason:
+                reasons.append(BlockReason(reason))
     if not manifest.available.lidar:
         for entry, stage_id in zip(approach.stages, stage_ids):
             if option_reference(entry.stage) is None and stage_id in registry:

@@ -382,7 +382,11 @@ def make_cache(work: Workdir, scene_id: str) -> dict[str, str]:
         0
     ]
     split = work.load_split(scene_id, split_id)
-    plan = resolve(load_approach("omnire"), scene.manifest, split)
+    # Run mẫu ghi prep.smpl (tự tính); scene-0061 có SMPL phát hành nên "auto" sẽ chọn
+    # prep.smpl_release: chọn rõ để khoá cache khớp run mẫu.
+    plan = resolve(
+        load_approach("omnire"), scene.manifest, split, option_values={"smpl": "prep.smpl"}
+    )
     planned = dict(
         zip((stage.stage_id for stage in plan.stages), plan_cache_keys(plan, scene, split))
     )

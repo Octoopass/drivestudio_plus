@@ -18,7 +18,14 @@ from pydantic import BaseModel, ConfigDict
 from drive2sim.core.schema import Approach, OptionValue, Split
 from drive2sim.engine.approaches import list_approach_ids, load_approach
 from drive2sim.engine.environment import environment_check
-from drive2sim.engine.resolve import Plan, blocked_choices, camera_support, resolve
+from drive2sim.engine.registry import produces_artifact
+from drive2sim.engine.resolve import (
+    Plan,
+    blocked_choices,
+    camera_support,
+    option_reference,
+    resolve,
+)
 from drive2sim.engine.run import preview_reuse
 from drive2sim.engine.stage import Scene
 from drive2sim.studio.api.state import StudioState, state_of
@@ -118,7 +125,7 @@ def environment(approach_id: str, request: Request) -> dict:
     approach = load_approach(approach_id)
     return environment_check(
         approach.codebase,
-        needs_smpl=any(stage.stage == "prep.smpl" for stage in approach.stages),
+        needs_smpl=produces_artifact(_possible_stages(approach), "smpl"),
         workdir_root=state_of(request).workdir.root,
     )
 
@@ -153,3 +160,15 @@ def check(approach_id: str, body: PlanBody, request: Request) -> dict:
             for option, reasons in blocked.items()
         },
     }
+
+
+def _possible_stages(approach: Approach) -> list[str]:
+    """Mọi stage approach có thể chạy: stage cố định và mọi lựa chọn của mục chọn stage."""
+    stages = []
+    for entry in approach.stages:
+        name = option_reference(entry.stage)
+        if name is None:
+            stages.append(entry.stage)
+        else:
+            stages.extend(str(choice) for choice in approach.options[name].choices)
+    return stages

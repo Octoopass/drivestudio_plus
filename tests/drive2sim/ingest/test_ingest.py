@@ -374,6 +374,6 @@ def test_cli_end_to_end(
     assert code == 0
     assert [s["stage_id"] for s in data["stages"]][:3] == [
         "prep.masks_segformer",
-        "prep.smpl",
+        "prep.smpl_release",  # scene-0061 có SMPL DriveStudio phát hành: smpl=auto chọn bản đó
         "train.drivestudio",
     ]

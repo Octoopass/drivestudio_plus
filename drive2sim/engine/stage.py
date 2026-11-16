@@ -21,7 +21,7 @@ Người viết stage mới đọc file này cùng CONTRACTS mục 5.1; stage đ
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar, Protocol
+from typing import ClassVar, Optional, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
@@ -169,6 +169,15 @@ class Stage(ABC):
     optional_inputs: ClassVar[frozenset[str]] = frozenset()
     outputs: ClassVar[dict[str, str]] = {}
     Params: ClassVar[type[BaseModel]] = NoParams
+
+    @classmethod
+    def unavailable_reason(cls, manifest: Manifest) -> Optional[str]:
+        """Lý do stage không chạy được với cảnh này ngoài LiDAR và camera; ``None`` nếu được.
+
+        Ví dụ ``prep.smpl_release`` chỉ có SMPL phát hành sẵn cho một số cảnh. Engine khoá lựa
+        chọn ứng với stage này (kèm lý do) và ``auto`` bỏ qua nó, như với stage cần LiDAR.
+        """
+        return None
 
     @abstractmethod
     def run(

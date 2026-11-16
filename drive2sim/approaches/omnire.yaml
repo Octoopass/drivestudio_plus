@@ -22,6 +22,9 @@ groups:                           # nhóm mục cấu hình trên Studio, theo t
   core:
     label: "Cách dựng"
     help: "Các khâu chính của approach: cách vẽ Gaussian thành ảnh, và có tự chỉnh pose camera trong lúc train không."
+  data:
+    label: "Chuẩn bị dữ liệu"
+    help: "Các bước chuẩn bị chạy trước khi train, kết quả lưu cache để run sau dùng lại."
   speedup:
     label: "Thuật toán phụ trợ"
     help: "Thuật toán gắn thêm vào quá trình train, ví dụ để giữ ít Gaussian hơn hay train nhanh hơn. Mỗi thuật toán bật hoặc tắt riêng; tổ hợp nào chưa có file config thì bị khoá."
@@ -52,6 +55,16 @@ options:
     descriptions:
       - "Dùng nguyên pose camera của dataset."
       - "Học thêm một độ lệch nhỏ (vị trí và góc xoay) cho pose của từng ảnh, bắt đầu từ 0. Cấu hình gốc trong paper của DriveStudio bật CamPose."
+  smpl:
+    choices: [prep.smpl_release, prep.smpl]
+    default: auto
+    group: data
+    label: "Nguồn SMPL (người)"
+    help: "Tư thế người đi bộ (SMPL) cho các Gaussian người của OmniRe. Tự động: dùng bản DriveStudio phát hành sẵn nếu cảnh có trong đó, không thì tự tính."
+    labels: ["Bản phát hành DriveStudio", "Tự tính (4D-Humans)"]
+    descriptions:
+      - "Tải SMPL DriveStudio đã tính sẵn (hiện có cho 10 cảnh nuScenes v1.0-mini): không tốn GPU. Trên scene-0061 kết quả gần như trùng bản tự tính (lệch tư thế trung bình 1e-4)."
+      - "Chạy 4D-Humans + PHALP trên ảnh của cảnh (khoảng 72 phút GPU T4 với scene-0061); dùng được cho mọi cảnh có box người."
   fastgs:
     choices: [false, true]
     default: false
@@ -101,7 +114,7 @@ preset_help:
 
 stages:
   - {stage: prep.masks_segformer, params: {dynamic: true}}
-  - {stage: prep.smpl}
+  - {stage: "${options.smpl}"}
   - stage: train.drivestudio
     params:
       method: omnire

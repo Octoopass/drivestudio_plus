@@ -11,6 +11,8 @@ This guide details the process of extracting body poses of pedestrians in variou
 
 ### Option 1: Using Pre-processed Data
 
+> drive2sim: stage `prep.smpl_release` does this automatically for the scenes it lists (currently the 10 nuScenes v1.0-mini scenes); the OmniRe option `smpl: auto` picks it when available and falls back to `prep.smpl` (Option 2) otherwise. The downloaded pickle is read with an allow-list (`drive2sim/core/safe_pickle.py`) and written again by the tool.
+
 We provide pre-processed human body pose data for a subset of scenes from various datasets.
 
 | Dataset    | File ID                         | Note                                                           |

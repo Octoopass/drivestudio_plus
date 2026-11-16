@@ -246,7 +246,7 @@ def test_exit_codes(workdir: Path, split_id: str, capsys: pytest.CaptureFixture)
     assert code == 0
     assert [s["stage_id"] for s in data["stages"]] == [
         "prep.masks_segformer",
-        "prep.smpl",
+        "prep.smpl_release",  # scene-0061 có SMPL DriveStudio phát hành: smpl=auto chọn bản đó
         "train.drivestudio",
         "eval.standard",
         "export.ply_world",

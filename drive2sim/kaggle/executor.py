@@ -41,6 +41,7 @@ from drive2sim.core.schema import RunRecord
 from drive2sim.engine import remote
 from drive2sim.engine.approaches import load_approach
 from drive2sim.engine.cache import ARTIFACT_FILE
+from drive2sim.engine.registry import produces_artifact
 from drive2sim.engine.run import (
     D2S_DIR,
     RUN_FILE,
@@ -496,7 +497,7 @@ def _prepare(client: KaggleClient, workdir: Workdir, run_id: str, username: str)
         sources = [dataset]
     # Run có dựng người (prep.smpl) thì trainer cần file mô hình SMPL, file có bản quyền nên không
     # đi kèm repo: người dùng tự đưa nó lên một dataset private và đặt tên dataset ở biến này.
-    if any(stage.stage_id == "prep.smpl" for stage in record.stages):
+    if produces_artifact((stage.stage_id for stage in record.stages), "smpl"):
         smpl_dataset = os.environ.get(SMPL_DATASET_ENV, "").strip()
         if not smpl_dataset:
             raise KaggleError(

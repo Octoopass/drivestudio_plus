@@ -18,8 +18,8 @@ nó để lấy lớp stage rồi gọi ``run``.
 import importlib
 import pkgutil
 import re
-from collections.abc import Callable
-from typing import TypeVar, get_args
+from collections.abc import Callable, Iterable
+from typing import Optional, TypeVar, get_args
 
 from pydantic import BaseModel
 
@@ -219,3 +219,21 @@ def load_builtin_stages(package: str = "drive2sim.stages") -> list[str]:
         importlib.import_module(module.name)
         loaded.append(module.name)
     return loaded
+
+
+def produces_artifact(
+    stage_ids: Iterable[str], kind: str, registry: Optional["StageRegistry"] = None
+) -> bool:
+    """Có stage nào trong ``stage_ids`` tạo artifact loại ``kind`` không.
+
+    Dùng thay cho so tên stage cứng: ví dụ run cần file mô hình SMPL khi có stage tạo artifact
+    ``smpl``, dù đó là ``prep.smpl`` (tự tính) hay ``prep.smpl_release`` (bản phát hành). Bảng
+    stage mặc định chưa nạp stage nào (lệnh gọi trước khi khởi động xong, test) thì nạp.
+    """
+    table = registry if registry is not None else REGISTRY
+    ids = list(stage_ids)
+    if registry is None and any(stage_id not in table for stage_id in ids):
+        load_builtin_stages()
+    return any(
+        stage_id in table and kind in table.get(stage_id).outputs.values() for stage_id in ids
+    )
