@@ -33,6 +33,7 @@ from drive2sim.core.schema import RunRecord
 from drive2sim.engine.render_check import CHECKPOINT, render_readiness
 from drive2sim.engine.run import D2S_DIR, RUN_FILE
 from drive2sim.engine.workdir import Workdir
+from drive2sim.paths import SMPL_MODEL_ENV, find_smpl_model
 from drive2sim.stages.scene_view import build_view
 from drive2sim.stages.train.drivestudio import MASK_ENTRIES, SMPL_ENTRY
 
@@ -182,8 +183,16 @@ class GpuViewers:
                 "--output_dir",
                 str(out),
             ]
+            # Model có người (SMPL) nạp file mô hình SMPL theo biến D2S_SMPL_MODEL, mặc định là
+            # đường dẫn tương đối "smpl_models/..." tính từ thư mục hiện tại (ở đây là ``out``)
+            # nên không thấy. Tìm file như stage train rồi truyền đường dẫn tuyệt đối.
+            env = dict(os.environ)
+            smpl_model = find_smpl_model(self.workdir.root)
+            if smpl_model is not None:
+                env[SMPL_MODEL_ENV] = str(smpl_model)
             self._process = subprocess.Popen(  # noqa: S603  (danh sách tham số, không qua shell)
                 command,
+                env=env,
                 stdout=self._log_file,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,

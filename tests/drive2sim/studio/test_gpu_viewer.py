@@ -100,3 +100,26 @@ def test_start_status_stop(demo: Workdir, tmp_path: Path, monkeypatch: pytest.Mo
     assert status["url"].startswith("http://127.0.0.1:")
     viewers.stop()
     assert viewers.status()["state"] == "stopped"
+
+
+def test_start_passes_smpl_model_path(
+    demo: Workdir, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Viewer chạy ở thư mục khác repo vẫn thấy file SMPL (đường dẫn tuyệt đối qua biến)."""
+    model = demo.root / "smpl_models" / "SMPL_NEUTRAL.pkl"
+    model.parent.mkdir(parents=True, exist_ok=True)
+    model.write_bytes(b"x")
+    monkeypatch.delenv("D2S_SMPL_MODEL", raising=False)
+    monkeypatch.setattr(gpu_viewer, "render_readiness", ready)
+    seen: dict = {}
+
+    class FakePopen:
+        def __init__(self, command: list, env: dict, **kwargs: object) -> None:
+            seen.update(env)
+
+        def poll(self) -> None:
+            return None
+
+    monkeypatch.setattr(gpu_viewer.subprocess, "Popen", FakePopen)
+    gpu_viewer.GpuViewers(demo, python=sys.executable).start(RUN_ID)
+    assert seen["D2S_SMPL_MODEL"] == str(model.resolve())
