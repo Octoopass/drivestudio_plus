@@ -149,6 +149,7 @@ def save_train_stats(log_dir: str, trainer, step: int, train_time_s: float, peak
         "gaussians_per_node": per_node,
         # drive2sim: speed-up techniques that were really active (docs/methods/fastgs.md, fastergs.md)
         "speedups": (["fastgs"] if trainer.fastgs.enabled else [])
+        + (["mcmc"] if trainer.mcmc.enabled else [])
         + [f"fastergs.{name}" for name in trainer.fastergs.active],
     }
     tmp = os.path.join(log_dir, TRAIN_STATS + ".tmp")

@@ -19,6 +19,7 @@ from drive2sim.recon.tools.viewer import create_gsplat_viewer
 
 from drive2sim.recon.models.gaussians.basics import *
 from drive2sim.recon.utils.geometry import camera_shutter_fraction, interpolate_camera_poses
+from drive2sim.recon.densify.mcmc import MCMC
 from drive2sim.recon.speedups.fastgs import FastGS
 from drive2sim.recon.speedups.fastergs import FasterGS
 from drive2sim.recon.utils.densify_stats import DensifyStats
@@ -74,6 +75,7 @@ class BasicTrainer(nn.Module):
         fastgs: OmegaConf = None,
         fastergs: OmegaConf = None,
         densify_stats: OmegaConf = None,
+        mcmc: OmegaConf = None,
         res_schedule: OmegaConf = None,
         gaussian_optim_general_cfg: OmegaConf = None,
         gaussian_ctrl_general_cfg: OmegaConf = None,
@@ -95,6 +97,11 @@ class BasicTrainer(nn.Module):
         self.fastergs = FasterGS(fastergs)
         # drive2sim: thống kê densify, chỉ đọc (drive2sim/recon/utils/densify_stats.py)
         self.densify_stats = DensifyStats(densify_stats)
+        # drive2sim: densify bằng MCMC thay quy tắc theo gradient (drive2sim/recon/densify/mcmc.py,
+        # docs/methods/densify_mcmc.md); tắt thì chạy y như trước
+        self.mcmc = MCMC(mcmc)
+        if self.mcmc.enabled and self.fastgs.enabled:
+            raise ValueError("MCMC thay quy tắc densify theo gradient; không bật cùng FastGS")
         self._last_render_inputs = None
         self._init_renderer()
         self.res_schedule = res_schedule
@@ -341,6 +348,13 @@ class BasicTrainer(nn.Module):
         
         for class_name in self.gaussian_classes.keys():
             gaussian_mask = self.pts_labels == self.gaussian_classes[class_name]
+            if self.mcmc.applies(class_name):
+                # MCMC: dời, thêm Gaussian theo độ đục và cộng nhiễu; bỏ quy tắc cũ của node
+                # (densify theo gradient, cắt bớt, đặt lại độ đục).
+                self.models[class_name].step = step
+                self.mcmc.step(class_name, self.models[class_name], step, self.optimizer)
+                FastGS.clear_masks(self.models[class_name])
+                continue
             
             self.models[class_name].postprocess_per_train_step(
                 step=step,
@@ -818,6 +832,8 @@ class BasicTrainer(nn.Module):
         # compute gaussian reg loss
         for class_name in self.gaussian_classes.keys():
             class_reg_loss = self.models[class_name].compute_reg_loss()
+            if self.mcmc.applies(class_name):
+                class_reg_loss.update(self.mcmc.regularization(self.models[class_name]))
             for k, v in class_reg_loss.items():
                 loss_dict[f"{class_name}_{k}"] = v
         return loss_dict
