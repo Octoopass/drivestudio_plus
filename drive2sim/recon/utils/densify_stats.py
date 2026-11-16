@@ -1,4 +1,4 @@
-"""Ghi thống kê của đại lượng densify ở mỗi lần refine (docs/methods/densify_3dgut.md mục 4, 5).
+"""Ghi thống kê của đại lượng densify ở mỗi lần refine (docs/methods/densify_3dgut.md).
 
 Mỗi renderer densify theo một đại lượng khác nhau (3DGS: gradient trên ảnh, đơn vị pixel; 3DGUT:
 gradient theo vị trí 3D; 3DGEER: ``geer_gradient``), nên ngưỡng ``densify_grad_thresh`` không dùng

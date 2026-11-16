@@ -1,78 +1,30 @@
-# Exact and Efficient Fisheye Rendering (3DGEER)
+# 3DGEER renderer
 
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/8957f2c7-9888-4cd5-b226-b7aee0cb3ecb" width="80%" style="max-width: 80%; height: auto;" />
-</p>
+## Where the code is
 
-To use 3DGEER with any method:
+- The rasterizer is the `gsplat-geer` package from Bosch Research (`boschresearch/3dgeer`, branch `gsplat-geer`), kept as the submodule `third_party/gsplat-geer`. It adds the argument `with_geer` to `gsplat.rasterization()`.
+- The trainer selects it in `drive2sim/recon/trainers/base.py`: `trainer.render.render_mode: geer` passes `with_geer=True`, and `postprocess_per_train_step` reads `info["geer_gradient"]` for densification.
+- The OmniRe configuration is `drive2sim/configs/methods/omnire_geer.yaml`. It inherits `omnire_nocampose.yaml` and sets `render_mode: geer`, `densify_grad_thresh: 0.01` and `refine_interval: 50`.
 
-1. Install the `gsplat-geer` package.
+## What it does
 
-    ```bash
-    git clone --branch gsplat-geer https://github.com/boschresearch/3dgeer.git ./third_party/3dgeer
-    cd ./third_party/3dgeer
+3DGEER renders each Gaussian by integrating its density exactly along the camera ray of every pixel. It does not project the Gaussian onto the image plane first. Because the computation works on rays, the same code handles pinhole, OpenCV fisheye and F-theta cameras, including fields of view close to or above 180 degrees.
 
-    pip uninstall gsplat
-    pip install -e . --no-build-isolation
-    cd ../..
-    ```
+## First-principles explanation
 
-2. In the method's config `.yaml` file, under `trainer.render`, add:
+A pixel value is the colour accumulated along one ray through the scene. Standard 3D Gaussian Splatting approximates this by projecting each 3D Gaussian to a 2D Gaussian on the image with a local linear approximation of the camera projection. This approximation is accurate for a pinhole camera near the image centre. It becomes inaccurate when the projection is strongly non-linear, which is the case for wide-angle and fisheye lenses and for large Gaussians near the image border. 3DGEER avoids the approximation. It evaluates each 3D Gaussian directly along the 3D ray of the pixel in closed form, so the contribution does not depend on a linearised projection. The result stays correct for any camera model that can produce a ray per pixel.
 
-    ```yaml
-    render_mode: geer # one of default | geer | ut
-    ```
+Densification needs a signal that says which Gaussians should be split or cloned. 3DGEER does not produce the screen-space gradient that 3D Gaussian Splatting uses. It returns its own quantity, `geer_gradient`, which accumulates absolute per-pixel contributions and scales them with distance.
 
-    Remove `CamPose` from `model`.
+## Difference from the original code, method or paper
 
-    To train on native distorted images, set the following in the dataset config:
+- The renderer is the method of Bosch's 3DGEER release. The renderer integration into DriveStudio follows Bosch's DriveStudio patch, which adds `render_mode` (`default`, `ut`, `geer`) to `trainers/base.py`.
+- Bosch's `omnire_geer.yaml` densifies every 300 steps. This project densifies every 50 steps (`refine_interval: 50`). On a nuScenes scene with three cameras and 30 000 steps, this setting gave slightly better image metrics than 300 steps, at the cost of about 6 % longer training, 0.7 GB more GPU memory and 23 % more Gaussians. Street Gaussians with 3DGEER still uses 300 because 50 was not tested there.
+- 3DGEER cannot optimise camera poses, so `CamPose` is removed from the model in every 3DGEER configuration.
 
-    ```yaml
-    data:
-      pixel_source:
-        undistort: False # set True to rectify images to pinhole geometry when loading
-    ```
+## Limits, risks and possible gains
 
-    Native training uses the dataset's camera calibration and requires UT or GEER with support for that camera model.
-
-    For [Waymo](../datasets/waymo.md) and [PhysicalAI](../datasets/physicalai.md), native training and recorded-camera evaluation use exposure-start/end poses to model rolling shutter. Keep `CamPose` and `CamPosePerturb` disabled. Viewer and novel-view renders use a global shutter.
-
-    To render a fisheye novel-view video, configure `render.render_novel` in the method config:
-
-    ```yaml
-    render_novel:
-      camera_model: fisheye
-      render_mode: geer # one of geer | ut
-      traj_types:
-        - front_center_interp
-      fov: 180.0 # degrees
-      radial_coeffs: [0.0, 0.0, 0.0, 0.0]
-      fps: 24
-    ```
-
-    To save a separate FTheta novel-view video, add the following under `render`:
-
-    ```yaml
-    render_ftheta:
-      render_mode: geer # one of geer | ut
-      traj_types:
-        - front_center_interp
-      camera_id: 0 # dataset camera supplying FTheta calibration
-      fps: 24
-    ```
-
-    This writes `novel_ftheta_<step>/<trajectory>.mp4` under `videos/` after training or `videos_eval/` during evaluation. Optional `frames`, `height`, and `width` control the video length and resolution. Use `ftheta_parameters` for a calibration JSON path or mapping instead of the source camera's calibration; omit `fov` and `radial_coeffs`. Set `render_ftheta: null` or `False` to disable it. Unspecified trajectory, frame count, and FPS settings inherit from `render_novel` when available.
-
-    An example OmniRe + 3DGEER config can be found [here](../../drive2sim/configs/methods/omnire_geer.yaml). It inherits `omnire_nocampose.yaml` with `extends:` and lists only the GEER-specific settings (`render_mode`, `refine_interval`, `densify_grad_thresh`).
-
-3. Train and evaluate the model according to the [README](../../README.md#training).
-
-4. Open the interactive viewer:
-
-    ```shell
-    python -m drive2sim.recon.tools.viewer --ckpt $ckpt_path --port 8080
-    ```
-
-    Open `http://localhost:8080` to scrub scene time, toggle Gaussian groups, switch between pinhole, fisheye and calibrated FTheta cameras, and export camera-path videos.
-
-Note: GEER training requires `gsplat-geer` to return `info["geer_gradient"]` for densification. Its gradient scale differs from default 3DGS and 3DGUT, so their densification thresholds are not interchangeable.
+- The densification threshold of 3DGEER (`0.01`) is on a different scale from the threshold of 3D Gaussian Splatting (`0.0005`) and of 3DGUT. The thresholds cannot be exchanged between renderers.
+- On the pinhole nuScenes scene, OmniRe with 3DGEER scored about 3 dB PSNR lower than OmniRe with the standard renderer, while the human and vehicle regions were close. The gap is therefore mainly in the static background. The cause is not yet known.
+- Training is limited to the cameras that `gsplat-geer` supports. Rolling shutter is modelled only for datasets that provide exposure start and end poses.
+- A possible gain is to replace the gradient threshold with MCMC densification (`densify_mcmc.md`), which does not depend on the renderer's gradient scale.
