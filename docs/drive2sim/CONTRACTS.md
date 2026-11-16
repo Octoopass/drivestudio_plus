@@ -355,7 +355,7 @@ runs/<scene_id>/<approach_id>/<run_id>/
         │   ├── checkpoint_resume.pth    # model + optimizer + grad scaler; xoá khi train xong
         │   ├── checkpoint_final.pth
         │   ├── train_stats.json         # thời gian train thực, VRAM, số Gaussian, iteration; ghi cùng mỗi checkpoint
-│   ├── cameras.json             # pose và nội tham số camera gốc theo khung (mục 7)
+        │   ├── cameras.json             # pose và nội tham số camera gốc theo khung (mục 7)
         │   ├── log.txt                  # stdout và stderr của train.py
         │   ├── artifact.json
         │   └── done
@@ -364,6 +364,29 @@ runs/<scene_id>/<approach_id>/<run_id>/
 ```
 
 Gốc thư mục run chỉ có `d2s/`, nên file của tool không trùng tên với file của codebase.
+
+**Video trong `train.drivestudio/videos/`.** `train.py` gọi `do_evaluation` (`drive2sim/recon/tools/eval.py`) sau khi train xong; hầu hết video do model render ra, chỉ file đuôi `_gt_rgbs` là ảnh camera thật. Tên file có số bước, ví dụ `full_set_30000_rgbs.mp4`.
+
+| Video | Camera đặt ở đâu | Là gì |
+|---|---|---|
+| `full_set_*` | Đúng vị trí camera thật, **mọi khung** (cả khung train lẫn khung test) | Model render lại toàn bộ đoạn lái xe |
+| `test_set_*` | Đúng vị trí camera thật, **chỉ các khung test**: cứ 10 khung giữ lại 1 (`test_image_stride: 10`), model không được học các khung này | Đây là phần đo chất lượng thật: PSNR, SSIM, LPIPS tính trên các khung này |
+| `novel/front_center_interp.mp4` | **Đường đi mới**: lấy 5 vị trí của camera trước (cách đều theo thời gian) rồi nối thành đường cong mượt, 24 khung/giây | Góc nhìn camera chưa từng chụp; **không có ảnh thật** để so |
+
+| Đuôi | Nội dung |
+|---|---|
+| `_gt_rgbs` | **Ảnh camera thật** (ground truth), đã hạ cỡ như lúc train (nuScenes: 800×450) |
+| `_rgbs` | Ảnh model render đầy đủ (nền, xe, người, trời ghép lại) |
+| `_Background_rgbs` | Chỉ phần nền |
+| `_RigidNodes_rgbs` | Chỉ xe |
+| `_SMPLNodes_rgbs` | Chỉ người |
+| `_DeformableNodes_rgbs` | Chỉ vật biến dạng |
+| `_Dynamic_rgbs` | Mọi vật chuyển động (xe, người, vật biến dạng) |
+
+- **`full_set` trông đẹp hơn thực tế.** Khoảng 90 % khung trong đó model đã thấy lúc train, nên gần như "học thuộc".
+- **Muốn biết model tốt đến đâu, xem `test_set`.** Đặt `test_set_..._rgbs` cạnh `test_set_..._gt_rgbs` để so cùng khung.
+- **`novel` cho thấy chất lượng khi đi lệch khỏi đường xe đã chạy.** Đó là thứ cần cho mô phỏng, nhưng không đo được bằng số vì không có ảnh thật.
+- Danh sách video theo `render_keys` trong `train.py`; bật `render.vis_lidar`, `render.vis_sky`, `render.vis_error` trong config thì có thêm `lidar_on_images`, `rgb_sky_blend`/`rgb_sky`, `rgb_error_maps`. Đường đi `novel` theo `render.render_novel.traj_types` (`front_center_interp`, `s_curve`, `three_key_poses`, `drive2sim/recon/utils/camera.py`).
 
 Huỷ run (`d2s run cancel`, `POST /api/runs/{run_id}/cancel`) chỉ ghi file `cancel`, nên huỷ được từ tiến trình khác. Engine kiểm tra file này trước mỗi stage; stage đang chạy một tiến trình con thì kiểm tra mỗi giây, gửi SIGTERM cho cả nhóm tiến trình, chờ 10 giây rồi SIGKILL. Stage bị huỷ có trạng thái `cancelled` và chạy tiếp được bằng `run resume`. Run có trạng thái `running` mà không có tiến trình nào giữ `pid` (máy tắt giữa chừng) thì lệnh huỷ đổi ngay sang `cancelled`.
 
