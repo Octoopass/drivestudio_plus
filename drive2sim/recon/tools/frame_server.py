@@ -9,7 +9,8 @@ trời, chỉnh màu Affine), nên giống ảnh trong video của stage train.
 HTTP nội bộ (chỉ ``127.0.0.1``):
 - ``GET /health``: ``{"ready": true, "num_frames": F}``.
 - ``POST /render`` với JSON ``{"c2w": 16 số theo hàng (OpenCV, hệ world của DriveStudio),
-  "K": 9 số theo hàng, "width", "height", "frame"}``: trả JPEG, header ``X-Render-Ms`` là thời gian
+  "K": 9 số theo hàng, "width", "height", "frame", "camera"}`` (``camera``: thứ tự camera trong
+  ``cameras.json``, quyết định ma trận chỉnh màu): trả JPEG, header ``X-Render-Ms`` là thời gian
   vẽ.
 
     python -m drive2sim.recon.tools.frame_server --ckpt <checkpoint_final.pth> \\
@@ -98,8 +99,16 @@ def make_renderer(
     state.preview_render = False
     lock = threading.Lock()
 
-    def render(c2w: np.ndarray, K: np.ndarray, width: int, height: int, at: int) -> np.ndarray:
+    options = tools.get("camera_snap_options", ())
+
+    def render(
+        c2w: np.ndarray, K: np.ndarray, width: int, height: int, at: int, camera: int = 0
+    ) -> np.ndarray:
         with lock:  # một ảnh một lúc: model giữ khung hiện tại trong trạng thái
+            # Chỉnh màu (Affine) lấy theo ảnh của camera này ở khung đó, như viewer GPU lấy theo
+            # camera đang chọn; trang Xem 3D áp đúng ma trận đó lên bản trình duyệt.
+            if options and "camera_snap_setter" in tools:
+                tools["camera_snap_setter"](options[max(0, min(int(camera), len(options) - 1))])
             frame["value"] = max(0, min(int(at), num_frames - 1))
             _set_frame_on_trainer(trainer, frame["value"])
             state.viewer_width, state.viewer_height = int(width), int(height)
@@ -143,7 +152,9 @@ def serve(render: Callable[..., np.ndarray], num_frames: int, host: str, port: i
                 c2w = np.asarray(body["c2w"], dtype=np.float64).reshape(4, 4)
                 K = np.asarray(body["K"], dtype=np.float64).reshape(3, 3)
                 started = time.perf_counter()
-                image = render(c2w, K, width, height, int(body.get("frame", 0)))
+                image = render(
+                    c2w, K, width, height, int(body.get("frame", 0)), int(body.get("camera", 0))
+                )
                 elapsed_ms = (time.perf_counter() - started) * 1000
             except (KeyError, ValueError, TypeError) as error:
                 return self._json(400, {"error": str(error)})

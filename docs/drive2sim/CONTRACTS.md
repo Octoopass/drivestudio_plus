@@ -510,11 +510,13 @@ runs/.../<run_id>/d2s/stages/export.preview/
 ├── human_bones.bin              # ma trận 24 xương của mọi người theo khung
 ├── human_poses.json             # vị trí của từng người theo khung
 ├── sky_cube.jpg                 # cubemap trời của model, nếu có
+├── color_affine.bin             # ma trận chỉnh màu 3×4 của từng ảnh (khung, camera), nếu có
 └── cameras.json                 # chép từ stage train, nếu có
 ```
 
 - File Gaussian từ bản 0.2 là SPZ bản 3 (`drive2sim/recon/tools/spz.py`, chỉ cần numpy): header 16 byte (`magic` 0x5053474e, `version` 3, số Gaussian, bậc SH, số bit phần lẻ, `flags`, 1 byte dự trữ), rồi vị trí (3 số 24 bit, 12 bit phần lẻ, ít hơn khi cảnh rộng quá 2 km), độ đục, màu, kích thước, hướng ("smallest-three" 4 byte), SH (theo hệ số rồi theo kênh màu), nén gzip. Toạ độ giữ nguyên như PLY. Nền của run `f8a6` (388.408 Gaussian): PLY 96,3 MB, SPZ 8,7 MB; sai số vị trí tối đa 0,24 mm, hướng trung bình 0,08°; bố cục byte khớp file do `writeSpz` của Spark ghi từ cùng dữ liệu; ảnh vẽ bằng Spark từ SPZ so với từ PLY ở cùng camera: PSNR 35,7 dB.
 - Người: `humans/<track_id>.skin` là uint16 little-endian, 4 số mỗi Gaussian theo đúng thứ tự trong `.spz`, mỗi số `trọng số 8 bit | (chỉ số xương << 8)` như `SplatSkinning.setSplatBones` của Spark. Trọng số lấy như `SMPLTemplate.forward` (lưới `voxel_deformer` tại vị trí gốc), giữ 4 xương lớn nhất rồi nhân để tổng bằng tổng gốc. `human_bones.bin` là float32 (F khung, H người, 24 xương, 12 số): 3 cột phần xoay rồi phần dời của ma trận xương (`batch_rigid_transform` của smplx trên góc khớp trong checkpoint, nhân `A0_inv`), không cần file mô hình SMPL. `human_poses.json`: `{"track_ids": [H tên], "T_object_world": [F][H]}`, mỗi phần tử là ma trận dời 4x4 (16 số theo hàng) cộng sau khi uốn, hoặc `null` khi người không có mặt. Trang Xem 3D uốn người bằng `SplatSkinning` chế độ dual quaternion: lệch so với linear blend của OmniRe trung bình 4 mm, 99% điểm dưới 3,3 cm (đo trên run `f8a6`); chế độ linear blend của Spark 2.4.0 cần `covSplats`, mà đường đó thiếu bộ sắp xếp độ sâu nên không vẽ được. SH của người chỉ có bậc 1; viewer giới hạn bậc SH của người ở 1.
+- `color_affine.bin`: ma trận chỉnh màu của `AffineTransform` cho từng ảnh train, float32 (F khung, C camera, 12): ma trận 3×4 theo hàng, `rgb' = A·rgb + b` (đã cộng ma trận đơn vị); ảnh (khung f, camera c) có chỉ số `f × C + c` như `unique_img_idx` của loader, `c` theo thứ tự `cameras.json`. Trang Xem 3D áp ma trận của camera đang chọn (đường novel: camera đầu) ở khung đang xem lên ảnh đã ghép, bằng cách chép ảnh màn hình rồi vẽ lại qua một shader; frame server nhận cùng chỉ số camera (`camera` trong `render-frame`) nên ảnh chính xác dùng cùng ma trận. Đo ở run `f8a6`: ma trận gần đơn vị (đường chéo khoảng 0,995), Gói xem trước so với ảnh renderer gốc tăng 28,61 → 28,83 dB.
 - `sky_cube.jpg`: `EnvLight.base` (6 mặt, thứ tự OpenGL +x, -x, +y, -y, +z, -z) xếp 3 cột × 2 hàng, mặt `i` ở cột `i % 3`, hàng `i // 3`; trong mỗi mặt hàng ảnh là toạ độ `t`, cột là `s` của bảng chọn mặt OpenGL, khớp `nvdiffrast.texture(boundary_mode="cube")` (đã so 100% điểm). Hướng tra là `EnvLight.to_opengl @ hướng nhìn world`. Viewer vẽ trời sau mọi splat, như OmniRe ghép `rgb + sky × (1 − opacity)`.
 
 - File `.ply` theo định dạng PLY của 3DGS gốc: `x, y, z`, `f_dc_*`, `f_rest_*`, `opacity`, `scale_*`, `rot_*`. Mọi PLY do tool xuất (`scene.ply`, `background.ply`, `actors/*.ply`) có dòng header `comment drive2sim up=<trục> frame=drivestudio_world units=m`, ví dụ `up=-y`. Trục lên tuỳ dataset vì hệ world của DriveStudio lấy theo camera trước ở khung đầu (nuScenes, KITTI, PandaSet: `-y`; Waymo: `+z`), nên được suy từ pose camera (`cameras.json` cạnh checkpoint): cộng hướng lên (`-y` của camera OpenCV) của mọi camera, mọi khung rồi lấy trục gần nhất; không có `cameras.json` thì bỏ phần `up=`. Trang Xem 3D đọc dòng này khi kéo thả file; PLY xuất trước 16/11/2026 ghi cứng `up=+z`, sai với nuScenes. PLY từ nơi khác không có dòng này thì trang đoán trục lên từ mặt đường (mục 2.13 của ARCHITECTURE).
@@ -534,8 +536,9 @@ runs/.../<run_id>/d2s/stages/export.preview/
   "rigid_actors": ["rigid_0000", "rigid_0001"],
   "humans": ["smpl_0000"],
   "sky": "sky_cube.jpg",
+  "color_affine": "color_affine.bin",
   "box_only_actors": ["deformable_0000"],
-  "omitted": ["per_camera_color", "fisheye", "DeformableNodes"]
+  "omitted": ["fisheye", "DeformableNodes"]
 }
 ```
 

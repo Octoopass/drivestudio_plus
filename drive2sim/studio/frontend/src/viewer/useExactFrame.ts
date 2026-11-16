@@ -1,7 +1,8 @@
-// Chế độ "Kết hợp" của trang Xem 3D: kéo, xoay thì trình duyệt vẽ Gói xem trước (mượt); camera đứng
-// yên khoảng 0,3 giây thì xin máy chạy Studio vẽ đúng khung đó bằng renderer gốc của model (frame
+// Ảnh chính xác của chế độ Gói xem trước: kéo, xoay thì trình duyệt vẽ gói (mượt); camera đứng yên
+// khoảng 0,3 giây thì xin máy chạy Studio vẽ đúng khung đó bằng renderer gốc của model (frame
 // server, cùng code với viewer GPU và video của stage train) rồi đè ảnh lên. Camera hay khung đổi
-// thì ảnh đè ẩn ngay, chờ lần dừng sau.
+// thì ảnh đè ẩn ngay, chờ lần dừng sau. Luôn bật; máy không vẽ được (không có GPU NVIDIA, thiếu
+// PyTorch, run thiếu checkpoint, hết VRAM) thì lặng lẽ chỉ còn bản trình duyệt.
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { api, post, seg } from "../api/client";
 import type { SplatViewer } from "./engine";
@@ -12,7 +13,7 @@ const SETTLE_MS = 300;
 const MAX_HEIGHT = 900;
 const POLL_MS = 1500;
 
-export type ExactState = "off" | "loading" | "ready" | "rendering" | "error";
+export type ExactState = "off" | "unavailable" | "loading" | "ready" | "rendering" | "error";
 
 interface GpuStatus {
   state: "stopped" | "starting" | "running" | "exited";
@@ -27,6 +28,7 @@ export function useExactFrame(
   active: boolean,
   frame: number,
   playing: boolean,
+  camera: number,
 ) {
   const [state, setState] = useState<ExactState>("off");
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +38,8 @@ export function useExactFrame(
   const timer = useRef<number | undefined>(undefined);
   const frameRef = useRef(frame);
   frameRef.current = frame;
+  const cameraRef = useRef(camera);
+  cameraRef.current = camera;
   const playingRef = useRef(playing);
   playingRef.current = playing;
 
@@ -50,6 +54,11 @@ export function useExactFrame(
     setError(null);
     const poll = async () => {
       try {
+        const check = await api<{ ready: boolean }>(`/api/runs/${seg(runId)}/render-check`);
+        if (!check.ready) {
+          if (alive) setState("unavailable");
+          return;
+        }
         await post(`/api/runs/${seg(runId)}/frame-server`, {});
         while (alive) {
           const status = await api<GpuStatus>("/api/gpu-viewer");
@@ -101,7 +110,7 @@ export function useExactFrame(
         const response = await fetch(`/api/runs/${seg(runId)}/render-frame`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ c2w, K, width, height, frame: frameRef.current }),
+          body: JSON.stringify({ c2w, K, width, height, frame: frameRef.current, camera: cameraRef.current }),
         });
         if (!response.ok) throw new Error(await response.text());
         const blob = await response.blob();
@@ -125,7 +134,7 @@ export function useExactFrame(
       v.onCameraChange = undefined;
       window.clearTimeout(timer.current);
     };
-  }, [state === "ready" || state === "rendering", runId, frame, playing]);
+  }, [state === "ready" || state === "rendering", runId, frame, playing, camera]);
 
   return { state, error, image, renderMs };
 }

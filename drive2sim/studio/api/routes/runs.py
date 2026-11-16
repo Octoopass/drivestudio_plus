@@ -383,7 +383,8 @@ def run_splats(run_id: str, request: Request) -> dict:
         ``{"preview": {...} | null, "ply": url | null}``. ``preview`` (khi đã chạy
         ``export.preview``) gồm nội dung ``preview.json`` cộng ``background_url``,
         ``actor_urls`` (``track_id`` → url), ``poses_url``, ``human_urls`` (``track_id`` →
-        ``{"splats", "skin"}``), ``human_poses_url``, ``human_bones_url`` và ``sky_url``;
+        ``{"splats", "skin"}``), ``human_poses_url``, ``human_bones_url``, ``sky_url`` và
+        ``color_affine_url``;
         ``ply`` là ``scene.ply`` của ``export.ply_world``; ``cameras`` là url của
         ``cameras.json`` (pose, thông số camera theo khung, cùng hệ toạ độ với các file trên),
         ``null`` nếu chưa có.
@@ -418,6 +419,9 @@ def run_splats(run_id: str, request: Request) -> dict:
             "human_poses_url": url(preview_dir / "human_poses.json"),
             "human_bones_url": url(preview_dir / "human_bones.bin"),
             "sky_url": url(preview_dir / data["sky"]) if data["sky"] else None,
+            "color_affine_url": (
+                url(preview_dir / data["color_affine"]) if data["color_affine"] else None
+            ),
         }
     # Pose và thông số camera theo khung (train.py ghi, stage xuất chép theo): để mở cảnh ở đúng
     # góc của video. Lấy ở gói xem trước, rồi scene.ply, rồi thư mục train.

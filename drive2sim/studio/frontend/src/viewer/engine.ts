@@ -253,6 +253,9 @@ export class SplatViewer {
   // Spark sắp xếp splat không đồng bộ sau khi camera đổi, nên giữ vẽ thêm một lúc để bản sắp
   // xếp mới kịp hiện. Đứng yên thì không tốn GPU, trang không bị giật.
   private renderUntil = 0;
+  /** Bước chỉnh màu sau khi vẽ (setColorAffine); null là vẽ thẳng ra màn hình. */
+  private affine: { scene: THREE.Scene; camera: THREE.OrthographicCamera; material: THREE.ShaderMaterial } | null = null;
+  private colorTarget: THREE.FramebufferTexture | null = null;
   /** K của camera gốc đang dùng (setCameraPose), null khi nhìn tự do bao quát. */
   private intrinsics: { fx: number; fy: number; cx: number; cy: number; width: number; height: number } | null = null;
   /** Gọi mỗi khi camera đổi (vị trí, hướng, phép chiếu), để trang ẩn ảnh chính xác cũ. */
@@ -321,7 +324,54 @@ export class SplatViewer {
       const toData = new THREE.Matrix3().setFromMatrix4(this.root.matrixWorld).invert();
       this.sky.material.uniforms.worldToData.value.copy(toData);
     }
+    if (!this.affine) {
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
+    // Chỉnh màu của model (AffineTransform): rgb' = A·rgb + b trên ảnh đã ghép (splat + trời). Phép
+    // biến đổi tuyến tính nên áp sau khi ghép cho đúng kết quả như áp lên từng Gaussian và trời.
+    // Vẽ thẳng ra màn hình như khi không chỉnh rồi chép lại ảnh màn hình: vẽ vào bộ đệm riêng thì
+    // Spark trộn các splat trong màu tuyến tính, sáng hơn ảnh gốc (đo: +4 mức với ma trận đơn vị).
+    const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    if (!this.colorTarget || this.colorTarget.image.width !== size.x || this.colorTarget.image.height !== size.y) {
+      this.colorTarget?.dispose();
+      this.colorTarget = new THREE.FramebufferTexture(size.x, size.y);
+      this.affine.material.uniforms.image.value = this.colorTarget;
+    }
     this.renderer.render(this.scene, this.camera);
+    this.renderer.copyFramebufferToTexture(this.colorTarget);
+    this.renderer.render(this.affine.scene, this.affine.camera);
+  }
+
+  /**
+   * Ma trận chỉnh màu 3×4 theo hàng (`rgb' = A·rgb + b`) của ảnh (camera, khung) đang xem, như
+   * renderer gốc áp; null là không chỉnh.
+   */
+  setColorAffine(matrix: ArrayLike<number> | null): void {
+    if (!matrix) {
+      this.affine = null;
+      this.invalidate();
+      return;
+    }
+    if (!this.affine) {
+      const material = new THREE.ShaderMaterial({
+        uniforms: { image: { value: this.colorTarget }, A: { value: new THREE.Matrix3() }, b: { value: new THREE.Vector3() } },
+        vertexShader: "varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }",
+        fragmentShader:
+          // Ảnh màn hình đã ở màu hiển thị, cùng không gian với ảnh train nơi model học ma trận.
+          "uniform sampler2D image; uniform mat3 A; uniform vec3 b; varying vec2 vUv;" +
+          "void main() { vec3 c = texture2D(image, vUv).rgb; gl_FragColor = vec4(clamp(A * c + b, 0.0, 1.0), 1.0); }",
+        depthTest: false,
+        depthWrite: false,
+      });
+      const scene = new THREE.Scene();
+      scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material));
+      this.affine = { scene, camera: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), material };
+    }
+    const m = matrix;
+    this.affine.material.uniforms.A.value.set(m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]);
+    this.affine.material.uniforms.b.value.set(m[3], m[7], m[11]);
+    this.invalidate();
   }
 
   /**
@@ -746,6 +796,7 @@ export class SplatViewer {
     this.controls.dispose();
     // Giải phóng tài nguyên GPU của Spark và trả hẳn context WebGL: trình duyệt chỉ cho khoảng 16
     // context cùng lúc, mỗi lần vào trang Xem 3D lại tạo một cái mới.
+    this.colorTarget?.dispose();
     this.spark.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();

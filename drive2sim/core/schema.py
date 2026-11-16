@@ -1235,6 +1235,8 @@ class Preview(VersionedFile):
         rigid_actors: ``track_id`` của các xe có Gaussian riêng.
         humans: ``track_id`` của các người có Gaussian và skin trong gói.
         sky: Tên file cubemap trời trong gói, ``None`` nếu model không có trời.
+        color_affine: Tên file ma trận chỉnh màu của từng ảnh (camera, khung), ``None`` nếu model
+            không có ``Affine``.
         box_only_actors: ``track_id`` của actor chưa có Gaussian trong gói, chỉ hiện bằng box.
         omitted: Những phần của model không có trong gói, ví dụ ``["DeformableNodes"]``.
     """
@@ -1248,6 +1250,7 @@ class Preview(VersionedFile):
     rigid_actors: list[str] = []
     humans: list[str] = []
     sky: Optional[str] = None
+    color_affine: Optional[str] = None
     box_only_actors: list[str] = []
     omitted: list[str] = []
 

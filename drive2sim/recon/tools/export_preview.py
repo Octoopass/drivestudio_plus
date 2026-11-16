@@ -11,6 +11,7 @@ và phần động, để trình duyệt tự đặt phần động theo khung (
   trình duyệt uốn người bằng ``SplatSkinning`` của Spark (cộng có trọng số chuyển động các xương,
   như ``SMPLNodes.transform_means_and_quats``);
 - ``sky_cube.jpg``: cubemap trời (``EnvLight``), 6 mặt xếp 3 cột × 2 hàng;
+- ``color_affine.bin``: ma trận chỉnh màu 3×4 của từng ảnh (camera, khung) (``AffineTransform``);
 - ``preview.json``: gói có gì và thiếu gì.
 
 Vật biến dạng (``DeformableNodes``) chưa có Gaussian trong gói, chỉ được liệt kê trong
@@ -42,6 +43,7 @@ from drive2sim.recon.tools.spz import write_spz
 
 SCHEMA_VERSION = "d2s-preview/0.2"
 SKY_FILE = "sky_cube.jpg"
+AFFINE_FILE = "color_affine.bin"
 NUM_BONES = 24  # khớp của SMPL
 SKIN_BONES = 4  # Spark giữ tối đa 4 xương mỗi Gaussian
 
@@ -195,6 +197,24 @@ def _export_sky(state: dict, out: str) -> str:
     return SKY_FILE
 
 
+def _export_color_affine(state: dict, out: str, num_frames: int, num_cameras: int) -> str:
+    """Ghi ma trận chỉnh màu (``AffineTransform``) của mọi ảnh train: ``color_affine.bin``.
+
+    float32 little-endian (F khung, C camera, 12): ma trận 3×4 theo hàng, ``rgb' = A·rgb + b``
+    (đã cộng ma trận đơn vị như ``AffineTransform.forward``). Ảnh ``(khung f, camera c)`` có chỉ số
+    ``f × C + c`` như ``unique_img_idx`` của loader, ``c`` theo thứ tự camera của ``cameras.json``.
+    """
+    embedding = state["embedding.weight"].float()
+    hidden = torch.relu(embedding @ state["decoder.0.weight"].float().T + state["decoder.0.bias"])
+    affine = (hidden @ state["decoder.2.weight"].float().T + state["decoder.2.bias"]).reshape(
+        -1, 3, 4
+    )
+    affine[:, :, :3] += torch.eye(3)
+    affine = affine[: num_frames * num_cameras].reshape(num_frames, num_cameras, 12)
+    affine.numpy().astype("<f4").tofile(os.path.join(out, AFFINE_FILE))
+    return AFFINE_FILE
+
+
 def _antialiased(ckpt: str) -> bool:
     """Model có train với chế độ chống răng cưa của gsplat không (``render.antialiased``)."""
     path = os.path.join(os.path.dirname(ckpt), "config.yaml")
@@ -247,9 +267,15 @@ def main() -> None:
     if "SMPLNodes" in models:
         _, humans = _export_humans(models["SMPLNodes"], args.out, args.min_opacity)
     sky = _export_sky(models["Sky"], args.out) if "base" in models.get("Sky", {}) else None
+    affine = None
+    cameras_path = os.path.join(os.path.dirname(args.ckpt), CAMERAS_FILE)
+    if "embedding.weight" in models.get("Affine", {}) and os.path.isfile(cameras_path):
+        with open(cameras_path) as file:
+            cams = json.load(file)["cameras"]
+        affine = _export_color_affine(models["Affine"], args.out, len(cams[0]["c2w"]), len(cams))
 
     box_only: list[str] = []
-    omitted = ["per_camera_color", "fisheye"] + ([] if sky else ["sky"])
+    omitted = ["fisheye"] + ([] if sky else ["sky"]) + ([] if affine else ["per_camera_color"])
     if "DeformableNodes" in models:
         count = models["DeformableNodes"]["instances_fv"].shape[1]
         box_only += [f"deformable_{k:04d}" for k in range(count)]
@@ -267,6 +293,7 @@ def main() -> None:
         "rigid_actors": rigid_actors,
         "humans": humans,
         "sky": sky,
+        "color_affine": affine,
         "box_only_actors": box_only,
         "omitted": omitted,
     }

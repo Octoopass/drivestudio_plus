@@ -34,8 +34,8 @@ function defaultCamera(cameras: SceneCamera[]): number {
 type CameraPath = "free" | "camera" | "novel";
 
 const ACCEPT = ".ply,.spz,.splat,.ksplat,.sog,.zip";
-type Source = "preview" | "hybrid" | "ply" | "video" | "gpu" | "file";
-const SPLAT_SOURCES: Source[] = ["preview", "hybrid", "ply", "file"];
+type Source = "preview" | "ply" | "video" | "gpu" | "file";
+const SPLAT_SOURCES: Source[] = ["preview", "ply", "file"];
 // Tốc độ phát, khung dữ liệu mỗi giây: nuScenes trong DriveStudio khoảng 10 khung mỗi giây.
 const PLAYBACK_FPS = 10;
 // Bảng điều khiển thu gọn hay mở, nhớ theo trình duyệt (chỉ là tiện lợi; lỗi bộ nhớ thì bỏ qua).
@@ -83,6 +83,8 @@ export function ViewerPage({ runId }: { runId?: string }) {
   const [cameraIndex, setCameraIndex] = useState(0);
   // Camera khi phát: tự do, bám camera gốc đang chọn, hoặc đi theo đường novel (như video novel).
   const [path, setPath] = useState<CameraPath>("free");
+  // Ma trận chỉnh màu 3×4 của từng ảnh (khung, camera) trong gói xem trước.
+  const [affine, setAffine] = useState<{ data: Float32Array; cameras: number } | null>(null);
   const follow = path !== "free";
   const setFollow = (value: boolean) => setPath(value ? "camera" : "free");
   const [sh, setSh] = useState(3);
@@ -155,6 +157,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
       setError(null);
       setCount(null);
       setPoses(null);
+      setAffine(null);
       setProgress(0);
       let sources: SplatSource[] = [];
       let actorIds: string[] = [];
@@ -169,7 +172,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
         sources = [{ name: file.name, bytes: await file.arrayBuffer() }];
       } else if (source === "ply" && splats.data?.ply) {
         sources = [{ name: "scene.ply", url: splats.data.ply }];
-      } else if ((source === "preview" || source === "hybrid") && splats.data?.preview) {
+      } else if (source === "preview" && splats.data?.preview) {
         const preview = splats.data.preview;
         const ext = preview.splat_format;
         if (preview.background_url) sources.push({ name: `background.${ext}`, url: preview.background_url });
@@ -181,13 +184,19 @@ export function ViewerPage({ runId }: { runId?: string }) {
       let total = await v.load(sources, actorIds, (fraction) => alive && setProgress(fraction));
       if (!alive || total === null) return;
       // Gói xem trước: cách làm mờ theo lúc train, trời, người uốn theo xương.
-      const preview = source === "preview" || source === "hybrid" ? splats.data?.preview : null;
+      const preview = source === "preview" ? splats.data?.preview : null;
       v.setAntialiased(preview?.antialiased ?? true);
       if (preview) {
         await v.setSky(preview.sky_url);
         const humans = Object.entries(preview.human_urls)
           .filter(([, urls]) => urls.splats && urls.skin)
           .map(([name, urls]) => ({ name, url: urls.splats as string, skinUrl: urls.skin as string }));
+        if (preview.color_affine_url && loadedCameras?.length) {
+          const buffer: ArrayBuffer = await (await fetch(preview.color_affine_url)).arrayBuffer();
+          const data = new Float32Array(buffer);
+          if (!alive) return;
+          setAffine({ data, cameras: loadedCameras.length });
+        }
         if (humans.length && preview.human_poses_url && preview.human_bones_url) {
           const [motion, bones] = await Promise.all([
             api<Omit<HumanMotion, "bones">>(preview.human_poses_url),
@@ -325,11 +334,21 @@ export function ViewerPage({ runId }: { runId?: string }) {
     return () => cancelAnimationFrame(handle);
   }, [playing, poses]);
 
-  const exact = useExactFrame(viewer, runId, source === "hybrid", frame, playing);
+  // Camera quyết định ma trận chỉnh màu: camera đang chọn, hoặc camera đầu (đường novel dựng từ đó).
+  const colorCamera = path === "novel" ? 0 : cameraIndex;
+  const exact = useExactFrame(viewer, runId, source === "preview", frame, playing, colorCamera);
+  useEffect(() => {
+    const v = viewer.current;
+    if (!v) return;
+    if (!affine) return v.setColorAffine(null);
+    const frames = affine.data.length / (affine.cameras * 12);
+    const offset = (Math.min(frame, frames - 1) * affine.cameras + Math.min(colorCamera, affine.cameras - 1)) * 12;
+    v.setColorAffine(affine.data.subarray(offset, offset + 12));
+  }, [affine, frame, colorCamera]);
   // Tiến trình GPU (viewer của Render GPU, frame server của Kết hợp) giữ model trong VRAM: tắt khi
   // rời chế độ, rời trang hay đóng tab, để GPU nhỏ (4 GB) còn chỗ cho lần bật sau.
   useEffect(() => {
-    const kind = source === "gpu" ? "viewer" : source === "hybrid" ? "frames" : null;
+    const kind = source === "gpu" ? "viewer" : source === "preview" ? "frames" : null;
     if (!kind) return;
     const stop = () => void fetch(`/api/gpu-viewer?kind=${kind}`, { method: "DELETE", keepalive: true }).catch(() => undefined);
     window.addEventListener("pagehide", stop);
@@ -459,7 +478,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
       }}
     >
       <div className="viewer-stage" ref={host} />
-      {source === "hybrid" && exact.image && <img className="exact-frame" src={exact.image} alt="" />}
+      {source === "preview" && exact.image && <img className="exact-frame" src={exact.image} alt="" />}
       {source === "video" && videoUrl && (
         <div className="viewer-overlay">
           <video key={videoUrl} src={videoUrl} controls autoPlay loop muted />
@@ -499,8 +518,8 @@ export function ViewerPage({ runId }: { runId?: string }) {
           {progress !== null && <span className="tag glass">{t("viewer.hud.loading", { percent: Math.round(progress * 100) })}</span>}
           {count !== null && <span className="tag glass">{t("viewer.hud.count", { count: count.toLocaleString() })}</span>}
           {poses && <span className="tag glass">{t("viewer.hud.actors", { count: poses.track_ids.length })}</span>}
-          {source === "hybrid" && (
-            <span className="tag glass" title={exact.error ?? t("viewer.exact.hint")}>
+          {source === "preview" && ["loading", "rendering", "ready"].includes(exact.state) && (
+            <span className="tag glass" title={t("viewer.exact.hint")}>
               {t(`viewer.exact.${exact.state}`, { ms: exact.renderMs ?? "–" })}
             </span>
           )}
@@ -532,7 +551,6 @@ export function ViewerPage({ runId }: { runId?: string }) {
                   {(
                     [
                       ["preview", !!splats.data.preview],
-                      ["hybrid", !!splats.data.preview],
                       ["ply", !!splats.data.ply],
                       ["video", videoItems.length > 0],
                       ["gpu", true],
