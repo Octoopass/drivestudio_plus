@@ -462,19 +462,29 @@ export function duration(seconds: number | null | undefined): string {
 }
 
 /** Thời gian đã qua kể từ một mốc, dạng ngắn theo ngôn ngữ đang dùng. */
+/**
+ * Thời điểm dễ đọc: trong vòng 24 giờ ghi tương đối ("5 phút trước", "3 giờ trước"); xa hơn ghi ngày
+ * tháng năm và giờ cụ thể ("16/11/2026 14:05"), vì "hôm qua", "3 ngày trước" phải tự nhẩm ra ngày
+ * và lệch dần khi trang để mở lâu.
+ */
 export function ago(date: string | number | null | undefined, locale: string): string {
   if (date === null || date === undefined) return "–";
   const ms = typeof date === "number" ? date * 1000 : Date.parse(date);
+  if (Number.isNaN(ms)) return "–";
   const seconds = (ms - Date.now()) / 1000;
+  if (Math.abs(seconds) >= 86400) {
+    // Ghép ngày rồi giờ: định dạng gộp của tiếng Việt đặt giờ trước ("12:32 14/11/2026").
+    const day = new Intl.DateTimeFormat(locale, { day: "2-digit", month: "2-digit", year: "numeric" }).format(ms);
+    const time = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", hour12: false }).format(ms);
+    return `${day} ${time}`;
+  }
   const format = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
   const steps: [number, Intl.RelativeTimeFormatUnit][] = [
     [60, "second"],
     [3600, "minute"],
     [86400, "hour"],
-    [604800, "day"],
-    [Infinity, "week"],
   ];
-  const divisors = [1, 60, 3600, 86400, 604800];
+  const divisors = [1, 60, 3600];
   const index = steps.findIndex(([limit]) => Math.abs(seconds) < limit);
   return format.format(Math.round(seconds / divisors[index]), steps[index][1]);
 }
