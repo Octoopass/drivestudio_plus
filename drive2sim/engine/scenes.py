@@ -15,7 +15,7 @@ from collections.abc import Sequence
 from typing import Optional
 
 from drive2sim.core import files
-from drive2sim.core.schema import Manifest, Split, parse_strategy
+from drive2sim.core.schema import CAMERA_TRACK, Manifest, Split, parse_strategy
 from drive2sim.core.split import make_split
 from drive2sim.engine.workdir import Workdir
 
@@ -77,11 +77,19 @@ def default_split_id(strategy: str, cameras: Sequence[str], manifest: Manifest) 
         manifest: Manifest của cảnh.
 
     Returns:
-        ``every<N>_allcams`` khi dùng mọi camera của cảnh, ngược lại ``every<N>_<k>cams``, ví dụ
-        ``every8_3cams``.
+        Cảnh chỉ có một loại ống kính (theo ``CAMERA_TRACK``): ``every<N>_allcams`` khi dùng mọi
+        camera của cảnh, ngược lại ``every<N>_<k>cams``, ví dụ ``every8_3cams``. Cảnh có cả pinhole
+        lẫn mắt cá (KITTI-360): tên ghi loại ống kính của các camera đã chọn và số camera,
+        ``every<N>_pinhole<k>``, ``every<N>_fisheye<k>`` hoặc ``every<N>_mixed<k>``, để nhìn tên
+        là biết run dùng camera nào.
     """
     _, n = parse_strategy(strategy)
     all_cameras = [camera.camera_id for camera in manifest.cameras]
+    scene_tracks = {CAMERA_TRACK[camera.model] for camera in manifest.cameras}
+    if len(scene_tracks) > 1:
+        tracks = {CAMERA_TRACK[manifest.camera(camera_id).model] for camera_id in cameras}
+        lens = tracks.pop() if len(tracks) == 1 else "mixed"
+        return f"every{n}_{lens}{len(cameras)}"
     group = "allcams" if sorted(cameras) == sorted(all_cameras) else f"{len(cameras)}cams"
     return f"every{n}_{group}"
 

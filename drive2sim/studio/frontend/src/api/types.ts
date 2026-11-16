@@ -33,6 +33,8 @@ export interface SceneDetail {
   manifest: Manifest;
   validation: ValidationReport | null;
   splits: string[];
+  /** Camera của từng split (``{split_id: [camera_id]}``), để hiện loại ống kính và xét approach. */
+  split_cameras?: Record<string, string[]>;
   /** Notebook ingest trên Kaggle khi cảnh được nạp ở đó (máy không có ảnh); ``null`` nếu cảnh ở máy. */
   kaggle: { username: string; kernel: string; source: string }[] | null;
 }

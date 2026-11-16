@@ -734,7 +734,7 @@ Dữ liệu gốc lớn (ví dụ KITTI-360 đủ khung, khoảng 8,8 GB một c
 | Định danh | Mẫu | Ví dụ |
 |---|---|---|
 | `scene_id` | `<dataset>_<sequence_id>`; chỉ gồm `a-z 0-9 _ -`, chữ thường | `nuscenes_scene-0061`, `waymo_10017090168044687777` |
-| `split_id` | `every<N>_<nhóm camera>` với chiến lược `every_nth_frame:N`; `custom_<tên>` với chiến lược `custom`. Nhóm camera: `allcams` (mọi camera trong manifest), `front1` / `front3` (camera trước và hai bên), hoặc `<k>cams` (k camera theo thứ tự trong manifest) | `every8_allcams`, `every10_front3`, `custom_night_a` |
+| `split_id` | `every<N>_<nhóm camera>` với chiến lược `every_nth_frame:N`; `custom_<tên>` với chiến lược `custom`. Nhóm camera: `allcams` (mọi camera trong manifest), `front1` / `front3` (camera trước và hai bên), hoặc `<k>cams` (k camera theo thứ tự trong manifest). Cảnh có cả camera pinhole lẫn mắt cá (theo `CAMERA_TRACK`, ví dụ KITTI-360) thì tên tự đặt ghi loại ống kính của các camera đã chọn và số camera: `pinhole<k>`, `fisheye<k>` hoặc `mixed<k>` (từ 16/11/2026; split đã tạo giữ tên cũ) | `every8_allcams`, `every10_front3`, `every8_pinhole2`, `every8_mixed4`, `custom_night_a` |
 | `approach_id` | `snake_case`, tên method, không chứa lựa chọn của mục cấu hình | `omnire`, `streetgs` |
 | Tên mục cấu hình | `snake_case`, danh từ ngắn | `init`, `renderer`, `campose`, `fastgs` |
 | Tên preset | `snake_case`, mô tả mục đích | `paper`, `no_lidar`, `fisheye` |
@@ -863,7 +863,7 @@ Route đã có (`drive2sim/studio/api/routes/`):
 
 | Route | Việc | Tương ứng CLI |
 |---|---|---|
-| `GET /api/scenes`, `GET /api/scenes/{scene_id}` | Liệt kê cảnh; manifest, `validation` (báo cáo kiểm tra hoặc `null`), `splits` (danh sách `split_id`), `kaggle` (danh sách notebook nạp cảnh trong `kaggle_scene.json` khi cảnh được nạp trên Kaggle, máy không có ảnh; ngược lại `null`) | `scene list`, `scene show` |
+| `GET /api/scenes`, `GET /api/scenes/{scene_id}` | Liệt kê cảnh; manifest, `validation` (báo cáo kiểm tra hoặc `null`), `splits` (danh sách `split_id`), `split_cameras` (camera của từng split, `{split_id: [camera_id]}`; giao diện hiện loại ống kính và xét approach theo camera của split, như engine), `kaggle` (danh sách notebook nạp cảnh trong `kaggle_scene.json` khi cảnh được nạp trên Kaggle, máy không có ảnh; ngược lại `null`) | `scene list`, `scene show` |
 | `GET /api/scenes/{scene_id}/frames/{frame_index}` | `{"frame_index", "images": [{"camera_id", "url"}]}` cho lưới ảnh đồng bộ; `url` là `null` khi thiếu ảnh | |
 | `GET`, `POST /api/scenes/{scene_id}/splits`, `GET .../splits/{split_id}` | Liệt kê, tạo, xem split; thân của `POST`: `strategy`, `cameras`, `frame_range`, `split_id` | `split list`, `split create`, `split show` |
 | `GET /api/approaches`, `GET /api/approaches/{approach_id}` | Đọc file approach | `approach list`, `approach show` |

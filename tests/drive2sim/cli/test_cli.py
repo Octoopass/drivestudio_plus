@@ -141,14 +141,14 @@ def test_split_create_list_show(workdir: Path, capsys: pytest.CaptureFixture) ->
         "CAM_FRONT",
     )
     assert code == 0
-    assert data["split_id"] == "every4_1cams"
-    assert (workdir / "data" / SCENE / "splits" / "every4_1cams.json").is_file()
+    assert data["split_id"] == "every4_pinhole1"
+    assert (workdir / "data" / SCENE / "splits" / "every4_pinhole1.json").is_file()
     code, data = run_json(capsys, "split", "create", SCENE, "--strategy", "every_nth_frame:4")
-    assert data["split_id"] == "every4_allcams"
+    assert data["split_id"] == "every4_mixed2"
     code, data = run_json(capsys, "split", "list", SCENE)
-    assert [item["split_id"] for item in data] == ["every4_1cams", "every4_allcams"]
-    assert main(["split", "show", SCENE, "every4_1cams"]) == 0
-    assert "every4_1cams" in capsys.readouterr().out
+    assert [item["split_id"] for item in data] == ["every4_mixed2", "every4_pinhole1"]
+    assert main(["split", "show", SCENE, "every4_pinhole1"]) == 0
+    assert "every4_pinhole1" in capsys.readouterr().out
     code, data = run_json(
         capsys,
         "split",
@@ -183,7 +183,7 @@ def split_id(workdir: Path) -> str:
         )
         == 0
     )
-    return "every4_1cams"
+    return "every4_pinhole1"
 
 
 def test_check_run_status_list_resume(

@@ -62,7 +62,9 @@ def get_scene(scene_id: str, request: Request) -> dict:
     """Trả về manifest, báo cáo kiểm tra và danh sách split của một cảnh.
 
     Returns:
-        ``{"manifest", "validation", "splits", "kaggle"}``; ``validation`` là ``null`` nếu chưa có
+        ``{"manifest", "validation", "splits", "split_cameras", "kaggle"}``; ``split_cameras``
+        là camera của từng split (``{split_id: [camera_id]}``), để giao diện hiện loại ống kính và
+        xét approach theo camera của split; ``validation`` là ``null`` nếu chưa có
         báo cáo; ``kaggle`` là danh sách notebook ingest (``kaggle_scene.json``) nếu cảnh được nạp
         trên Kaggle (máy chỉ có manifest và báo cáo, không có ảnh), ngược lại ``null``.
     """
@@ -74,10 +76,12 @@ def get_scene(scene_id: str, request: Request) -> dict:
     kaggle = None
     if kaggle_path.is_file():
         kaggle = json.loads(kaggle_path.read_text("utf-8"))["kernels"]
+    splits = scenes.list_splits(workdir, scene_id)
     return {
         "manifest": scene.manifest.model_dump(mode="json"),
         "validation": validation,
-        "splits": [split.split_id for split in scenes.list_splits(workdir, scene_id)],
+        "splits": [split.split_id for split in splits],
+        "split_cameras": {split.split_id: list(split.cameras) for split in splits},
         "kaggle": kaggle,
     }
 

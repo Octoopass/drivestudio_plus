@@ -7,6 +7,7 @@ import { api, asApiError, del, post, seg, useApi, type ApiError } from "../api/c
 import type { FrameImages, List, SceneDetail, Split } from "../api/types";
 import { ago, Confirm, Empty, ErrorBox, InfoTip, Loading, PageHead, Panel, Status, Tabs, useToast, yesNo } from "../components/ui";
 import { useI18n } from "../i18n";
+import { lensGroup, lensOf, lensSummary, type Lens } from "../lens";
 import { useLive } from "../live";
 import { go, href } from "../router";
 import { runStatus, type RunItem } from "../runStatus";
@@ -25,6 +26,7 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
   if (scene.error) return <div className="page"><ErrorBox error={scene.error} /></div>;
   if (!scene.data) return <div className="page"><Loading rows={5} /></div>;
   const { manifest, validation, splits, kaggle } = scene.data;
+  const splitCameras = scene.data.split_cameras ?? {};
 
   const revalidate = async () => {
     try {
@@ -119,19 +121,30 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
           {tab === "splits" && (
             <Splits
               sceneId={sceneId}
-              cameras={manifest.cameras.map((c) => c.camera_id)}
+              cameras={manifest.cameras.map((c) => ({ id: c.camera_id, model: c.model }))}
               numFrames={manifest.timeline.num_frames}
               splits={splits}
+              splitCameras={splitCameras}
               onChange={scene.reload}
             />
           )}
           {tab === "cameras" && (
+            <div className="stack" style={{ gap: 10 }}>
+            <p className="small muted row wrap" style={{ gap: 6 }}>
+              {(() => {
+                const group = lensGroup(manifest.cameras.map((c) => c.model));
+                return group && <span className="tag">{t(`lens.${group}`)}</span>;
+              })()}
+              {t("lens.scene_summary", { count: manifest.cameras.length, parts: lensSummary(manifest.cameras.map((c) => c.model), t) })}
+              <InfoTip>{t("lens.hint")}</InfoTip>
+            </p>
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th>#</th>
                     <th>{t("common.camera")}</th>
+                    <th>{t("scene.cameras.lens")}</th>
                     <th>{t("scene.cameras.model")}</th>
                     <th>{t("scene.cameras.resolution")}</th>
                     <th>{t("scene.cameras.shutter")}</th>
@@ -142,13 +155,19 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
                     <tr key={c.camera_id}>
                       <td className="faint">{index}</td>
                       <td className="id">{c.camera_id}</td>
-                      <td>{c.model}</td>
+                      <td>
+                        <span className="tag">{t(`lens.${lensOf(c.model)}`)}</span>
+                      </td>
+                      <td>
+                        {t(`lens.model.${c.model}`) !== `lens.model.${c.model}` ? t(`lens.model.${c.model}`) : c.model} <code className="faint">{c.model}</code>
+                      </td>
                       <td>{`${c.resolution[0]}×${c.resolution[1]}`}</td>
                       <td>{c.shutter}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            </div>
             </div>
           )}
           {tab === "checks" &&
@@ -402,18 +421,26 @@ function Splits({
   cameras,
   numFrames,
   splits,
+  splitCameras,
   onChange,
 }: {
   sceneId: string;
-  cameras: string[];
+  cameras: { id: string; model: string }[];
   numFrames: number;
   splits: string[];
+  splitCameras: Record<string, string[]>;
   onChange: () => void;
 }) {
   const { t } = useI18n();
   const toast = useToast();
   const [every, setEvery] = useState(8);
-  const [chosen, setChosen] = useState<string[]>(cameras);
+  const [chosen, setChosen] = useState<string[]>(cameras.map((c) => c.id));
+  const modelOf = (id: string) => cameras.find((c) => c.id === id)?.model ?? "";
+  // Camera chia theo loại ống kính: cảnh hỗn hợp (KITTI-360) chọn nhanh được chỉ pinhole, chỉ mắt cá.
+  const groups = (["pinhole", "fisheye"] as Lens[])
+    .map((lens) => ({ lens, ids: cameras.filter((c) => lensOf(c.model) === lens).map((c) => c.id) }))
+    .filter((group) => group.ids.length > 0);
+  const chosenModels = chosen.map(modelOf);
   // Đoạn khung (SPEC mục 5 bước 3), tính cả hai đầu; mặc định cả cảnh.
   const [first, setFirst] = useState(0);
   const [last, setLast] = useState(Math.max(0, numFrames - 1));
@@ -444,7 +471,14 @@ function Splits({
         {splits.length === 0 && <p className="muted">{t("scene.splits.none")}</p>}
         {splits.map((id) => (
           <div key={id} className="row panel" style={{ padding: "10px 12px" }}>
-            <span className="id grow ellipsis">{id}</span>
+            <span className="grow stack" style={{ gap: 2, minWidth: 0 }}>
+              <span className="id ellipsis">{id}</span>
+              {splitCameras[id] && (
+                <span className="small muted ellipsis">
+                  {lensSummary(splitCameras[id].map(modelOf), t)} · {splitCameras[id].join(", ")}
+                </span>
+              )}
+            </span>
             <a className="btn sm" href={href({ page: "new", sceneId, splitId: id })}>
               <Play size={15} />
               {t("scene.splits.run")}
@@ -479,19 +513,42 @@ function Splits({
             </div>
           </div>
           <div className="field">
-            <span>{t("scene.splits.cameras")}</span>
-            <div className="row wrap">
-              {cameras.map((camera) => (
-                <label key={camera} className="chip-check">
-                  <input
-                    type="checkbox"
-                    checked={chosen.includes(camera)}
-                    onChange={(e) => setChosen(e.target.checked ? [...chosen, camera] : chosen.filter((c) => c !== camera))}
-                  />
-                  {camera}
-                </label>
-              ))}
-            </div>
+            <span>
+              {t("scene.splits.cameras")}
+              <InfoTip>{t("lens.hint")}</InfoTip>
+            </span>
+            {groups.length > 1 && (
+              <div className="row wrap" style={{ gap: 6 }}>
+                <button type="button" className="btn sm" onClick={() => setChosen(cameras.map((c) => c.id))}>
+                  {t("scene.splits.quick_all")}
+                </button>
+                {groups.map((group) => (
+                  <button key={group.lens} type="button" className="btn sm" onClick={() => setChosen(group.ids)}>
+                    {t(`scene.splits.quick_${group.lens}`)}
+                  </button>
+                ))}
+              </div>
+            )}
+            {groups.map((group) => (
+              <div key={group.lens} className="row wrap" style={{ gap: 6, alignItems: "center" }}>
+                <span className="tag">{t(`lens.${group.lens}`)}</span>
+                {group.ids.map((camera) => (
+                  <label key={camera} className="chip-check">
+                    <input
+                      type="checkbox"
+                      checked={chosen.includes(camera)}
+                      onChange={(e) => setChosen(e.target.checked ? [...chosen, camera] : chosen.filter((c) => c !== camera))}
+                    />
+                    {camera}
+                  </label>
+                ))}
+              </div>
+            ))}
+            {chosen.length > 0 && (
+              <p className="small muted">
+                {lensSummary(chosenModels, t)}. {t(chosenModels.some((m) => lensOf(m) === "fisheye") ? "scene.splits.lens_fisheye" : "scene.splits.lens_pinhole")}
+              </p>
+            )}
           </div>
           <div>
             <button className="btn primary" onClick={create} disabled={chosen.length === 0 || every < 1 || !rangeOk}>

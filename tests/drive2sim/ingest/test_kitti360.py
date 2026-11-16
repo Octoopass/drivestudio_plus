@@ -328,7 +328,7 @@ def test_cli_ingest_split_and_check(
     strategy = ["--strategy", "every_nth_frame:2", "--quiet"]
     assert main(["split", "create", "kitti360_cli", *strategy]) == 0
     capsys.readouterr()
-    check = ["--scene", "kitti360_cli", "--split", "every2_allcams", "--json", "--quiet"]
+    check = ["--scene", "kitti360_cli", "--split", "every2_mixed4", "--json", "--quiet"]
     assert main(["approach", "check", "gsplat_3dgut", *check]) == 0
     data = json.loads(capsys.readouterr().out)
     assert [s["stage_id"] for s in data["stages"]] == [

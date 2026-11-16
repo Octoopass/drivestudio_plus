@@ -194,7 +194,9 @@ def test_scenes_and_splits(client: TestClient) -> None:
     assert client.get(frame["images"][0]["url"]).status_code == 200
 
     split_id = create_split(client)
-    assert split_id == "every4_1cams"
+    # Cảnh mẫu có cả pinhole lẫn mắt cá: tên ghi loại ống kính của camera đã chọn.
+    assert split_id == "every4_pinhole1"
+    assert client.get(f"/api/scenes/{SCENE}").json()["split_cameras"] == {split_id: ["CAM_FRONT"]}
     assert client.get(f"/api/scenes/{SCENE}/splits").json()["total"] == 1
     assert client.get(f"/api/scenes/{SCENE}/splits/{split_id}").json()["strategy"]
 

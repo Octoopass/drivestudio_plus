@@ -10,6 +10,7 @@ import { KaggleSetup, type KaggleSetupStatus } from "../components/KaggleSetup";
 import { StageRoad } from "../components/StageRoad";
 import { ErrorBox, InfoTip, Note, PageHead, Panel, Segmented, Skeleton } from "../components/ui";
 import { useI18n } from "../i18n";
+import { lensGroup, lensOf, lensSummary } from "../lens";
 import { go, href } from "../router";
 
 // Pinhole lý tưởng của NCore được coi là pinhole OpenCV, như engine (CONTRACTS 4.2).
@@ -60,15 +61,15 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
   useEffect(() => {
     if (!approachId && approaches.data?.items[0]) setApproachId(approaches.data.items[0].approach_id);
   }, [approaches.data, approachId]);
-  // Đổi approach hoặc cảnh thì về cấu hình mặc định; nếu mặc định không vẽ được camera của cảnh
-  // (ví dụ 3DGS trên cảnh F-theta) thì chọn sẵn preset đầu tiên vẽ được, thay vì để người dùng gặp
-  // lỗi bị khoá.
+  // Đổi approach, cảnh hay split thì về cấu hình mặc định; nếu mặc định không vẽ được camera của
+  // split (ví dụ 3DGS trên split có camera mắt cá) thì chọn sẵn preset đầu tiên vẽ được, thay vì để
+  // người dùng gặp lỗi bị khoá.
   useEffect(() => {
     const support = approach?.camera_support;
     if (!support || !scene.data || !cameraReason(support.default)) return setOptions({});
     const name = Object.keys(approach.presets ?? {}).find((n) => !cameraReason(support.presets[n]));
     setOptions(name ? { ...((approach.presets ?? {})[name] as Record<string, OptionValue>) } : {});
-  }, [approachId, scene.data, approaches.data]);
+  }, [approachId, scene.data, approaches.data, splitId]);
 
   // Kiểm tra lại mỗi khi lựa chọn đổi.
   useEffect(() => {
@@ -107,15 +108,26 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
     }
   };
 
-  // Loại camera của cảnh, để làm mờ approach, preset và lựa chọn không vẽ được camera đó trước cả
-  // khi /check trả lời (cảnh fisheye mà để 3DGS mặc định thì /check báo bị khoá, không có danh sách
-  // lựa chọn bị khoá). Engine vẫn là chỗ quyết định cuối, theo camera của split.
-  const sceneModels = [...new Set((scene.data?.manifest.cameras ?? []).map((c) => lensModel(c.model)))];
-  const sceneTrack = scene.data?.manifest.track;
-  const fits = (models: string[]) => sceneModels.every((m) => models.includes(m));
+  // Camera của split đang chọn (chưa có split thì mọi camera của cảnh): làm mờ approach, preset và
+  // lựa chọn không vẽ được các camera đó trước cả khi /check trả lời. Phải theo camera của split như
+  // engine (CONTRACTS mục 4.2): split KITTI-360 chỉ gồm camera pinhole thì 3DGS vẫn chạy được dù cảnh
+  // có camera mắt cá.
+  const sceneCameras = scene.data?.manifest.cameras ?? [];
+  const splitCameraIds = (splitId && scene.data?.split_cameras?.[splitId]) || null;
+  const usedCameras = splitCameraIds ? sceneCameras.filter((c) => splitCameraIds.includes(c.camera_id)) : sceneCameras;
+  const usedModels = [...new Set(usedCameras.map((c) => lensModel(c.model)))];
+  const usedLenses = new Set(usedCameras.map((c) => lensOf(c.model)));
+  const usedGroup = lensGroup(usedCameras.map((c) => c.model));
+  const sceneHasPinhole = sceneCameras.some((c) => lensOf(c.model) === "pinhole");
+  const splitLabel = (id: string) => {
+    const ids = scene.data?.split_cameras?.[id];
+    if (!ids) return id;
+    return `${id} · ${lensSummary(sceneCameras.filter((c) => ids.includes(c.camera_id)).map((c) => c.model), t)}`;
+  };
+  const fits = (models: string[]) => usedModels.every((m) => models.includes(m));
   const trackText = (fit: { tracks: string[] }) => fit.tracks.map((track) => t(`new.track.${track}`)).join(", ");
   const cameraReason = (fit: { camera_models: string[] }) =>
-    scene.data && !fits(fit.camera_models) ? t("new.camera.mismatch", { models: sceneModels.join(", ") }) : undefined;
+    scene.data && !fits(fit.camera_models) ? t("new.camera.mismatch", { models: usedModels.join(", ") }) : undefined;
   const choiceCameraReason = (name: string, choice: OptionValue) => {
     const spec = specs[name];
     const index = (spec?.choices as OptionValue[] | undefined)?.indexOf(choice) ?? -1;
@@ -175,7 +187,8 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
       <div className="grid-main">
         <div className="stack">
           <Panel title={t("new.section.data")}>
-            <div className="form-grid">
+            {/* auto-fit: hai ô giãn hết chiều rộng, để tên cảnh và split (kèm loại ống kính) không bị cắt */}
+            <div className="form-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
               <label className="field">
                 <span>{t("new.field.scene")}</span>
                 <select value={sceneId} onChange={(e) => setSceneId(e.target.value)}>
@@ -189,14 +202,20 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
                 <span>{t("new.field.split")}</span>
                 <select value={splitId} onChange={(e) => setSplitId(e.target.value)} disabled={!scene.data?.splits.length}>
                   {(scene.data?.splits ?? []).map((id) => (
-                    <option key={id}>{id}</option>
+                    <option key={id} value={id}>
+                      {splitLabel(id)}
+                    </option>
                   ))}
                 </select>
               </label>
             </div>
-            {sceneTrack && (
-              <p className="small muted" style={{ marginTop: 12 }}>
-                {t("new.field.camera")}: <span className="tag">{t(`new.track.${sceneTrack}`)}</span> <code>{sceneModels.join(", ")}</code>
+            {usedGroup && (
+              <p className="small muted row wrap" style={{ marginTop: 12, gap: 6 }}>
+                {splitCameraIds ? t("new.field.split_cameras") : t("new.field.camera")}:{" "}
+                <span className="tag">{t(`lens.${usedGroup}`)}</span>
+                {lensSummary(usedCameras.map((c) => c.model), t)}
+                <code>{usedCameras.map((c) => c.camera_id).join(", ")}</code>
+                <InfoTip>{t("lens.hint")}</InfoTip>
               </p>
             )}
             {scenes.data?.total === 0 && (
@@ -230,7 +249,7 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
                   <span className="desc">{t("new.approach.meta", { codebase: a.codebase, level: a.level, stages: a.stages.length })}</span>
                   <span className="row wrap" style={{ gap: 6 }}>
                     {a.camera_support.tracks.map((track) => (
-                      <span key={track} className={`tag${sceneTrack === track ? " go" : ""}`}>
+                      <span key={track} className={`tag${usedLenses.has(track as "pinhole" | "fisheye") ? " go" : ""}`}>
                         {t(`new.track.${track}`)}
                       </span>
                     ))}
@@ -239,6 +258,13 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
                 </button>
               ))}
             </div>
+            {approach && usedLenses.has("fisheye") && sceneHasPinhole && cameraReason(approach.camera_support.default) && (
+              <div style={{ marginTop: 12 }}>
+                <Note>
+                  {t("new.camera.make_pinhole")}: <a href={href({ page: "scene", sceneId })}>{sceneId}</a>
+                </Note>
+              </div>
+            )}
             {approach && (presetNames.length > 0 || Object.keys(specs).length > 0) && (
               <div style={{ marginTop: 18 }}>
                 {presetNames.length > 0 && (
