@@ -189,6 +189,64 @@ def _previous_kernels(previous: Optional[KaggleState], run_id: str) -> list[str]
     ]
 
 
+def cache_kernels(
+    client: KaggleClient, workdir: Workdir, record: RunRecord, username: str
+) -> list[str]:
+    """Notebook của run khác đã có kết quả các stage cache (mask, SMPL) mà run này cần.
+
+    Mỗi run Kaggle tính lại mask và SMPL từ đầu (cỡ 1,5 giờ GPU với nuScenes ``scene-0061``) dù
+    output notebook của run trước cùng cảnh đã có đúng kết quả đó trong ``cache/``. Gắn output
+    ấy vào notebook mới thì ``materialize`` chép cache sang và engine dùng lại.
+
+    Chọn theo ``run.json`` trên máy (run đã tải về): run khác cùng cảnh, đẩy bằng cùng tài khoản
+    (notebook private), có stage cùng ``stage_id``, cùng tham số, đã xong và có ``cache_key``. Đây
+    chỉ là phép chọn sơ bộ: trên Kaggle engine vẫn so khoá cache đầy đủ (gồm phiên bản stage và
+    đầu vào), khớp mới dùng lại, không khớp thì chạy như thường. Notebook không còn (đã xoá) hoặc
+    đang chạy thì bỏ qua.
+
+    Returns:
+        Định danh notebook, mỗi notebook một lần, run mới nhất trước.
+    """
+    wanted = {stage.stage_id: stage.params for stage in record.stages}
+    missing = set(wanted)
+    found: list[str] = []
+    scene_runs = workdir.runs_dir / record.scene_id
+    # Tên thư mục run bắt đầu bằng thời điểm tạo, nên sắp theo tên là run mới nhất trước.
+    states = scene_runs.glob(f"*/*/{D2S_DIR}/{STATE_FILE}")
+    for state_path in sorted(states, key=lambda path: path.parents[1].name, reverse=True):
+        run_dir = state_path.parents[1]
+        if not missing:
+            break
+        if run_dir.name == record.run_id:
+            continue
+        state = load_state(run_dir)
+        if state is None or state.username != username or state.kernel in found:
+            continue
+        try:
+            other = files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
+        except (OSError, ValueError):
+            continue
+        covers = {
+            stage.stage_id
+            for stage in other.stages
+            if stage.stage_id in missing
+            and stage.cache_key
+            and stage.status == "succeeded"
+            and stage.params == wanted[stage.stage_id]
+        }
+        if not covers:
+            continue
+        try:
+            status = client.kernel_status(state.kernel)
+        except KaggleError:
+            continue
+        if status not in ("complete", "error"):
+            continue
+        found.append(state.kernel)
+        missing -= covers
+    return found
+
+
 def _load_scene_refs(scene_root: Path) -> list["KaggleSceneRef"]:
     """``kaggle_scene.json`` của cảnh (đọc trễ để tránh vòng import với ``kaggle.ingest``)."""
     from drive2sim.kaggle.ingest import load_scene_refs
@@ -387,6 +445,8 @@ def push_run(
     # còn kết quả thay vì train lại từ đầu.
     resume = list(reversed(history))[:MAX_RESUME_SOURCES]
     bundle = write_bundle(run_dir, workdir, dataset, resume)
+    # Gắn thêm output của run khác đã có mask, SMPL mà run này cần, để khỏi tính lại.
+    reuse = [k for k in cache_kernels(client, workdir, record, username) if k not in resume]
 
     with tempfile.TemporaryDirectory(dir=_staging(workdir)) as folder:
         folder_path = Path(folder)
@@ -404,7 +464,7 @@ def push_run(
             "machine_shape": accelerator,
             "enable_internet": True,
             "dataset_sources": sources,
-            "kernel_sources": scene_kernels + resume,
+            "kernel_sources": scene_kernels + resume + reuse,
             "competition_sources": [],
         }
         (folder_path / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2))

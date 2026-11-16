@@ -24,6 +24,7 @@ from drive2sim.core import files
 from drive2sim.core.schema import SCHEMA_VERSIONS, Manifest, RunRecord, Split
 from drive2sim.engine.run import D2S_DIR, RUN_FILE
 from drive2sim.engine.workdir import Workdir
+from drive2sim.kaggle import client as client_module
 from drive2sim.kaggle import executor
 from drive2sim.kaggle.bundle import materialize, read_bundle
 from drive2sim.kaggle.client import KaggleClient, KaggleError
@@ -32,6 +33,7 @@ from tests.drive2sim.samples import MANIFEST, SPLIT
 SCENE = MANIFEST["scene_id"]
 RUN_ID = "20261113-010203-omnire-ab12"
 CACHE_KEY = "prep.smpl@0.1.0-0123abcd"
+REAL_RUN_CLI = client_module._run_cli  # lấy lúc nạp file, trước khi conftest chặn lệnh kaggle
 
 
 class FakeKaggle(KaggleClient):
@@ -500,3 +502,85 @@ def test_remote_status_for_studio(tmp_path: Path) -> None:
     remote = _remote(workdir, record)
     assert remote["pushed"] and remote["status"] == "running" and remote["checked_utc"]
     assert _remote(workdir, record.model_copy(update={"status": "succeeded"})) is None
+
+
+def add_other_run(workdir: Workdir, run_id: str, username: str, params: dict, kernel: str) -> None:
+    """Một run Kaggle khác cùng cảnh đã tải về, có ``prep.smpl`` xong với khoá cache."""
+    run_dir = workdir.run_dir(SCENE, "omnire", run_id)
+    record = files.load(workdir.find_run(RUN_ID) / D2S_DIR / RUN_FILE, RunRecord)
+    record = record.model_copy(update={"run_id": run_id, "status": "succeeded"})
+    record.stages = [
+        record.stages[0].model_copy(
+            update={"status": "succeeded", "params": params, "cache_key": f"{SCENE}/{CACHE_KEY}"}
+        )
+    ]
+    files.dump(record, run_dir / D2S_DIR / RUN_FILE)
+    state = executor.KaggleState(username, kernel, 1, "ds", "c0ffee", "t", kernels=[kernel])
+    (run_dir / D2S_DIR / executor.STATE_FILE).write_text(json.dumps(state.to_dict()))
+
+
+def test_push_attaches_notebook_that_has_the_cache(
+    setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Lần đẩy đầu gắn output của run khác cùng tài khoản đã có SMPL với cùng tham số."""
+    monkeypatch.setenv("D2S_KAGGLE_SMPL_DATASET", "alice/smpl-model")
+    workdir, fake = setup
+    add_other_run(workdir, "20261112-000000-omnire-0001", "alice", {}, "alice/old-1")
+    add_other_run(workdir, "20261112-000001-omnire-0002", "alice", {"x": 1}, "alice/params-1")
+    add_other_run(workdir, "20261112-000002-omnire-0003", "bob", {}, "bob/other-1")
+    add_other_run(workdir, "20261112-000003-omnire-0004", "alice", {}, "alice/gone-1")
+    statuses = {"alice/old-1": "complete"}
+
+    def status(slug: str) -> str:
+        if slug not in statuses:
+            raise KaggleError("404 not found")  # notebook đã xoá
+        return statuses[slug]
+
+    monkeypatch.setattr(fake, "kernel_status", status)
+    state = executor.push_run(workdir, RUN_ID, client=fake)
+    assert fake.kernels[state.kernel]["metadata"]["kernel_sources"] == ["alice/old-1"]
+
+    statuses["alice/old-1"] = "running"  # chưa có output
+    assert executor.cache_kernels(fake, workdir, workdir_record(workdir), "alice") == []
+
+
+def workdir_record(workdir: Workdir) -> RunRecord:
+    return files.load(workdir.find_run(RUN_ID) / D2S_DIR / RUN_FILE, RunRecord)
+
+
+def test_materialize_copies_finished_cache_of_mounted_outputs(
+    setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("D2S_KAGGLE_SMPL_DATASET", "alice/smpl-model")
+    workdir, fake = setup
+    state = executor.push_run(workdir, RUN_ID, client=fake)
+    input_root = fake.root / "input"
+    done = input_root / "old-1" / "cache" / SCENE / CACHE_KEY
+    done.mkdir(parents=True)
+    (done / "artifact.json").write_text("{}")
+    (done / "sky.png").write_bytes(b"png")
+    (input_root / "old-1" / "cache" / SCENE / "prep.masks@0.1.0-ab12").mkdir()  # chưa xong
+    bundle_dir = fake.root / "bundle"
+    bundle_dir.mkdir()
+    for name, content in notebook_bundle(fake, state.kernel).items():
+        (bundle_dir / name).write_text(json.dumps(content))
+    working = Workdir(fake.root / "working")
+    materialize(read_bundle(bundle_dir), working, input_root)
+    copied = working.cache_dir / SCENE / CACHE_KEY
+    assert (copied / "sky.png").is_file() and not (copied / "sky.png").is_symlink()
+    assert not (working.cache_dir / SCENE / "prep.masks@0.1.0-ab12").exists()
+
+
+def test_status_commands_time_out_quickly(monkeypatch: pytest.MonkeyPatch) -> None:
+    timeouts: list[float] = []
+
+    def fake_run(command: list[str], timeout: float) -> subprocess.CompletedProcess:
+        timeouts.append(timeout)
+        raise subprocess.TimeoutExpired(command, timeout)
+
+    monkeypatch.setattr(client_module.subprocs, "run", fake_run)
+    with pytest.raises(KaggleError, match="5 phút"):
+        REAL_RUN_CLI(["kaggle", "datasets", "status", "alice/x"])
+    with pytest.raises(KaggleError):
+        REAL_RUN_CLI(["kaggle", "kernels", "output", "alice/x"])
+    assert timeouts == [client_module.STATUS_TIMEOUT_S, client_module.CLI_TIMEOUT_S]

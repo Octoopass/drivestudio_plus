@@ -65,19 +65,25 @@ class KaggleError(RuntimeError):
 # Một lệnh kaggle chạy lâu nhất bao lâu. Tải output của một run (vài GB, hàng nghìn file) qua mạng
 # chậm mất hơn một giờ (đã gặp: 2,4 GB ở khoảng 0,7 MB/s), nên để 6 giờ.
 CLI_TIMEOUT_S = 6 * 3600
+# Lệnh hỏi trạng thái thường xong trong vài giây nhưng đã gặp lệnh treo hơn 30 phút không trả lời
+# (``datasets status`` lúc đẩy run, 16/11/2026), giữ cả lệnh đẩy chờ theo. Các lệnh này dừng sau
+# 5 phút và báo lỗi; nơi gọi hỏi lại (chờ dataset) hoặc báo chưa hỏi được trạng thái.
+STATUS_COMMANDS = (("kernels", "status"), ("datasets", "status"))
+STATUS_TIMEOUT_S = 300
 # Gặp 429 (quá nhiều lệnh API) thì chờ lần lượt các khoảng này rồi thử lại.
 RATE_LIMIT_WAITS_S = (60, 180, 600)
 
 
 def _run_cli(command: Sequence[str]) -> "subprocess.CompletedProcess[str]":
     """Chạy một lệnh ``kaggle``; không ném lỗi khi lệnh thoát khác 0 (``KaggleClient`` xử lý)."""
+    timeout = STATUS_TIMEOUT_S if tuple(command[1:3]) in STATUS_COMMANDS else CLI_TIMEOUT_S
     try:
-        return subprocs.run(command, CLI_TIMEOUT_S)
+        return subprocs.run(command, timeout)
     except FileNotFoundError:
         raise KaggleError("chưa có lệnh kaggle; cài bằng: pip install kaggle") from None
     except subprocess.TimeoutExpired:
         raise KaggleError(
-            f"lệnh {' '.join(command[:3])} chạy quá {CLI_TIMEOUT_S // 3600} giờ; chạy lại lệnh"
+            f"lệnh {' '.join(command[:3])} chạy quá {timeout // 60} phút không xong; chạy lại lệnh"
         ) from None
 
 

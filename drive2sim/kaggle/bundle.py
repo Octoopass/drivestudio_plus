@@ -25,6 +25,7 @@ from typing import Optional
 
 from drive2sim.core import files
 from drive2sim.core.schema import Manifest, RunRecord
+from drive2sim.engine.cache import ARTIFACT_FILE
 from drive2sim.engine.run import D2S_DIR, RUN_FILE
 from drive2sim.engine.workdir import Workdir
 
@@ -113,12 +114,28 @@ def _find_previous_run(
     return min(found, key=rank) if found else None
 
 
+def _copy_mounted_cache(input_root: Path, workdir: Workdir, scene_id: str) -> None:
+    """Chép các kết quả cache đầy đủ của cảnh từ output notebook đã gắn mà máy chạy chưa có.
+
+    Output gắn vào có thể là của run khác cùng cảnh (``executor.cache_kernels``): mask, SMPL của
+    nó được dùng lại nếu engine thấy khoá cache khớp. Chép (không symlink) để output của notebook
+    này cũng có cache, vì bước dọn cuối notebook xoá mọi symlink. Mục thiếu ``artifact.json``
+    (stage chưa xong) bị bỏ qua.
+    """
+    for entry in sorted(input_root.glob(f"**/cache/{scene_id}/*")):
+        target = workdir.cache_dir / scene_id / entry.name
+        if entry.is_dir() and (entry / ARTIFACT_FILE).is_file() and not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(entry, target, symlinks=True)
+
+
 def materialize(bundle: dict[str, dict], workdir: Workdir, input_root: Path) -> Path:
     """Dựng thư mục làm việc trên Kaggle từ gói job.
 
     Cảnh được dựng bằng symlink tới từng mục của thư mục cảnh trong dataset (dataset chỉ đọc),
     trừ ``splits/`` ghi mới. Nếu ``resume.json`` có notebook trước, run và cache trong output của
-    nó được chép vào, nên stage đã xong không chạy lại và train chạy tiếp từ checkpoint.
+    nó được chép vào, nên stage đã xong không chạy lại và train chạy tiếp từ checkpoint. Cache
+    đầy đủ của cảnh trong mọi output notebook đã gắn (kể cả của run khác) cũng được chép vào.
 
     Args:
         bundle: Gói job (``read_bundle``).
@@ -153,6 +170,7 @@ def materialize(bundle: dict[str, dict], workdir: Workdir, input_root: Path) -> 
             shutil.copytree(
                 previous_cache, workdir.cache_dir / record.scene_id, dirs_exist_ok=True
             )
+    _copy_mounted_cache(input_root, workdir, record.scene_id)
     if not (run_dir / D2S_DIR / RUN_FILE).is_file():
         (run_dir / D2S_DIR).mkdir(parents=True, exist_ok=True)
         files.dump(record, run_dir / D2S_DIR / RUN_FILE)
