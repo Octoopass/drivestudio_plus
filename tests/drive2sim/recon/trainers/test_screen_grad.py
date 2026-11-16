@@ -92,3 +92,29 @@ def test_pixel_gradient_shrinks_with_distance_as_f_over_z() -> None:
     pixel = screen_equivalent_grad(grads, points, torch.eye(4), intrinsics, "pinhole")
     assert pixel[0, 0] == pytest.approx(10.0 / 500.0, rel=1e-4)
     assert pixel[1, 0] == pytest.approx(2 * pixel[0, 0].item(), rel=1e-4)
+
+
+def test_degenerate_jacobian_gives_zero_instead_of_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Jacobian bằng 0 (gram suy biến) không làm hỏng cả batch: điểm đó cho 0, điểm khác vẫn đúng.
+
+    Run 20261116-013741-omnire-90dd lỗi ``torch.linalg.solve: ... input matrix is singular``.
+    """
+    import drive2sim.recon.trainers.screen_grad as module
+
+    real = module.projection_jacobian
+
+    def with_zero_row(*args: object, **kwargs: object) -> tuple:
+        jac, valid = real(*args, **kwargs)
+        jac = jac.clone()
+        jac[0, 1] = jac[0, 0]  # điểm đầu: hai hàng song song, J Jᵀ suy biến
+        return jac, valid
+
+    monkeypatch.setattr(module, "projection_jacobian", with_zero_row)
+    # float32 như lúc train: phần giảm chấn tương đối nhỏ bị làm tròn mất
+    f32 = torch.float32
+    intrinsics = torch.tensor([[500.0, 0, 320.0], [0, 500.0, 240.0], [0, 0, 1.0]], dtype=f32)
+    points = torch.tensor([[0.3, 0.1, 10.0], [0.0, 0.0, 10.0]], dtype=f32)
+    grads = torch.tensor([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=f32)
+    pixel = screen_equivalent_grad(grads, points, torch.eye(4, dtype=f32), intrinsics, "pinhole")
+    assert torch.equal(pixel[0], torch.zeros(2))
+    assert pixel[1, 0] == pytest.approx(10.0 / 500.0, rel=1e-3)

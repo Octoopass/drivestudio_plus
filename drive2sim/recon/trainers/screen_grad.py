@@ -28,6 +28,8 @@ from drive2sim.recon.utils.geometry import project_camera_model
 
 # Bước sai phân trung tâm, tỉ lệ với khoảng cách từ camera tới điểm
 _RELATIVE_STEP = 1e-3
+# det(J Jᵀ) / trace² dưới mức này coi là suy biến (với pinhole, điểm trước camera cho khoảng 1/4)
+_MIN_RELATIVE_DET = 1e-6
 
 
 def projection_jacobian(
@@ -93,12 +95,19 @@ def screen_equivalent_grad(
     )
     jac = jac_cam @ rotation  # ∂pixel/∂world = ∂pixel/∂cam · ∂cam/∂world
     gram = jac @ jac.transpose(1, 2)  # (N, 2, 2)
-    eye = torch.eye(2, device=gram.device, dtype=gram.dtype)
-    damping = 1e-12 * gram.diagonal(dim1=1, dim2=2).sum(-1).clamp_min(1e-30)[:, None, None]
     rhs = (jac @ grad_world.unsqueeze(-1)).squeeze(-1)  # J · g3d
-    grad_pixel = torch.linalg.solve(gram + damping * eye, rhs.unsqueeze(-1)).squeeze(-1)
+    # Nghịch đảo 2×2 trực tiếp thay vì torch.linalg.solve: điểm chiếu suy biến (Jacobian gần 0,
+    # ví dụ Gaussian sát mặt phẳng camera) làm gram suy biến, và solve trên CUDA ném lỗi cả batch
+    # (run 90dd lỗi ở bước khoảng 600). Điểm như vậy, hoặc điểm chiếu không hợp lệ, cho gradient 0.
+    a, b, d = gram[:, 0, 0], gram[:, 0, 1], gram[:, 1, 1]
+    det = a * d - b * b
+    ok = valid & torch.isfinite(det) & (det > _MIN_RELATIVE_DET * (a + d) ** 2)
+    det = torch.where(ok, det, torch.ones_like(det))
+    grad_pixel = torch.stack(
+        [(d * rhs[:, 0] - b * rhs[:, 1]) / det, (a * rhs[:, 1] - b * rhs[:, 0]) / det], dim=-1
+    )
     grad_pixel = torch.nan_to_num(grad_pixel, nan=0.0, posinf=0.0, neginf=0.0)
-    return torch.where(valid[:, None], grad_pixel, torch.zeros_like(grad_pixel))
+    return torch.where(ok[:, None], grad_pixel, torch.zeros_like(grad_pixel))
 
 
 class ScreenGradMultiTrainer(MultiTrainer):
