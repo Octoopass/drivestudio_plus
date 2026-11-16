@@ -301,6 +301,7 @@
   "viewer.hud.loading": "Đang tải {percent}%",
   "viewer.hud.count": "{count} splat",
   "viewer.hud.actors": "{count} xe",
+  "viewer.hud.recenter_hint": "Về góc nhìn lúc mới mở: camera trước gốc, ở khung đang xem",
   "viewer.hud.recenter": "Căn lại",
   "viewer.hud.frame": "Khung",
   "new.field.training": "Train",

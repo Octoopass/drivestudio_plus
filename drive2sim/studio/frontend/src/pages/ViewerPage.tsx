@@ -262,6 +262,16 @@ export function ViewerPage({ runId }: { runId?: string }) {
     const index = Math.min(at, camera.c2w.length - 1);
     viewer.current?.setCameraPose(camera.c2w[index], camera.K[index][4], camera.height);
   };
+  // "Căn lại": về đúng góc lúc mới mở (camera mặc định, ở khung đang xem); không có camera gốc (file
+  // kéo thả) thì nhìn bao quát cả cảnh.
+  const recenter = () => {
+    if (!cameras?.length) return viewer.current?.frameAll();
+    const index = defaultCamera(cameras);
+    setCameraIndex(index);
+    const start = cameras[index];
+    const at = Math.min(frame, start.c2w.length - 1);
+    viewer.current?.setCameraPose(start.c2w[at], start.K[at][4], start.height);
+  };
   useEffect(() => {
     if (follow && !playing) goToCamera(frame);
   }, [frame, follow, cameraIndex, playing]); // goToCamera đọc state mới nhất mỗi lần render
@@ -464,7 +474,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
           {progress !== null && <span className="tag glass">{t("viewer.hud.loading", { percent: Math.round(progress * 100) })}</span>}
           {count !== null && <span className="tag glass">{t("viewer.hud.count", { count: count.toLocaleString() })}</span>}
           {poses && <span className="tag glass">{t("viewer.hud.actors", { count: poses.track_ids.length })}</span>}
-          <button className="btn sm glass" onClick={() => viewer.current?.frameAll()}>
+          <button className="btn sm glass" onClick={recenter} title={t("viewer.hud.recenter_hint")}>
             <Crosshair size={16} />
             {t("viewer.hud.recenter")}
           </button>

@@ -301,6 +301,7 @@
   "viewer.hud.loading": "Loading {percent}%",
   "viewer.hud.count": "{count} splats",
   "viewer.hud.actors": "{count} vehicles",
+  "viewer.hud.recenter_hint": "Back to the opening view: the original front camera at the current frame",
   "viewer.hud.recenter": "Recenter",
   "viewer.hud.frame": "Frame",
   "new.field.training": "Training",
