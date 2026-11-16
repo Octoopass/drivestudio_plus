@@ -61,6 +61,10 @@ class ReportRow:
             (``summary.json``, ví dụ ``800x450`` khi ảnh nuScenes được hạ 2 lần lúc nạp).
         source_resolution: Kích thước ảnh gốc của các camera trong split (manifest của cảnh),
             ví dụ ``1600x900``; nhiều cỡ khác nhau thì nối bằng ``" / "``.
+        train_images: Số ảnh (cặp khung, camera) dùng để train, theo split.
+        test_images: Số ảnh để test (tính PSNR, SSIM, LPIPS), theo split.
+        test_every: Split ``every_nth_frame:N`` lấy 1 khung trong mỗi N khung làm test; ``None``
+            với split khác.
         train_time_s: Thời gian train thực của model, giây.
         recon_time_s: Tổng thời gian từ stage đầu tới khi xuất xong ``scene.ply``, giây;
             ``None`` nếu run chưa xuất PLY hoặc thiếu thời gian của một stage dùng lại cache.
@@ -101,6 +105,9 @@ class ReportRow:
     num_iters: Optional[int] = None
     train_resolution: Optional[str] = None
     source_resolution: Optional[str] = None
+    train_images: Optional[int] = None
+    test_images: Optional[int] = None
+    test_every: Optional[int] = None
     train_time_s: Optional[float] = None
     recon_time_s: Optional[float] = None
     peak_vram_mb: Optional[int] = None
@@ -214,7 +221,7 @@ def report_rows(
         Các dòng của bảng.
     """
     rows = []
-    sources: dict[tuple[str, str], Optional[str]] = {}
+    splits: dict[tuple[str, str], dict[str, object]] = {}
     for record in list_runs(workdir, scene_id):
         if split_id and record.split_id != split_id:
             continue
@@ -239,9 +246,10 @@ def report_rows(
             peak_vram_mb=max((s.peak_vram_mb for s in train_stages), default=None) or None,
         )
         key = (record.scene_id, record.split_id)
-        if key not in sources:
-            sources[key] = source_resolution(workdir, *key)
-        row.source_resolution = sources[key]
+        if key not in splits:
+            splits[key] = split_info(workdir, *key)
+        for name, value in splits[key].items():
+            setattr(row, name, value)
         run_dir = workdir.run_dir(record.scene_id, record.approach.approach_id, record.run_id)
         row.ply_gaussians, row.ply_size_mb = ply_stats(
             run_dir / D2S_DIR / "stages" / PLY_STAGE / PLY_FILE
@@ -287,19 +295,28 @@ def report_rows(
     return sorted(rows, key=lambda row: (row.psnr is None, -(row.psnr or 0.0)))
 
 
-def source_resolution(workdir: Workdir, scene_id: str, split_id: str) -> Optional[str]:
-    """Kích thước ảnh gốc của các camera trong split, ví dụ ``1600x900``.
+def split_info(workdir: Workdir, scene_id: str, split_id: str) -> dict[str, object]:
+    """Thông tin dữ liệu của một split cho bảng so sánh.
 
     Returns:
-        Các cỡ khác nhau nối bằng ``" / "``; ``None`` nếu không đọc được cảnh hoặc split.
+        ``source_resolution`` (cỡ ảnh gốc của các camera trong split, ví dụ ``1600x900``, nhiều cỡ
+        nối bằng ``" / "``), ``train_images``, ``test_images`` và ``test_every`` (N của chiến
+        lược ``every_nth_frame:N``); rỗng nếu không đọc được cảnh hoặc split.
     """
     try:
         cameras = workdir.load_scene(scene_id).manifest.cameras
-        wanted = set(workdir.load_split(scene_id, split_id).cameras)
+        split = workdir.load_split(scene_id, split_id)
     except (OSError, ValueError, KeyError, WorkdirError):
-        return None
+        return {}
+    wanted = set(split.cameras)
     sizes = [f"{c.resolution[0]}x{c.resolution[1]}" for c in cameras if c.camera_id in wanted]
-    return " / ".join(dict.fromkeys(sizes)) or None
+    name, _, value = split.strategy.partition(":")
+    return {
+        "source_resolution": " / ".join(dict.fromkeys(sizes)) or None,
+        "train_images": len(split.train),
+        "test_images": len(split.test),
+        "test_every": int(value) if name == "every_nth_frame" and value.isdigit() else None,
+    }
 
 
 def rows_to_csv(rows: list[ReportRow]) -> str:

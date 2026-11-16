@@ -95,6 +95,10 @@ export interface ReportRow {
   train_resolution: string | null;
   /** Cỡ ảnh gốc của camera trong split (manifest), ví dụ "1600x900". */
   source_resolution: string | null;
+  /** Số ảnh train, số ảnh test theo split; N của every_nth_frame:N. */
+  train_images: number | null;
+  test_images: number | null;
+  test_every: number | null;
   train_time_s: number | null;
   recon_time_s: number | null;
   peak_vram_mb: number | null;

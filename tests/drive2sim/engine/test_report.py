@@ -96,17 +96,20 @@ def test_avg_error_matches_mip_nerf() -> None:
     assert avg_error(28.3, 0.874, 0.183) < avg_error(24.4, 0.803, 0.271)
 
 
-def test_source_resolution_reads_split_cameras(tmp_path: Path) -> None:
-    """Cỡ ảnh gốc lấy theo camera của split trong manifest; thiếu cảnh thì ``None``."""
+def test_split_info_reads_split_and_manifest(tmp_path: Path) -> None:
+    """Cỡ ảnh gốc theo camera của split trong manifest, số ảnh train/test; thiếu cảnh thì rỗng."""
     from drive2sim.core import files
     from drive2sim.core.schema import Manifest, Split
-    from drive2sim.engine.report import source_resolution
+    from drive2sim.engine.report import split_info
     from drive2sim.engine.workdir import Workdir
     from tests.drive2sim.samples import MANIFEST, SPLIT
 
     workdir = Workdir(tmp_path)
     scene = MANIFEST["scene_id"]
-    assert source_resolution(workdir, scene, SPLIT["split_id"]) is None
+    assert split_info(workdir, scene, SPLIT["split_id"]) == {}
     files.dump(Manifest.model_validate(MANIFEST), workdir.scene_dir(scene) / "manifest.yaml")
     files.dump(Split.model_validate(SPLIT), workdir.split_path(scene, SPLIT["split_id"]))
-    assert source_resolution(workdir, scene, SPLIT["split_id"]) == "1600x900"
+    info = split_info(workdir, scene, SPLIT["split_id"])
+    assert info["source_resolution"] == "1600x900"
+    assert (info["train_images"], info["test_images"]) == (len(SPLIT["train"]), len(SPLIT["test"]))
+    assert info["test_every"] == 8  # every_nth_frame:8

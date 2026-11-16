@@ -33,7 +33,7 @@ export function size(value: string | null | undefined): string {
 }
 
 export interface MetricGroup {
-  id: "summary" | "quality" | "region" | "time" | "resources" | "size";
+  id: "summary" | "quality" | "region" | "time" | "resources" | "data" | "size";
   /** Khoá i18n của tên nhóm và giải thích nhóm. */
   label: string;
   hint: string;
@@ -82,14 +82,6 @@ export const METRIC_GROUPS: MetricGroup[] = [
       { key: "train_time_s", hardware: true, label: "run.result.train_time", hint: "metrics.hint.train_time", better: "low", format: (r) => duration(r.train_time_s), value: num("train_time_s") },
       { key: "recon_time_s", hardware: true, label: "run.result.recon_time", hint: "metrics.hint.recon_time", better: "low", format: (r) => duration(r.recon_time_s), value: num("recon_time_s") },
       { key: "num_iters", label: "run.result.iters", hint: "metrics.hint.iters", format: (r) => count(r.num_iters), value: num("num_iters") },
-      {
-        key: "train_resolution",
-        label: "run.result.resolution",
-        hint: "metrics.hint.resolution",
-        text: true,
-        format: (r) => (r.train_resolution ? `${size(r.train_resolution)} / ${size(r.source_resolution)}` : "–"),
-        value: () => null,
-      },
     ],
   },
   {
@@ -101,6 +93,19 @@ export const METRIC_GROUPS: MetricGroup[] = [
       { key: "peak_vram_mb", hardware: true, label: "run.result.vram", hint: "metrics.hint.vram", unit: "GB", better: "low", format: (r) => (r.peak_vram_mb ? (r.peak_vram_mb / 1024).toFixed(1) : "–"), value: num("peak_vram_mb") },
       { key: "render_fps", hardware: true, label: "run.result.fps", hint: "metrics.hint.fps", unit: "fps", better: "high", format: digits("render_fps", 1), value: num("render_fps") },
       { key: "gpu", label: "metrics.gpu", hint: "metrics.hint.gpu", text: true, format: (r) => r.gpu ?? "–", value: () => null },
+    ],
+  },
+  {
+    id: "data",
+    defaultSort: "train_images",
+    label: "metrics.group.data",
+    hint: "metrics.group.data_hint",
+    metrics: [
+      { key: "train_resolution", label: "metrics.train_resolution", hint: "metrics.hint.train_resolution", text: true, format: (r) => size(r.train_resolution), value: () => null },
+      { key: "source_resolution", label: "metrics.source_resolution", hint: "metrics.hint.source_resolution", text: true, format: (r) => size(r.source_resolution), value: () => null },
+      { key: "train_images", label: "metrics.train_images", hint: "metrics.hint.train_images", format: (r) => count(r.train_images), value: num("train_images") },
+      { key: "test_images", label: "metrics.test_images", hint: "metrics.hint.test_images", format: (r) => count(r.test_images), value: num("test_images") },
+      { key: "test_every", label: "metrics.test_every", hint: "metrics.hint.test_every", format: (r) => (r.test_every ? `1 / ${r.test_every}` : "–"), value: num("test_every") },
     ],
   },
   {
