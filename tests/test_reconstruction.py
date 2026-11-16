@@ -106,7 +106,10 @@ def test_success_contract_and_offline_argv(setup):
 
 
 @pytest.mark.parametrize("patch", [
-    {"max_chunks": 0}, {"max_chunks": 3}, {"max_chunks": True}, {"n_gaussians": 99999},
+    {"max_chunks": 0}, {"max_chunks": 9}, {"max_chunks": True}, {"n_gaussians": 99999},
+    {"camera_ids": ["a", "b"]}, {"model": "pa-multiview", "camera_ids": ["a", "b"]},
+    {"model": "pq-front", "camera_ids": ["a"]}, {"camera_ids": ["../x"]}, {"camera_ids": "a"},
+    {"gpu": -1}, {"gpu": "0"}, {"gpu": True},
     {"n_gaussians": 2000001}, {"render_preview": "true"}, {"include_dynamic": 1},
     {"model": "arbitrary"}, {"env": {}}, {"command": "echo"},
     {"repo": "../outside"}, {"python": "repo/run_inference.py"},

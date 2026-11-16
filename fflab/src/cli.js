@@ -10,6 +10,7 @@ import {
   scriptPath, scriptsDir, venvPython,
 } from './python.js';
 import * as remote from './colab.js';
+import { NUREC_USAGE, cmdPipeline } from './nurec.js';
 
 export const DEFAULT_BACKEND = '3dgut-gsplat';
 const RUN_COMMANDS = ['train', 'render', 'check'];
@@ -32,7 +33,10 @@ Usage
                                      run the same command on a Google Colab VM
   fflab colab logs [--run NAME]      re-attach to a Colab job
   fflab colab stop [--session S]     release the Colab VM
-  fflab help <train|render|check>    options of a command
+  fflab convert [options]            KITTI-360 slice -> NCore clip (for Instant NuRec)
+  fflab nurec --clip CLIP [options]  Instant NuRec reconstruction -> Gaussian PLY
+  fflab eval --ply P --clip C        render a PLY at the clip's cameras, PSNR per camera
+  fflab help <train|render|check|nurec>  options of a command
 
 Common options
   --backend ID       backend (default ${DEFAULT_BACKEND})
@@ -103,6 +107,10 @@ function cmdList(reg) {
 }
 
 function cmdHelp(reg, topic) {
+  if (['nurec', 'convert', 'eval'].includes(topic)) {
+    say(NUREC_USAGE);
+    return 0;
+  }
   if (!RUN_COMMANDS.includes(topic)) {
     say(USAGE);
     return 0;
@@ -354,6 +362,9 @@ export async function main(argv) {
     case 'render':
     case 'check': return cmdRunLocal(reg, command, rest);
     case 'colab': return cmdColab(reg, rest[0], rest.slice(1));
+    case 'convert':
+    case 'nurec':
+    case 'eval': return cmdPipeline(command, rest);
     default: throw new Error(`unknown command "${command}". Run: fflab help`);
   }
 }

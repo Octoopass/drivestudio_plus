@@ -29,11 +29,25 @@ Hoặc chạy thẳng từ repo, không cần cài: `node fflab/bin/fflab.js <l�
 | `fflab check` | kiểm tra chiếu LiDAR vào ảnh | không |
 | `fflab colab train\|render\|check` | chạy đúng lệnh đó trên VM Colab | VM lo |
 | `fflab colab logs` / `fflab colab stop` | theo dõi lại job / tắt VM | không |
-| `fflab help train` | các tham số của một lệnh | không |
+| `fflab convert` | cắt một đoạn KITTI-360 thành clip NCore (+ kiểm tra chiếu LiDAR) | không |
+| `fflab nurec --clip C` | dựng cảnh bằng Instant NuRec, ra Gaussian PLY | có |
+| `fflab eval --ply P --clip C` | render PLY ở các camera của clip, PSNR từng camera | có |
+| `fflab help train` | các tham số của một lệnh (`fflab help nurec` cho 3 lệnh trên) | không |
 
 Mọi lệnh chạy đều có `--dry-run` để in kế hoạch (biến môi trường, script) mà không chạy gì.
 
 ## Ví dụ
+
+KITTI-360 → NCore → Instant NuRec (cần `backends/instant-nurec`, xem `docs/reconstruction.md`):
+
+```bash
+fflab convert --frames 40 --start 0             # -> outputs/ncore/kitti360_0003_000000_40f/
+fflab nurec --clip outputs/ncore/kitti360_0003_000000_40f/kitti360_0003_000000_40f.json --gpu 1
+fflab eval --ply <đường dẫn PLY lệnh trên in ra> --clip <clip như trên> --gpu 1
+```
+
+Fisheye mặc định được chuyển về camera 120° (`--fisheye-model rectify120`) vì NuRec không nhận fisheye
+trên 90°. `--fisheye-model opencv` giữ nguyên fisheye cho 3DGUT/gsplat.
 
 Máy có GPU NVIDIA (Linux hoặc Windows):
 

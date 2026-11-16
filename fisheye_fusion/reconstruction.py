@@ -118,22 +118,33 @@ class ReconstructionManager:
 
     def _config(self, config):
         allowed = {"repo", "python", "checkpoint", "ncore_path", "model", "max_chunks",
-                   "n_gaussians", "render_preview", "include_dynamic"}
+                   "n_gaussians", "render_preview", "include_dynamic", "camera_ids", "gpu"}
         if not isinstance(config, dict) or set(config) - allowed:
             raise ValueError("unknown reconstruction config fields")
         value = {"model": "pa-front", "max_chunks": 1, "n_gaussians": 200000,
-                 "render_preview": False, "include_dynamic": False, **config}
+                 "render_preview": False, "include_dynamic": False, "camera_ids": [], "gpu": None, **config}
         for key in ("repo", "python", "checkpoint", "ncore_path"):
             if key not in value:
                 raise ValueError(f"missing config field: {key}")
         if value["model"] not in ("pa-front", "pa-multiview", "pq-front"):
             raise ValueError("unsupported model")
-        for key, low, high in (("max_chunks", 1, 2), ("n_gaussians", 100000, 2000000)):
+        for key, low, high in (("max_chunks", 1, 8), ("n_gaussians", 100000, 2000000)):
             if type(value[key]) is not int or not low <= value[key] <= high:
                 raise ValueError(f"{key} must be an integer in {low}..{high}")
         for key in ("render_preview", "include_dynamic"):
             if type(value[key]) is not bool:
                 raise ValueError(f"{key} must be boolean")
+        cams = value["camera_ids"] or []
+        if not isinstance(cams, list) or not all(isinstance(c, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", c) for c in cams):
+            raise ValueError("camera_ids must be NCore sensor ids")
+        if value["model"] == "pa-front" and len(cams) > 1:
+            raise ValueError("pa-front takes one context camera")
+        if value["model"] == "pa-multiview" and len(cams) not in (0, 1, 3, 5):
+            raise ValueError("pa-multiview takes 1, 3 or 5 context cameras")
+        if value["model"] == "pq-front" and cams:
+            raise ValueError("pq-front uses a fixed camera")
+        if value["gpu"] is not None and (type(value["gpu"]) is not int or not 0 <= value["gpu"] < 64):
+            raise ValueError("gpu must be a device index")
         if value["include_dynamic"] and value["model"] == "pq-front":
             raise ValueError("include_dynamic requires a PA model")
         repo = self._path(value["repo"], directory=True)
@@ -156,9 +167,11 @@ class ReconstructionManager:
             raise ValueError("canonical manifests are not NCore input")
         return value, repo, script, python, checkpoint, ncore
 
-    def _environment(self, python, checkpoint):
+    def _environment(self, python, checkpoint, gpu=None):
         env = {key: value for key, value in os.environ.items()
                if not key.upper().startswith(("PYTHON", "GIT_"))}
+        if gpu is not None:
+            env["CUDA_VISIBLE_DEVICES"] = str(gpu)
         env.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1",
                    INSTANT_NUREC_FULL_PT=str(checkpoint), PYTHONUNBUFFERED="1",
                    PYTHONDONTWRITEBYTECODE="1", MAX_JOBS="2", GIT_OPTIONAL_LOCKS="0",
@@ -243,8 +256,10 @@ class ReconstructionManager:
             for key in ("render_preview", "include_dynamic"):
                 if value[key]:
                     argv.append("--" + key.replace("_", "-"))
+            for camera in value["camera_ids"]:
+                argv += ["--camera-id", camera]
             process = subprocess.Popen(
-                argv, cwd=str(repo), env=self._environment(python, checkpoint),
+                argv, cwd=str(repo), env=self._environment(python, checkpoint, value["gpu"]),
                 shell=False, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             )
             job = {"job_id": job_id, "state": "running", "returncode": None,
