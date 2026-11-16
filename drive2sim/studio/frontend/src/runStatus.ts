@@ -1,6 +1,7 @@
-// Trạng thái run hiện trên Studio. Run Kaggle giữ "pending" trên máy tới khi tải kết quả về, dù
-// notebook đang chạy hay đã xong; Studio đọc trạng thái notebook lần hỏi gần nhất (trường "remote"
-// của /api/runs, lấy từ kaggle.json) để hiện đúng:
+// Trạng thái run hiện trên Studio. Run Kaggle giữ trạng thái cũ trên máy tới khi tải kết quả về
+// ("pending" với lần đẩy đầu, "failed" của lần trước khi đã đẩy lại để chạy tiếp), dù notebook
+// đang chạy hay đã xong; Studio đọc trạng thái notebook lần hỏi gần nhất (trường "remote" của
+// /api/runs, có khi chưa tải kết quả lần đẩy mới nhất) để hiện đúng:
 //   chưa đẩy lên            → not_pushed
 //   đang chờ máy Kaggle     → pending
 //   đang chạy trên Kaggle   → running
@@ -20,7 +21,8 @@ export type RunItem = RunRecord & { remote?: RemoteState | null };
 export function runStatus(run: RunItem, live?: string): string {
   const status = live ?? run.status;
   const remote = run.remote;
-  if (status !== "pending" || !remote) return status;
+  // Trạng thái trực tiếp (run chạy trên máy này) hoặc không có lần đẩy nào chưa tải: giữ nguyên.
+  if (live || !remote) return status;
   if (!remote.pushed) return "not_pushed";
   switch (remote.status) {
     case "running":

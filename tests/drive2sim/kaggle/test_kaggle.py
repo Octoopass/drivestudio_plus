@@ -502,6 +502,13 @@ def test_remote_status_for_studio(tmp_path: Path) -> None:
     remote = _remote(workdir, record)
     assert remote["pushed"] and remote["status"] == "running" and remote["checked_utc"]
     assert _remote(workdir, record.model_copy(update={"status": "succeeded"})) is None
+    # Lần 1 lỗi đã tải về, rồi đẩy lại: trên máy vẫn "failed" nhưng phải hiện trạng thái lần 2.
+    failed = record.model_copy(update={"status": "failed"})
+    assert _remote(workdir, failed)["status"] == "running"
+    state_path = run_dir / D2S_DIR / executor.STATE_FILE
+    pulled = {**json.loads(state_path.read_text()), "pulled_utc": "2026-11-15T01:00:00+00:00"}
+    state_path.write_text(json.dumps(pulled))
+    assert _remote(workdir, failed) is None  # đã tải kết quả lần đẩy mới nhất
 
 
 def add_other_run(workdir: Workdir, run_id: str, username: str, params: dict, kernel: str) -> None:

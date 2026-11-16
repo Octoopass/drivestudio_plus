@@ -323,6 +323,8 @@ Route, thân, lỗi và sự kiện SSE quy định ở CONTRACTS mục 11; API 
 
 **Vì sao không đổi sang PlayCanvas (supersplat-viewer, như dự án P-087).** supersplat-viewer là viewer trọn gói cho một cảnh tĩnh kèm quỹ đạo camera; gói xem trước cần nhiều đối tượng splat đổi pose theo khung, Spark làm được sẵn. Bay tới điểm và phát camera mượt làm được trên Spark với vài chục dòng, nên đổi thư viện chỉ tốn công viết lại trang.
 
+**Mode Kết hợp.** Kéo, xoay thì trình duyệt vẽ Gói xem trước; camera hay khung đứng yên 0,3 giây thì trang gửi pose camera (hệ dữ liệu, OpenCV) và K của đúng khung nhìn đang thấy (`renderRequest` trong `viewer/engine.ts`) tới `POST /api/runs/{id}/render-frame`; frame server vẽ bằng đúng hàm của viewer GPU (mọi node, trời, chỉnh màu Affine) rồi trang đè ảnh lên canvas, đổi camera thì ảnh ẩn ngay (`viewer/useExactFrame.ts`). Viewer GPU (viser + nerfview) đòi 30 ảnh/giây và tự hạ độ phân giải khi kéo, nên trên GPU yếu ảnh mờ khi di chuyển; frame server chỉ vẽ một ảnh mỗi lần dừng. Đo trên Quadro T2000 4 GB, run `f8a6`: nạp model khoảng 12 giây; một ảnh 800×450 khoảng 66 ms, một ảnh khoảng 1900×900 khoảng 150 ms (lần đầu khoảng 0,9 giây); ảnh frame server so với khung video `full_set` cùng camera 34,1 dB (phần chênh là do nén MP4). Tiến trình GPU tự tắt khi rời mode, rời trang hay đóng tab.
+
 **Lý do.** Mở được kết quả trên máy không có GPU CUDA, ví dụ laptop khi bàn giao.
 
 **Ưu điểm.** Không cần worker; xoay mượt; giữ màu theo góc nhìn; xe đổi pose và người đổi dáng theo khung (người uốn theo 24 xương SMPL bằng `SplatSkinning` của Spark) nên phát lại được quỹ đạo; có trời (cubemap của model). Vật biến dạng chưa có.

@@ -23,6 +23,8 @@ import socket
 import subprocess
 import sys
 import threading
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import IO, Any, Optional
 
@@ -42,6 +44,14 @@ VIEWER_DIR = "viewer"
 CONFIG = "config.yaml"
 LOG = "viewer.log"
 LOG_TAIL_LINES = 40
+# Tiến trình GPU theo loại: viewer (viser, vẽ liên tục) hoặc frame server (vẽ một ảnh khi được hỏi,
+# cho chế độ Kết hợp của trang Xem 3D). Mỗi lúc chỉ chạy một tiến trình: GPU nhỏ (4 GB) không giữ
+# nổi hai bản model.
+MODULES = {
+    "viewer": "drive2sim.recon.tools.viewer",
+    "frames": "drive2sim.recon.tools.frame_server",
+}
+RENDER_TIMEOUT_S = 30
 
 
 class GpuViewerError(RuntimeError):
@@ -143,9 +153,12 @@ class GpuViewers:
         self._run_id: Optional[str] = None
         self._port: Optional[int] = None
         self._log: Optional[Path] = None
+        self._kind: Optional[str] = None
 
-    def start(self, run_id: str) -> dict[str, Any]:
-        """Tắt viewer đang chạy (nếu có) rồi bật viewer cho ``run_id``.
+    def start(self, run_id: str, kind: str = "viewer") -> dict[str, Any]:
+        """Tắt tiến trình đang chạy (nếu có) rồi bật ``kind`` (``viewer``, ``frames``) cho run.
+
+        Frame server đang chạy đúng run đó thì giữ nguyên (khỏi nạp lại model).
 
         Returns:
             Trạng thái như ``status``.
@@ -153,10 +166,20 @@ class GpuViewers:
         Raises:
             GpuViewerError: Nếu máy chưa đủ điều kiện render GPU hoặc run thiếu dữ liệu.
         """
+        if kind not in MODULES:
+            raise GpuViewerError(f"không có loại {kind}")
         with self._start_lock:
-            return self._start(run_id)
+            current = self.status()
+            if (
+                kind == "frames"
+                and current["kind"] == kind
+                and current["run_id"] == run_id
+                and current["state"] in ("starting", "running")
+            ):
+                return current
+            return self._start(run_id, kind)
 
-    def _start(self, run_id: str) -> dict[str, Any]:
+    def _start(self, run_id: str, kind: str) -> dict[str, Any]:
         run_dir = self.workdir.find_run(run_id)
         readiness = render_readiness(run_dir)
         if not readiness["ready"]:
@@ -171,7 +194,7 @@ class GpuViewers:
             command = [
                 self.python,
                 "-m",
-                "drive2sim.recon.tools.viewer",
+                MODULES[kind],
                 "--ckpt",
                 str(checkpoint),
                 "--config",
@@ -198,8 +221,41 @@ class GpuViewers:
                 start_new_session=True,
                 cwd=str(out),
             )
-            self._run_id, self._port, self._log = run_id, port, log
+            self._run_id, self._port, self._log, self._kind = run_id, port, log, kind
         return self.status()
+
+    def render_frame(self, run_id: str, body: bytes) -> tuple[bytes, str]:
+        """Chuyển yêu cầu vẽ một ảnh (JSON của ``frame_server``) tới frame server của run.
+
+        Returns:
+            ``(JPEG, thời gian vẽ ms)``.
+
+        Raises:
+            GpuViewerError: Nếu frame server của run này chưa chạy hoặc vẽ lỗi.
+        """
+        with self._lock:
+            ready = (
+                self._kind == "frames"
+                and self._run_id == run_id
+                and self._process is not None
+                and self._process.poll() is None
+            )
+            port = self._port
+        if not ready or port is None:
+            raise GpuViewerError(f"frame server của run {run_id} chưa chạy")
+        request = urllib.request.Request(
+            f"http://{HOST}:{port}/render",
+            data=body,
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=RENDER_TIMEOUT_S) as response:  # noqa: S310
+                return response.read(), response.headers.get("X-Render-Ms", "")
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", "replace")[:500]
+            raise GpuViewerError(f"frame server vẽ lỗi: {detail}") from None
+        except (urllib.error.URLError, OSError) as error:
+            raise GpuViewerError(f"frame server chưa vẽ được: {error}") from None
 
     def status(self) -> dict[str, Any]:
         """Trạng thái viewer.
@@ -213,6 +269,7 @@ class GpuViewers:
             if self._process is None:
                 return {
                     "state": "stopped",
+                    "kind": None,
                     "run_id": None,
                     "url": None,
                     "exit_code": None,
@@ -227,6 +284,7 @@ class GpuViewers:
                 state = "starting"
             return {
                 "state": state,
+                "kind": self._kind,
                 "run_id": self._run_id,
                 "url": f"http://{HOST}:{self._port}/" if state == "running" else None,
                 "exit_code": code,

@@ -90,20 +90,28 @@ def _load(request: Request, run_id: str) -> tuple[Path, RunRecord]:
 
 
 def _remote(workdir: Workdir, record: RunRecord) -> Optional[dict]:
-    """Trạng thái phía Kaggle của run chưa tải về (``kaggle.json``); ``None`` với run khác.
+    """Trạng thái phía Kaggle của run chưa tải kết quả lần đẩy mới nhất; ``None`` với run khác.
 
-    Run Kaggle giữ ``pending`` trên máy tới khi tải về, nên Studio dựa vào đây để hiện run chưa
-    đẩy, đang chạy hay đã xong trên Kaggle. ``status`` là trạng thái notebook lần hỏi gần nhất
-    (``None`` nếu chưa hỏi được, ví dụ run đẩy bằng tài khoản Kaggle khác).
+    Run Kaggle giữ trạng thái cũ trên máy tới khi tải về: ``pending`` với lần đẩy đầu, hoặc
+    ``failed`` của lần trước khi đã đẩy lại để chạy tiếp. Studio dựa vào đây để hiện run chưa
+    đẩy, đang chạy hay đã xong trên Kaggle (cùng điều kiện với ``kaggle_watch.watched_runs``).
+    ``status`` là trạng thái notebook lần hỏi gần nhất (``None`` nếu chưa hỏi được, ví dụ run
+    đẩy bằng tài khoản Kaggle khác).
     """
-    if record.executor != "kaggle" or record.status != "pending":
+    if record.executor != "kaggle" or record.status == "succeeded":
         return None
     try:
         state = kaggle_executor.load_state(workdir.find_run(record.run_id))
     except (OSError, ValueError, TypeError):
         state = None
     if state is None:
-        return {"pushed": False, "status": None, "checked_utc": None}
+        return (
+            {"pushed": False, "status": None, "checked_utc": None}
+            if record.status == "pending"
+            else None
+        )
+    if state.pulled_utc and state.pulled_utc >= state.pushed_utc:
+        return None  # đã tải kết quả lần đẩy mới nhất: trạng thái trên máy là đúng
     return {"pushed": True, "status": state.remote_status, "checked_utc": state.checked_utc}
 
 

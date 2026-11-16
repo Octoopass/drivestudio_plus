@@ -123,3 +123,50 @@ def test_start_passes_smpl_model_path(
     monkeypatch.setattr(gpu_viewer.subprocess, "Popen", FakePopen)
     gpu_viewer.GpuViewers(demo, python=sys.executable).start(RUN_ID)
     assert seen["D2S_SMPL_MODEL"] == str(model.resolve())
+
+
+FAKE_FRAME_SERVER = """\
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+port = int(sys.argv[sys.argv.index("--port") + 1])
+host = sys.argv[sys.argv.index("--host") + 1]
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers["Content-Length"]))
+        self.send_response(200)
+        self.send_header("X-Render-Ms", "42")
+        self.end_headers()
+        self.wfile.write(b"JPEG:" + body)
+    def log_message(self, *args):
+        pass
+HTTPServer((host, port), Handler).serve_forever()
+"""
+
+
+def test_frame_server_renders_through_studio(
+    demo: Workdir, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Chế độ Kết hợp: bật frame server, vẽ qua Studio; bật lại cùng run thì giữ tiến trình."""
+    script = tmp_path / "fake_frames.py"
+    script.write_text(FAKE_FRAME_SERVER)
+    fake_python = tmp_path / "python"
+    fake_python.write_text(f'#!/bin/sh\nexec {sys.executable} {script} "$@"\n')
+    fake_python.chmod(0o755)
+    monkeypatch.setattr(gpu_viewer, "render_readiness", ready)
+    viewers = gpu_viewer.GpuViewers(demo, python=str(fake_python))
+    with pytest.raises(gpu_viewer.GpuViewerError, match="chưa chạy"):
+        viewers.render_frame(RUN_ID, b"{}")
+    first = viewers.start(RUN_ID, kind="frames")
+    assert first["kind"] == "frames"
+    deadline = time.time() + 10
+    while viewers.status()["state"] != "running" and time.time() < deadline:
+        time.sleep(0.1)
+    image, elapsed = viewers.render_frame(RUN_ID, b'{"frame": 3}')
+    assert image == b'JPEG:{"frame": 3}' and elapsed == "42"
+    pid = viewers._process.pid
+    viewers.start(RUN_ID, kind="frames")  # cùng run: không nạp lại
+    assert viewers._process.pid == pid
+    with pytest.raises(gpu_viewer.GpuViewerError):
+        viewers.render_frame("20261112-000000-omnire-ffff", b"{}")
+    viewers.stop()
+    assert viewers.status()["state"] == "stopped"

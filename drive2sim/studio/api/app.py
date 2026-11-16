@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -329,15 +330,49 @@ def create_app(
         except GpuViewerError as error:
             raise HTTPException(409, str(error)) from None
 
+    @app.post("/api/runs/{run_id}/frame-server")
+    def start_frame_server(run_id: str) -> dict:
+        """Bật frame server (vẽ một ảnh khi được hỏi) cho chế độ Kết hợp; tắt viewer GPU nếu có.
+
+        Returns:
+            Trạng thái như ``GET /api/gpu-viewer`` (``kind`` là ``frames``); ``409`` nếu máy chưa
+            đủ điều kiện hoặc run thiếu checkpoint.
+        """
+        try:
+            return gpu_viewers.start(run_id, kind="frames")
+        except GpuViewerError as error:
+            raise HTTPException(409, str(error)) from None
+
+    @app.post("/api/runs/{run_id}/render-frame")
+    async def render_frame(run_id: str, request: Request) -> Response:
+        """Vẽ một ảnh bằng renderer gốc (chế độ Kết hợp).
+
+        Thân JSON ``{"c2w", "K", "width", "height", "frame"}`` như ``frame_server``; trả JPEG,
+        header ``X-Render-Ms``. ``409`` nếu frame server chưa chạy.
+        """
+        body = await request.body()
+        try:
+            image, elapsed = await run_in_threadpool(gpu_viewers.render_frame, run_id, body)
+        except GpuViewerError as error:
+            raise HTTPException(409, str(error)) from None
+        return Response(image, media_type="image/jpeg", headers={"X-Render-Ms": elapsed})
+
     @app.get("/api/gpu-viewer")
     def gpu_viewer_status() -> dict:
         """Trạng thái viewer GPU: ``state``, ``run_id``, ``url`` khi đã sẵn sàng, phần cuối log."""
         return gpu_viewers.status()
 
     @app.delete("/api/gpu-viewer")
-    def stop_gpu_viewer() -> dict:
-        """Tắt viewer GPU đang chạy."""
-        gpu_viewers.stop()
+    def stop_gpu_viewer(kind: Optional[str] = None) -> dict:
+        """Tắt tiến trình GPU đang chạy (viewer hoặc frame server), trả VRAM.
+
+        Args:
+            kind: Chỉ tắt nếu tiến trình đang chạy đúng loại này (``viewer``, ``frames``). Trang
+                Xem 3D gửi kèm khi rời một chế độ, để không lỡ tắt tiến trình vừa bật cho chế độ
+                kế tiếp.
+        """
+        if kind is None or gpu_viewers.status()["kind"] == kind:
+            gpu_viewers.stop()
         return gpu_viewers.status()
 
     @app.get("/api/studio")

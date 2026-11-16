@@ -555,3 +555,21 @@ def test_run_held_by_another_job_is_not_queued_twice(client: TestClient) -> None
     assert client.post(f"/api/runs/{run_id}/resume").status_code == 202
     queue.wait_idle()
     assert not queue.is_busy(run_dir)  # chạy xong thì trả chỗ
+
+
+def test_stop_gpu_process_only_of_given_kind(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Rời một chế độ chỉ tắt tiến trình GPU đúng loại, không lỡ tắt tiến trình của chế độ kế."""
+    from drive2sim.studio.api import gpu_viewer
+
+    stopped: list[bool] = []
+    monkeypatch.setattr(
+        gpu_viewer.GpuViewers, "status", lambda self: {"kind": "frames", "state": "running"}
+    )
+    monkeypatch.setattr(gpu_viewer.GpuViewers, "stop", lambda self: stopped.append(True))
+    client.delete("/api/gpu-viewer", params={"kind": "viewer"})
+    assert stopped == []
+    client.delete("/api/gpu-viewer", params={"kind": "frames"})
+    client.delete("/api/gpu-viewer")
+    assert stopped == [True, True]
