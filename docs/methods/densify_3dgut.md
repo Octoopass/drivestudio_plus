@@ -100,8 +100,26 @@ g2d = (J Jᵀ)⁻¹ J · g3d
 - **Lệch so với lý thuyết:** tỉ lệ giảm dần theo bước train (0,15 → 0,04), trong khi `1,58 / z` chỉ phụ thuộc hình học. Đại lượng của 3DGS tăng dần (phân vị 99 %: 3,1e-4 → 1,1e-3) còn của 3DGUT gần như đứng yên (~5–8e-5). Một nguyên nhân có thể: 3DGS dùng `absgrad` (cộng độ lớn gradient từng pixel), 3DGUT lấy độ lớn sau khi cộng, nên khi ảnh render đã gần đúng, các gradient pixel triệt tiêu nhau ở 3DGUT mà không triệt tiêu ở 3DGS. **Chưa kiểm chứng.**
 - Hệ quả: một ngưỡng cố định chia 10 không đủ (tỉ lệ đổi theo thời gian), nên gradient tương đương pixel (bước 2) đáng thử trước; nó vẫn không lấy lại được phần `absgrad` (mục 5).
 
+**Kết quả bước 2** (16/11/2026; run `90dd` 3DGUT `ut_densify=screen`, so với `ca4b` 3DGUT gốc và `ac56` 3DGS; cùng OmniRe + FastGS + Faster-GS, nuScenes `scene-0061` `front3`, 2000 bước; Gaussian nền). Lần chạy đầu của `90dd` lỗi ở bước khoảng 600: `torch.linalg.solve` gặp ma trận suy biến (Jacobian chiếu suy biến, giảm chấn quá nhỏ bị float32 làm tròn); đã đổi sang nghịch đảo 2×2 trực tiếp, điểm suy biến cho gradient 0 (commit `dc94395`).
+
+| Bước | Vượt ngưỡng: 3DGUT gốc | 3DGUT `screen` | 3DGS |
+|---|---|---|---|
+| 100 | 0,008 % | 0,042 % | 0,484 % |
+| 300 | 0,007 % | 0,106 % | 1,301 % |
+| 600 | 0,006 % | 0,187 % | 2,282 % |
+| 1000 | 0,017 % | 0,507 % | 4,408 % |
+| 1900 | 0,040 % | 0,806 % | 4,599 % |
+
+| Run | PSNR test | SSIM | LPIPS | PSNR train trung bình | Gaussian nền ở bước 1900 |
+|---|---|---|---|---|---|
+| `ca4b` 3DGUT gốc | 22,34 | 0,708 | 0,436 | 21,07 | 0,88 triệu |
+| `90dd` 3DGUT `screen` | 21,24 | 0,700 | 0,431 | 21,18 | 0,92 triệu |
+| `ac56` 3DGS | 21,60 | 0,701 | 0,418 | 21,20 | 1,14 triệu |
+
+- `screen` tăng tỉ lệ vượt ngưỡng 5–30 lần so với nhánh gốc, nhưng vẫn thấp hơn 3DGS 6–12 lần: phép đổi sang gradient tương đương pixel mới bù được một phần. Phần còn thiếu hợp với giả thuyết `absgrad` ở mục 5 (3DGS cộng độ lớn gradient từng pixel; 3DGUT lấy độ lớn sau khi cộng, các gradient pixel triệt tiêu nhau) — **chưa kiểm chứng**.
+- PSNR ở 2000 bước gần nhau và thứ tự không khớp lượng Gaussian (3DGUT gốc cao nhất ở test); một seed, 2000 bước, chưa đủ để nói `screen` tốt hay kém hơn về chất lượng.
+
 Kế hoạch còn lại:
-2. Chạy thử 2000 bước 3DGUT với `ut_densify=screen`: tỉ lệ Gaussian vượt ngưỡng phải gần 3DGS mà không chỉnh gì.
 3. Lặp lại bước 2 trên KITTI-360 (độ phân giải khác, có mắt cá): nếu vẫn gần, phép đổi không phụ thuộc dataset.
 4. Run 3DGUT 30 000 bước với `ut_densify=screen` để so renderer.
 
