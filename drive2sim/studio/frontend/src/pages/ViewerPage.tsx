@@ -7,14 +7,14 @@
 //   bằng renderer gốc nên đủ mọi phần của model.
 // File kéo thả (.ply, .spz, .splat, .ksplat, .sog) chỉ đọc trong trình duyệt, không gửi lên server.
 import { ArrowLeft, Box, CheckCircle2, ChevronLeft, Crosshair, FileUp, Maximize2, Minimize2, Pause, Play, Power, SlidersHorizontal, XCircle, Video as VideoIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, asApiError, del, post, preferredVideo, seg, useApi, type ApiError } from "../api/client";
 import type { ActorPoses, List, RunRecord, Splats, Video } from "../api/types";
 import { ErrorBox, InfoTip, Note, PageHead, Segmented } from "../components/ui";
 import { RoadScene } from "../components/Illustration";
 import { useI18n } from "../i18n";
 import { go } from "../router";
-import { SplatViewer, upAxisFromCameras, type HumanMotion, type SceneCamera, type SplatSource, type UpAxis } from "../viewer/engine";
+import { novelTrajectory, SplatViewer, upAxisFromCameras, type HumanMotion, type SceneCamera, type SplatSource, type UpAxis } from "../viewer/engine";
 
 /** Trục lên ghi trong phần đầu file PLY do tool xuất ("comment drive2sim up=+z ..."), nếu có. */
 async function headerUpAxis(picked: File): Promise<UpAxis | null> {
@@ -29,6 +29,8 @@ function defaultCamera(cameras: SceneCamera[]): number {
   const index = cameras.findIndex((camera) => /front|^0$|_0$/i.test(camera.name));
   return index >= 0 ? index : 0;
 }
+
+type CameraPath = "free" | "camera" | "novel";
 
 const ACCEPT = ".ply,.spz,.splat,.ksplat,.sog,.zip";
 type Source = "preview" | "ply" | "video" | "gpu" | "file";
@@ -78,7 +80,10 @@ export function ViewerPage({ runId }: { runId?: string }) {
   // Camera gốc của run (cameras.json): mở đúng góc của video, nút về góc camera, bám camera khi phát.
   const [cameras, setCameras] = useState<SceneCamera[] | null>(null);
   const [cameraIndex, setCameraIndex] = useState(0);
-  const [follow, setFollow] = useState(false);
+  // Camera khi phát: tự do, bám camera gốc đang chọn, hoặc đi theo đường novel (như video novel).
+  const [path, setPath] = useState<CameraPath>("free");
+  const follow = path !== "free";
+  const setFollow = (value: boolean) => setPath(value ? "camera" : "free");
   const [sh, setSh] = useState(3);
   const [progress, setProgress] = useState<number | null>(null);
   const [count, setCount] = useState<number | null>(null);
@@ -256,7 +261,12 @@ export function ViewerPage({ runId }: { runId?: string }) {
   };
 
   // Về đúng góc của camera gốc ở khung đang xem; khi "bám camera", tự đi theo khung lúc phát.
-  const camera = cameras?.[cameraIndex];
+  // Đường novel dùng nội tham số của camera đầu tiên, như DriveStudio render video novel.
+  const novel = useMemo<SceneCamera | null>(
+    () => (cameras?.length ? { ...cameras[0], name: "novel", c2w: novelTrajectory(cameras[0].c2w) } : null),
+    [cameras],
+  );
+  const camera = path === "novel" && novel ? novel : cameras?.[cameraIndex];
   const goToCamera = (at: number = frame) => {
     if (!camera) return;
     const index = Math.min(at, camera.c2w.length - 1);
@@ -274,7 +284,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
   };
   useEffect(() => {
     if (follow && !playing) goToCamera(frame);
-  }, [frame, follow, cameraIndex, playing]); // goToCamera đọc state mới nhất mỗi lần render
+  }, [frame, path, cameraIndex, playing]); // goToCamera đọc state mới nhất mỗi lần render
 
   // Đang phát: mỗi khung hình của trình duyệt đặt xe (và camera, khi bám camera) ở vị trí nội suy
   // giữa hai khung dữ liệu liền nhau, nên chuyển động liền thay vì nhảy 10 lần mỗi giây. Thanh
@@ -556,11 +566,21 @@ export function ViewerPage({ runId }: { runId?: string }) {
                         <VideoIcon size={15} />
                         {t("viewer.camera.go")}
                       </button>
-                      <label className="chip-check">
-                      <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
-                        {t("viewer.camera.follow")}
-                      </label>
                     </div>
+                    <span className="small muted row" style={{ gap: 2 }}>
+                      {t("viewer.camera.path")}
+                      <InfoTip>{t("viewer.camera.path_hint")}</InfoTip>
+                    </span>
+                    <Segmented<CameraPath>
+                      label={t("viewer.camera.path")}
+                      value={path}
+                      onChange={setPath}
+                      options={[
+                        { value: "free", label: t("viewer.camera.path.free") },
+                        { value: "camera", label: t("viewer.camera.path.camera") },
+                        { value: "novel", label: t("viewer.camera.path.novel") },
+                      ]}
+                    />
                   </div>
                 )}
                 <div className="field">

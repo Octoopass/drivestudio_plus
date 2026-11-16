@@ -42,6 +42,34 @@ export function upAxisFromCameras(cameras: SceneCamera[]): UpAxis | null {
   return (total[index] > 0 ? name : `-${name}`) as UpAxis;
 }
 
+/**
+ * Đường camera "novel" giống video `novel/front_center_interp.mp4` của DriveStudio
+ * (`front_center_interp` và `interpolate_poses` trong `drive2sim/recon/utils/camera.py`): lấy pose
+ * của camera đầu tiên ở các khung `[::F // 4]` làm điểm mốc, rồi nội suy ra `F` khung trải đều
+ * từ mốc đầu tới mốc cuối, vị trí theo đường thẳng, hướng bằng slerp. Khung `i` của đường này ứng
+ * với thời điểm `i` của cảnh, như lúc DriveStudio render video novel.
+ *
+ * @param c2w Pose camera→world (16 số theo hàng) của camera đầu tiên ở từng khung.
+ * @returns `F` pose cùng dạng.
+ */
+export function novelTrajectory(c2w: number[][]): number[][] {
+  const frames = c2w.length;
+  if (frames < 2) return c2w.slice();
+  const step = Math.max(1, Math.floor(frames / 4));
+  const keys: number[][] = [];
+  for (let index = 0; index < frames; index += step) keys.push(c2w[index]);
+  if (keys.length < 2) return c2w.slice();
+  const pose = new THREE.Matrix4();
+  const out: number[][] = [];
+  for (let i = 0; i < frames; i++) {
+    const t = (i / (frames - 1)) * (keys.length - 1);
+    const segment = Math.min(Math.floor(t), keys.length - 2);
+    blendPose(keys[segment], keys[segment + 1], t - segment, pose);
+    out.push(pose.clone().transpose().toArray());
+  }
+  return out;
+}
+
 /** Giá trị ở phân vị q (0–1) của một mảng đã sắp. */
 function quantile(sorted: Float32Array, q: number): number {
   return sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor(q * (sorted.length - 1))))];
