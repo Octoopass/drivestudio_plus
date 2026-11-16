@@ -212,7 +212,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
         const index = defaultCamera(loadedCameras);
         setCameraIndex(index);
         const camera = loadedCameras[index];
-        v.setCameraPose(camera.c2w[0], camera.K[0][4], camera.height);
+        v.setCameraPose(camera.c2w[0], camera.K[0], camera.width, camera.height);
       }
       v.setMaxSh(shRef.current);
       setCount(total);
@@ -270,7 +270,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
   const goToCamera = (at: number = frame) => {
     if (!camera) return;
     const index = Math.min(at, camera.c2w.length - 1);
-    viewer.current?.setCameraPose(camera.c2w[index], camera.K[index][4], camera.height);
+    viewer.current?.setCameraPose(camera.c2w[index], camera.K[index], camera.width, camera.height);
   };
   // "Căn lại": về đúng góc lúc mới mở (camera mặc định, ở khung đang xem); không có camera gốc (file
   // kéo thả) thì nhìn bao quát cả cảnh.
@@ -280,7 +280,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
     setCameraIndex(index);
     const start = cameras[index];
     const at = Math.min(frame, start.c2w.length - 1);
-    viewer.current?.setCameraPose(start.c2w[at], start.K[at][4], start.height);
+    viewer.current?.setCameraPose(start.c2w[at], start.K[at], start.width, start.height);
   };
   useEffect(() => {
     if (follow && !playing) goToCamera(frame);
@@ -315,7 +315,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
       if (followRef.current && cam) {
         const a = Math.min(index, cam.c2w.length - 1);
         const b = Math.min(next, cam.c2w.length - 1);
-        viewer.current?.setCameraPose(cam.c2w[a], cam.K[a][4], cam.height, cam.c2w[b], alpha);
+        viewer.current?.setCameraPose(cam.c2w[a], cam.K[a], cam.width, cam.height, cam.c2w[b], alpha);
       }
       if (index !== frameRef.current) setFrame(index);
       handle = requestAnimationFrame(tick);

@@ -253,6 +253,14 @@ export class SplatViewer {
   // Spark sắp xếp splat không đồng bộ sau khi camera đổi, nên giữ vẽ thêm một lúc để bản sắp
   // xếp mới kịp hiện. Đứng yên thì không tốn GPU, trang không bị giật.
   private renderUntil = 0;
+  /** K của camera gốc đang dùng (setCameraPose), null khi nhìn tự do bao quát. */
+  private intrinsics: { fx: number; fy: number; cx: number; cy: number; width: number; height: number } | null = null;
+  /** Gọi mỗi khi camera đổi (vị trí, hướng, phép chiếu), để trang ẩn ảnh chính xác cũ. */
+  onCameraChange?: () => void;
+  private lastView = new THREE.Matrix4();
+  /** Độ nghiêng của camera gốc quanh trục nhìn, áp sau OrbitControls (xem `frame`). */
+  private roll = new THREE.Quaternion();
+  private lastProjection = new THREE.Matrix4();
   // Luôn vẽ đủ độ phân giải màn hình: ưu tiên nét, không hạ độ phân giải lúc chuyển động.
   private basePixelRatio = Math.min(window.devicePixelRatio, 2);
   private raycaster = new THREE.Raycaster();
@@ -295,8 +303,17 @@ export class SplatViewer {
   private frame(): void {
     if (this.flight) this.invalidate();
     if (this.controls.update()) this.invalidate();
+    // OrbitControls luôn dựng camera thẳng đứng (lookAt theo trục lên); trả lại độ nghiêng của
+    // camera gốc (xe nghiêng, đường dốc), nếu không ảnh lệch vài điểm ảnh so với render gốc.
+    this.camera.quaternion.multiply(this.roll);
     this.stepFlight();
     if (performance.now() > this.renderUntil) return;
+    this.camera.updateMatrixWorld();
+    if (!this.lastView.equals(this.camera.matrixWorld) || !this.lastProjection.equals(this.camera.projectionMatrix)) {
+      this.lastView.copy(this.camera.matrixWorld);
+      this.lastProjection.copy(this.camera.projectionMatrix);
+      this.onCameraChange?.();
+    }
     if (this.sky) {
       // Trời ở vô cực: quả cầu đi theo camera, bán kính trong tầm nhìn xa.
       this.sky.position.copy(this.camera.position);
@@ -472,7 +489,7 @@ export class SplatViewer {
     if (!w || !h) return;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    this.updateProjection();
     this.invalidate();
   }
 
@@ -645,7 +662,9 @@ export class SplatViewer {
     this.camera.position.copy(center).add(new THREE.Vector3(0, radius * 0.75, radius * 0.65));
     this.camera.near = Math.max(0.01, radius / 2000);
     this.camera.far = radius * 40;
-    this.camera.updateProjectionMatrix();
+    this.intrinsics = null;
+    this.roll.identity();
+    this.updateProjection();
     this.controls.update();
   }
 
@@ -653,7 +672,7 @@ export class SplatViewer {
    * Đặt góc nhìn đúng như một camera gốc ở một khung: pose camera→world theo quy ước OpenCV (x
    * phải, y xuống, z nhìn tới), trong toạ độ của dữ liệu; góc nhìn dọc lấy từ fy và chiều cao ảnh.
    */
-  setCameraPose(c2w: number[], fy: number, height: number, next?: number[], alpha = 0): void {
+  setCameraPose(c2w: number[], K: number[], width: number, height: number, next?: number[], alpha = 0): void {
     this.flight = null;
     this.root.updateMatrixWorld(true);
     const pose = blendPose(c2w, next ?? c2w, alpha, new THREE.Matrix4());
@@ -665,14 +684,58 @@ export class SplatViewer {
     world.decompose(position, quaternion, new THREE.Vector3());
     this.camera.position.copy(position);
     this.camera.quaternion.copy(quaternion);
-    this.camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(height / (2 * fy)));
+    this.camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(height / (2 * K[4])));
     this.camera.near = 0.05;
     this.camera.far = 5000;
-    this.camera.updateProjectionMatrix();
+    this.intrinsics = { fx: K[0], fy: K[4], cx: K[2], cy: K[5], width, height };
+    this.updateProjection();
     // Tâm xoay đặt trước mặt camera 10 m, để kéo chuột thì xoay quanh cảnh trước mặt.
     this.controls.target.copy(position).add(new THREE.Vector3(0, 0, -10).applyQuaternion(quaternion));
     this.controls.update();
+    // Phần nghiêng (quanh trục nhìn) mà OrbitControls bỏ đi, áp lại ở mỗi khung hình.
+    this.roll.copy(this.camera.quaternion).invert().multiply(quaternion);
+    this.camera.quaternion.copy(quaternion);
     this.invalidate();
+  }
+
+  /**
+   * Phép chiếu theo đúng K của camera gốc (fx, fy, cx, cy), như renderer của DriveStudio: ảnh gốc
+   * được co theo chiều cao canvas và đặt giữa, tâm ảnh lệch đúng (cx − W/2, cy − H/2) điểm ảnh.
+   * Không có K (nhìn bao quát, file kéo thả) thì là phép chiếu đối xứng của three.js. Canvas rộng
+   * hơn ảnh gốc thì thấy thêm hai bên.
+   */
+  private updateProjection(): void {
+    this.camera.updateProjectionMatrix();
+    const k = this.intrinsics;
+    if (!k) return;
+    const { clientWidth: cw, clientHeight: ch } = this.host;
+    if (!cw || !ch) return;
+    const scale = ch / k.height;
+    const e = this.camera.projectionMatrix.elements;
+    e[0] = (2 * k.fx * scale) / cw;
+    e[5] = (2 * k.fy) / k.height;
+    e[8] = (-2 * (k.cx - k.width / 2) * scale) / cw;
+    e[9] = (2 * k.cy) / k.height - 1;
+    this.camera.projectionMatrixInverse.copy(this.camera.projectionMatrix).invert();
+  }
+
+  /**
+   * Pose camera hiện tại trong hệ dữ liệu (OpenCV, 16 số theo hàng) và K cho ảnh `width` × `height`
+   * cùng khung nhìn với canvas: để renderer gốc vẽ đúng ảnh đang thấy (chế độ Kết hợp).
+   */
+  renderRequest(width: number, height: number): { c2w: number[]; K: number[] } {
+    this.root.updateMatrixWorld(true);
+    this.camera.updateMatrixWorld(true);
+    const flip = new THREE.Matrix4().makeScale(1, -1, -1);
+    const pose = this.root.matrixWorld.clone().invert().multiply(this.camera.matrixWorld).multiply(flip);
+    const e = this.camera.projectionMatrix.elements;
+    const K = [(e[0] * width) / 2, 0, ((1 - e[8]) * width) / 2, 0, (e[5] * height) / 2, ((1 + e[9]) * height) / 2, 0, 0, 1];
+    return { c2w: pose.clone().transpose().toArray(), K };
+  }
+
+  /** Kích thước canvas đang hiển thị (điểm ảnh CSS). */
+  viewSize(): { width: number; height: number } {
+    return { width: this.host.clientWidth, height: this.host.clientHeight };
   }
 
   dispose(): void {
