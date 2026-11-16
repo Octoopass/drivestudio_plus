@@ -23,6 +23,13 @@ export interface MetricDef {
   evalSplit?: boolean;
   /** Giá trị số để tô màu, sắp xếp và vẽ biểu đồ. */
   value: (row: ReportRow) => number | null;
+  /** Cột chữ (GPU, cỡ ảnh): không sắp xếp, không in đậm. */
+  text?: boolean;
+}
+
+/** "800x450" → "800×450". */
+export function size(value: string | null | undefined): string {
+  return value ? value.replace(/(\d)x(\d)/g, "$1×$2") : "–";
 }
 
 export interface MetricGroup {
@@ -75,6 +82,14 @@ export const METRIC_GROUPS: MetricGroup[] = [
       { key: "train_time_s", hardware: true, label: "run.result.train_time", hint: "metrics.hint.train_time", better: "low", format: (r) => duration(r.train_time_s), value: num("train_time_s") },
       { key: "recon_time_s", hardware: true, label: "run.result.recon_time", hint: "metrics.hint.recon_time", better: "low", format: (r) => duration(r.recon_time_s), value: num("recon_time_s") },
       { key: "num_iters", label: "run.result.iters", hint: "metrics.hint.iters", format: (r) => count(r.num_iters), value: num("num_iters") },
+      {
+        key: "train_resolution",
+        label: "run.result.resolution",
+        hint: "metrics.hint.resolution",
+        text: true,
+        format: (r) => (r.train_resolution ? `${size(r.train_resolution)} / ${size(r.source_resolution)}` : "–"),
+        value: () => null,
+      },
     ],
   },
   {
@@ -85,7 +100,7 @@ export const METRIC_GROUPS: MetricGroup[] = [
     metrics: [
       { key: "peak_vram_mb", hardware: true, label: "run.result.vram", hint: "metrics.hint.vram", unit: "GB", better: "low", format: (r) => (r.peak_vram_mb ? (r.peak_vram_mb / 1024).toFixed(1) : "–"), value: num("peak_vram_mb") },
       { key: "render_fps", hardware: true, label: "run.result.fps", hint: "metrics.hint.fps", unit: "fps", better: "high", format: digits("render_fps", 1), value: num("render_fps") },
-      { key: "gpu", label: "metrics.gpu", hint: "metrics.hint.gpu", format: (r) => r.gpu ?? "–", value: () => null },
+      { key: "gpu", label: "metrics.gpu", hint: "metrics.hint.gpu", text: true, format: (r) => r.gpu ?? "–", value: () => null },
     ],
   },
   {

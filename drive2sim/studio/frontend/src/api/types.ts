@@ -91,6 +91,10 @@ export interface ReportRow {
   dynamic_psnr: number | null;
   occupied_psnr: number | null;
   num_iters: number | null;
+  /** Cỡ ảnh lúc train và đánh giá, ví dụ "800x450". */
+  train_resolution: string | null;
+  /** Cỡ ảnh gốc của camera trong split (manifest), ví dụ "1600x900". */
+  source_resolution: string | null;
   train_time_s: number | null;
   recon_time_s: number | null;
   peak_vram_mb: number | null;

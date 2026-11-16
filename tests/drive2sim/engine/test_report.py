@@ -94,3 +94,19 @@ def test_avg_error_matches_mip_nerf() -> None:
     assert round(avg_error(33.09, 0.961, 0.043), 3) == 0.016
     # tốt hơn ở cả ba metric thì Avg thấp hơn
     assert avg_error(28.3, 0.874, 0.183) < avg_error(24.4, 0.803, 0.271)
+
+
+def test_source_resolution_reads_split_cameras(tmp_path: Path) -> None:
+    """Cỡ ảnh gốc lấy theo camera của split trong manifest; thiếu cảnh thì ``None``."""
+    from drive2sim.core import files
+    from drive2sim.core.schema import Manifest, Split
+    from drive2sim.engine.report import source_resolution
+    from drive2sim.engine.workdir import Workdir
+    from tests.drive2sim.samples import MANIFEST, SPLIT
+
+    workdir = Workdir(tmp_path)
+    scene = MANIFEST["scene_id"]
+    assert source_resolution(workdir, scene, SPLIT["split_id"]) is None
+    files.dump(Manifest.model_validate(MANIFEST), workdir.scene_dir(scene) / "manifest.yaml")
+    files.dump(Split.model_validate(SPLIT), workdir.split_path(scene, SPLIT["split_id"]))
+    assert source_resolution(workdir, scene, SPLIT["split_id"]) == "1600x900"

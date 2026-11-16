@@ -13,10 +13,10 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, preferredVideo, seg, useApi } from "../api/client";
 import type { List, Manifest, ReportRow, SceneDetail, Video } from "../api/types";
 import { GroupedBarChart, Legend, MultiLineChart, ScatterChart, seriesColor, StackedBarChart, type Point } from "../components/charts";
-import { duration, Empty, ErrorBox, InfoTip, Loading, PageHead, Panel, Segmented, Tabs } from "../components/ui";
+import { count, duration, Empty, ErrorBox, InfoTip, Loading, PageHead, Panel, Segmented, Tabs } from "../components/ui";
 import { ConfigText } from "../components/ConfigText";
 import { useI18n } from "../i18n";
-import { BetterArrow, isComparable, SUMMARY_GROUP, visibleGroups, type MetricDef, type MetricKey } from "../metrics";
+import { BetterArrow, isComparable, size, SUMMARY_GROUP, visibleGroups, type MetricDef, type MetricKey } from "../metrics";
 import { go, href } from "../router";
 
 const TAB_KEY = "d2s.compare.tab";
@@ -89,7 +89,7 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
   const comparable = useMemo(() => (report.data?.items ?? []).filter((r) => inView(r) && isComparable(r)), [report.data, currentScene, currentSplit]);
   const groups = comparable.length ? [SUMMARY_GROUP, ...visibleGroups(comparable)] : [];
   const group = groups.find((g) => g.id === groupId) ?? groups[0];
-  const sortable = group ? group.metrics.filter((m) => m.key !== "gpu") : [];
+  const sortable = group ? group.metrics.filter((m) => !m.text) : [];
   const sort = sortable.find((m) => m.key === sortKey) ?? sortable.find((m) => m.key === group?.defaultSort) ?? sortable[0];
   const dir = direction ?? (sort?.better === "low" ? "asc" : "desc");
   const rows = useMemo(() => {
@@ -119,7 +119,23 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
   };
   const splits = [...new Set(rows.map((r) => r.split_id))].sort();
   const grouped = bySplit && splits.length > 1;
-  const blocks = grouped ? splits.map((id) => ({ split: id, rows: rows.filter((r) => r.split_id === id) })) : [{ split: "", rows }];
+  // Mỗi khối là các run so được với nhau: cùng số iteration và cùng cỡ ảnh lúc train (thêm cùng
+  // split khi gom theo split). Run chạy thử 2.000 bước đứng chung bảng với run 30.000 bước thì
+  // xếp hạng vô nghĩa, nên tách khối; khối nhiều iteration hơn đứng trước. Xếp hạng, in đậm số
+  // tốt nhất làm trong từng khối.
+  const blocks = useMemo(() => {
+    const keyOf = (r: ReportRow) => [grouped ? r.split_id : "", r.num_iters ?? -1, r.train_resolution ?? ""] as const;
+    const found = new Map<string, { key: ReturnType<typeof keyOf>; rows: ReportRow[] }>();
+    for (const row of rows) {
+      const key = keyOf(row);
+      const id = key.join("|");
+      if (!found.has(id)) found.set(id, { key, rows: [] });
+      found.get(id)!.rows.push(row);
+    }
+    return [...found.entries()]
+      .sort(([, a], [, b]) => a.key[0].localeCompare(b.key[0]) || b.key[1] - a.key[1] || a.key[2].localeCompare(b.key[2]))
+      .map(([id, block]) => ({ id, split: block.key[0], rows: block.rows, sample: block.rows[0] }));
+  }, [rows, grouped]);
   // Bảng trộn nhiều split mà không gom: cột metric đo trên ảnh test (chất lượng ảnh, theo vùng) có
   // dấu cảnh báo, vì hai split khác nhau đánh giá trên các khung test khác nhau.
   const mixedSplit = splits.length > 1 && !grouped;
@@ -127,6 +143,10 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
     setBySplit(value);
     writePref(BY_SPLIT_KEY, value ? "1" : "0");
   };
+  // Biểu đồ (chất lượng theo thời gian, Pareto...) chỉ vẽ các run có nhiều iteration nhất: run
+  // chạy thử ít bước vừa nhanh vừa kém nên làm lệch đường Pareto.
+  const chartIters = Math.max(-1, ...rows.map((r) => r.num_iters ?? -1));
+  const chartRows = rows.filter((r) => (r.num_iters ?? -1) === chartIters);
   // Bảng có run chạy trên nhiều GPU: cột phụ thuộc phần cứng có dấu cảnh báo nhỏ ở tiêu đề.
   const gpus = [...new Set(rows.map((r) => r.gpu).filter((g): g is string => !!g))];
   const mixedGpu = gpus.length > 1;
@@ -238,11 +258,11 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
                   {group.metrics.map((metric) => (
                     <th
                       key={metric.key}
-                      className={metric.key === "gpu" ? undefined : "num"}
+                      className={metric.text ? undefined : "num"}
                       aria-sort={sort.key === metric.key ? (dir === "asc" ? "ascending" : "descending") : undefined}
                     >
                       <span className="th-metric">
-                        {metric.key === "gpu" ? (
+                        {metric.text ? (
                           <span>{t(metric.label)}</span>
                         ) : (
                           <button
@@ -269,15 +289,24 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
                 </tr>
               </thead>
               {blocks.map((block) => (
-              <tbody key={block.split}>
-                {grouped && (
-                  <tr className="group-row">
-                    <td colSpan={3 + group.metrics.length}>
-                      {t("compare.table.split")} <b>{block.split}</b>
-                      <span className="faint"> · {t("compare.count", { count: block.rows.length })}</span>
-                    </td>
-                  </tr>
-                )}
+              <tbody key={block.id}>
+                <tr className="group-row">
+                  <td colSpan={(!currentSplit && !grouped ? 4 : 3) + group.metrics.length}>
+                    {grouped && (
+                      <>
+                        {t("compare.table.split")} <b>{block.split}</b> ·{" "}
+                      </>
+                    )}
+                    <b>{block.sample.num_iters != null ? t("compare.block.iters", { count: count(block.sample.num_iters) }) : t("compare.block.iters_unknown")}</b>
+                    {block.sample.train_resolution && (
+                      <span>
+                        {" · "}
+                        {t("compare.block.resolution", { train: size(block.sample.train_resolution), source: size(block.sample.source_resolution) })}
+                      </span>
+                    )}
+                    <span className="faint"> · {t("compare.count", { count: block.rows.length })}</span>
+                  </td>
+                </tr>
                 {block.rows.map((row, index) => (
                   <tr key={row.run_id}>
                     <td className="num faint">{sort.value(row) == null ? "–" : index + 1}</td>
@@ -285,6 +314,7 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
                       <a className="id" href={href({ page: "run", runId: row.run_id })}>{row.run_id}</a>
                       <div className="small faint row" style={{ gap: 6 }}>
                         {row.approach_id}
+                        {row.num_iters != null && <span>· {t("compare.row.iters", { count: count(row.num_iters) })}</span>}
                       </div>
                     </td>
                     {!currentSplit && !grouped && <td className="small nowrap">{row.split_id}</td>}
@@ -292,7 +322,7 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
                       <ConfigText approachId={row.approach_id} options={row.options} preset={row.preset} />
                     </td>
                     {group.metrics.map((metric) => (
-                      <td key={metric.key} className={metric.key === "gpu" ? "small nowrap" : sort.key === metric.key ? "num sorted-col" : "num"}>
+                      <td key={metric.key} className={metric.text ? "small nowrap" : sort.key === metric.key ? "num sorted-col" : "num"}>
                         <Best text={metric.format(row)} value={metric.value(row)} cells={block.rows.flatMap((r) => { const v = metric.value(r); return v == null ? [] : [{ text: metric.format(r), value: v }]; })} better={metric.better} />
                       </td>
                     ))}
@@ -305,7 +335,10 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
         </section>
       )}
 
-      {rows.length > 0 && <Charts rows={rows} splits={splits} grouped={grouped} gpus={gpus} />}
+      {chartRows.length > 0 && chartRows.length < rows.length && (
+        <p className="small faint">{t("compare.charts.only_iters", { count: count(chartIters) })}</p>
+      )}
+      {chartRows.length > 0 && <Charts rows={chartRows} splits={splits} grouped={grouped} gpus={gpus} />}
 
       {rows.length > 1 && (
         <Panel title={t("compare.side.title")} info={t("compare.side.info")}>
