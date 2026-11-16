@@ -2,7 +2,7 @@
 
 **Trạng thái:** nhánh 3DGUT của Bosch dùng lại ngưỡng của 3DGS cho một đại lượng khác thang đo. Đã có: module ghi thống kê densify, và trainer đổi gradient 3DGUT về gradient tương đương pixel (mục 5) để dùng lại ngưỡng 3DGS mà không phụ thuộc dataset; cả hai bật bằng tham số, mặc định tắt. Đang chạy thử trên nuScenes; chưa có kết quả.
 
-Liên quan: `fastgs.md` (FastGS đổi quy tắc densify), `fastergs.md` (tăng tốc không đổi densify), `3dgeer.md` (renderer 3DGEER và ngưỡng riêng của nó).
+Liên quan: `densify_mcmc.md` (đề xuất bỏ ngưỡng gradient, densify bằng MCMC), `fastgs.md` (FastGS đổi quy tắc densify), `fastergs.md` (tăng tốc không đổi densify), `3dgeer.md` (renderer 3DGEER và ngưỡng riêng của nó).
 
 ## 1. Densify từ nguyên lý gốc
 
