@@ -51,6 +51,7 @@ from drive2sim.core.schema import (
     StageRecord,
     Summary,
 )
+from drive2sim.engine import gpu_process
 from drive2sim.engine.cache import (
     ARTIFACT_FILE,
     CacheBusyError,
@@ -630,6 +631,20 @@ class _Runner:
         self.record.status = "running"
         self.save()
         self.emit_status(None, "running")
+        # Tiến trình GPU của trang Xem 3D còn giữ model trong VRAM thì tắt trước khi chạy stage,
+        # để train trên cùng GPU không hết bộ nhớ (engine/gpu_process.py).
+        if any(stage.status != "succeeded" for stage in self.record.stages):
+            stopped = gpu_process.stop_recorded(self.workdir)
+            if stopped:
+                self.sink(
+                    {
+                        "event": "log",
+                        "run_id": self.record.run_id,
+                        "stage_id": None,
+                        "level": "info",
+                        "message": f"đã tắt {stopped} của trang Xem 3D để giải phóng VRAM",
+                    }
+                )
         for index, stage_record in enumerate(self.record.stages):
             stage_id = stage_record.stage_id
             if (self.run_dir / D2S_DIR / CANCEL_FILE).exists():

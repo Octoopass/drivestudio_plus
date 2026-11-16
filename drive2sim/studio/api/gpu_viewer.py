@@ -32,6 +32,7 @@ import yaml
 
 from drive2sim.core import files
 from drive2sim.core.schema import RunRecord
+from drive2sim.engine import gpu_process
 from drive2sim.engine.render_check import CHECKPOINT, render_readiness
 from drive2sim.engine.run import D2S_DIR, RUN_FILE
 from drive2sim.engine.workdir import Workdir
@@ -222,6 +223,8 @@ class GpuViewers:
                 cwd=str(out),
             )
             self._run_id, self._port, self._log, self._kind = run_id, port, log, kind
+            # Ghi lại để train trên máy (kể cả lệnh d2s ở tiến trình khác) tắt nó trước khi chạy.
+            gpu_process.record(self.workdir, self._process.pid, MODULES[kind], run_id)
         return self.status()
 
     def render_frame(self, run_id: str, body: bytes) -> tuple[bytes, str]:
@@ -298,6 +301,8 @@ class GpuViewers:
 
     def _stop_locked(self) -> None:
         process = self._process
+        if process is not None:
+            gpu_process.clear(self.workdir, process.pid)
         if process is not None and process.poll() is None:
             try:
                 os.killpg(process.pid, signal.SIGTERM)

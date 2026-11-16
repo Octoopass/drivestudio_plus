@@ -114,6 +114,8 @@ def test_start_passes_smpl_model_path(
     seen: dict = {}
 
     class FakePopen:
+        pid = 999999999  # như Popen thật; không tiến trình nào có pid này
+
         def __init__(self, command: list, env: dict, **kwargs: object) -> None:
             seen.update(env)
 

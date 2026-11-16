@@ -435,3 +435,27 @@ def test_begin_or_wait_uses_result_of_other_writer(
     monkeypatch.setattr(run_module.time, "sleep", other_finishes)
     assert run_module._begin_or_wait(store, key) is None
     assert store.lookup(key) is not None
+
+
+@pytest.mark.skipif(not Path("/proc/self/cmdline").exists(), reason="cần /proc")
+def test_execute_run_stops_viewer_gpu_process_first(workdir: Workdir) -> None:
+    """Trang Xem 3D còn giữ tiến trình GPU thì run trên máy tắt nó trước khi chạy stage."""
+    import subprocess
+
+    from drive2sim.engine import gpu_process
+
+    marker = "d2s_fake_frame_server"
+    process = subprocess.Popen(
+        [sys.executable, "-c", f"import time; time.sleep(60)  # {marker}"],
+        start_new_session=True,
+    )
+    try:
+        gpu_process.record(workdir, process.pid, marker, "20261116-000000-omnire-abcd")
+        events: list[dict] = []
+        registry = make_registry()
+        record = execute_run(new_run(workdir, registry), workdir, registry, sink=events.append)
+        assert record.status == "succeeded"
+        assert process.wait(timeout=5) is not None
+        assert any(e.get("event") == "log" and marker in e.get("message", "") for e in events)
+    finally:
+        process.kill()

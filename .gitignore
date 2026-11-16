@@ -12,6 +12,8 @@ smpl_models/
 /runs/
 # thư mục tạm của tool khi upload, tải về Kaggle (STAGING_DIR)
 /.kaggle/
+# trạng thái của Studio trên máy (tiến trình GPU của trang Xem 3D, engine/gpu_process.py)
+/.d2s/
 # cổng của lần `make studio`/`make dev` gần nhất
 /.d2s-studio-ports.env
 # dữ liệu mẫu của `make demo`
