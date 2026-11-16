@@ -169,6 +169,8 @@ export interface CacheList extends List<CacheEntry> {
 
 export interface Splats {
   preview: {
+    /** Phiên bản gói, ví dụ ``d2s-preview/0.2``; gói bản cũ thiếu trời, người, chỉnh màu. */
+    schema_version: string;
     sh_degree: number;
     rigid_actors: string[];
     box_only_actors: string[];

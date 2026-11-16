@@ -618,5 +618,11 @@
   "colab.setup.code": "Code",
   "colab.setup.dirty": "This machine has uncommitted changes. The Colab VM clones the pushed commit, so these changes are not on Colab. Commit and push first if the run needs them.",
   "colab.setup.start_warning": "Colab is not ready: see the red lines above. Starting now will fail when pushing to Colab.",
-  "common.status.stopped": "session stopped"
+  "common.status.stopped": "session stopped",
+  "viewer.stale.button": "Old package: re-export",
+  "viewer.stale.running": "Re-exporting package…",
+  "viewer.stale.retry": "Re-export failed: retry",
+  "viewer.stale.hint": "This preview package was made by an older version of the tool, so it has no sky, humans or colour correction. Click to re-export it from the run's checkpoint (the run must be fully pulled); the scene reloads when it is done.",
+  "viewer.stale.error": "Re-export failed: {error}",
+  "viewer.stale.timeout": "not done after 10 minutes; see the run page for the error"
 }

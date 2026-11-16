@@ -38,6 +38,11 @@ type Source = "preview" | "ply" | "video" | "gpu" | "file";
 const SPLAT_SOURCES: Source[] = ["preview", "ply", "file"];
 // Tốc độ phát, khung dữ liệu mỗi giây: nuScenes trong DriveStudio khoảng 10 khung mỗi giây.
 const PLAYBACK_FPS = 10;
+/** Phiên bản gói xem trước mà code xuất hiện tại ghi (``export_preview.SCHEMA_VERSION``). */
+const PREVIEW_SCHEMA = "d2s-preview/0.2";
+/** Chờ xuất lại gói tối đa bao lâu, hỏi lại mỗi bao lâu (ms). */
+const REEXPORT_TIMEOUT_MS = 10 * 60 * 1000;
+const REEXPORT_POLL_MS = 3000;
 // Bảng điều khiển thu gọn hay mở, nhớ theo trình duyệt (chỉ là tiện lợi; lỗi bộ nhớ thì bỏ qua).
 const PANEL_KEY = "d2s.viewer.panel";
 
@@ -81,8 +86,13 @@ export function ViewerPage({ runId }: { runId?: string }) {
   // Camera gốc của run (cameras.json): mở đúng góc của video, nút về góc camera, bám camera khi phát.
   const [cameras, setCameras] = useState<SceneCamera[] | null>(null);
   const [cameraIndex, setCameraIndex] = useState(0);
+  // Xuất lại gói xem trước bản cũ (run train bằng code trước khi gói có trời, người, chỉnh màu).
+  const [reexport, setReexport] = useState<{ state: "idle" | "running" | "error"; error?: string }>({ state: "idle" });
   // Camera khi phát: tự do, bám camera gốc đang chọn, hoặc đi theo đường novel (như video novel).
-  const [path, setPath] = useState<CameraPath>("free");
+  // Mặc định bám camera gốc: ở "tự do" camera đứng yên ở khung 0 trong khi xe ghi hình đi mất vài
+  // trăm mét, xe và người ra khỏi tầm nhìn, nên bấm phát trông như cảnh đứng yên. Tự kéo, xoay
+  // camera thì chuyển sang tự do (onFly).
+  const [path, setPath] = useState<CameraPath>("camera");
   // Ma trận chỉnh màu 3×4 của từng ảnh (khung, camera) trong gói xem trước.
   const [affine, setAffine] = useState<{ data: Float32Array; cameras: number } | null>(null);
   const follow = path !== "free";
@@ -313,8 +323,11 @@ export function ViewerPage({ runId }: { runId?: string }) {
     let previous = performance.now();
     let handle = 0;
     const tick = (now: number) => {
-      time += ((now - previous) / 1000) * PLAYBACK_FPS;
-      previous = now;
+      // Mốc giờ của requestAnimationFrame là lúc khung hình bắt đầu, có thể sớm hơn
+      // performance.now() lấy ngay trước đó: không cho thời gian lùi, nếu không khung đầu thành −1
+      // (c2w[−1] không có, setCameraPose ném lỗi và vòng phát dừng hẳn).
+      time += (Math.max(0, now - previous) / 1000) * PLAYBACK_FPS;
+      previous = Math.max(previous, now);
       if (time > last) time = 0;
       const index = Math.floor(time);
       const next = Math.min(index + 1, last);
@@ -357,6 +370,28 @@ export function ViewerPage({ runId }: { runId?: string }) {
       stop();
     };
   }, [source]);
+  const stalePreview = source === "preview" && !!splats.data?.preview && splats.data.preview.schema_version !== PREVIEW_SCHEMA;
+  const startReexport = async () => {
+    if (!runId) return;
+    setReexport({ state: "running" });
+    try {
+      await post(`/api/runs/${seg(runId)}/export`, { kind: "preview" });
+    } catch (err) {
+      setReexport({ state: "error", error: asApiError(err).message });
+    }
+  };
+  // Đang xuất lại: hỏi lại gói tới khi đúng phiên bản (khi đó cảnh tự nạp lại), quá lâu thì báo lỗi.
+  useEffect(() => {
+    if (reexport.state !== "running") return;
+    if (!stalePreview) return setReexport({ state: "idle" });
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      if (Date.now() - started > REEXPORT_TIMEOUT_MS) setReexport({ state: "error", error: t("viewer.stale.timeout") });
+      else splats.reload();
+    }, REEXPORT_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [reexport.state, stalePreview]);
+  useEffect(() => setReexport({ state: "idle" }), [runId]);
   const splatMode = !!source && SPLAT_SOURCES.includes(source);
   const loading = !!runId && !source && !splats.error;
   const videoItems = videos.data?.items ?? [];
@@ -373,7 +408,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
     setFile(null);
     setSource(null);
     setCameras(null);
-    setFollow(false);
+    setFollow(true); // run mở sau lại bám camera gốc như mặc định
     if (runId) go({ page: "viewer" });
   };
 
@@ -522,6 +557,16 @@ export function ViewerPage({ runId }: { runId?: string }) {
             <span className="tag glass" title={t("viewer.exact.hint")}>
               {t(`viewer.exact.${exact.state}`, { ms: exact.renderMs ?? "–" })}
             </span>
+          )}
+          {stalePreview && (
+            <button
+              className="btn sm glass"
+              onClick={() => void startReexport()}
+              disabled={reexport.state === "running"}
+              title={reexport.state === "error" ? t("viewer.stale.error", { error: reexport.error ?? "" }) : t("viewer.stale.hint")}
+            >
+              {t(reexport.state === "running" ? "viewer.stale.running" : reexport.state === "error" ? "viewer.stale.retry" : "viewer.stale.button")}
+            </button>
           )}
           <button className="btn sm glass" onClick={recenter} title={t("viewer.hud.recenter_hint")}>
             <Crosshair size={16} />

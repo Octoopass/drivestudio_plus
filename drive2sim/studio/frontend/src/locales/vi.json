@@ -618,5 +618,11 @@
   "colab.setup.code": "Code",
   "colab.setup.dirty": "Máy đang có thay đổi chưa commit. VM Colab clone đúng commit đã push, nên các thay đổi này không có trên Colab. Commit và push trước nếu run cần chúng.",
   "colab.setup.start_warning": "Colab chưa sẵn sàng: xem các dòng đánh dấu đỏ ở trên. Bấm Chạy lúc này thì việc đẩy lên Colab sẽ lỗi.",
-  "common.status.stopped": "đã tắt phiên"
+  "common.status.stopped": "đã tắt phiên",
+  "viewer.stale.button": "Gói bản cũ: xuất lại",
+  "viewer.stale.running": "Đang xuất lại gói…",
+  "viewer.stale.retry": "Xuất lại lỗi: thử lại",
+  "viewer.stale.hint": "Gói xem trước này tạo bằng bản cũ của tool nên thiếu trời, người và chỉnh màu. Bấm để xuất lại từ checkpoint của run (cần đã tải đủ run về máy); xong thì cảnh tự nạp lại.",
+  "viewer.stale.error": "Xuất lại lỗi: {error}",
+  "viewer.stale.timeout": "quá 10 phút chưa xong; xem trang run để biết lỗi"
 }
