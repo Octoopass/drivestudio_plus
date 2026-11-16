@@ -27,6 +27,9 @@ const I18nContext = createContext<I18n | null>(null);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(initialLocale);
+  // Ngôn ngữ đã lưu từ lần trước (localStorage) khác lang mặc định của index.html: đặt ngay khi mở,
+  // vì vài hàm định dạng (duration) đọc lang của trang.
+  if (document.documentElement.lang !== locale) document.documentElement.lang = locale;
   const setLocale = (next: Locale) => {
     setLocaleState(next);
     document.documentElement.lang = next;

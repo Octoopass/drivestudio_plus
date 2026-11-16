@@ -95,6 +95,18 @@ export function RunPage({ runId }: { runId: string }) {
     if (liveAll.tick) run.reload();
   }, [liveAll.tick]);
 
+  // Thời gian stage train gồm cả khởi động, lưu checkpoint, đánh giá cuối và render video, không chỉ
+  // các bước train: chia ra để người đọc biết phần nào tốn bao lâu (summary.json: train_time_s,
+  // eval_time_s; run cũ chưa có eval_time_s thì gộp phần còn lại).
+  const trainBreakdown = (total: number | undefined): string | null => {
+    const train = data?.summary?.train_time_s;
+    if (!train || !total || train > total) return null;
+    const evaluation = data?.summary?.eval_time_s;
+    if (evaluation != null && train + evaluation <= total) {
+      return t("run.stages.breakdown", { train: duration(train), other: duration(total - train - evaluation), eval: duration(evaluation) });
+    }
+    return t("run.stages.breakdown_old", { train: duration(train), other: duration(total - train) });
+  };
   const stages = useMemo(
     () => (run.data?.stages ?? []).map((s) => ({ ...s, status: live.statuses[s.stage_id] ?? s.status })),
     [run.data, live.statuses],
@@ -408,11 +420,29 @@ export function RunPage({ runId }: { runId: string }) {
                             {s.reused_duration_s ? t("run.stages.original", { time: duration(s.reused_duration_s) }) : "–"}
                             <InfoTip>{t("run.stages.original_hint")}</InfoTip>
                           </span>
+                        ) : s.stage_id === "eval.standard" && s.status === "succeeded" ? (
+                          <span className="muted row" style={{ gap: 2, justifyContent: "flex-end" }}>
+                            {t("run.stages.eval_reads")}
+                            <InfoTip>{t("run.stages.eval_reads_hint")}</InfoTip>
+                          </span>
                         ) : (
-                          duration(s.duration_s)
+                          <>
+                            {duration(s.duration_s)}
+                            {s.stage_id.startsWith("train.") && trainBreakdown(s.duration_s) && (
+                              <div className="small muted" style={{ whiteSpace: "normal", textAlign: "right" }}>
+                                {trainBreakdown(s.duration_s)}
+                              </div>
+                            )}
+                          </>
                         )}
                       </td>
-                      <td className="num">{s.peak_vram_mb || "–"}</td>
+                      <td className="num">
+                        {s.peak_vram_mb || (s.stage_id.startsWith("train.") && data.summary?.peak_vram_mb) || (
+                          <span className="muted" title={t("run.stages.vram_unknown")}>
+                            –
+                          </span>
+                        )}
+                      </td>
                       <td className="small muted">{optionsText((s.params ?? {}) as Record<string, unknown>) || "–"}</td>
                     </tr>
                   ))}

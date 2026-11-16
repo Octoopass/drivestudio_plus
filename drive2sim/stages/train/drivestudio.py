@@ -27,6 +27,7 @@ ngắt, stage truyền ``--resume_from`` để train tiếp thay vì train lại
 Chưa chạy thật trên GPU: phần dựng lệnh có test, phần gọi DriveStudio sẽ kiểm tra trên Kaggle.
 """
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -43,6 +44,9 @@ from drive2sim.engine.stage import Stage, StageContext
 from drive2sim.paths import SMPL_MODEL_ENV, SMPL_MODEL_NAME, find_smpl_model
 from drive2sim.stages.commands import LOG_FILE, run_logged
 from drive2sim.stages.scene_view import DRIVESTUDIO_DATASETS, VIEW_SCENE, build_view
+
+# train.py ghi cùng mỗi checkpoint: thời gian train, VRAM, số Gaussian.
+TRAIN_STATS_FILE = "train_stats.json"
 
 Method = Literal["omnire", "streetgs", "pvg", "deformablegs"]
 Renderer = Literal["3dgs", "3dgut", "3dgeer"]
@@ -450,5 +454,11 @@ class TrainDrivestudioStage(Stage):
         run_logged(command, ctx.output_dir / LOG_FILE, should_stop=ctx.should_stop, env=env)
         if not (ctx.output_dir / FINAL_CHECKPOINT).is_file():
             raise RuntimeError(f"train.py xong nhưng không có {FINAL_CHECKPOINT}")
+        # VRAM đỉnh do train.py đo trong tiến trình con (train_stats.json); engine không thấy.
+        try:
+            stats = json.loads((ctx.output_dir / TRAIN_STATS_FILE).read_text("utf-8"))
+            ctx.report_peak_vram(int(stats.get("peak_vram_mb") or 0))
+        except (OSError, ValueError, TypeError):
+            pass
         ctx.progress(1.0, "train xong")
         return {"model": ctx.output_dir}

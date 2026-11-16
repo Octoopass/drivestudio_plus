@@ -86,6 +86,14 @@ class StageContext(Protocol):
             step: Bước (iteration) ứng với giá trị này.
         """
 
+    def report_peak_vram(self, megabytes: int) -> None:
+        """Báo VRAM cao nhất stage đã dùng, megabyte.
+
+        Engine tự đo VRAM bằng PyTorch trong tiến trình của nó, nên không thấy VRAM của stage chạy
+        GPU ở tiến trình con (``train.py``, tính mask, SMPL): stage đó tự đọc số đo của tiến trình
+        con rồi báo ở đây; engine ghi giá trị lớn hơn vào ``run.json``.
+        """
+
     def should_stop(self) -> bool:
         """Cho biết người dùng đã yêu cầu huỷ run chưa.
 

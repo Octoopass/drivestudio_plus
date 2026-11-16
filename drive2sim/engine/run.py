@@ -44,6 +44,7 @@ from drive2sim.core.schema import (
     ArtifactRecord,
     EnvRecord,
     ErrorInfo,
+    Machine,
     Producer,
     RunApproach,
     RunRecord,
@@ -201,7 +202,7 @@ def _env_record(executor: str) -> EnvRecord:
     )
 
 
-def record_machine(run_dir: Path) -> None:
+def record_machine(run_dir: Path) -> Machine:
     """Cập nhật ``d2s/env.json`` theo máy đang bắt đầu chạy (hoặc chạy tiếp) run.
 
     Phiên bản code, Python, gói và tên GPU lấy theo máy này; máy chưa có trong ``machines`` thì
@@ -209,6 +210,9 @@ def record_machine(run_dir: Path) -> None:
 
     Args:
         run_dir: Thư mục run.
+
+    Returns:
+        Máy đang chạy, để ghi các stage chạy trên nó (``record_stage_machine``).
     """
     path = run_dir / D2S_DIR / ENV_FILE
     try:
@@ -223,6 +227,26 @@ def record_machine(run_dir: Path) -> None:
         env.machines.append(machine.model_copy(update={"first_seen_utc": _now_utc()}))
     env.gpu = machine.gpu
     files.dump(env, path)
+    return machine
+
+
+def record_stage_machine(run_dir: Path, machine: Machine, stage_id: str) -> None:
+    """Ghi stage vừa chạy thật vào ``stages`` của máy đang chạy trong ``d2s/env.json``.
+
+    Một run có thể chạy ở nhiều máy (train trên Kaggle, xuất lại gói xem trước trên máy cá nhân);
+    báo cáo lấy GPU của máy đã chạy stage train, không gộp mọi máy (``report.train_gpu``).
+    """
+    path = run_dir / D2S_DIR / ENV_FILE
+    try:
+        env = files.load(path, EnvRecord)
+    except (OSError, ValueError):
+        return
+    for seen in env.machines:
+        if same_machine(machine, seen):
+            if stage_id not in seen.stages:
+                seen.stages.append(stage_id)
+            files.dump(env, path)
+            return
 
 
 def create_run(
@@ -372,6 +396,7 @@ class _StageContext:
         stage_id: Stage đang chạy.
         sink: Hàm nhận sự kiện.
         cancel_file: File ``d2s/cancel`` của run; có file này là người dùng đã yêu cầu huỷ.
+        peak_vram_mb: VRAM cao nhất stage tự báo (``report_peak_vram``), megabyte.
     """
 
     output_dir: Path
@@ -381,6 +406,7 @@ class _StageContext:
     stage_id: str
     sink: EventSink
     cancel_file: Path
+    peak_vram_mb: int = 0
 
     def should_stop(self) -> bool:
         """Cho biết người dùng đã yêu cầu huỷ run chưa (có file ``d2s/cancel``)."""
@@ -402,6 +428,10 @@ class _StageContext:
                 "message": message,
             }
         )
+
+    def report_peak_vram(self, megabytes: int) -> None:
+        """Nhận VRAM cao nhất do stage báo (tiến trình con); ``run_stage`` ghi vào ``run.json``."""
+        self.peak_vram_mb = max(self.peak_vram_mb, int(megabytes))
 
     def log_metric(self, name: str, value: float, step: int) -> None:
         """Phát sự kiện ``metric`` của stage.
@@ -438,6 +468,7 @@ class _Runner:
         sink: Hàm nhận sự kiện.
         scene: Cảnh của run.
         split: Split của run.
+        machine: Máy đang chạy (``record_machine``); stage chạy thật được ghi vào máy này.
     """
 
     run_dir: Path
@@ -447,6 +478,7 @@ class _Runner:
     sink: EventSink
     scene: Scene = field(init=False)
     split: Split = field(init=False)
+    machine: Optional[Machine] = None
 
     def __post_init__(self) -> None:
         """Đọc cảnh và split của run sau khi dataclass gán xong các trường."""
@@ -573,6 +605,9 @@ class _Runner:
         )
         started = time.monotonic()
         output_paths = cls().run(ctx, inputs, params)
+        # VRAM stage tự báo (GPU chạy ở tiến trình con, engine không đo được); finish_stage giữ
+        # giá trị lớn hơn giữa số này và số engine tự đo.
+        stage_record.peak_vram_mb = max(stage_record.peak_vram_mb, ctx.peak_vram_mb)
         self.write_artifact(
             output_dir,
             stage_record.stage_id,
@@ -783,6 +818,8 @@ class _Runner:
                 ``duration_s`` và giữ VRAM lớn nhất; ``False`` khi dùng lại kết quả cũ: giữ nguyên.
         """
         stage_record.status = status  # type: ignore[assignment]
+        if measured and self.machine is not None:
+            record_stage_machine(self.run_dir, self.machine, stage_record.stage_id)
         if measured:
             # Cộng dồn: một stage bị ngắt rồi chạy tiếp có thời gian của mọi lần chạy.
             elapsed = time.monotonic() - started
@@ -859,8 +896,9 @@ def execute_run(
         ResolveError: Nếu tham số đã lưu không còn hợp lệ với code hiện tại của stage.
     """
     record = files.load(Path(run_dir) / D2S_DIR / RUN_FILE, RunRecord)
-    record_machine(Path(run_dir))
-    return _Runner(Path(run_dir), record, workdir, registry, sink).execute()
+    runner = _Runner(Path(run_dir), record, workdir, registry, sink)
+    runner.machine = record_machine(Path(run_dir))
+    return runner.execute()
 
 
 def list_runs(workdir: Workdir, scene_id: Optional[str] = None) -> list[RunRecord]:

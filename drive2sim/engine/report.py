@@ -274,7 +274,13 @@ def report_rows(
         }
         env = load_env(run_dir)
         if env is not None:
-            names = list(dict.fromkeys(m.gpu for m in env.machines if m.gpu))
+            # GPU của máy đã chạy stage train: thời gian, VRAM, FPS đo ở đó. Máy chỉ chạy lại
+            # bước xuất (gói xem trước) không làm run thành "nhiều GPU". env.json cũ chưa ghi
+            # stage theo máy thì gộp mọi máy như trước.
+            trained = [
+                m for m in env.machines if any(st.startswith(TRAIN_PREFIX) for st in m.stages)
+            ]
+            names = list(dict.fromkeys(m.gpu for m in (trained or env.machines) if m.gpu))
             row.gpu = " + ".join(names) or env.gpu
             parts = [
                 f"PyTorch {env.pytorch}" if env.pytorch else "",

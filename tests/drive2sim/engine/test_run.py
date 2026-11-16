@@ -24,7 +24,14 @@ import pytest
 from pydantic import BaseModel, ConfigDict
 
 from drive2sim.core import files
-from drive2sim.core.schema import Approach, ArtifactRecord, Manifest, RunRecord, Split
+from drive2sim.core.schema import (
+    Approach,
+    ArtifactRecord,
+    EnvRecord,
+    Manifest,
+    RunRecord,
+    Split,
+)
 from drive2sim.engine.cache import CacheBusyError, CacheStore
 from drive2sim.engine.registry import StageRegistry
 from drive2sim.engine.resolve import resolve
@@ -162,6 +169,9 @@ def test_run_succeeds_and_writes_contracts_files(workdir: Workdir) -> None:
     assert (train_dir / "done").is_file()
     assert "3 points" in (train_dir / "model.txt").read_text()
     assert (run_dir / "d2s" / "env.json").is_file()
+    # Máy chạy run ghi các stage đã chạy thật trên nó (báo cáo lấy GPU của máy chạy stage train).
+    env = files.load(run_dir / "d2s" / "env.json", EnvRecord)
+    assert env.machines[-1].stages == [s.stage_id for s in record.stages]
 
     kinds = [event["event"] for event in events]
     assert kinds[0] == "status" and kinds[-1] == "done"

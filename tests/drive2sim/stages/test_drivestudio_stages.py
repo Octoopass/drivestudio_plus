@@ -260,6 +260,10 @@ class FakeContext:
         """Ghi lại tiến độ để test kiểm tra."""
         self.events.append((fraction, message))
 
+    def report_peak_vram(self, megabytes: int) -> None:
+        """Ghi lại VRAM stage báo."""
+        self.peak_vram_mb = megabytes
+
     def log_metric(self, name: str, value: float, step: int) -> None:
         """Bỏ qua metric."""
 
@@ -274,12 +278,14 @@ def test_train_stage_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     def fake_run(command: list[str], log_path: Path, **kwargs: object) -> None:
         calls.append(command)
         (tmp_path / "checkpoint_final.pth").write_text("x")
+        (tmp_path / "train_stats.json").write_text(json.dumps({"peak_vram_mb": 4727}))
 
     monkeypatch.setattr(drivestudio, "run_logged", fake_run)
     ctx = FakeContext(tmp_path)
     params = TrainDrivestudioParams(method="omnire")
     assert TrainDrivestudioStage().run(ctx, {}, params) == {"model": tmp_path}
     assert len(calls) == 1
+    assert ctx.peak_vram_mb == 4727  # VRAM của train.py (tiến trình con) báo cho engine
     assert ctx.events[-1][0] == 1.0
     # DriveStudio nhận bản config đã gộp extends, ghi trong thư mục stage
     config = Path(calls[0][calls[0].index("--config_file") + 1])
@@ -368,6 +374,7 @@ def test_eval_adds_train_stats_and_render_speed(tmp_path: Path) -> None:
                 "num_gaussians": 1250000,
                 "gaussians_per_node": {"Background": 1000000, "RigidNodes": 250000},
                 "speedups": ["fastgs", "fastergs.fused_adam"],
+                "eval_time_s": 420.0,
             }
         )
     )
@@ -379,6 +386,7 @@ def test_eval_adds_train_stats_and_render_speed(tmp_path: Path) -> None:
     assert (summary.num_gaussians, summary.num_iters) == (1250000, 30000)
     assert summary.render_fps == 41.5 and summary.render_resolution == "800x450"
     assert summary.speedups == ["fastgs", "fastergs.fused_adam"]
+    assert summary.eval_time_s == 420.0
     # thiếu train_stats.json thì các trường để trống, không lỗi
     bare = make_summary(read_drivestudio_metrics(tmp_path), "every8_front1", tmp_path)
     assert bare.train_time_s is None and bare.num_gaussians is None and bare.speedups == []

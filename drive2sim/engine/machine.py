@@ -111,6 +111,6 @@ def package_versions() -> dict[str, Optional[str]]:
 
 
 def same_machine(a: Machine, b: Machine) -> bool:
-    """Hai bản ghi có cùng cấu hình máy không (bỏ qua thời điểm ghi)."""
-    keep = set(Machine.model_fields) - {"first_seen_utc"}
+    """Hai bản ghi có cùng cấu hình máy không (bỏ qua thời điểm ghi và các stage đã chạy)."""
+    keep = set(Machine.model_fields) - {"first_seen_utc", "stages"}
     return a.model_dump(include=keep) == b.model_dump(include=keep)

@@ -111,8 +111,8 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "approach": "d2s-approach/0.3",
     "artifact": "d2s-artifact/0.2",
     "run": "d2s-run/0.3",
-    "summary": "d2s-summary/0.4",
-    "env": "d2s-env/0.2",
+    "summary": "d2s-summary/0.5",
+    "env": "d2s-env/0.3",
     "preview": "d2s-preview/0.2",
     "job": "d2s-job/0.1",
     "result": "d2s-result/0.1",
@@ -1138,6 +1138,10 @@ class Summary(VersionedFile):
         speedups: Thuật toán, kỹ thuật tăng tốc thật sự đã bật khi train, ví dụ ``["fastgs",
             "fastergs.fused_adam"]``; rỗng nếu không bật gì hoặc không biết (thêm từ
             ``d2s-summary/0.4``). Hai run cùng bật Faster-GS nhưng khác kỹ thuật thì khác ở đây.
+        eval_time_s: Thời gian đánh giá cuối trong stage train (vẽ ảnh test, tính metric, render
+            video), giây; phần còn lại của thời gian stage train ngoài ``train_time_s`` và giá trị
+            này là khởi động, nạp dữ liệu, lưu checkpoint, vẽ ảnh kiểm tra định kỳ (thêm từ
+            ``d2s-summary/0.5``); để trống nếu không biết.
     """
 
     FILE_KIND: ClassVar[str] = "summary"
@@ -1152,6 +1156,7 @@ class Summary(VersionedFile):
     render_fps: Optional[float] = Field(default=None, ge=0)
     render_resolution: Optional[str] = None
     speedups: list[str] = []
+    eval_time_s: Optional[float] = Field(default=None, ge=0)
 
 
 class Machine(StrictModel):
@@ -1170,6 +1175,9 @@ class Machine(StrictModel):
         gpu_driver: Phiên bản driver NVIDIA.
         os: Hệ điều hành.
         first_seen_utc: Lần đầu máy này chạy run.
+        stages: Các stage đã thật sự chạy trên máy này (không tính stage dùng lại kết quả cũ),
+            theo thứ tự chạy (thêm từ ``d2s-env/0.3``). Run train trên Kaggle rồi xuất lại gói
+            xem trước trên máy cá nhân có hai máy; báo cáo lấy GPU của máy đã chạy stage train.
     """
 
     cpu: Optional[str] = None
@@ -1181,6 +1189,7 @@ class Machine(StrictModel):
     gpu_driver: Optional[str] = None
     os: Optional[str] = None
     first_seen_utc: Optional[datetime] = None
+    stages: list[str] = []
 
 
 class EnvRecord(VersionedFile):

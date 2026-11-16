@@ -274,6 +274,7 @@ class StageContext(Protocol):
     split: Split
     def progress(self, fraction: float, message: str = "") -> None: ...
     def log_metric(self, name: str, value: float, step: int) -> None: ...
+    def report_peak_vram(self, megabytes: int) -> None: ...  # stage chạy GPU ở tiến trình con báo VRAM đỉnh; engine ghi giá trị lớn hơn vào run.json
 ```
 
 Stage đăng ký bằng `@register_stage("<stage_id>")`. Engine lo cache, file `done`, thư mục `.partial` và `artifact.json`; stage chỉ ghi file vào `output_dir`.
@@ -462,7 +463,7 @@ Các con số trong ví dụ chỉ minh hoạ định dạng. Metric vùng ngư�
 - `per_camera` để trống với DriveStudio, vì `train.py` không tách metric theo camera. Trainer ghi thêm khoá `image_metrics/test/per_camera/<camera_id>/<psnr|ssim|lpips>` trong file metric test (`train.gsplat_3dgut` ghi) thì `eval.standard` điền `per_camera`.
 - `protocol.resolution` đọc từ `config.yaml` của DriveStudio; không có file này thì lấy trường `resolution` trong `train_stats.json` (ví dụ `downscale=2` với `train.gsplat_3dgut`).
 - `speedups`: các thuật toán, kỹ thuật tăng tốc **thật sự** đã bật khi train, đọc từ `train_stats.json`: `fastgs` (`docs/methods/fastgs.md`), `fastergs.<kỹ thuật>` (`docs/methods/fastergs.md`). Rỗng khi không bật gì hoặc model train bằng `train.py` cũ. Mục cấu hình của run chỉ ghi công tắc; trường này ghi cái công tắc thật sự làm, để hai run cùng `fastergs: true` mà khác kỹ thuật (ví dụ ở hai phiên bản code) không bị coi là cùng cấu hình.
-- Thay đổi từ `0.1`: `train_time_s`, `peak_vram_mb`, `num_gaussians` thành tuỳ chọn. Thay đổi từ `0.2`: thêm `dynamic_psnr`, `num_iters`, `render_fps`, `render_resolution`; `occupied_psnr` ghi đúng nghĩa là vùng không phải bầu trời. Thay đổi từ `0.3`: thêm `speedups`.
+- Thay đổi từ `0.1`: `train_time_s`, `peak_vram_mb`, `num_gaussians` thành tuỳ chọn. Thay đổi từ `0.2`: thêm `dynamic_psnr`, `num_iters`, `render_fps`, `render_resolution`; `occupied_psnr` ghi đúng nghĩa là vùng không phải bầu trời. Thay đổi từ `0.3`: thêm `speedups`. Thay đổi từ `0.4`: thêm `eval_time_s`: thời gian đánh giá cuối trong stage train (vẽ ảnh test, tính metric, render video), `train.py` đo rồi ghi vào `train_stats.json`; trang run tách thời gian stage train thành train, khởi động và lưu checkpoint, đánh giá và render video. Stage `eval.standard` chỉ đọc kết quả nên gần như không tốn thời gian.
 
 ### 6.4 `d2s/env.json`
 
@@ -492,7 +493,7 @@ Các giá trị trong ví dụ chỉ minh hoạ định dạng. Trường nào k
 - Engine ghi file khi tạo run (`machines` rỗng) rồi cập nhật **mỗi lần bắt đầu chạy hoặc chạy tiếp**, trên đúng máy chạy. Với run Kaggle đó là máy của notebook, với run Colab là VM, không phải máy đã tạo run.
 - `machines`: các máy đã chạy run theo thứ tự; chạy tiếp trên máy có cấu hình khác (ví dụ phiên Kaggle mới được cấp GPU khác) thì thêm một máy. `gpu` ở ngoài là GPU của máy chạy gần nhất.
 - Cách đọc, không cần nạp PyTorch: CPU từ `/proc/cpuinfo`, RAM từ `/proc/meminfo`, GPU (tên, VRAM, driver, số GPU) từ `nvidia-smi`; phiên bản `pytorch`, `gsplat` từ metadata gói đã cài, `cuda` từ đuôi phiên bản PyTorch (`+cu117` → `11.7`).
-- Thay đổi từ `0.1`: thêm `machines`; các trường phiên bản và `gpu` ghi lúc chạy thay vì lúc tạo run.
+- Thay đổi từ `0.1`: thêm `machines`; các trường phiên bản và `gpu` ghi lúc chạy thay vì lúc tạo run. Thay đổi từ `0.2`: mỗi máy có thêm `stages`, các stage đã thật sự chạy trên máy đó (stage dùng lại kết quả cũ không tính); `same_machine` bỏ qua trường này. Báo cáo lấy GPU của máy đã chạy stage `train.*` (run train trên Kaggle rồi xuất lại gói xem trước trên máy cá nhân không thành "nhiều GPU"); `env.json` cũ chưa có `stages` thì gộp mọi máy. Các trường cấp trên (`gpu`, `executor`, phiên bản) là của lần chạy gần nhất.
 
 ## 7. Gói xem trước
 

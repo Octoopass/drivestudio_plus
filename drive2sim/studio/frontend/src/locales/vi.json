@@ -329,7 +329,7 @@
   "run.machine.driver": "Driver",
   "run.machine.threads": "{count} luồng",
   "run.machine.os": "Hệ điều hành",
-  "compare.mixed_gpu": "Run trong bảng chạy trên nhiều GPU ({gpus}): cột này phụ thuộc phần cứng, chỉ so giữa các run cùng GPU (xem cột GPU).",
+  "compare.mixed_gpu": "Các run trong bảng được train trên nhiều loại GPU ({gpus}). Thời gian, VRAM và tốc độ vẽ phụ thuộc phần cứng nên chỉ so được giữa các run cùng GPU (xem cột GPU). Metric chất lượng ảnh không bị ảnh hưởng.",
   "nav.demo.label": "Dữ liệu mẫu",
   "nav.demo.info": "Studio đang chạy trên dữ liệu mẫu (giả) ở {workdir}: số liệu, ảnh, video, splat đều là tổng hợp, không phải kết quả thật. Tắt bằng cách bật lại Studio không kèm DEMO=1 (make dev hoặc make studio).",
   "new.preset.info": "Bấm một cấu hình sẵn để điền nhanh cấu hình approach bên dưới. Sau đó vẫn chỉnh được từng mục; khi không còn khớp cấu hình sẵn nào thì run được ghi là tuỳ chỉnh.",
@@ -476,7 +476,7 @@
   "compare.by_split.label": "Cách hiển thị split",
   "compare.by_split.off": "Trộn chung",
   "compare.by_split.on": "Gom theo split",
-  "compare.mixed_split": "Bảng đang trộn run của nhiều split ({splits}): metric này đo trên khung test của split, chỉ so giữa các run cùng split (xem cột Split, hoặc chọn Gom theo split).",
+  "compare.mixed_split": "Bảng đang trộn run của nhiều split ({splits}). Metric chất lượng ảnh đo trên khung test của từng split nên chỉ so được giữa các run cùng split (xem cột Split, hoặc chọn Gom theo split).",
   "compare.chart.mixed_split": "Biểu đồ đang vẽ chung run của nhiều split ({splits}): PSNR đo trên khung test của từng split, không so được giữa hai split. Chọn Gom theo split để tô màu và nối Pareto riêng từng split.",
   "compare.chart.mixed_gpu": "Biểu đồ có run chạy trên nhiều GPU ({gpus}): thời gian, VRAM và FPS phụ thuộc phần cứng, chỉ so giữa các run cùng GPU.",
   "ingest.action.pick": "Chọn thư mục trên máy",
@@ -643,5 +643,12 @@
   "scene.splits.lens_fisheye": "Split có camera mắt cá: chỉ renderer 3DGUT, 3DGEER vẽ được (3DGS chỉ vẽ pinhole).",
   "scene.splits.lens_pinhole": "Split chỉ có camera pinhole: mọi renderer đều vẽ được.",
   "new.field.split_cameras": "Camera của split",
-  "new.camera.make_pinhole": "Split đang chọn có camera mắt cá nên renderer 3DGS bị khoá. Muốn dùng 3DGS, tạo một split chỉ gồm camera pinhole ở trang cảnh"
+  "new.camera.make_pinhole": "Split đang chọn có camera mắt cá nên renderer 3DGS bị khoá. Muốn dùng 3DGS, tạo một split chỉ gồm camera pinhole ở trang cảnh",
+  "run.stages.breakdown": "Trong đó: train {train} · khởi động, nạp dữ liệu, lưu checkpoint {other} · đánh giá và render video {eval}",
+  "run.stages.breakdown_old": "Trong đó: train {train} · phần còn lại (khởi động, lưu checkpoint, đánh giá, render video) {other}",
+  "run.stages.eval_reads": "chỉ đọc kết quả",
+  "run.stages.eval_reads_hint": "Việc đánh giá thật (vẽ ảnh test, tính metric, render video) chạy ở cuối stage train và đã tính vào thời gian của stage đó. Stage này chỉ đọc kết quả ra nên gần như không tốn thời gian.",
+  "run.stages.vram_unknown": "Không có số đo: stage này chạy GPU ở tiến trình riêng và không báo VRAM, hoặc không dùng GPU.",
+  "compare.mixed_gpu_tag": "{count} loại GPU",
+  "compare.mixed_split_tag": "{count} split"
 }

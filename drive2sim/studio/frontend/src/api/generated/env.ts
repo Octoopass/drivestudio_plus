@@ -18,6 +18,7 @@ export type GpuMemoryMb = number | null;
 export type GpuDriver = string | null;
 export type Os = string | null;
 export type FirstSeenUtc = string | null;
+export type Stages = string[];
 export type Machines = Machine[];
 
 /**
@@ -67,6 +68,9 @@ export interface EnvRecord {
  *     gpu_driver: Phiên bản driver NVIDIA.
  *     os: Hệ điều hành.
  *     first_seen_utc: Lần đầu máy này chạy run.
+ *     stages: Các stage đã thật sự chạy trên máy này (không tính stage dùng lại kết quả cũ),
+ *         theo thứ tự chạy (thêm từ ``d2s-env/0.3``). Run train trên Kaggle rồi xuất lại gói
+ *         xem trước trên máy cá nhân có hai máy; báo cáo lấy GPU của máy đã chạy stage train.
  */
 export interface Machine {
   cpu?: Cpu;
@@ -78,4 +82,5 @@ export interface Machine {
   gpu_driver?: GpuDriver;
   os?: Os;
   first_seen_utc?: FirstSeenUtc;
+  stages?: Stages;
 }

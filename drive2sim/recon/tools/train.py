@@ -124,6 +124,19 @@ def load_train_stats(log_dir: str) -> dict:
         return json.load(f)
 
 
+def add_eval_time(log_dir: str, eval_time_s: float) -> None:
+    """Add the final evaluation time to train_stats.json (written at each checkpoint)."""
+    path = os.path.join(log_dir, "train_stats.json")
+    try:
+        with open(path) as f:
+            stats = json.load(f)
+    except (OSError, ValueError):
+        return
+    stats["eval_time_s"] = round(eval_time_s, 3)
+    with open(path, "w") as f:
+        json.dump(stats, f, indent=2)
+
+
 def save_train_stats(log_dir: str, trainer, step: int, train_time_s: float, peak_vram_mb: int) -> None:
     """Write train time (training steps only), peak VRAM, Gaussian count and iterations."""
     per_node = {k: int(v) for k, v in trainer.get_gaussian_count().items()}
@@ -442,6 +455,7 @@ def main(args):
     
     logger.info("Training done!")
 
+    eval_started = time.perf_counter()
     do_evaluation(
         step=step,
         cfg=cfg,
@@ -450,6 +464,9 @@ def main(args):
         render_keys=render_keys,
         args=args,
     )
+    # drive2sim: time of the final evaluation (test renders, metrics, videos), so the stage time
+    # can be split into training, evaluation and the rest (start-up, checkpoints, periodic renders).
+    add_eval_time(cfg.log_dir, time.perf_counter() - eval_started)
     # drive2sim: training and evaluation are done; checkpoint_final.pth is kept.
     resume_ckpt = os.path.join(cfg.log_dir, RESUME_CHECKPOINT)
     if os.path.exists(resume_ckpt):

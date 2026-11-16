@@ -22,6 +22,7 @@ export type NumIters = number | null;
 export type RenderFps = number | null;
 export type RenderResolution = string | null;
 export type Speedups = string[];
+export type EvalTimeS = number | null;
 
 /**
  * Schema của file ``summary.json``: tóm tắt kết quả đánh giá của một run.
@@ -46,6 +47,10 @@ export type Speedups = string[];
  *     speedups: Thuật toán, kỹ thuật tăng tốc thật sự đã bật khi train, ví dụ ``["fastgs",
  *         "fastergs.fused_adam"]``; rỗng nếu không bật gì hoặc không biết (thêm từ
  *         ``d2s-summary/0.4``). Hai run cùng bật Faster-GS nhưng khác kỹ thuật thì khác ở đây.
+ *     eval_time_s: Thời gian đánh giá cuối trong stage train (vẽ ảnh test, tính metric, render
+ *         video), giây; phần còn lại của thời gian stage train ngoài ``train_time_s`` và giá trị
+ *         này là khởi động, nạp dữ liệu, lưu checkpoint, vẽ ảnh kiểm tra định kỳ (thêm từ
+ *         ``d2s-summary/0.5``); để trống nếu không biết.
  */
 export interface Summary {
   schema_version: SchemaVersion;
@@ -60,6 +65,7 @@ export interface Summary {
   render_fps?: RenderFps;
   render_resolution?: RenderResolution;
   speedups?: Speedups;
+  eval_time_s?: EvalTimeS;
 }
 /**
  * Protocol đánh giá đã dùng cho một run (SPEC mục 9).

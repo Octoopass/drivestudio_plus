@@ -7,7 +7,7 @@
 
 from pathlib import Path
 
-from drive2sim.core.schema import RunApproach, RunRecord, StageRecord
+from drive2sim.core.schema import Manifest, RunApproach, RunRecord, Split, StageRecord
 from drive2sim.engine.report import (
     ReportRow,
     avg_error,
@@ -157,3 +157,43 @@ def test_train_params_shows_only_non_default_params_not_in_approach_options() ->
         "refine_interval": 50,
         "model.Background.ctrl.densify_grad_thresh": 0.0001,
     }
+
+
+def test_report_gpu_is_the_training_machine(tmp_path: Path) -> None:
+    """Train trên Kaggle (T4), xuất lại gói xem trước trên máy cá nhân (T2000): GPU là T4."""
+    from drive2sim.core import files
+    from drive2sim.core.schema import SCHEMA_VERSIONS, EnvRecord, Machine
+    from drive2sim.engine.report import report_rows
+    from drive2sim.engine.workdir import Workdir
+    from tests.drive2sim.samples import MANIFEST, SPLIT
+
+    workdir = Workdir(tmp_path)
+    scene_id, split_id = MANIFEST["scene_id"], SPLIT["split_id"]
+    manifest_path = workdir.scene_dir(scene_id) / "manifest.yaml"
+    files.dump(Manifest.model_validate(MANIFEST), manifest_path)
+    files.dump(Split.model_validate(SPLIT), workdir.split_path(scene_id, split_id))
+    stages = [
+        stage("train.drivestudio", 100.0),
+        stage("export.ply_world", 3.0),
+        stage("export.preview", 4.0),
+    ]
+    record = make_record(stages).model_copy(update={"split_id": split_id})
+    run_dir = workdir.run_dir(record.scene_id, "omnire", record.run_id)
+    files.dump(record, run_dir / "d2s" / "run.json")
+    env = EnvRecord(
+        schema_version=SCHEMA_VERSIONS["env"],
+        code_commit="abc",
+        python="3.10",
+        executor="kaggle",
+        gpu="Quadro T2000",
+        machines=[
+            Machine(gpu="Tesla T4", stages=["train.drivestudio", "export.ply_world"]),
+            Machine(gpu="Quadro T2000", stages=["export.preview"]),
+        ],
+    )
+    files.dump(env, run_dir / "d2s" / "env.json")
+    assert [row.gpu for row in report_rows(workdir)] == ["Tesla T4"]
+    # env.json cũ chưa ghi stage theo máy: gộp mọi máy như trước
+    env.machines = [Machine(gpu="Tesla T4"), Machine(gpu="Quadro T2000")]
+    files.dump(env, run_dir / "d2s" / "env.json")
+    assert [row.gpu for row in report_rows(workdir)] == ["Tesla T4 + Quadro T2000"]

@@ -452,13 +452,21 @@ export function bytes(size: number): string {
   return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
 }
 
+/**
+ * Khoảng thời gian dễ đọc theo ngôn ngữ giao diện (thuộc tính ``lang`` của trang, do I18nProvider
+ * đặt): "45 giây", "24 phút", "2 giờ 45 phút"; tiếng Anh "45 s", "24 min", "2 h 45 min". Phút làm
+ * tròn tới số nguyên.
+ */
 export function duration(seconds: number | null | undefined): string {
   if (seconds === null || seconds === undefined) return "–";
-  if (seconds < 60) return `${seconds.toFixed(0)} s`;
-  if (seconds < 3600) return `${(seconds / 60).toFixed(1)} min`;
-  // Làm tròn ra phút trước rồi mới tách giờ, để không ra "1 h 60 min".
+  const en = document.documentElement.lang.startsWith("en");
+  const [sec, min, hour] = en ? ["s", "min", "h"] : ["giây", "phút", "giờ"];
+  if (seconds < 59.5) return `${Math.round(seconds)} ${sec}`;
+  // Làm tròn ra phút trước rồi mới tách giờ, để không ra "1 giờ 60 phút".
   const minutes = Math.round(seconds / 60);
-  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+  if (minutes < 60) return `${minutes} ${min}`;
+  const rest = minutes % 60;
+  return rest ? `${Math.floor(minutes / 60)} ${hour} ${rest} ${min}` : `${Math.floor(minutes / 60)} ${hour}`;
 }
 
 /** Thời gian đã qua kể từ một mốc, dạng ngắn theo ngôn ngữ đang dùng. */

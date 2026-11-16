@@ -164,6 +164,7 @@ def make_summary(
         if len(parts) == 3 and parts[0] == PER_CAMERA_PREFIX:
             per_camera.setdefault(parts[1], {})[parts[2]] = value
     train_time = (train_stats or {}).get("train_time_s")
+    eval_time = (train_stats or {}).get("eval_time_s")
     speedups = (train_stats or {}).get("speedups")
     if not (isinstance(speedups, list) and all(isinstance(x, str) for x in speedups)):
         speedups = []
@@ -203,6 +204,7 @@ def make_summary(
         num_iters=stat("num_iters"),
         render_fps=optional("render_fps"),
         render_resolution=f"{int(width)}x{int(height)}" if width and height else None,
+        eval_time_s=float(eval_time) if isinstance(eval_time, (int, float)) else None,
         speedups=speedups,
     )
 

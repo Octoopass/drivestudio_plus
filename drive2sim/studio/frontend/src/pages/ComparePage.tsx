@@ -147,7 +147,7 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
   // chạy thử ít bước vừa nhanh vừa kém nên làm lệch đường Pareto.
   const chartIters = Math.max(-1, ...rows.map((r) => r.num_iters ?? -1));
   const chartRows = rows.filter((r) => (r.num_iters ?? -1) === chartIters);
-  // Bảng có run chạy trên nhiều GPU: cột phụ thuộc phần cứng có dấu cảnh báo nhỏ ở tiêu đề.
+  // Bảng có run train trên nhiều GPU: cảnh báo một lần ở thanh trên bảng.
   const gpus = [...new Set(rows.map((r) => r.gpu).filter((g): g is string => !!g))];
   const mixedGpu = gpus.length > 1;
   // Bảng có run chạy bằng phiên bản PyTorch hoặc gsplat khác nhau: mọi metric có thể lệch dù cùng
@@ -206,6 +206,20 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
                 {t(group.hint)} {t("compare.arrows")}
               </InfoTip>
             </span>
+            {/* Cảnh báo trộn GPU, trộn split hiện một lần ở đây, không gắn vào từng cột: gắn từng
+                cột làm tiêu đề dài ra, lệch với số bên dưới. */}
+            {mixedGpu && (
+              <span className="tag warn row" style={{ gap: 4 }}>
+                {t("compare.mixed_gpu_tag", { count: gpus.length })}
+                <InfoTip warn>{t("compare.mixed_gpu", { gpus: gpus.join(", ") })}</InfoTip>
+              </span>
+            )}
+            {mixedSplit && (
+              <span className="tag warn row" style={{ gap: 4 }}>
+                {t("compare.mixed_split_tag", { count: splits.length })}
+                <InfoTip warn>{t("compare.mixed_split", { splits: splits.join(", ") })}</InfoTip>
+              </span>
+            )}
             {softwares.length > 1 && (
               <span className="tag warn row" style={{ gap: 4 }}>
                 {t("compare.mixed_software_tag", { count: softwares.length })}
@@ -280,8 +294,6 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
                             </span>
                           </button>
                         )}
-                        {mixedGpu && metric.hardware && <WarnMark text={t("compare.mixed_gpu", { gpus: gpus.join(", ") })} />}
-                        {mixedSplit && metric.evalSplit && <WarnMark text={t("compare.mixed_split", { splits: splits.join(", ") })} />}
                         {metric.hint && <InfoTip>{t(metric.hint)}</InfoTip>}
                       </span>
                     </th>

@@ -329,7 +329,7 @@
   "run.machine.driver": "Driver",
   "run.machine.threads": "{count} threads",
   "run.machine.os": "OS",
-  "compare.mixed_gpu": "Runs in this table used different GPUs ({gpus}): this column depends on hardware, compare it only between runs on the same GPU (see the GPU column).",
+  "compare.mixed_gpu": "Runs in this table were trained on several GPU types ({gpus}). Time, VRAM and render speed depend on the hardware, so compare them only between runs on the same GPU (see the GPU column). Image quality metrics are not affected.",
   "nav.demo.label": "Demo data",
   "nav.demo.info": "Studio is running on demo (fake) data in {workdir}: numbers, images, videos and splats are synthetic, not real results. Turn it off by restarting Studio without DEMO=1 (make dev or make studio).",
   "new.preset.info": "Click a preset to fill in the approach config below. You can still change each setting; when it no longer matches any preset, the run is recorded as custom.",
@@ -476,7 +476,7 @@
   "compare.by_split.label": "Split display",
   "compare.by_split.off": "Mixed",
   "compare.by_split.on": "Group by split",
-  "compare.mixed_split": "This table mixes runs from several splits ({splits}): this metric is measured on the split's test frames, compare it only between runs on the same split (see the Split column, or choose Group by split).",
+  "compare.mixed_split": "This table mixes runs from several splits ({splits}). Image quality metrics are measured on each split's test frames, so compare them only between runs of the same split (see the Split column, or group by split).",
   "compare.chart.mixed_split": "This chart mixes runs from several splits ({splits}): PSNR is measured on each split's test frames and does not compare across splits. Choose Group by split to colour and connect the Pareto front per split.",
   "compare.chart.mixed_gpu": "This chart has runs on different GPUs ({gpus}): time, VRAM and FPS depend on hardware, compare them only between runs on the same GPU.",
   "ingest.action.pick": "Choose a folder on this machine",
@@ -643,5 +643,12 @@
   "scene.splits.lens_fisheye": "This split has fisheye cameras: only the 3DGUT and 3DGEER renderers can draw them (3DGS draws pinhole only).",
   "scene.splits.lens_pinhole": "This split has pinhole cameras only: every renderer can draw it.",
   "new.field.split_cameras": "Split cameras",
-  "new.camera.make_pinhole": "The chosen split has fisheye cameras, so the 3DGS renderer is locked. To use 3DGS, create a split with pinhole cameras only on the scene page"
+  "new.camera.make_pinhole": "The chosen split has fisheye cameras, so the 3DGS renderer is locked. To use 3DGS, create a split with pinhole cameras only on the scene page",
+  "run.stages.breakdown": "Of which: training {train} · start-up, data loading, checkpoints {other} · evaluation and video rendering {eval}",
+  "run.stages.breakdown_old": "Of which: training {train} · the rest (start-up, checkpoints, evaluation, video rendering) {other}",
+  "run.stages.eval_reads": "reads results only",
+  "run.stages.eval_reads_hint": "The actual evaluation (test renders, metrics, videos) runs at the end of the train stage and is counted in that stage's time. This stage only reads the results, so it takes almost no time.",
+  "run.stages.vram_unknown": "Not measured: this stage runs the GPU in a separate process and does not report VRAM, or it does not use the GPU.",
+  "compare.mixed_gpu_tag": "{count} GPU types",
+  "compare.mixed_split_tag": "{count} splits"
 }

@@ -55,6 +55,10 @@ class Context:
     def progress(self, fraction: float, message: str = "") -> None:
         """Bỏ qua tiến độ."""
 
+    def report_peak_vram(self, megabytes: int) -> None:
+        """Ghi lại VRAM stage báo."""
+        self.peak_vram_mb = megabytes
+
     def log_metric(self, name: str, value: float, step: int) -> None:
         """Bỏ qua metric."""
 
