@@ -165,9 +165,18 @@ export interface Splats {
     rigid_actors: string[];
     box_only_actors: string[];
     omitted: string[];
+    splat_format: "ply" | "spz";
+    up_axis: string | null;
+    antialiased: boolean;
+    humans: string[];
+    sky: string | null;
     background_url: string | null;
     actor_urls: Record<string, string | null>;
     poses_url: string | null;
+    human_urls: Record<string, { splats: string | null; skin: string | null }>;
+    human_poses_url: string | null;
+    human_bones_url: string | null;
+    sky_url: string | null;
   } | null;
   ply: string | null;
   /** cameras.json: pose và thông số camera gốc theo khung, cùng hệ toạ độ với các file trên. */

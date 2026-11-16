@@ -311,7 +311,7 @@ Route, thân, lỗi và sự kiện SSE quy định ở CONTRACTS mục 11; API 
 **Khái niệm.**
 - *Spark* (MIT, World Labs) là thư viện JavaScript vẽ Gaussian splat trong trình duyệt, chạy trên three.js, dùng card đồ hoạ của máy xem qua WebGL2; card tích hợp thường cũng đủ. Theo README và mã nguồn (bản ngày 19/10/2026): spherical harmonics tới bậc 3 (`maxSh = 3`, `src/ExtSplats.ts`); đọc PLY, SPZ, SPLAT, KSPLAT, SOG; có level-of-detail; nhiều đối tượng splat di chuyển riêng được; không có fisheye.
 - *PLY* là định dạng file của 3DGS gốc: 59–62 số thực 32 bit mỗi Gaussian, khoảng 240 byte, nên 3 triệu Gaussian là khoảng 720 MB. `drive2sim/recon/tools/export_ply.py` của repo xuất đúng định dạng này trong hệ world; export gốc của DriveStudio (`drive2sim/recon/utils/misc.py:50`) co toạ độ vào hộp đơn vị.
-- *SPZ* (Niantic) lưu cùng thông tin nhưng làm tròn rồi nén ZSTD; README của SPZ ghi file thường nhỏ hơn PLY khoảng 10 lần. Vị trí là số nguyên 24 bit, mặc định 12 bit phần lẻ (`load-spz.cc`): độ phân giải khoảng 0,24 mm, phạm vi ±2048 m. SH bậc 1 còn 5 bit, bậc cao hơn còn 4 bit.
+- *SPZ* (Niantic) lưu cùng thông tin nhưng làm tròn rồi nén gzip; gói xem trước dùng SPZ từ bản 0.2 (CONTRACTS mục 7); README của SPZ ghi file thường nhỏ hơn PLY khoảng 10 lần. Vị trí là số nguyên 24 bit, mặc định 12 bit phần lẻ (`load-spz.cc`): độ phân giải khoảng 0,24 mm, phạm vi ±2048 m. SH bậc 1 còn 5 bit, bậc cao hơn còn 4 bit.
 
 **Hệ toạ độ và góc nhìn ban đầu.**
 - Hệ world của DriveStudio lấy theo camera trước ở khung đầu của cảnh, đơn vị mét, nên trục lên tuỳ dataset: loader nuScenes, KITTI, PandaSet, nuPlan, Argoverse đọc extrinsic kiểu OpenCV (`OPENCV2DATASET` là ma trận đơn vị) nên trục lên là `-y`; Waymo đổi trục nên là `+z`. three.js lấy Y lên; trang Xem 3D xoay cả cảnh để trục lên trùng Y. Trục lên lấy theo thứ tự: run của tool suy từ pose camera trong `cameras.json` (cộng hướng lên của mọi camera, lấy trục gần nhất; `upAxisFromCameras`), file kéo thả đọc dòng `comment drive2sim up=...` trong header PLY (CONTRACTS mục 7); file khác thì đoán: lấy 90% điểm gần trung vị nhất, tìm trục ít trải nhất (PCA, là pháp tuyến mặt đường), làm tròn về trục gần nhất, chiều lên là chiều từ đỉnh mật độ (mặt đường) về phía đuôi dài hơn (cây, nhà). Người xem đổi được trong ô "Trục lên".
@@ -325,7 +325,7 @@ Route, thân, lỗi và sự kiện SSE quy định ở CONTRACTS mục 11; API 
 
 **Lý do.** Mở được kết quả trên máy không có GPU CUDA, ví dụ laptop khi bàn giao.
 
-**Ưu điểm.** Không cần worker; xoay mượt; giữ màu theo góc nhìn; xe đổi pose theo khung nên phát lại được quỹ đạo.
+**Ưu điểm.** Không cần worker; xoay mượt; giữ màu theo góc nhìn; xe đổi pose và người đổi dáng theo khung (người uốn theo 24 xương SMPL bằng `SplatSkinning` của Spark) nên phát lại được quỹ đạo; có trời (cubemap của model). Vật biến dạng chưa có.
 
 **Nhược điểm.**
 - Chỉ gần đúng: chỉ pinhole; không có bầu trời và chỉnh màu theo camera; người và vật biến dạng chỉ hiện bằng box.

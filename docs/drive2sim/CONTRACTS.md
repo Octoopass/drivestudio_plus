@@ -479,11 +479,20 @@ Gói xem trước cho phép xem cảnh trong trình duyệt mà không cần GPU
 runs/.../<run_id>/d2s/stages/export.preview/
 ├── artifact.json
 ├── preview.json
-├── background.ply               # Gaussian của nền tĩnh, hệ world
-├── actors/<track_id>.ply        # Gaussian của từng xe (actor rigid), hệ của box
+├── background.spz               # Gaussian của nền tĩnh, hệ world (gói 0.1: background.ply)
+├── actors/<track_id>.spz        # Gaussian của từng xe (actor rigid), hệ của box
 ├── actor_poses.json
+├── humans/<track_id>.spz        # Gaussian của từng người (SMPL) ở dáng gốc
+├── humans/<track_id>.skin       # 4 xương và trọng số của mỗi Gaussian người
+├── human_bones.bin              # ma trận 24 xương của mọi người theo khung
+├── human_poses.json             # vị trí của từng người theo khung
+├── sky_cube.jpg                 # cubemap trời của model, nếu có
 └── cameras.json                 # chép từ stage train, nếu có
 ```
+
+- File Gaussian từ bản 0.2 là SPZ bản 3 (`drive2sim/recon/tools/spz.py`, chỉ cần numpy): header 16 byte (`magic` 0x5053474e, `version` 3, số Gaussian, bậc SH, số bit phần lẻ, `flags`, 1 byte dự trữ), rồi vị trí (3 số 24 bit, 12 bit phần lẻ, ít hơn khi cảnh rộng quá 2 km), độ đục, màu, kích thước, hướng ("smallest-three" 4 byte), SH (theo hệ số rồi theo kênh màu), nén gzip. Toạ độ giữ nguyên như PLY. Nền của run `f8a6` (388.408 Gaussian): PLY 96,3 MB, SPZ 8,7 MB; sai số vị trí tối đa 0,24 mm, hướng trung bình 0,08°; bố cục byte khớp file do `writeSpz` của Spark ghi từ cùng dữ liệu; ảnh vẽ bằng Spark từ SPZ so với từ PLY ở cùng camera: PSNR 35,7 dB.
+- Người: `humans/<track_id>.skin` là uint16 little-endian, 4 số mỗi Gaussian theo đúng thứ tự trong `.spz`, mỗi số `trọng số 8 bit | (chỉ số xương << 8)` như `SplatSkinning.setSplatBones` của Spark. Trọng số lấy như `SMPLTemplate.forward` (lưới `voxel_deformer` tại vị trí gốc), giữ 4 xương lớn nhất rồi nhân để tổng bằng tổng gốc. `human_bones.bin` là float32 (F khung, H người, 24 xương, 12 số): 3 cột phần xoay rồi phần dời của ma trận xương (`batch_rigid_transform` của smplx trên góc khớp trong checkpoint, nhân `A0_inv`), không cần file mô hình SMPL. `human_poses.json`: `{"track_ids": [H tên], "T_object_world": [F][H]}`, mỗi phần tử là ma trận dời 4x4 (16 số theo hàng) cộng sau khi uốn, hoặc `null` khi người không có mặt. Trang Xem 3D uốn người bằng `SplatSkinning` chế độ dual quaternion: lệch so với linear blend của OmniRe trung bình 4 mm, 99% điểm dưới 3,3 cm (đo trên run `f8a6`); chế độ linear blend của Spark 2.4.0 cần `covSplats`, mà đường đó thiếu bộ sắp xếp độ sâu nên không vẽ được. SH của người chỉ có bậc 1; viewer giới hạn bậc SH của người ở 1.
+- `sky_cube.jpg`: `EnvLight.base` (6 mặt, thứ tự OpenGL +x, -x, +y, -y, +z, -z) xếp 3 cột × 2 hàng, mặt `i` ở cột `i % 3`, hàng `i // 3`; trong mỗi mặt hàng ảnh là toạ độ `t`, cột là `s` của bảng chọn mặt OpenGL, khớp `nvdiffrast.texture(boundary_mode="cube")` (đã so 100% điểm). Hướng tra là `EnvLight.to_opengl @ hướng nhìn world`. Viewer vẽ trời sau mọi splat, như OmniRe ghép `rgb + sky × (1 − opacity)`.
 
 - File `.ply` theo định dạng PLY của 3DGS gốc: `x, y, z`, `f_dc_*`, `f_rest_*`, `opacity`, `scale_*`, `rot_*`. Mọi PLY do tool xuất (`scene.ply`, `background.ply`, `actors/*.ply`) có dòng header `comment drive2sim up=<trục> frame=drivestudio_world units=m`, ví dụ `up=-y`. Trục lên tuỳ dataset vì hệ world của DriveStudio lấy theo camera trước ở khung đầu (nuScenes, KITTI, PandaSet: `-y`; Waymo: `+z`), nên được suy từ pose camera (`cameras.json` cạnh checkpoint): cộng hướng lên (`-y` của camera OpenCV) của mọi camera, mọi khung rồi lấy trục gần nhất; không có `cameras.json` thì bỏ phần `up=`. Trang Xem 3D đọc dòng này khi kéo thả file; PLY xuất trước 16/11/2026 ghi cứng `up=+z`, sai với nuScenes. PLY từ nơi khác không có dòng này thì trang đoán trục lên từ mặt đường (mục 2.13 của ARCHITECTURE).
 - `cameras.json`: `{"frame": "drivestudio_world", "convention": "opencv", "units": "metres", "cameras": [{"name", "width", "height", "c2w": [F khung][16 số theo hàng], "K": [F khung][9 số theo hàng]}]}`. `c2w` theo quy ước OpenCV (x phải, y xuống, z nhìn tới). Do `train.py` ghi ngay sau khi nạp dữ liệu; `export.ply_world` và `export.preview` chép sang thư mục của mình. Run train trước khi có file này thì không có; trang Xem 3D khi đó mở ở góc nhìn bao quát.
@@ -493,16 +502,22 @@ runs/.../<run_id>/d2s/stages/export.preview/
 
 ```json
 {
-  "schema_version": "d2s-preview/0.1",
+  "schema_version": "d2s-preview/0.2",
   "source_run": "runs/nuscenes_scene-0061/omnire/20261112-081000-omnire-a1b2",
   "sh_degree": 3,
-  "rigid_actors": ["veh_0007", "veh_0012"],
-  "box_only_actors": ["ped_0003"],
-  "omitted": ["sky", "per_camera_color", "fisheye"]
+  "splat_format": "spz",
+  "up_axis": "-y",
+  "antialiased": false,
+  "rigid_actors": ["rigid_0000", "rigid_0001"],
+  "humans": ["smpl_0000"],
+  "sky": "sky_cube.jpg",
+  "box_only_actors": ["deformable_0000"],
+  "omitted": ["per_camera_color", "fisheye", "DeformableNodes"]
 }
 ```
 
-- `box_only_actors`: actor không rigid; chưa hiện trong viewer (sau này hiện bằng box lấy từ cuboid của dữ liệu chuẩn).
+- `splat_format`: đuôi file Gaussian (`spz`; gói 0.1 cũ không có trường này, coi là `ply`). `antialiased`: `render.antialiased` trong `config.yaml` của stage train; trang Xem 3D đặt `preBlurAmount` 0,3 và `blurAmount` 0 của Spark khi model train không chống răng cưa (như gsplat cộng 0,3 vào kích thước đốm mà không bù độ đục), ngược lại thì `blurAmount` 0,3. `humans`, `sky`: người và trời có trong gói.
+- `box_only_actors`: actor chưa có Gaussian trong gói (vật biến dạng: chuyển động do mạng nơ-ron tính, trình duyệt không chạy lại); chưa hiện trong viewer.
 - `omitted`: những phần của model không có trong gói.
 
 ## 8. Interface theo mức năng lực

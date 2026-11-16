@@ -1,7 +1,7 @@
 // Lõi của trang xem 3D: một cảnh three.js vẽ Gaussian splat bằng Spark (World Labs, MIT), điều khiển
 // bằng chuột (OrbitControls). Tách khỏi React để trang chỉ gọi vài hàm: nạp file, đặt trục, đặt pose
 // của xe theo khung, căn lại góc nhìn. Máy xem chỉ cần WebGL2 (ARCHITECTURE mục 2.13).
-import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
+import { SparkRenderer, SplatMesh, SplatSkinning, SplatSkinningMode } from "@sparkjsdev/spark";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
@@ -110,6 +110,20 @@ export function blendPose(a: number[], b: number[], alpha: number, out: THREE.Ma
   return out.compose(_posA.lerp(_posB, alpha), _rotA.slerp(_rotB, alpha), _scale);
 }
 
+const _boneMatrix = new THREE.Matrix4();
+
+/** Đọc xương ở vị trí `offset` của `bones` (3 cột phần xoay, rồi phần dời) thành hướng và vị trí. */
+function boneQuatPos(bones: Float32Array, offset: number, position: THREE.Vector3, rotation: THREE.Quaternion): void {
+  const o = offset;
+  _boneMatrix.set(
+    bones[o], bones[o + 3], bones[o + 6], bones[o + 9],
+    bones[o + 1], bones[o + 4], bones[o + 7], bones[o + 10],
+    bones[o + 2], bones[o + 5], bones[o + 8], bones[o + 11],
+    0, 0, 0, 1,
+  );
+  _boneMatrix.decompose(position, rotation, _scale);
+}
+
 /** Đường bay của camera khi nhấp đúp: vị trí và tâm xoay đi từ `from*` tới `to*` trong `duration` ms. */
 interface Flight {
   fromPosition: THREE.Vector3;
@@ -126,6 +140,70 @@ export interface SplatSource {
   bytes?: ArrayBuffer;
 }
 
+/** Một người của gói xem trước: Gaussian ở dáng gốc và skin (4 xương mỗi Gaussian). */
+export interface HumanSource {
+  name: string;
+  url: string;
+  skinUrl: string;
+}
+
+/** Xương và vị trí của mọi người theo khung (CONTRACTS mục 7). */
+export interface HumanMotion {
+  /** float32 (F, H, 24, 12): mỗi xương 3 cột phần xoay rồi phần dời. */
+  bones: Float32Array;
+  track_ids: string[];
+  /** [F][H]: ma trận 4x4 theo hàng (chỉ dời), null khi người không có mặt. */
+  T_object_world: (number[] | null)[][];
+}
+
+const NUM_BONES = 24;
+const HUMAN_SH_DEGREE = 1;
+const BONE_FLOATS = 12;
+
+/**
+ * Người uốn theo xương bằng `SplatSkinning` của Spark, chế độ dual quaternion (chạy trên GPU,
+ * chỉ cập nhật 24 xương mỗi khung). OmniRe dùng linear blend với trọng số không chuẩn hoá; dual
+ * quaternion chuẩn hoá trọng số, lệch trung bình 4 mm, 99% điểm dưới 3,3 cm so với OmniRe (đo trên
+ * run f8a6). Chế độ linear blend của Spark 2.4.0 cần covSplats, mà đường đó thiếu bộ sắp xếp độ
+ * sâu nên không vẽ được.
+ */
+interface Human {
+  mesh: SplatMesh;
+  skinning: SplatSkinning;
+  /** Chỉ số của người trong `HumanMotion.track_ids`. */
+  index: number;
+}
+
+const SKY_VERTEX = /* glsl */ `
+  varying vec3 vWorld;
+  void main() {
+    vec4 world = modelMatrix * vec4(position, 1.0);
+    vWorld = world.xyz;
+    gl_Position = projectionMatrix * viewMatrix * world;
+    gl_Position.z = gl_Position.w;  // luôn ở mặt xa nhất
+  }`;
+
+// Tra cubemap EnvLight của OmniRe: hướng nhìn đổi sang hệ dữ liệu, nhân to_opengl, rồi chọn mặt và
+// (s, t) theo bảng OpenGL như nvdiffrast; 6 mặt xếp 3 cột × 2 hàng trong một ảnh.
+const SKY_FRAGMENT = /* glsl */ `
+  uniform sampler2D atlas;
+  uniform mat3 worldToData;
+  uniform float faceSize;
+  varying vec3 vWorld;
+  void main() {
+    vec3 l = worldToData * normalize(vWorld - cameraPosition);
+    vec3 d = vec3(l.x, l.z, -l.y);
+    vec3 a = abs(d);
+    float face; float sc; float tc; float ma;
+    if (a.x >= a.y && a.x >= a.z) { face = d.x > 0.0 ? 0.0 : 1.0; sc = d.x > 0.0 ? -d.z : d.z; tc = -d.y; ma = a.x; }
+    else if (a.y >= a.z) { face = d.y > 0.0 ? 2.0 : 3.0; sc = d.x; tc = d.y > 0.0 ? d.z : -d.z; ma = a.y; }
+    else { face = d.z > 0.0 ? 4.0 : 5.0; sc = d.z > 0.0 ? d.x : -d.x; tc = -d.y; ma = a.z; }
+    float margin = 0.5 / faceSize;
+    vec2 st = clamp(vec2(sc, tc) / ma * 0.5 + 0.5, margin, 1.0 - margin);
+    vec2 uv = (vec2(mod(face, 3.0), floor(face / 3.0)) + st) / vec2(3.0, 2.0);
+    gl_FragColor = vec4(texture2D(atlas, uv).rgb, 1.0);
+  }`;
+
 export class SplatViewer {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
@@ -134,6 +212,10 @@ export class SplatViewer {
   private root = new THREE.Group();
   private meshes: SplatMesh[] = [];
   private actors = new Map<string, SplatMesh>();
+  private humans: Human[] = [];
+  private shLevel = 3;
+  private motion: HumanMotion | null = null;
+  private sky: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial> | null = null;
   private observer: ResizeObserver;
   private generation = 0;
   private spark: SparkRenderer;
@@ -186,7 +268,135 @@ export class SplatViewer {
     if (this.flight) this.invalidate();
     if (this.controls.update()) this.invalidate();
     this.stepFlight();
-    if (performance.now() <= this.renderUntil) this.renderer.render(this.scene, this.camera);
+    if (performance.now() > this.renderUntil) return;
+    if (this.sky) {
+      // Trời ở vô cực: quả cầu đi theo camera, bán kính trong tầm nhìn xa.
+      this.sky.position.copy(this.camera.position);
+      this.sky.scale.setScalar(this.camera.far * 0.5);
+      const toData = new THREE.Matrix3().setFromMatrix4(this.root.matrixWorld).invert();
+      this.sky.material.uniforms.worldToData.value.copy(toData);
+    }
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  /**
+   * Cách làm mờ splat theo cách model được train: gsplat không chống răng cưa thì cộng 0,3 vào
+   * kích thước đốm, không bù độ đục (`preBlurAmount`); có chống răng cưa thì cộng và bù độ đục
+   * (`blurAmount`, mặc định của Spark).
+   */
+  setAntialiased(antialiased: boolean): void {
+    this.spark.preBlurAmount = antialiased ? 0 : 0.3;
+    this.spark.blurAmount = antialiased ? 0.3 : 0;
+    this.invalidate();
+  }
+
+  /** Đặt ảnh trời (cubemap EnvLight của OmniRe, 3 cột × 2 hàng); null là bỏ trời. */
+  async setSky(url: string | null): Promise<void> {
+    if (this.sky) {
+      this.scene.remove(this.sky);
+      this.sky.geometry.dispose();
+      this.sky.material.uniforms.atlas.value?.dispose();
+      this.sky.material.dispose();
+      this.sky = null;
+    }
+    if (!url) return this.invalidate();
+    const generation = this.generation;
+    const texture = await new THREE.TextureLoader().loadAsync(url);
+    if (generation !== this.generation) return texture.dispose();
+    texture.flipY = false;
+    texture.colorSpace = THREE.NoColorSpace;  // màu như ảnh train, không đổi không gian màu
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    texture.needsUpdate = true;
+    const material = new THREE.ShaderMaterial({
+      vertexShader: SKY_VERTEX,
+      fragmentShader: SKY_FRAGMENT,
+      uniforms: {
+        atlas: { value: texture },
+        worldToData: { value: new THREE.Matrix3() },
+        faceSize: { value: texture.image.height / 2 },
+      },
+      side: THREE.BackSide,
+      depthWrite: false,
+      depthTest: false,
+    });
+    this.sky = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 32), material);
+    this.sky.renderOrder = -1;
+    this.sky.frustumCulled = false;
+    this.scene.add(this.sky);
+    this.invalidate();
+  }
+
+  /**
+   * Nạp người (Gaussian dáng gốc, skin) và chuyển động của họ. Trả về số splat của người, hoặc
+   * null nếu một lần nạp mới hơn đã thay thế lần này.
+   */
+  async loadHumans(sources: HumanSource[], motion: HumanMotion): Promise<number | null> {
+    const generation = this.generation;
+    const loaded = await Promise.all(
+      sources.map(async (source) => {
+        const skin = new Uint16Array(await (await fetch(source.skinUrl)).arrayBuffer());
+        const mesh = new SplatMesh({ url: source.url, fileName: `${source.name}.spz` });
+        await mesh.initialized;
+        return { source, skin, mesh };
+      }),
+    );
+    if (generation !== this.generation) {
+      for (const { mesh } of loaded) mesh.dispose();
+      return null;
+    }
+    this.motion = motion;
+    for (const { source, skin, mesh } of loaded) {
+      const skinning = new SplatSkinning({ mesh, numSplats: mesh.numSplats, numBones: NUM_BONES, mode: SplatSkinningMode.DUAL_QUATERNION });
+      skinning.skinData.set(skin.subarray(0, mesh.numSplats * 4));
+      skinning.skinTexture.needsUpdate = true;
+      mesh.skinning = skinning;
+      mesh.updateGenerator();
+      mesh.matrixAutoUpdate = false;
+      mesh.visible = false;
+      this.root.add(mesh);
+      this.meshes.push(mesh);
+      this.humans.push({ mesh, skinning, index: motion.track_ids.indexOf(source.name) });
+    }
+    this.setMaxSh(this.shLevel);
+    this.setHumanFrame(0);
+    return loaded.reduce((sum, { mesh }) => sum + mesh.numSplats, 0);
+  }
+
+  /** Đặt dáng và vị trí của người ở khung `index` (nội suy tới `next` theo `alpha` khi phát). */
+  setHumanFrame(index: number, next = index, alpha = 0): void {
+    const motion = this.motion;
+    if (!motion) return;
+    const count = motion.track_ids.length;
+    const frames = motion.T_object_world.length;
+    const a = Math.min(index, frames - 1);
+    const b = Math.min(next, frames - 1);
+    for (const human of this.humans) {
+      const pose = motion.T_object_world[a]?.[human.index];
+      const after = motion.T_object_world[b]?.[human.index];
+      human.mesh.visible = pose != null;
+      if (!pose) continue;
+      // Người chỉ có mặt ở khung này thì không nội suy.
+      const t = after ? alpha : 0;
+      for (let bone = 0; bone < NUM_BONES; bone++) {
+        boneQuatPos(motion.bones, ((a * count + human.index) * NUM_BONES + bone) * BONE_FLOATS, _posA, _rotA);
+        if (t > 0) {
+          boneQuatPos(motion.bones, ((b * count + human.index) * NUM_BONES + bone) * BONE_FLOATS, _posB, _rotB);
+          _posA.lerp(_posB, t);
+          _rotA.slerp(_rotB, t);
+        }
+        human.skinning.setBoneQuatPos(bone, _rotA, _posA);
+      }
+      human.skinning.updateBones();
+      const end = after ?? pose;
+      human.mesh.matrix.makeTranslation(
+        pose[3] + (end[3] - pose[3]) * t,
+        pose[7] + (end[7] - pose[7]) * t,
+        pose[11] + (end[11] - pose[11]) * t,
+      );
+      human.mesh.matrixWorldNeedsUpdate = true;
+    }
+    this.invalidate();
   }
 
   /** Nhấp đúp vào cảnh: tìm splat trúng tia từ chuột rồi bay tới gần điểm đó. */
@@ -250,7 +460,8 @@ export class SplatViewer {
 
   /** Tâm của các splat đứng yên, lấy mẫu tối đa `limit` điểm (toạ độ của dữ liệu, chưa xoay). */
   private sampleCenters(limit = 200_000): Float32Array[] {
-    const statics = this.meshes.filter((mesh) => ![...this.actors.values()].includes(mesh));
+    const moving = new Set([...this.actors.values(), ...this.humans.map((human) => human.mesh)]);
+    const statics = this.meshes.filter((mesh) => !moving.has(mesh));
     const total = statics.reduce((sum, mesh) => sum + (mesh.splats?.getNumSplats() ?? 0), 0);
     const stride = Math.max(1, Math.ceil(total / limit));
     const xs: number[] = [];
@@ -306,7 +517,11 @@ export class SplatViewer {
 
   /** Bậc spherical harmonics tối đa khi vẽ (0–3); thấp hơn thì nhẹ hơn cho card yếu. */
   setMaxSh(level: number): void {
-    for (const mesh of this.meshes) mesh.maxSh = level;
+    this.shLevel = level;
+    // Người chỉ có SH bậc 1 (SMPLNodes); đặt cao hơn thì Spark đọc phần bậc 2–3 không có trong file
+    // và cả cảnh lấm tấm nhiễu (thấy ở run f8a6).
+    const humans = new Set(this.humans.map((human) => human.mesh));
+    for (const mesh of this.meshes) mesh.maxSh = humans.has(mesh) ? Math.min(level, HUMAN_SH_DEGREE) : level;
     this.invalidate();
   }
 
@@ -318,6 +533,9 @@ export class SplatViewer {
     }
     this.meshes = [];
     this.actors.clear();
+    this.humans = [];
+    this.motion = null;
+    void this.setSky(null);
   }
 
   /**

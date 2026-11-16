@@ -113,7 +113,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "run": "d2s-run/0.3",
     "summary": "d2s-summary/0.4",
     "env": "d2s-env/0.2",
-    "preview": "d2s-preview/0.1",
+    "preview": "d2s-preview/0.2",
     "job": "d2s-job/0.1",
     "result": "d2s-result/0.1",
 }
@@ -1227,15 +1227,27 @@ class Preview(VersionedFile):
     Attributes:
         source_run: Thư mục run tạo ra gói, tương đối với ``D2S_WORKDIR``.
         sh_degree: Bậc spherical harmonics giữ lại, 0–3.
+        splat_format: Đuôi file Gaussian của gói: ``spz`` (từ bản 0.2) hoặc ``ply`` (gói cũ).
+        up_axis: Trục lên của hệ world, ví dụ ``-y`` (suy từ pose camera); ``None`` nếu không
+            biết.
+        antialiased: Model train với chế độ chống răng cưa của gsplat không; viewer chọn cách làm
+            mờ splat theo đó.
         rigid_actors: ``track_id`` của các xe có Gaussian riêng.
-        box_only_actors: ``track_id`` của actor không rigid, chỉ hiện bằng box.
-        omitted: Những phần của model không có trong gói, ví dụ ``["sky"]``.
+        humans: ``track_id`` của các người có Gaussian và skin trong gói.
+        sky: Tên file cubemap trời trong gói, ``None`` nếu model không có trời.
+        box_only_actors: ``track_id`` của actor chưa có Gaussian trong gói, chỉ hiện bằng box.
+        omitted: Những phần của model không có trong gói, ví dụ ``["DeformableNodes"]``.
     """
 
     FILE_KIND: ClassVar[str] = "preview"
     source_run: str
     sh_degree: int = Field(ge=0, le=3)
+    splat_format: Literal["ply", "spz"] = "ply"
+    up_axis: Optional[str] = None
+    antialiased: bool = False
     rigid_actors: list[str] = []
+    humans: list[str] = []
+    sky: Optional[str] = None
     box_only_actors: list[str] = []
     omitted: list[str] = []
 

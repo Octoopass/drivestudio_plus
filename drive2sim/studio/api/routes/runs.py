@@ -374,9 +374,11 @@ def run_splats(run_id: str, request: Request) -> dict:
     Returns:
         ``{"preview": {...} | null, "ply": url | null}``. ``preview`` (khi đã chạy
         ``export.preview``) gồm nội dung ``preview.json`` cộng ``background_url``,
-        ``actor_urls`` (``track_id`` → url) và ``poses_url``; ``ply`` là ``scene.ply`` của
-        ``export.ply_world``; ``cameras`` là url của ``cameras.json`` (pose, thông số camera theo
-        khung, cùng hệ toạ độ với các file trên), ``null`` nếu chưa có.
+        ``actor_urls`` (``track_id`` → url), ``poses_url``, ``human_urls`` (``track_id`` →
+        ``{"splats", "skin"}``), ``human_poses_url``, ``human_bones_url`` và ``sky_url``;
+        ``ply`` là ``scene.ply`` của ``export.ply_world``; ``cameras`` là url của
+        ``cameras.json`` (pose, thông số camera theo khung, cùng hệ toạ độ với các file trên),
+        ``null`` nếu chưa có.
     """
     run_dir, _ = _load(request, run_id)
     workdir = state_of(request).workdir
@@ -389,14 +391,25 @@ def run_splats(run_id: str, request: Request) -> dict:
     preview = None
     if (preview_dir / "preview.json").is_file() and (preview_dir / "done").is_file():
         data = files.load(preview_dir / "preview.json", Preview).model_dump(mode="json")
+        ext = data["splat_format"]
         preview = {
             **data,
-            "background_url": url(preview_dir / "background.ply"),
+            "background_url": url(preview_dir / f"background.{ext}"),
             "actor_urls": {
-                track: url(preview_dir / "actors" / f"{track}.ply")
+                track: url(preview_dir / "actors" / f"{track}.{ext}")
                 for track in data["rigid_actors"]
             },
             "poses_url": url(preview_dir / "actor_poses.json"),
+            "human_urls": {
+                track: {
+                    "splats": url(preview_dir / "humans" / f"{track}.{ext}"),
+                    "skin": url(preview_dir / "humans" / f"{track}.skin"),
+                }
+                for track in data["humans"]
+            },
+            "human_poses_url": url(preview_dir / "human_poses.json"),
+            "human_bones_url": url(preview_dir / "human_bones.bin"),
+            "sky_url": url(preview_dir / data["sky"]) if data["sky"] else None,
         }
     # Pose và thông số camera theo khung (train.py ghi, stage xuất chép theo): để mở cảnh ở đúng
     # góc của video. Lấy ở gói xem trước, rồi scene.ply, rồi thư mục train.

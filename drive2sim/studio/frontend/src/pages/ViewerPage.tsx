@@ -14,7 +14,7 @@ import { ErrorBox, InfoTip, Note, PageHead, Segmented } from "../components/ui";
 import { RoadScene } from "../components/Illustration";
 import { useI18n } from "../i18n";
 import { go } from "../router";
-import { SplatViewer, upAxisFromCameras, type SceneCamera, type SplatSource, type UpAxis } from "../viewer/engine";
+import { SplatViewer, upAxisFromCameras, type HumanMotion, type SceneCamera, type SplatSource, type UpAxis } from "../viewer/engine";
 
 /** Trục lên ghi trong phần đầu file PLY do tool xuất ("comment drive2sim up=+z ..."), nếu có. */
 async function headerUpAxis(picked: File): Promise<UpAxis | null> {
@@ -165,14 +165,33 @@ export function ViewerPage({ runId }: { runId?: string }) {
         sources = [{ name: "scene.ply", url: splats.data.ply }];
       } else if (source === "preview" && splats.data?.preview) {
         const preview = splats.data.preview;
-        if (preview.background_url) sources.push({ name: "background.ply", url: preview.background_url });
+        const ext = preview.splat_format;
+        if (preview.background_url) sources.push({ name: `background.${ext}`, url: preview.background_url });
         for (const [trackId, url] of Object.entries(preview.actor_urls)) if (url) sources.push({ name: trackId, url });
         actorIds = Object.keys(preview.actor_urls);
         if (preview.poses_url) loadedPoses = await api<ActorPoses>(preview.poses_url);
       }
       if (!sources.length) return;
-      const total = await v.load(sources, actorIds, (fraction) => alive && setProgress(fraction));
+      let total = await v.load(sources, actorIds, (fraction) => alive && setProgress(fraction));
       if (!alive || total === null) return;
+      // Gói xem trước: cách làm mờ theo lúc train, trời, người uốn theo xương.
+      const preview = source === "preview" ? splats.data?.preview : null;
+      v.setAntialiased(preview?.antialiased ?? true);
+      if (preview) {
+        await v.setSky(preview.sky_url);
+        const humans = Object.entries(preview.human_urls)
+          .filter(([, urls]) => urls.splats && urls.skin)
+          .map(([name, urls]) => ({ name, url: urls.splats as string, skinUrl: urls.skin as string }));
+        if (humans.length && preview.human_poses_url && preview.human_bones_url) {
+          const [motion, bones] = await Promise.all([
+            api<Omit<HumanMotion, "bones">>(preview.human_poses_url),
+            fetch(preview.human_bones_url).then((response) => response.arrayBuffer()),
+          ]);
+          const added = await v.loadHumans(humans, { ...motion, bones: new Float32Array(bones) });
+          if (!alive || added === null) return;
+          total += added;
+        }
+      }
       // Trục lên: run của tool suy từ pose camera (hệ world DriveStudio tuỳ dataset: nuScenes -y,
       // Waymo z); file kéo thả đọc phần đầu PLY do tool ghi; file lạ thì đoán từ hình dạng cảnh
       // (mặt đất phẳng, nhà và cây mọc lên).
@@ -197,6 +216,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
         setPoses(loadedPoses);
         setFrame(0);
         v.setPoses(loadedPoses.track_ids, loadedPoses.T_object_world[0] ?? []);
+        v.setHumanFrame(0);
       }
     };
     run().catch((err) => alive && (setError(String(err)), setProgress(null)));
@@ -221,7 +241,10 @@ export function ViewerPage({ runId }: { runId?: string }) {
   }, [runId]); // chỉ chạy khi đổi run, không chạy khi đổi nguồn xem
   // Đứng yên (kéo thanh khung): đặt đúng pose của khung số nguyên.
   useEffect(() => {
-    if (poses && !playing) viewer.current?.setPoses(poses.track_ids, poses.T_object_world[frame] ?? []);
+    if (poses && !playing) {
+      viewer.current?.setPoses(poses.track_ids, poses.T_object_world[frame] ?? []);
+      viewer.current?.setHumanFrame(frame);
+    }
   }, [frame, poses, playing]);
 
   const openFile = (picked: File | undefined) => {
@@ -267,6 +290,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
       const next = Math.min(index + 1, last);
       const alpha = time - index;
       viewer.current?.setPoses(poses.track_ids, poses.T_object_world[index] ?? [], poses.T_object_world[next] ?? [], alpha);
+      viewer.current?.setHumanFrame(index, next, alpha);
       const cam = cameraRef.current;
       if (followRef.current && cam) {
         const a = Math.min(index, cam.c2w.length - 1);

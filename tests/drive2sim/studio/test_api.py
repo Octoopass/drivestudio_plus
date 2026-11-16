@@ -321,6 +321,36 @@ def test_run_lifecycle(client: TestClient) -> None:
     splats = client.get(f"/api/runs/{run_id}/splats").json()["preview"]
     assert splats["background_url"].endswith("export.preview/background.ply")
     assert client.get(splats["actor_urls"]["rigid_0000"]).status_code == 200
+    assert splats["human_urls"] == {} and splats["sky_url"] is None  # gói 0.1 cũ vẫn mở được
+    # Gói 0.2: SPZ, người (skin, xương), trời.
+    (preview_dir / "humans").mkdir()
+    for name in (
+        "background.spz",
+        "humans/smpl_0001.spz",
+        "humans/smpl_0001.skin",
+        "human_bones.bin",
+        "human_poses.json",
+        "sky_cube.jpg",
+    ):
+        (preview_dir / name).write_text("x")
+    (preview_dir / "preview.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "d2s-preview/0.2",
+                "source_run": "x",
+                "sh_degree": 3,
+                "splat_format": "spz",
+                "antialiased": False,
+                "humans": ["smpl_0001"],
+                "sky": "sky_cube.jpg",
+            }
+        )
+    )
+    splats = client.get(f"/api/runs/{run_id}/splats").json()["preview"]
+    assert splats["background_url"].endswith("export.preview/background.spz")
+    assert splats["human_urls"]["smpl_0001"]["skin"].endswith("humans/smpl_0001.skin")
+    assert splats["human_bones_url"].endswith("human_bones.bin")
+    assert splats["sky_url"].endswith("sky_cube.jpg") and splats["antialiased"] is False
     videos = client.get(f"/api/runs/{run_id}/videos").json()["items"]
     assert videos[0]["stage_id"] == "train.toy" and videos[0]["name"] == "videos/test_set.mp4"
     assert client.get(videos[0]["url"]).content == b"mp4"

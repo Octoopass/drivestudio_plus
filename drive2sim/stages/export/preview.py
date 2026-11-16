@@ -1,8 +1,9 @@
 """Stage ``export.preview``: xuất gói xem trước để xem cảnh trong trình duyệt bằng Spark.
 
 Stage này chạy ``drive2sim/recon/tools/export_preview.py`` trên ``checkpoint_final.pth`` của
-stage train và ghi gói theo CONTRACTS mục 7: ``background.ply``, ``actors/<track_id>.ply``,
-``actor_poses.json``, ``preview.json``. Studio mở gói ở trang xem 3D, phát lại xe theo khung;
+stage train và ghi gói theo CONTRACTS mục 7: ``background.spz``, ``actors/<track_id>.spz``,
+``actor_poses.json``, người (``humans/``, ``human_bones.bin``, ``human_poses.json``), trời
+(``sky_cube.jpg``), ``preview.json``. Studio mở gói ở trang xem 3D, phát lại xe theo khung;
 máy xem chỉ cần WebGL2, không cần GPU CUDA (ARCHITECTURE mục 2.13).
 
 File này chứa:
@@ -76,7 +77,7 @@ def build_command(
 class ExportPreviewStage(Stage):
     """Xuất checkpoint cuối của run ra gói xem trước cho Spark."""
 
-    version: ClassVar[str] = "0.1.0"
+    version: ClassVar[str] = "0.2.0"
     cacheable: ClassVar[bool] = False
     uses_lidar: ClassVar[bool] = False
     inputs: ClassVar[dict[str, str]] = {"model": "model"}
@@ -97,16 +98,18 @@ class ExportPreviewStage(Stage):
             ``{"preview": <thư mục stage>}``.
 
         Raises:
-            RuntimeError: Nếu lệnh lỗi hoặc không ghi ra ``background.ply``, ``preview.json``.
+            RuntimeError: Nếu lệnh lỗi hoặc không ghi ra ``preview.json`` và file nền.
         """
         assert isinstance(params, ExportPreviewParams)
         run_dir = ctx.output_dir.parents[2]  # <run>/d2s/stages/export.preview
         source_run = Path(*run_dir.parts[-4:]).as_posix()  # runs/<cảnh>/<approach>/<run_id>
         command = build_command(params, inputs["model"], ctx.output_dir, source_run)
         run_logged(command, ctx.output_dir / LOG_FILE, should_stop=ctx.should_stop)
-        for name in ("background.ply", PREVIEW_FILE):
-            if not (ctx.output_dir / name).is_file():
-                raise RuntimeError(f"export_preview.py xong nhưng không có {name}")
-        files.load(ctx.output_dir / PREVIEW_FILE, Preview)
+        if not (ctx.output_dir / PREVIEW_FILE).is_file():
+            raise RuntimeError(f"export_preview.py xong nhưng không có {PREVIEW_FILE}")
+        preview = files.load(ctx.output_dir / PREVIEW_FILE, Preview)
+        background = f"background.{preview.splat_format}"
+        if not (ctx.output_dir / background).is_file():
+            raise RuntimeError(f"export_preview.py xong nhưng không có {background}")
         copy_cameras(inputs["model"], ctx.output_dir)
         return {"preview": ctx.output_dir}
