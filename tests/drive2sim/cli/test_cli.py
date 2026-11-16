@@ -356,3 +356,16 @@ def test_export_preview_appends_stage(
     # Stage được thêm vào run; ở đây không có checkpoint thật nên stage lỗi.
     assert code == 1 and data["stages"][-1]["stage_id"] == "export.preview"
     assert data["stages"][-1]["status"] == "failed"
+
+
+def test_run_start_no_push_creates_kaggle_run_only(
+    workdir: Path, split_id: str, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--no-push: tạo run Kaggle mà không gọi Kaggle, để đẩy nhiều run chung một notebook."""
+    from drive2sim.cli import run as run_cli
+
+    monkeypatch.setattr(run_cli, "push_run", lambda *a, **k: pytest.fail("không được đẩy"))
+    base = ["--scene", SCENE, "--split", split_id, "--executor", "kaggle", "--no-push"]
+    code, data = run_json(capsys, "run", "start", "toy", *base)
+    assert code == 0 and data["pushed"] is False
+    assert any((workdir / "runs").rglob(f"{data['run_id']}/d2s/run.json"))

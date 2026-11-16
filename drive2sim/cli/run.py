@@ -48,6 +48,12 @@ def register(
     start = actions.add_parser("start", parents=[common], help="tạo run mới và chạy")
     add_plan_arguments(start)
     start.add_argument("--executor", choices=["local", "kaggle", "colab"], default="local")
+    start.add_argument(
+        "--no-push",
+        action="store_true",
+        help="executor kaggle, colab: chỉ tạo run, chưa đẩy (ví dụ để đẩy hai run chung một "
+        "notebook: d2s kaggle push RUN1 RUN2)",
+    )
     start.set_defaults(handler=start_run)
 
     resume = actions.add_parser("resume", parents=[common], help="chạy tiếp một run")
@@ -101,6 +107,14 @@ def start_run(args: argparse.Namespace) -> int:
     workdir, scene, split, plan = resolve_from_args(args)
     run_dir = create_run(plan, workdir, scene, split, executor=args.executor)
     info(args, f"tạo run {run_dir.name} ở {workdir.relative(run_dir)}")
+    if args.executor != "local" and getattr(args, "no_push", False):
+        emit(
+            args,
+            {"run_id": run_dir.name, "pushed": False},
+            f"đã tạo run {run_dir.name}, chưa đẩy; đẩy bằng d2s {args.executor} push "
+            f"{run_dir.name} (Kaggle nhận hai run chung một notebook)",
+        )
+        return 0
     if args.executor == "kaggle":
         state = push_run(workdir, run_dir.name)
         emit(
