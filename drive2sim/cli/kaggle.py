@@ -42,7 +42,15 @@ def register(
         ("pull", pull, "tải kết quả về thư mục làm việc"),
     ):
         parser = actions.add_parser(name, parents=[common], help=help_text)
-        parser.add_argument("run_id")
+        if name == "push":
+            parser.add_argument(
+                "run_ids",
+                nargs="+",
+                metavar="run_id",
+                help="một run, hoặc hai run chạy song song trong một notebook (mỗi run 1 GPU T4)",
+            )
+        else:
+            parser.add_argument("run_id")
         if name == "pull":
             parser.add_argument(
                 "--light",
@@ -74,28 +82,34 @@ def register(
     )
     run_parser.add_argument("bundle", type=Path, help="thư mục gói job")
     run_parser.add_argument("--input-root", type=Path, default=Path("/kaggle/input"))
+    run_parser.add_argument(
+        "--prepare-only",
+        action="store_true",
+        help="chỉ dựng thư mục làm việc (cảnh, cache, run), không chạy; dùng khi chạy song song",
+    )
     run_parser.set_defaults(handler=run_bundle)
 
 
 def push(args: argparse.Namespace) -> int:
-    """Đẩy một run lên Kaggle.
+    """Đẩy một run, hoặc hai run chung một notebook, lên Kaggle.
 
     Args:
-        args: Tham số dòng lệnh, có ``run_id`` và ``branch``.
+        args: Tham số dòng lệnh, có ``run_ids``, ``branch``, ``accelerator``.
 
     Returns:
         Mã thoát ``0``.
     """
     workdir = Workdir.from_env(args.workdir)
-    state = executor.push_run(
-        workdir, args.run_id, branch=args.branch, accelerator=args.accelerator
+    states = executor.push_runs(
+        workdir, args.run_ids, branch=args.branch, accelerator=args.accelerator
     )
-    emit(
-        args,
-        state.to_dict(),
-        f"đã đẩy run {args.run_id} lên notebook {state.kernel} (lần {state.attempt}); "
-        f"xem bằng d2s kaggle status {args.run_id}",
-    )
+    for run_id, state in zip(args.run_ids, states):
+        emit(
+            args,
+            state.to_dict(),
+            f"đã đẩy run {run_id} lên notebook {state.kernel} (lần {state.attempt}); "
+            f"xem bằng d2s kaggle status {run_id}",
+        )
     return 0
 
 
@@ -162,13 +176,16 @@ def run_bundle(args: argparse.Namespace) -> int:
     """Chạy run từ gói job; notebook Kaggle gọi lệnh này.
 
     Args:
-        args: Tham số dòng lệnh: ``bundle``, ``input_root``, ``workdir``.
+        args: Tham số dòng lệnh: ``bundle``, ``input_root``, ``workdir``, ``prepare_only``.
 
     Returns:
         ``0`` nếu run xong, ``1`` nếu không.
     """
     workdir = Workdir.from_env(args.workdir)
     run_dir = materialize(read_bundle(args.bundle), workdir, args.input_root)
+    if args.prepare_only:
+        info(args, f"đã dựng {workdir.relative(run_dir)}")
+        return 0
     info(args, f"chạy {workdir.relative(run_dir)}")
     record = execute_run(run_dir, workdir, sink=event_printer(args))
     emit(args, record.model_dump(mode="json"), f"run {record.run_id}: {record.status}")

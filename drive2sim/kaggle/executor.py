@@ -28,7 +28,7 @@ import re
 import shutil
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -61,6 +61,8 @@ DEFAULT_BRANCH = "drive2sim"
 DEFAULT_ACCELERATOR = "NvidiaTeslaT4"  # machine_shape của Kaggle: GPU T4 x2
 MAX_RESUME_SOURCES = 5  # số lần đẩy trước được gắn vào notebook mới
 WHEEL_CANDIDATES = 5  # số notebook mới nhất thử khi tìm nguồn wheel
+MAX_PARALLEL_RUNS = 2  # số run mỗi notebook: một run một GPU
+PARALLEL_ACCELERATOR = "NvidiaTeslaT4"  # máy Kaggle có 2 GPU (T4 x2)
 DATASET_WAIT_S = 900  # chờ Kaggle xử lý xong dataset cảnh vừa upload, tối đa 15 phút
 DATASET_POLL_S = 10
 SMPL_DATASET_ENV = "D2S_KAGGLE_SMPL_DATASET"  # dataset private chứa SMPL_NEUTRAL.pkl
@@ -411,18 +413,24 @@ def wait_dataset_ready(
         waited += DATASET_POLL_S
 
 
-def build_notebook(bundle: dict, run_id: str, commit: str, repo_url: str, branch: str) -> str:
+def build_notebook(bundles: dict[str, dict], commit: str, repo_url: str, branch: str) -> str:
     """Điền template notebook.
+
+    Args:
+        bundles: ``{run_id: gói job}``, một hoặc hai run.
+        commit: Commit notebook clone.
+        repo_url: Repo để clone.
+        branch: Branch để clone.
 
     Returns:
         Nội dung file ``.ipynb``.
     """
     values = {
-        "run_id": run_id,
+        "run_ids": ", ".join(bundles),
         "commit": commit,
         "repo_url": repo_url,
         "branch": branch,
-        "bundle_json": json.dumps(bundle),
+        "bundles_json": json.dumps(bundles),
     }
     notebook = json.loads(TEMPLATE.read_text("utf-8"))
     for cell in notebook["cells"]:
@@ -430,32 +438,23 @@ def build_notebook(bundle: dict, run_id: str, commit: str, repo_url: str, branch
     return json.dumps(notebook, indent=1, ensure_ascii=False)
 
 
-def push_run(
-    workdir: Workdir,
-    run_id: str,
-    client: Optional[KaggleClient] = None,
-    branch: str = DEFAULT_BRANCH,
-    accelerator: str = DEFAULT_ACCELERATOR,
-) -> KaggleState:
-    """Đẩy một run lên Kaggle và cho chạy.
+@dataclass
+class _Prepared:
+    """Một run đã sẵn sàng đẩy: gói job và nguồn cần gắn vào notebook."""
 
-    Lần đẩy đầu chạy từ đầu; các lần sau chạy tiếp từ output của notebook trước.
+    run_id: str
+    run_dir: Path
+    record: RunRecord
+    attempt: int
+    history: list[str]
+    dataset: str
+    bundle: dict
+    datasets: list[str]
+    kernels: list[str]
 
-    Args:
-        workdir: Thư mục làm việc trên máy.
-        run_id: Run đã tạo (``executor: kaggle``).
-        client: Kaggle; mặc định gọi lệnh ``kaggle``.
-        branch: Branch để clone.
-        accelerator: ``machine_shape`` của notebook, ví dụ ``NvidiaTeslaT4``, ``NvidiaL4``.
 
-    Returns:
-        Trạng thái đã ghi vào ``d2s/kaggle.json``.
-
-    Raises:
-        KaggleError: Nếu chưa cài hoặc chưa đăng nhập Kaggle, commit chưa push, run đã xong, hoặc
-            notebook trước còn đang chạy, hoặc lần đẩy trước dùng tài khoản Kaggle khác.
-    """
-    client = client or KaggleClient()
+def _prepare(client: KaggleClient, workdir: Workdir, run_id: str, username: str) -> _Prepared:
+    """Kiểm tra run đẩy được, upload cảnh (và cache cho tài khoản mới) nếu cần, dựng gói job."""
     run_dir = workdir.find_run(run_id)
     record = files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
     if record.status == "succeeded":
@@ -465,7 +464,6 @@ def push_run(
         status = client.kernel_status(previous.kernel)
         if status in ("queued", "running", "new", "new_script", "cancel_requested"):
             raise KaggleError(f"notebook {previous.kernel} còn đang {status}; chờ xong rồi đẩy")
-    username = client.username()
     if previous is not None and previous.username != username:
         # Lần đẩy sau chạy tiếp từ output của các notebook trước, private của tài khoản cũ.
         raise KaggleError(
@@ -474,7 +472,6 @@ def push_run(
             f"khoá của {previous.username}, hoặc xoá {D2S_DIR}/{STATE_FILE} của run để chạy lại "
             f"từ đầu bằng {username}"
         )
-    commit, repo_url = code_source(branch)
     scene = workdir.load_scene(record.scene_id)
     scene_kernels: list[str] = []
     remote_scenes = _load_scene_refs(scene.root)
@@ -508,38 +505,112 @@ def push_run(
                 f"{SMPL_DATASET_ENV}=<người dùng>/<tên dataset> trước khi đẩy"
             )
         sources.append(smpl_dataset)
-    attempt = previous.attempt + 1 if previous else 1
-    defaults = {
-        name: option.default
-        for name, option in load_approach(record.approach.approach_id).options.items()
-    }
-    kernel = f"{username}/" + names.train_kernel(
-        record.scene_id, run_id, attempt, record.approach.options, defaults
-    )
     history = _previous_kernels(previous, run_id)
     # Gắn output của tối đa MAX_RESUME_SOURCES lần đẩy trước, mới nhất trước: lần gần nhất có thể
     # lỗi trước khi ghi được gì (ví dụ lúc cài môi trường), khi đó notebook chạy tiếp từ lần cũ hơn
     # còn kết quả thay vì train lại từ đầu.
     resume = list(reversed(history))[:MAX_RESUME_SOURCES]
     bundle = write_bundle(run_dir, workdir, dataset, resume)
-    # Gắn thêm output của run khác đã có mask, SMPL mà run này cần, để khỏi tính lại, và output có
-    # wheel đã build (khỏi build lại môi trường khoảng 25 phút).
+    # Gắn thêm output của run khác đã có mask, SMPL mà run này cần, để khỏi tính lại.
     kernels, missing = _cache_sources(client, workdir, record, username)
-    reuse = [k for k in kernels if k not in resume]
     # Tài khoản chưa có notebook nào có cache đó (ví dụ tài khoản mới): upload cache trên máy.
     if missing and not resume:
         cached = cache_dataset(client, workdir, record, username, missing)
         if cached and cached not in sources:
             sources.append(cached)
+    return _Prepared(
+        run_id=run_id,
+        run_dir=run_dir,
+        record=record,
+        attempt=previous.attempt + 1 if previous else 1,
+        history=history,
+        dataset=dataset,
+        bundle=bundle,
+        datasets=sources,
+        kernels=scene_kernels + resume + kernels,
+    )
+
+
+def _unique(items: Sequence[str]) -> list[str]:
+    """Bỏ phần tử lặp, giữ thứ tự."""
+    return list(dict.fromkeys(items))
+
+
+def push_run(
+    workdir: Workdir,
+    run_id: str,
+    client: Optional[KaggleClient] = None,
+    branch: str = DEFAULT_BRANCH,
+    accelerator: str = DEFAULT_ACCELERATOR,
+) -> KaggleState:
+    """Đẩy một run lên Kaggle và cho chạy (``push_runs`` với một run)."""
+    return push_runs(workdir, [run_id], client, branch, accelerator)[0]
+
+
+def push_runs(
+    workdir: Workdir,
+    run_ids: Sequence[str],
+    client: Optional[KaggleClient] = None,
+    branch: str = DEFAULT_BRANCH,
+    accelerator: str = DEFAULT_ACCELERATOR,
+) -> list[KaggleState]:
+    """Đẩy một run, hoặc hai run chung một notebook, lên Kaggle và cho chạy.
+
+    Lần đẩy đầu chạy từ đầu; các lần sau chạy tiếp từ output của notebook trước. Hai run thì
+    notebook chạy song song, mỗi run một GPU (máy ``NvidiaTeslaT4`` của Kaggle có 2 GPU T4);
+    quota GPU tính theo giờ phiên, nên hai run tốn giờ như một. Mỗi run giữ ``kaggle.json`` riêng
+    (cùng notebook); đẩy lại thì mỗi run chạy tiếp từ output của chính nó, đẩy riêng hay đẩy
+    đôi đều được.
+
+    Args:
+        workdir: Thư mục làm việc trên máy.
+        run_ids: Một hoặc hai run đã tạo (``executor: kaggle``).
+        client: Kaggle; mặc định gọi lệnh ``kaggle``.
+        branch: Branch để clone.
+        accelerator: ``machine_shape`` của notebook, ví dụ ``NvidiaTeslaT4``, ``NvidiaL4``.
+
+    Returns:
+        Trạng thái đã ghi vào ``d2s/kaggle.json`` của từng run, cùng thứ tự ``run_ids``.
+
+    Raises:
+        KaggleError: Nếu chưa cài hoặc chưa đăng nhập Kaggle, commit chưa push, run đã xong, hoặc
+            notebook trước còn đang chạy, hoặc lần đẩy trước dùng tài khoản Kaggle khác; thêm khi
+            số run không hợp lệ, hoặc hai run mà máy không phải ``NvidiaTeslaT4``.
+    """
+    run_ids = list(run_ids)
+    if not 1 <= len(run_ids) <= MAX_PARALLEL_RUNS or len(set(run_ids)) != len(run_ids):
+        raise KaggleError(f"đẩy được 1 tới {MAX_PARALLEL_RUNS} run khác nhau mỗi notebook")
+    if len(run_ids) > 1 and accelerator != PARALLEL_ACCELERATOR:
+        raise KaggleError(
+            f"chạy song song cần máy {PARALLEL_ACCELERATOR} (2 GPU), không phải {accelerator}"
+        )
+    client = client or KaggleClient()
+    username = client.username()
+    commit, repo_url = code_source(branch)
+    prepared = [_prepare(client, workdir, run_id, username) for run_id in run_ids]
+    if len(prepared) == 1:
+        one = prepared[0]
+        defaults = {
+            name: option.default
+            for name, option in load_approach(one.record.approach.approach_id).options.items()
+        }
+        name = names.train_kernel(
+            one.record.scene_id, one.run_id, one.attempt, one.record.approach.options, defaults
+        )
+    else:
+        name = names.pair_kernel(
+            prepared[0].record.scene_id, run_ids, [p.attempt for p in prepared]
+        )
+    kernel = f"{username}/{name}"
+    # Output có wheel đã build (khỏi build lại môi trường khoảng 25 phút).
     wheels = wheel_kernel(client, workdir, username)
-    if wheels and wheels not in resume and wheels not in reuse:
-        reuse.append(wheels)
+    datasets = _unique([d for p in prepared for d in p.datasets])
+    kernels = _unique([k for p in prepared for k in p.kernels] + ([wheels] if wheels else []))
 
     with tempfile.TemporaryDirectory(dir=_staging(workdir)) as folder:
         folder_path = Path(folder)
-        (folder_path / "run.ipynb").write_text(
-            build_notebook(bundle, run_id, commit, repo_url, branch), "utf-8"
-        )
+        notebook = build_notebook({p.run_id: p.bundle for p in prepared}, commit, repo_url, branch)
+        (folder_path / "run.ipynb").write_text(notebook, "utf-8")
         metadata = {
             "id": kernel,
             "title": kernel.split("/")[1],
@@ -550,18 +621,21 @@ def push_run(
             "enable_gpu": True,
             "machine_shape": accelerator,
             "enable_internet": True,
-            "dataset_sources": sources,
-            "kernel_sources": scene_kernels + resume + reuse,
+            "dataset_sources": datasets,
+            "kernel_sources": kernels,
             "competition_sources": [],
         }
         (folder_path / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2))
         client.push_kernel(folder_path)
 
-    state = KaggleState(
-        username, kernel, attempt, dataset, commit, _now(), kernels=history + [kernel]
-    )
-    _save_state(run_dir, state)
-    return state
+    states = []
+    for p in prepared:
+        state = KaggleState(
+            username, kernel, p.attempt, p.dataset, commit, _now(), kernels=p.history + [kernel]
+        )
+        _save_state(p.run_dir, state)
+        states.append(state)
+    return states
 
 
 def _staging(workdir: Workdir) -> Path:
@@ -730,6 +804,30 @@ def pull_run(workdir: Workdir, run_id: str, client: Optional[KaggleClient] = Non
         except FileNotFoundError:
             relative = run_dir.relative_to(workdir.root)
             raise KaggleError(f"output của {state.kernel} không có {relative}") from None
+        # Notebook chạy hai run (push_runs): ghép luôn run kia từ cùng output, khỏi tải lại.
+        for other_dir, other in _runs_on_kernel(workdir, state.kernel):
+            if other_dir == run_dir or run_is_active(other_dir):
+                continue
+            try:
+                remote.merge_output(workdir, other_dir, output)
+            except FileNotFoundError:
+                continue
+            other.pulled_utc = _now()
+            _save_state(other_dir, other)
     state.pulled_utc = _now()
     _save_state(run_dir, state)
     return files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
+
+
+def _runs_on_kernel(workdir: Workdir, kernel: str) -> list[tuple[Path, KaggleState]]:
+    """Các run trên máy có lần đẩy mới nhất là notebook ``kernel``."""
+    found = []
+    for state_path in workdir.runs_dir.glob(f"*/*/*/{D2S_DIR}/{STATE_FILE}"):
+        run_dir = state_path.parents[1]
+        try:
+            state = load_state(run_dir)
+        except (OSError, ValueError, TypeError):
+            continue
+        if state is not None and state.kernel == kernel:
+            found.append((run_dir, state))
+    return found

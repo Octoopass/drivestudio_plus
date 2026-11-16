@@ -101,6 +101,16 @@ def train_kernel(
     return _fit(head, variant, tail)
 
 
+def pair_kernel(scene_id: str, run_ids: list[str], attempts: list[int]) -> str:
+    """Tên notebook chạy song song nhiều run: ``d2s-<cảnh>-pair-<4 hex mỗi run>-<lần đẩy>``.
+
+    ``<lần đẩy>`` là lần đẩy lớn nhất trong các run: mỗi lần đẩy tăng lần đẩy của mọi run trong
+    notebook, nên cùng nhóm run đẩy lại vẫn ra tên mới.
+    """
+    hexes = "-".join(run_id.rsplit("-", 1)[1] for run_id in run_ids)
+    return _fit(f"d2s-{scene_label(scene_id)}-pair", "", f"{hexes}-{max(attempts)}")
+
+
 def scene_dataset(scene_id: str, converter_version: str) -> str:
     """Tên dataset chứa cảnh upload từ máy: đổi converter thì là dataset mới.
 

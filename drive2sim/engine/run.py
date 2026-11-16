@@ -53,6 +53,7 @@ from drive2sim.core.schema import (
 )
 from drive2sim.engine.cache import (
     ARTIFACT_FILE,
+    CacheBusyError,
     CacheStore,
     input_key_for_run_stage,
     input_key_for_scene,
@@ -72,6 +73,36 @@ LOG_FILE = "log.txt"
 CANCEL_FILE = "cancel"  # có file này trong d2s/ nghĩa là người dùng yêu cầu huỷ run
 # "<pid> <tên máy>" của tiến trình đang chạy run; có file chưa chắc run còn chạy (run_is_active)
 PID_FILE = "pid"
+
+
+CACHE_WAIT_ENV = "D2S_CACHE_WAIT_S"
+"""Số giây tối đa chờ khi tiến trình khác đang ghi cùng khoá cache; không đặt thì báo lỗi ngay.
+
+Notebook Kaggle chạy hai run song song (mỗi run một GPU, CONTRACTS mục 9.2) đặt biến này: hai run
+cùng cảnh cần cùng mask, SMPL thì run sau chờ run trước ghi xong rồi dùng lại, thay vì lỗi.
+"""
+CACHE_WAIT_POLL_S = 30
+
+
+def _begin_or_wait(cache: CacheStore, key: str) -> Optional[Path]:
+    """``cache.begin(key)``; khoá đang được tiến trình khác ghi thì chờ theo ``CACHE_WAIT_ENV``.
+
+    Returns:
+        Thư mục ``.partial`` để ghi, hoặc ``None`` khi tiến trình kia đã ghi xong trong lúc chờ.
+
+    Raises:
+        CacheBusyError: Khi không được chờ, hoặc chờ quá thời gian.
+    """
+    deadline = time.monotonic() + float(os.environ.get(CACHE_WAIT_ENV, "") or 0)
+    while True:
+        try:
+            return cache.begin(key)
+        except CacheBusyError:
+            if time.monotonic() >= deadline:
+                raise
+        time.sleep(CACHE_WAIT_POLL_S)
+        if cache.lookup(key) is not None:
+            return None
 
 
 class RunActiveError(RuntimeError):
@@ -635,14 +666,21 @@ class _Runner:
                     if output_dir is None:
                         stage_record.cache_key, stage_record.cache_hit = key, False
                         self.start_stage(stage_record)
-                        partial = cache.begin(key)
-                        try:
-                            self.run_stage(stage_record, partial, inputs, input_keys)
-                        except BaseException:
-                            cache.abort(partial)
-                            raise
-                        output_dir = cache.commit(partial)
-                        ran = True
+                        partial = _begin_or_wait(cache, key)
+                        if partial is None:
+                            # Tiến trình khác vừa ghi xong đúng khoá này trong lúc chờ: dùng lại.
+                            output_dir = cache.lookup(key)
+                            assert output_dir is not None
+                            stage_record.cache_hit = True
+                            stage_record.reused_duration_s = _artifact_duration(output_dir)
+                        else:
+                            try:
+                                self.run_stage(stage_record, partial, inputs, input_keys)
+                            except BaseException:
+                                cache.abort(partial)
+                                raise
+                            output_dir = cache.commit(partial)
+                            ran = True
                     elif stage_record.cache_key != key or stage_record.status != "succeeded":
                         # Kết quả cache do tiến trình khác ghi: kể cả khi lần trước của chính
                         # stage này lỗi với cùng khoá (ví dụ CacheBusyError trong lúc tiến trình

@@ -412,3 +412,26 @@ def test_invalid_params_fail_the_run_instead_of_leaving_it_running(workdir: Work
     result = execute_run(run_dir, workdir, registry)
     assert result.status == "failed" and result.stages[1].status == "failed"
     assert files.load(run_dir / "d2s" / "run.json", RunRecord).status == "failed"
+
+
+def test_begin_or_wait_uses_result_of_other_writer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Có D2S_CACHE_WAIT_S: khoá đang bị tiến trình khác ghi thì chờ, xong thì dùng lại kết quả."""
+    from drive2sim.engine import run as run_module
+
+    store = CacheStore(tmp_path)
+    key = "nuscenes_scene-0061/init.toy@0.1.0-0123abcd"
+    partial = store.begin(key)
+    (partial / ".owner").write_text(str(os.getppid()))  # tiến trình khác còn sống
+    with pytest.raises(CacheBusyError):  # không đặt biến: lỗi ngay như trước
+        run_module._begin_or_wait(store, key)
+
+    def other_finishes(_seconds: float) -> None:
+        (partial / "artifact.json").write_text("{}")
+        store.commit(partial)
+
+    monkeypatch.setenv(run_module.CACHE_WAIT_ENV, "3600")
+    monkeypatch.setattr(run_module.time, "sleep", other_finishes)
+    assert run_module._begin_or_wait(store, key) is None
+    assert store.lookup(key) is not None

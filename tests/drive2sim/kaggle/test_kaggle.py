@@ -118,13 +118,20 @@ def make_workdir(root: Path) -> Workdir:
     return workdir
 
 
-def notebook_bundle(fake: FakeKaggle, kernel: str) -> dict:
-    """Lấy gói job nhúng trong notebook đã đẩy."""
+def notebook_bundles(fake: FakeKaggle, kernel: str) -> dict[str, dict]:
+    """Lấy các gói job (``{run_id: gói}``) nhúng trong notebook đã đẩy."""
     for cell in fake.kernels[kernel]["notebook"]["cells"]:
         text = "".join(cell["source"])
         if "json.loads(r" in text:
             return json.loads(text.split('r"""')[1].split('"""')[0])
     raise AssertionError("notebook không có gói job")
+
+
+def notebook_bundle(fake: FakeKaggle, kernel: str) -> dict:
+    """Gói job của notebook chỉ có một run."""
+    bundles = notebook_bundles(fake, kernel)
+    assert len(bundles) == 1
+    return next(iter(bundles.values()))
 
 
 def fake_kaggle_run(fake: FakeKaggle, kernel: str, status: str, prev: Optional[str]) -> Path:
@@ -185,7 +192,7 @@ def test_push_materialize_pull_and_resume(
     text = json.dumps(pushed["notebook"])
     assert "git checkout --quiet c0ffee" in text and "https://x/r.git" in text
     # mọi chỗ giữ chỗ của template đã được điền ($rc, $(nvidia-smi ...) là của bash, giữ nguyên)
-    for name in ("run_id", "commit", "repo_url", "branch", "bundle_json"):
+    for name in ("run_ids", "commit", "repo_url", "branch", "bundles_json"):
         assert f"${name}" not in text and f"${{{name}}}" not in text
     assert notebook_bundle(fake, state.kernel)["scene_ref.json"]["kaggle_dataset"] == state.dataset
     assert not (workdir.root / ".kaggle" / "upload").exists() or not any(
@@ -646,3 +653,52 @@ def test_new_account_gets_local_cache_as_dataset(
     count = len(fake.datasets)
     assert executor.cache_dataset(fake, workdir, workdir_record(workdir), "carol", {"prep.smpl"})
     assert len(fake.datasets) == count
+
+
+def test_push_two_runs_share_one_notebook_and_one_pull(
+    setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hai run một notebook (mỗi run một GPU): gói riêng, tải một lần ghép cả hai."""
+    monkeypatch.setenv("D2S_KAGGLE_SMPL_DATASET", "alice/smpl-model")
+    workdir, fake = setup
+    second = "20261112-000009-omnire-beef"
+    source = workdir.find_run(RUN_ID) / D2S_DIR / RUN_FILE
+    record = files.load(source, RunRecord).model_copy(update={"run_id": second})
+    files.dump(record, workdir.run_dir(SCENE, "omnire", second) / D2S_DIR / RUN_FILE)
+
+    with pytest.raises(KaggleError, match="NvidiaTeslaT4"):
+        executor.push_runs(workdir, [RUN_ID, second], client=fake, accelerator="NvidiaL4")
+    with pytest.raises(KaggleError, match="1 tới 2"):
+        executor.push_runs(workdir, [RUN_ID, RUN_ID], client=fake)
+    states = executor.push_runs(workdir, [RUN_ID, second], client=fake)
+    kernel = states[0].kernel
+    assert states[1].kernel == kernel and "-pair-" in kernel and kernel.endswith("-beef-1")
+    assert len(fake.kernels) == 1
+    metadata = fake.kernels[kernel]["metadata"]
+    assert metadata["dataset_sources"].count("alice/smpl-model") == 1  # không gắn trùng
+    bundles = notebook_bundles(fake, kernel)
+    assert set(bundles) == {RUN_ID, second}
+
+    # notebook chạy: hai run ghi vào cùng thư mục làm việc
+    input_root = fake.root / "input"
+    working = Workdir(fake.root / "working" / "pair")
+    for run_id, bundle in bundles.items():
+        bundle_dir = fake.root / "bundle" / run_id
+        bundle_dir.mkdir(parents=True)
+        for name, content in bundle.items():
+            (bundle_dir / name).write_text(json.dumps(content))
+        run_dir = materialize(read_bundle(bundle_dir), working, input_root)
+        done = files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
+        done.status = "succeeded"
+        files.dump(done, run_dir / D2S_DIR / RUN_FILE)
+    output = fake.root / "output" / kernel.split("/")[1]
+    shutil.copytree(working.root / "runs", output / "runs")
+
+    calls = []
+    original = fake.kernel_output
+    monkeypatch.setattr(fake, "kernel_output", lambda *a: calls.append(a) or original(*a))
+    assert executor.pull_run(workdir, RUN_ID, client=fake).status == "succeeded"
+    assert len(calls) == 1
+    other = files.load(workdir.find_run(second) / D2S_DIR / RUN_FILE, RunRecord)
+    assert other.status == "succeeded"
+    assert executor.load_state(workdir.find_run(second)).pulled_utc is not None
