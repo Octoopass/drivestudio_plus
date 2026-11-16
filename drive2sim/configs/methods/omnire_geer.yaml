@@ -1,10 +1,12 @@
 # OmniRe rendered with 3DGEER (Bosch 3DGEER patch). CamPose removed: 3DGEER cannot optimise camera poses.
-# densify_grad_thresh / refine_interval are Bosch's values for the GEER densification statistic.
+# densify_grad_thresh is Bosch's value for the GEER densification statistic. refine_interval: Bosch uses
+# 300; 50 measured better on nuScenes scene-0061 front3 30k (run a8a9 vs 6b85: PSNR 21.77 vs 21.66, SSIM
+# 0.752 vs 0.744, LPIPS 0.300 vs 0.317) at +6% train time, +0.7 GB VRAM, +23% Gaussians; one run each.
 # Kế thừa omnire_nocampose.yaml bằng extends (CONTRACTS mục 10.5).
 extends: omnire_nocampose.yaml
 trainer:
   render:
     render_mode: geer # one of default | ut | geer
   gaussian_ctrl_general_cfg:
-    refine_interval: 300          # refine gaussians every n steps
+    refine_interval: 50           # refine gaussians every n steps (Bosch: 300)
     densify_grad_thresh: 0.01     # threshold for the GEER densification statistic
