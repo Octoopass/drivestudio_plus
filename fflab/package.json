@@ -19,7 +19,7 @@
     "README.md"
   ],
   "scripts": {
-    "test": "node --test test/unit.test.js test/integration.test.js",
+    "test": "node --test test/unit.test.js test/nurec.test.js test/integration.test.js",
     "sync-python": "node scripts/sync-python.js",
     "prepack": "node scripts/sync-python.js"
   }

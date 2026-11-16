@@ -52,10 +52,28 @@ class ReconstructionJob(BaseModel):
     checkpoint: str
     ncore_path: str
     model: Literal["pa-front", "pa-multiview", "pq-front"] = "pa-front"
-    max_chunks: int = Field(default=1, ge=1, le=2)
+    max_chunks: int = Field(default=1, ge=1, le=8)
     n_gaussians: int = Field(default=200000, ge=100000, le=2000000)
     render_preview: bool = False
     include_dynamic: bool = False
+    camera_ids: list[str] = Field(default_factory=list, max_length=5)
+    gpu: int | None = Field(default=None, ge=0, le=63)
+
+class ConvertJob(BaseModel):
+    dataset: str = Field(min_length=1, max_length=512)
+    sequence: str = "2013_05_28_drive_0003_sync"
+    start: int = Field(default=0, ge=0)
+    frames: int = Field(default=40, ge=2, le=2000)
+    cameras: list[str] = Field(default_factory=lambda: ["image_00", "image_01", "image_02", "image_03"], max_length=4)
+    lidar: bool = True
+    name: str = ""
+    fisheye_model: Literal["rectify120", "ftheta", "opencv"] = "rectify120"
+
+class EvaluateJob(BaseModel):
+    ply: str = Field(min_length=1, max_length=512)
+    clip: str = Field(min_length=1, max_length=512)
+    every: int = Field(default=4, ge=1, le=100)
+    gpu: int | None = Field(default=None, ge=0, le=63)
 
 class TrainingInput(BaseModel):
     dataset: str = Field(min_length=1, max_length=512)
@@ -90,14 +108,17 @@ def project(job):
 
 
 def create_app():
+    from .pipeline import PipelineManager
     from .reconstruction import ReconstructionManager
     from .training import TrainingManager
     reconstruction = ReconstructionManager(WORKSPACE)
     training = TrainingManager(WORKSPACE)
+    pipeline = PipelineManager(WORKSPACE)
 
     @asynccontextmanager
     async def lifespan(app):
         yield
+        pipeline.shutdown()
         training.shutdown()
         reconstruction.shutdown()
 
@@ -275,6 +296,37 @@ def create_app():
         path = reconstruction.artifact(job_id, relative)
         return FileResponse(path)
 
+    @app.get("/api/setup")
+    def setup():
+        return pipeline.discovery.report()
+
+    @app.get("/api/outputs/{relative:path}")
+    def output_file(relative: str):
+        return FileResponse(pipeline.discovery.output_file(relative))
+
+    @app.post("/api/pipeline/convert")
+    def pipeline_convert(job: ConvertJob):
+        cfg = job.model_dump()
+        if not cfg["name"]:
+            cfg.pop("name")
+        return pipeline.convert(cfg)
+
+    @app.post("/api/pipeline/evaluate")
+    def pipeline_evaluate(job: EvaluateJob):
+        return pipeline.evaluate(job.model_dump())
+
+    @app.get("/api/pipeline/{job_id}")
+    def pipeline_status(job_id: str):
+        return pipeline.status(job_id)
+
+    @app.post("/api/pipeline/{job_id}/cancel")
+    def pipeline_cancel(job_id: str):
+        return pipeline.cancel(job_id)
+
+    @app.get("/api/pipeline/{job_id}/artifacts/{relative:path}")
+    def pipeline_artifact(job_id: str, relative: str):
+        return FileResponse(pipeline.artifact(job_id, relative))
+
     @app.get("/api/notebooks/instant-nurec/{platform}")
     def nurec_notebook(platform: Literal["colab", "kaggle"]):
         from .nurec_notebook import make_nurec_notebook
@@ -286,6 +338,10 @@ def create_app():
     @app.get("/")
     def index():
         return FileResponse(STATIC / "index.html")
+
+    @app.get("/legacy")
+    def legacy():
+        return FileResponse(STATIC / "legacy.html")
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     return app

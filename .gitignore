@@ -32,3 +32,8 @@ outputs/*
 # Local machine/editor files
 .vscode/
 .idea/
+
+# Local datasets, external backends and their outputs
+kitti360/
+backends/
+fflab-runs/

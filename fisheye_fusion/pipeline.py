@@ -1,0 +1,373 @@
+"""KITTI-360 -> NCore -> Instant NuRec -> evaluation: environment discovery and background jobs.
+
+The heavy lifting runs in subprocesses with the interpreter that has the right packages:
+- conversion / projection check / view export: the Instant NuRec venv (it ships `nvidia-ncore`);
+- PLY rendering for evaluation: the fflab venv (gsplat 1.5.3, `fflab setup`).
+All paths given by clients are relative to the workspace, like the reconstruction runner.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import threading
+import uuid
+from pathlib import Path
+
+from .reconstruction import _stop, _tail
+
+TOOLS = Path(__file__).resolve().parent.parent / "tools"
+KITTI_CAMERAS = {
+    "image_00": "camera_front_left_00",
+    "image_01": "camera_front_right_01",
+    "image_02": "camera_fisheye_left_02",
+    "image_03": "camera_fisheye_right_03",
+}
+SEQUENCE = re.compile(r"2013_05_28_drive_\d{4}_sync")
+MODEL_FILES = {"pa-front": "pa_front", "pa-multiview": "pa_multiview", "pq-front": "pq_road"}
+ARTIFACTS = {".png", ".json", ".ply"}
+# rectify120: what Instant NuRec takes; ftheta / opencv keep the full fisheye (3DGUT, gsplat)
+FISHEYE_MODELS = ("rectify120", "ftheta", "opencv")
+
+
+# ------------------------------------------------------------------ discovery
+def _gpus() -> list[dict]:
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,name,memory.used,memory.total,utilization.gpu",
+             "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    gpus = []
+    for line in out.stdout.strip().splitlines() if out.returncode == 0 else []:
+        i, name, used, total, util = [x.strip() for x in line.split(",")]
+        gpus.append({"index": int(i), "name": name, "memory_used_mib": int(used),
+                     "memory_total_mib": int(total), "utilization": int(util)})
+    return gpus
+
+
+def _cuda_home() -> str | None:
+    if os.environ.get("CUDA_HOME"):
+        return os.environ["CUDA_HOME"]
+    candidates = sorted(Path("/usr/local").glob("cuda*/bin/nvcc"), reverse=True)
+    return str(candidates[0].parent.parent) if candidates else None
+
+
+class Discovery:
+    def __init__(self, workspace: Path):
+        self.workspace = Path(workspace).resolve()
+
+    def rel(self, path: Path) -> str:
+        # abspath, not resolve: a venv's python is a symlink to an interpreter outside the workspace
+        return Path(os.path.abspath(path)).relative_to(self.workspace).as_posix()
+
+    @property
+    def nurec_repo(self) -> Path:
+        return self.workspace / "backends" / "instant-nurec"
+
+    @property
+    def nurec_python(self) -> Path:
+        return self.nurec_repo / ".venv" / "bin" / "python"
+
+    @property
+    def gsplat_python(self) -> Path | None:
+        venv = os.environ.get("FFLAB_VENV") or str(Path.home() / ".fflab" / "venv")
+        python = Path(venv) / "bin" / "python"
+        return python if python.is_file() else None
+
+    def checkpoints(self) -> dict[str, str]:
+        found = {}
+        for model, stem in MODEL_FILES.items():
+            hits = sorted((self.nurec_repo / "checkpoints" / "pth").glob(f"instant_nurec_{stem}_*.pth"))
+            if hits:
+                found[model] = self.rel(hits[-1])
+        return found
+
+    def datasets(self) -> list[dict]:
+        """KITTI-360 archive roots (folders with data_poses.zip) up to two levels below the workspace."""
+        roots = []
+        for poses in sorted(self.workspace.glob("data_poses.zip")) + sorted(self.workspace.glob("*/data_poses.zip")) \
+                + sorted(self.workspace.glob("*/*/data_poses.zip")):
+            root = poses.parent
+            if "backends" in root.relative_to(self.workspace).parts:
+                continue
+            sequences = {}
+            for tar in sorted((root / "data_2d_raw").glob("*_image_0[0-3].tar")):
+                seq, cam = tar.name[: -len("_image_00.tar")], tar.name[-len("image_00.tar"):-4]
+                if SEQUENCE.fullmatch(seq):
+                    sequences.setdefault(seq, {"cameras": [], "lidar": (root / "data_3d_raw" / f"{seq}.tar").is_file()})
+                    sequences[seq]["cameras"].append(cam)
+            has_meta = all((root / f"ImageSets-rosa-6class/kitti360_rosa_infos_{s}.pkl").is_file() for s in ("train", "val"))
+            roots.append({"path": self.rel(root), "sequences": sequences, "calibration_pickles": has_meta})
+        return roots
+
+    def clips(self) -> list[dict]:
+        clips = []
+        for path in sorted((self.workspace / "outputs" / "ncore").glob("*/*.json")):
+            try:
+                meta = json.loads(path.read_text())
+            except (OSError, ValueError):
+                continue
+            if meta.get("version") != "v4":
+                continue
+            cams = [c for s in meta.get("component_stores", []) for c in s.get("components", {}).get("cameras", {})]
+            gm = meta.get("generic_meta_data", {})
+            clips.append({"path": self.rel(path), "sequence_id": meta.get("sequence_id"), "cameras": cams,
+                          "frames": len(gm.get("frame_ids", [])), "source": gm.get("source_sequence", "")})
+        return clips
+
+    def reconstructions(self) -> list[dict]:
+        out = []
+        root = self.workspace / "outputs" / "reconstruction"
+        for ply in sorted(root.glob("*/*/ply/*/*.ply"), key=lambda p: p.stat().st_mtime, reverse=True):
+            out.append({"path": self.rel(ply), "job_id": ply.relative_to(root).parts[0],
+                        "size_mib": round(ply.stat().st_size / 2**20, 1)})
+        return out
+
+    def evaluations(self) -> list[dict]:
+        out = []
+        for metrics in sorted((self.workspace / "outputs" / "eval").glob("*/metrics.json"),
+                              key=lambda p: p.stat().st_mtime, reverse=True):
+            try:
+                scores = json.loads(metrics.read_text())
+                info = json.loads((metrics.parent / "job.json").read_text()) if (metrics.parent / "job.json").is_file() else {}
+            except (OSError, ValueError):
+                continue
+            out.append({"path": self.rel(metrics.parent), "metrics": scores, **info,
+                        "images": sorted(p.name for p in metrics.parent.glob("*.png"))})
+        return out
+
+    def output_file(self, relative: str) -> Path:
+        """A .png/.json/.ply under outputs/, for showing or downloading earlier results (read-only)."""
+        if (not isinstance(relative, str) or "\\" in relative or ":" in relative
+                or Path(relative).is_absolute() or ".." in Path(relative).parts):
+            raise ValueError("invalid output path")
+        root = (self.workspace / "outputs").resolve()
+        path = (root / relative).resolve()
+        if not path.is_relative_to(root) or path.suffix.lower() not in {".png", ".json", ".ply"} or not path.is_file():
+            raise ValueError("unknown output file")
+        return path
+
+    def report(self) -> dict:
+        nurec_ok = (self.nurec_repo / "run_inference.py").is_file() and self.nurec_python.is_file()
+        return {
+            "workspace": str(self.workspace),
+            "nurec": {"ok": nurec_ok, "repo": self.rel(self.nurec_repo) if self.nurec_repo.exists() else None,
+                      "python": self.rel(self.nurec_python) if self.nurec_python.is_file() else None,
+                      "checkpoints": self.checkpoints() if nurec_ok else {}},
+            "gsplat": {"ok": self.gsplat_python is not None, "cuda_home": _cuda_home()},
+            "gpus": _gpus(),
+            "datasets": self.datasets(),
+            "clips": self.clips(),
+            "reconstructions": self.reconstructions(),
+            "evaluations": self.evaluations(),
+            "cameras": KITTI_CAMERAS,
+        }
+
+
+# ------------------------------------------------------------------ jobs
+class PipelineManager:
+    """Runs conversion and evaluation jobs; one job of each kind at a time."""
+
+    def __init__(self, workspace: Path):
+        self.discovery = Discovery(workspace)
+        self.workspace = self.discovery.workspace
+        self._lock = threading.RLock()
+        self._jobs: dict[str, dict] = {}
+        self._closed = False
+
+    # ---- validation helpers
+    def _path(self, value, *, directory=False, suffix=None) -> Path:
+        if (not isinstance(value, str) or not value or "\\" in value or ":" in value
+                or Path(value).is_absolute() or ".." in Path(value).parts):
+            raise ValueError("paths must be relative workspace paths using forward slashes")
+        path = (self.workspace / value).resolve(strict=True)
+        if not path.is_relative_to(self.workspace):
+            raise ValueError("path escapes workspace")
+        if not (path.is_dir() if directory else path.is_file()):
+            raise ValueError(f"incorrect path type: {value}")
+        if suffix and path.suffix.lower() != suffix:
+            raise ValueError(f"path must end in {suffix}")
+        return path
+
+    def _env(self, gpu, extra_path=()):
+        env = {k: v for k, v in os.environ.items() if not k.upper().startswith("PYTHON")}
+        env.update(PYTHONUNBUFFERED="1", PYTHONDONTWRITEBYTECODE="1")
+        if gpu is not None:
+            if type(gpu) is not int or gpu < 0 or gpu not in {g["index"] for g in _gpus()}:
+                raise ValueError("unknown GPU index")
+            env["CUDA_VISIBLE_DEVICES"] = str(gpu)
+        if extra_path:
+            env["PATH"] = os.pathsep.join([*map(str, extra_path), env.get("PATH", "")])
+        return env
+
+    def _new_output(self, kind, name):
+        root = self.workspace / "outputs" / kind
+        root.mkdir(parents=True, exist_ok=True)
+        path = root / name
+        if path.exists():
+            raise ValueError(f"output already exists: outputs/{kind}/{name}")
+        path.mkdir()
+        return path
+
+    # ---- job types
+    def convert(self, cfg: dict) -> dict:
+        allowed = {"dataset", "sequence", "start", "frames", "cameras", "lidar", "name", "fisheye_model"}
+        if not isinstance(cfg, dict) or set(cfg) - allowed:
+            raise ValueError("unknown convert fields")
+        if not self.discovery.nurec_python.is_file():
+            raise ValueError("Instant NuRec venv not found at backends/instant-nurec/.venv (it provides nvidia-ncore)")
+        data = self._path(cfg.get("dataset", ""), directory=True)
+        seq = cfg.get("sequence", "")
+        if not SEQUENCE.fullmatch(str(seq)):
+            raise ValueError("sequence must look like 2013_05_28_drive_0003_sync")
+        start, frames = cfg.get("start", 0), cfg.get("frames", 40)
+        if type(start) is not int or start < 0 or type(frames) is not int or not 2 <= frames <= 2000:
+            raise ValueError("start must be >= 0 and frames in 2..2000")
+        cams = cfg.get("cameras") or list(KITTI_CAMERAS)
+        if not isinstance(cams, list) or not cams or set(cams) - set(KITTI_CAMERAS):
+            raise ValueError(f"cameras must be a subset of {list(KITTI_CAMERAS)}")
+        fisheye_model = cfg.get("fisheye_model", "rectify120")
+        if fisheye_model not in FISHEYE_MODELS:
+            raise ValueError(f"fisheye_model must be one of {FISHEYE_MODELS}")
+        lidar = cfg.get("lidar", True)
+        if type(lidar) is not bool:
+            raise ValueError("lidar must be boolean")
+        default = f"kitti360_{seq.split('_drive_')[1][:4]}_{start:06d}_{frames}f"
+        name = cfg.get("name") or default
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", name):
+            raise ValueError("name: letters, digits, _ . - only")
+        out = self._new_output("ncore", name)
+        py = str(self.discovery.nurec_python)
+        argv = [py, "-u", str(TOOLS / "kitti360_to_ncore.py"), "--data", str(data), "--out", str(out),
+                "--sequence", seq, "--start", str(start), "--frames", str(frames), "--cameras", ",".join(cams),
+                "--sequence-id", name, "--fisheye-model", fisheye_model]
+        if not lidar:
+            argv.append("--no-lidar")
+        steps = [("convert", argv)]
+        if lidar:
+            steps.append(("projection check", [py, "-u", str(TOOLS / "ncore_projection_check.py"),
+                                               str(out / f"{name}.json"), "--out", str(out / "check"), "--frame", "0"]))
+        return self._start("convert", out, steps, self._env(None),
+                           {"clip": self.discovery.rel(out / f"{name}.json"), "fisheye_model": fisheye_model})
+
+    def evaluate(self, cfg: dict) -> dict:
+        allowed = {"ply", "clip", "every", "gpu"}
+        if not isinstance(cfg, dict) or set(cfg) - allowed:
+            raise ValueError("unknown evaluate fields")
+        ply = self._path(cfg.get("ply", ""), suffix=".ply")
+        clip = self._path(cfg.get("clip", ""), suffix=".json")
+        every = cfg.get("every", 4)
+        if type(every) is not int or not 1 <= every <= 100:
+            raise ValueError("every must be in 1..100")
+        gsplat = self.discovery.gsplat_python
+        if gsplat is None:
+            raise ValueError("gsplat venv not found; run `fflab setup` (or set FFLAB_VENV)")
+        out = self._new_output("eval", uuid.uuid4().hex[:12])
+        (out / "job.json").write_text(json.dumps({"ply": self.discovery.rel(ply), "clip": self.discovery.rel(clip)}))
+        cuda = _cuda_home()
+        env = self._env(cfg.get("gpu"), [gsplat.parent] + ([Path(cuda) / "bin"] if cuda else []))
+        if cuda:
+            env.setdefault("CUDA_HOME", cuda)
+        steps = [
+            ("export views", [str(self.discovery.nurec_python), "-u", str(TOOLS / "ncore_eval_export.py"),
+                              str(clip), "--out", str(out / "views.npz"), "--every", str(every)]),
+            ("render + PSNR", [str(gsplat), "-u", str(TOOLS / "ncore_eval_render.py"), str(ply),
+                               str(out / "views.npz"), "--out", str(out)]),
+        ]
+        return self._start("evaluate", out, steps, env, {"ply": self.discovery.rel(ply), "clip": self.discovery.rel(clip)})
+
+    # ---- runner
+    def _start(self, kind, out, steps, env, info):
+        with self._lock:
+            if self._closed:
+                raise ValueError("pipeline manager is shut down")
+            if any(j["kind"] == kind and j["state"] == "running" for j in self._jobs.values()):
+                shutil.rmtree(out, ignore_errors=True)
+                raise ValueError(f"a {kind} job is already running")
+            job_id = uuid.uuid4().hex
+            job = {"job_id": job_id, "kind": kind, "state": "running", "step": None, "error": None,
+                   "tail": bytearray(), "process": None, "output": out, "info": info, "cancel": False}
+            self._jobs[job_id] = job
+            job["thread"] = threading.Thread(target=self._run, args=(job, steps, env), daemon=True)
+            job["thread"].start()
+            return self.status(job_id)
+
+    def _run(self, job, steps, env):
+        try:
+            for label, argv in steps:
+                with self._lock:
+                    if job["cancel"]:
+                        break
+                    job["step"] = label
+                    job["tail"].extend(f"\n=== {label} ===\n".encode())
+                    job["process"] = subprocess.Popen(
+                        argv, cwd=str(self.workspace), env=env, shell=False, stdin=subprocess.DEVNULL,
+                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                _tail(job["process"].stdout, job["tail"])
+                code = job["process"].wait()
+                if code:
+                    raise RuntimeError(f"{label} exited {code}")
+            with self._lock:
+                job["state"] = "cancelled" if job["cancel"] else "succeeded"
+        except Exception as error:  # noqa: BLE001 - reported to the client
+            with self._lock:
+                job["state"] = "cancelled" if job["cancel"] else "failed"
+                job["error"] = str(error)
+
+    def _job(self, job_id):
+        if not isinstance(job_id, str) or not re.fullmatch(r"[0-9a-f]{32}", job_id) or job_id not in self._jobs:
+            raise ValueError("unknown pipeline job")
+        return self._jobs[job_id]
+
+    def _artifacts(self, job):
+        out = job["output"]
+        if not out.is_dir():
+            return []
+        return sorted(p.relative_to(out).as_posix() for p in out.rglob("*")
+                      if p.is_file() and not p.is_symlink() and p.suffix.lower() in ARTIFACTS and p.stat().st_size)
+
+    def status(self, job_id) -> dict:
+        with self._lock:
+            job = self._job(job_id)
+            result = {k: job[k] for k in ("job_id", "kind", "state", "step", "error", "info")}
+            result["log"] = bytes(job["tail"]).decode("utf-8", errors="replace")
+            result["output"] = self.discovery.rel(job["output"])
+            result["artifacts"] = self._artifacts(job)
+            metrics = job["output"] / "metrics.json"
+            if job["kind"] == "evaluate" and metrics.is_file():
+                result["metrics"] = json.loads(metrics.read_text())
+            return result
+
+    def cancel(self, job_id) -> dict:
+        with self._lock:
+            job = self._job(job_id)
+            job["cancel"] = True
+            process = job["process"]
+        if process is not None:
+            _stop(process)
+        return self.status(job_id)
+
+    def artifact(self, job_id, relative) -> Path:
+        with self._lock:
+            job = self._job(job_id)
+            if relative not in self._artifacts(job):
+                raise ValueError("unknown pipeline artifact")
+            path = (job["output"] / relative).resolve()
+            if not path.is_relative_to(job["output"].resolve()):
+                raise ValueError("artifact escapes output")
+            return path
+
+    def shutdown(self):
+        with self._lock:
+            self._closed = True
+            jobs = list(self._jobs.values())
+            for job in jobs:
+                job["cancel"] = True
+        for job in jobs:
+            if job["process"] is not None:
+                _stop(job["process"])
+            if "thread" in job:
+                job["thread"].join(timeout=5)
