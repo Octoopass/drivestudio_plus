@@ -15,7 +15,8 @@ File phát hành là pickle tải từ Internet: đọc bằng ``drive2sim/core/
 dict và tensor), rồi ghi lại bằng ``joblib`` như ``prep.smpl``; trainer chỉ nạp file do tool ghi.
 
 Cảnh không có trong bản phát hành thì ``unavailable_reason`` báo lý do: engine khoá lựa chọn này và
-mục cấu hình ``smpl: auto`` của approach chọn ``prep.smpl``.
+mục cấu hình ``smpl: auto`` của approach chọn ``prep.smpl``. Đoạn khung của split không có người
+(``drive2sim/core/instances.py``) thì cũng khoá, như ``prep.smpl``: ``smpl: auto`` chọn ``none``.
 
 File này chứa ``SmplRelease``, ``RELEASES``, ``release_member``, ``PrepSmplReleaseStage``.
 """
@@ -29,8 +30,9 @@ from typing import ClassVar, Optional
 
 from pydantic import BaseModel
 
+from drive2sim.core.instances import no_humans_reason
 from drive2sim.core.safe_pickle import load_tensor_pickle
-from drive2sim.core.schema import Manifest
+from drive2sim.core.schema import Manifest, Split
 from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import NoParams, Stage, StageContext
 from drive2sim.stages.commands import LOG_FILE
@@ -137,14 +139,16 @@ class PrepSmplReleaseStage(Stage):
     Params: ClassVar[type[BaseModel]] = NoParams
 
     @classmethod
-    def unavailable_reason(cls, manifest: Manifest) -> Optional[str]:
-        """Cảnh không có trong bản phát hành SMPL của DriveStudio thì không dùng được."""
+    def unavailable_reason(
+        cls, manifest: Manifest, split: Optional[Split] = None
+    ) -> Optional[str]:
+        """Không dùng được khi cảnh không có trong bản phát hành, hoặc split không có người."""
         if release_member(manifest) is None:
             return (
                 f"DriveStudio không phát hành SMPL cho cảnh {manifest.scene_id}; "
                 "dùng prep.smpl để tự tính"
             )
-        return None
+        return no_humans_reason(manifest, split)
 
     def run(
         self, ctx: StageContext, inputs: dict[str, Path], params: BaseModel

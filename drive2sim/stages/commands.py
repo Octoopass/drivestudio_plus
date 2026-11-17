@@ -4,23 +4,47 @@ Các stage bọc script DriveStudio (``train.drivestudio``, ``export.ply_world``
 trong một tiến trình con, để engine không phải nạp PyTorch và lỗi CUDA không làm hỏng engine.
 File này chứa ``run_logged``, hàm chung cho việc đó: chạy lệnh, nối stdout và stderr vào
 ``log.txt`` của stage, dừng lệnh khi người dùng huỷ run, và báo lỗi kèm phần cuối log khi lệnh
-thất bại.
+thất bại. Lệnh lỗi vì thiếu gói Python (``ModuleNotFoundError``, ``ImportError``) thì báo bằng
+câu hướng dẫn cài môi trường (``MissingModuleError``) thay vì traceback.
 """
 
 import os
+import re
 import shutil
 import signal
 import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Optional
 
+from drive2sim.engine.environment import MissingModuleError, missing_module_message
 from drive2sim.engine.stage import StageCancelledError
 
 LOG_FILE = "log.txt"
 TAIL_LINES = 20
 POLL_S = 1.0  # khoảng giữa hai lần kiểm tra yêu cầu huỷ
 TERMINATE_GRACE_S = 10.0  # chờ tiến trình con tự dừng sau SIGTERM trước khi SIGKILL
+# Dòng cuối của traceback Python khi nạp gói lỗi, ví dụ "ModuleNotFoundError: No module named 'x'".
+_IMPORT_ERROR_RE = re.compile(r"^((?:ModuleNotFoundError|ImportError): .+)$")
+
+
+def find_import_error(output: str) -> Optional[str]:
+    """Tìm lỗi nạp gói Python trong phần cuối đầu ra của một lệnh.
+
+    Chỉ xét ``TAIL_LINES`` dòng cuối và lấy dòng lỗi cuối cùng khớp, vì dòng cuối của traceback là
+    lỗi làm lệnh dừng; thông báo ``ImportError`` in sớm hơn rồi được bỏ qua thì không tính.
+
+    Args:
+        output: Đầu ra của lệnh (stdout và stderr gộp).
+
+    Returns:
+        Dòng lỗi, ví dụ ``"ModuleNotFoundError: No module named 'numpy'"``; ``None`` nếu không
+        có.
+    """
+    lines = output.strip().splitlines()
+    match = _IMPORT_ERROR_RE.match(lines[-1].strip()) if lines else None
+    return match.group(1) if match else None
 
 
 def _stop_group(process: "subprocess.Popen[bytes]") -> None:
@@ -62,13 +86,16 @@ def run_logged(
 
     Raises:
         StageCancelledError: Nếu bị huỷ giữa chừng.
-        RuntimeError: Nếu lệnh thoát với mã khác 0; thông báo kèm 20 dòng cuối của log, để
-            người dùng thấy nguyên nhân mà không phải mở file.
+        MissingModuleError: Nếu lệnh thoát với mã khác 0 và lỗi cuối của nó là thiếu gói Python;
+            thông báo nói cách cài môi trường chính hoặc chạy trên Kaggle, Colab.
+        RuntimeError: Nếu lệnh thoát với mã khác 0 vì lý do khác; thông báo kèm 20 dòng cuối của
+            log, để người dùng thấy nguyên nhân mà không phải mở file.
     """
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a", encoding="utf-8") as log_file:
         log_file.write("$ " + " ".join(command) + "\n")
         log_file.flush()
+        start = log_file.tell()  # chỉ xét đầu ra của lần chạy này, không phải các lần trước
         process = subprocess.Popen(
             command,
             stdout=log_file,
@@ -90,8 +117,14 @@ def run_logged(
                 _stop_group(process)  # Ctrl-C hoặc lỗi khác: không để lại tiến trình con
                 raise
     if returncode != 0:
-        lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines(True)
-        tail = "".join(lines[-TAIL_LINES:])
+        with log_path.open("rb") as log_bytes:
+            log_bytes.seek(start)
+            output = log_bytes.read().decode("utf-8", errors="replace")
+        detail = find_import_error(output)
+        if detail is not None:
+            python = command[0] if command else sys.executable
+            raise MissingModuleError(missing_module_message(detail, python, str(log_path)), detail)
+        tail = "".join(output.splitlines(True)[-TAIL_LINES:])
         raise RuntimeError(f"lệnh thoát với mã {returncode}; cuối {log_path.name}:\n{tail}")
 
 

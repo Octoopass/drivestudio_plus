@@ -13,6 +13,11 @@ File này chứa ``build_command``, ``link_smpl_model`` và ``PrepSmplStage``.
 
 Cần GPU, gói ``hmr2`` (``third_party/Humans4D``) và ``phalp`` (``envs/install_main.sh`` bước 8),
 file ``SMPL_NEUTRAL.pkl`` (``drive2sim.paths.find_smpl_model``) và cảnh có box 3D.
+
+Đoạn khung của split không có box người (``available.human_frames`` của manifest,
+``drive2sim/core/instances.py``) thì ``unavailable_reason`` khoá stage: kết quả sẽ không được
+dùng vì trainer chỉ nạp các khung của split. Mục cấu hình ``smpl: auto`` của OmniRe khi đó chọn
+``none`` và train không có node người SMPL.
 """
 
 import json
@@ -20,10 +25,12 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, Optional
 
 from pydantic import BaseModel
 
+from drive2sim.core.instances import no_humans_reason
+from drive2sim.core.schema import Manifest, Split
 from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import NoParams, Stage, StageContext
 from drive2sim.paths import find_smpl_model
@@ -127,6 +134,13 @@ class PrepSmplStage(Stage):
     inputs: ClassVar[dict[str, str]] = {"scene": "scene"}
     outputs: ClassVar[dict[str, str]] = {"smpl": "smpl"}
     Params: ClassVar[type[BaseModel]] = NoParams
+
+    @classmethod
+    def unavailable_reason(
+        cls, manifest: Manifest, split: Optional[Split] = None
+    ) -> Optional[str]:
+        """Khoá khi biết chắc đoạn khung của split không có người (``no_humans_reason``)."""
+        return no_humans_reason(manifest, split)
 
     def run(
         self, ctx: StageContext, inputs: dict[str, Path], params: BaseModel
