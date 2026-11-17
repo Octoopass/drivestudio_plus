@@ -141,6 +141,45 @@ của `f8a6` ra PSNR 25,0063, khớp `summary.json` gốc. Cột "cuối" lấy 
 - Sau khi đo, các `checkpoint_15000.pth` trên máy đã xoá (17/11/2026) để giải phóng ổ đĩa;
   output notebook Kaggle của các run vẫn còn.
 
+### Vì sao PSNR dừng ở khoảng 25 dù train đủ 30.000 bước
+
+Giới hạn không nằm ở số bước train: model không khớp được ngay cả ảnh đã dùng để train.
+
+| Run | PSNR test (ảnh giữ lại) | PSNR toàn bộ ảnh, gồm ảnh train | PSNR train trong log, các mốc cuối |
+|---|---:|---:|---|
+| `f8a6` (FastGS) | 25,0 | 26,0 | khoảng 25,7–26,7 |
+| `2d33` (không FastGS) | 25,2 | 26,6 | khoảng 26,5–27,3 |
+| `60e5` (3DGUT, FastGS) | 24,0 | 24,8 | khoảng 24,0–26,0 |
+
+PSNR toàn bộ ảnh lấy từ `metrics/images_full_*.json`; PSNR train trong log tính trên từng
+ảnh train lúc train nên dao động. Nghĩa là:
+
+- Không phải overfit: ảnh test chỉ kém toàn bộ ảnh khoảng 1 dB.
+- Không phải thiếu bước: PSNR train đi ngang từ khoảng bước 21.000–24.000.
+- Model chỉ khớp được dữ liệu tới khoảng 26–27 dB. Muốn vượt 30 dB phải nâng mức trần này,
+  không phải train lâu hơn.
+
+Nguyên nhân có thể có (giả thuyết, chưa đo riêng từng cái):
+
+1. Pose và calib camera của nuScenes có sai số, mà các run trên đều tắt CamPose (tự chỉnh
+   pose camera khi train; config của `f8a6` không có node CamPose). Cùng một điểm 3D chiếu
+   lên các ảnh bị lệch vài pixel nên model không khớp hết. Đây là nghi vấn lớn nhất.
+2. Chính ảnh nuScenes: ba camera chênh độ sáng, có rung, rolling shutter, nén JPEG. Module
+   `Affine` bù màu theo từng ảnh **có bật** (`AffineTransform`, learning rate 1e-5,
+   `pixel_affine: false`), nhưng chỉ chỉnh màu cả ảnh, không bù được rung, rolling shutter
+   hay nén.
+3. Vật thể động khó dựng: PSNR vùng người 24,1, vùng xe 24,7 (`f8a6`), thấp hơn mức chung
+   25,0 nhưng không chênh nhiều.
+4. Ít góc nhìn: 3 camera phía trước, xe đi thẳng, mỗi điểm chỉ được nhìn từ vài hướng gần
+   giống nhau.
+
+Cách kiểm tra:
+
+- Một run giống `f8a6` nhưng bật `campose=true` (preset `paper`). PSNR tăng rõ thì giả
+  thuyết 1 đúng.
+- Xem ảnh sai khác (`render.vis_error`, `rgb_error_maps`) để biết lỗi tập trung ở bầu trời,
+  mép vật hay rải đều.
+
 ## Fisheye (pinhole + mắt cá)
 
 ### Kế hoạch hiện tại: 6 run, mỗi run 30.000 bước
