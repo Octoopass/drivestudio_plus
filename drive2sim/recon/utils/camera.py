@@ -1,4 +1,5 @@
 # Camera pose manipulation and trajectory generation.
+import logging
 import os
 import torch
 import numpy as np
@@ -6,6 +7,8 @@ from typing import Dict
 
 from scipy.spatial.transform import Slerp
 from scipy.spatial.transform import Rotation as R
+
+logger = logging.getLogger(__name__)
 
 def interpolate_poses(key_poses: torch.Tensor, target_frames: int) -> torch.Tensor:
     """
@@ -78,9 +81,17 @@ def get_interp_novel_trajectories(
 def front_center_interp(
     dataset_type: str, per_cam_poses: Dict[int, torch.Tensor], original_frames: int, target_frames: int, num_loops: int = 1
 ) -> torch.Tensor:
-    """Interpolate key frames from the front center camera."""
-    assert 0 in per_cam_poses.keys(), "Front center camera (ID 0) is required for front_center_interp"
-    key_poses = per_cam_poses[0][::original_frames//4]  # Select every 4th frame as key frame
+    """Interpolate key frames from the front center camera.
+
+    Splits without camera 0 (e.g. KITTI-360 fisheye-only) fall back to the
+    lowest camera id instead of failing the whole run after training.
+    """
+    cam_id = 0 if 0 in per_cam_poses else min(per_cam_poses)
+    if cam_id != 0:
+        logger.warning(
+            f"front_center_interp: camera 0 not in split, using camera {cam_id}"
+        )
+    key_poses = per_cam_poses[cam_id][::original_frames//4]  # Select every 4th frame as key frame
     return interpolate_poses(key_poses, target_frames)
 
 def s_curve(
