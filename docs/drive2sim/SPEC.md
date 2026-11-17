@@ -168,6 +168,8 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 - Cùng split, cùng độ phân giải, đo trên ảnh 8 bit.
 - PSNR, SSIM, LPIPS; ghi rõ backbone và phiên bản của LPIPS. Đo một lần sau khi train xong, trên mọi ảnh của tập test, rồi lấy trung bình.
 - Chỉ số gộp Avg của Mip-NeRF: trung bình nhân của `10^(−PSNR/10)`, `√(1 − SSIM)` và LPIPS (thấp là tốt), dùng để xếp hạng mặc định; không dùng tổng có trọng số tự đặt hay chuẩn hoá theo nhóm run đang so.
+- Điểm ảnh không hợp lệ (ngoài vùng nhìn dùng được của camera mắt cá, thân xe) không được tính vào cả PSNR, SSIM và LPIPS, để camera mắt cá và pinhole được đo như nhau (CONTRACTS mục 6.3).
+- Metric theo từng camera, ngoài trung bình chung, để so các nhóm camera trong cùng một run.
 - PSNR trong vùng vật động, vùng người, vùng xe khi cảnh có box.
 - Hai loại thời gian: **thời gian train thực** (chỉ các bước train, cộng qua các lần chạy tiếp, không tính lúc dừng hay nạp lại checkpoint) và **tổng thời gian dựng cảnh** (từ stage chuẩn bị dữ liệu đầu tiên tới khi xuất xong file PLY; stage dùng lại kết quả có sẵn tính thời gian của lần chạy gốc).
 - Số iteration, VRAM cao nhất khi train, tốc độ render (FPS) kèm độ phân giải.

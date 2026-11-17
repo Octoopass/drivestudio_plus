@@ -65,29 +65,80 @@ Ghi chú:
 
 ## Fisheye (pinhole + mắt cá)
 
-| Run | Trạng thái | Approach | Renderer | FGS | FrGS | Dataset, cảnh | Camera | Khung | Độ phân giải | Iter | PSNR | SSIM | LPIPS | Thời gian train | VRAM đỉnh | Gaussian |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| (chạy thử, 14/11) | Xong (Quadro T2000 4 GB) | 3DGUT (trainer tĩnh đã ngừng hỗ trợ) | 3DGUT | | | KITTI-360 0003 (bản 1/5 khung của teammate) | chưa ghi lại | 30 | chưa ghi lại | 3 000 | 21,3 | | | | | |
-| (kế hoạch) | Đo thời gian, VRAM trên đoạn ngắn | OmniRe | 3DGUT | có | có | KITTI-360 `kitti360_drive0003` (nạp lại bằng converter mới, commit `188fb9b`) | `every10_pinhole2`: `image_00`, `image_01` | 0–199 (20 s, 246 m) | pinhole 704×188 | 30 000 | | | | | | |
-| (kế hoạch) | như trên | OmniRe | 3DGUT | có | có | như trên | `every10_fisheye2`: `image_02`, `image_03` | 0–199 | mắt cá 700×700 | 30 000 | | | | | | |
-| (kế hoạch) | như trên | OmniRe | 3DGUT | có | có | như trên | `every10_mixed4`: cả 4 camera | 0–199 | pinhole 704×188, mắt cá 700×700 | 30 000 | | | | | | |
-| (kế hoạch) | Theo kết quả đoạn ngắn | OmniRe | 3DGUT | có | có | như trên | cả 4 camera | 0–683 (68,4 s, 1 km) hoặc chia đoạn | pinhole 704×188, mắt cá 700×700 | 30 000 | | | | | | |
+### Kế hoạch hiện tại: 6 run, mỗi run 30.000 bước
 
-### Thí nghiệm: hai loại camera có gộp được vào một model không
+Kiểm tra việc dùng ảnh pinhole và fisheye để học một cảnh 3D chung trên KITTI-360
+`kitti360_drive0003`. Chạy đủ ba nhóm camera cho cả OmniRe + 3DGUT và OmniRe + 3DGEER.
+Trong mỗi nhóm renderer, ba run chỉ thay camera dùng để train; mỗi run tạo một mô hình
+riêng để đối chiếu. Cả sáu run hiện chưa khởi chạy.
 
-Câu hỏi: thêm camera mắt cá vào cùng model với camera pinhole có làm kém phần pinhole không (hai loại camera "không fuse được"), hay bổ sung được vùng hai bên. Ba run chỉ khác camera dùng để train; cùng cảnh KITTI-360 0003, cùng đoạn khung, renderer, cấu hình, số bước (theo kết quả chạy thử ở bảng trên).
+Chạy theo ba đợt ưu tiên dưới đây. Trong mỗi đợt, chạy cặp 3DGEER và 3DGUT song
+song nếu quota cho phép; nếu chỉ đủ một GPU thì chạy lần lượt theo thứ tự trong bảng.
+Hoàn tất và kiểm tra cặp fisheye-only trước khi chuyển sang cặp kết hợp, sau đó mới chạy
+cặp pinhole-only. Nếu phát hiện lỗi dữ liệu hoặc phép chiếu, xử lý trước khi chạy đợt sau.
 
-| Run | Trạng thái | Approach | Renderer | FGS | FrGS | Dataset, cảnh | Camera train | Khung | Độ phân giải | Iter | PSNR `image_00`/`01` (pinhole) | PSNR `image_02`/`03` (mắt cá) | PSNR chung | Thời gian train | VRAM đỉnh | Gaussian |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| (kế hoạch) | | OmniRe | thắng ở bảng pinhole | có | có | KITTI-360 0003 | chỉ pinhole: `image_00`, `image_01` | như run đủ ở trên | pinhole 704×188 | như run đủ | | | | | | |
-| (kế hoạch) | | OmniRe | như trên | có | có | KITTI-360 0003 | chỉ mắt cá: `image_02`, `image_03` | như trên | mắt cá 700×700 | như trên | | | | | | |
-| (kế hoạch) | | OmniRe | như trên | có | có | KITTI-360 0003 | cả 4 camera | như trên | như trên | như trên | | | | | | |
+| Đợt ưu tiên | Renderer | Camera train | Split | Ảnh train / test | Bước train | Trạng thái |
+|---|---|---|---|---:|---:|---|
+| 1 | 3DGEER | Fisheye: `image_02`, `image_03` | `every10_fisheye2` | 362 / 38 | 30.000 | Chưa chạy |
+| 1 | 3DGUT | Fisheye: `image_02`, `image_03` | `every10_fisheye2` | 362 / 38 | 30.000 | Chưa chạy |
+| 2 | 3DGEER | Kết hợp: cả bốn camera | `every10_mixed4` | 724 / 76 | 30.000 | Chưa chạy |
+| 2 | 3DGUT | Kết hợp: cả bốn camera | `every10_mixed4` | 724 / 76 | 30.000 | Chưa chạy |
+| 3 | 3DGEER | Pinhole: `image_00`, `image_01` | `every10_pinhole2` | 362 / 38 | 30.000 | Chưa chạy |
+| 3 | 3DGUT | Pinhole: `image_00`, `image_01` | `every10_pinhole2` | 362 / 38 | 30.000 | Chưa chạy |
 
-Đọc kết quả:
-- PSNR trên ảnh pinhole của run "cả 4 camera" thấp hơn rõ run "chỉ pinhole": thêm mắt cá làm hỏng phần pinhole (hai loại camera xung đột: calib, màu, độ nét).
-- Ngang hoặc cao hơn: gộp được; run "cả 4 camera" còn phủ thêm hai bên hông.
-- Thêm: render camera pinhole ảo đặt đúng vị trí `image_00` từ model "chỉ mắt cá", so với ảnh `image_00` thật, để biết dựng chỉ từ mắt cá mất bao nhiêu khi xem dạng ảnh thường.
+Cấu hình chung:
 
-Ghi chú:
-- Chỉ 3DGEER và 3DGUT vẽ được camera mắt cá, nên bảng này không có 3DGS.
-- Với cả 864 khung × 4 camera, 30 000 bước chỉ cho mỗi ảnh được học khoảng 7 lần; chia và ghép đoạn đường làm sau.
+- Cùng đoạn khung 0–199, khoảng 20 giây; seed 0; khởi tạo từ LiDAR.
+- FastGS bật; Faster-GS bật phần Python; MCMC tắt; CamPose tắt.
+- Ảnh pinhole đầu vào đã rectify 1408×376, nạp xuống 704×188. Ảnh fisheye
+  1400×1400, nạp xuống 700×700 và giữ phép chiếu fisheye, không nắn thành pinhole.
+- Giữ lịch độ phân giải của DriveStudio: 250 bước đầu dùng 1/4 kích thước ảnh đã nạp
+  theo mỗi chiều, 250 bước tiếp dùng 1/2, từ bước 500 dùng đủ kích thước đã nạp.
+- `every_nth_frame:10` giữ các mốc cách nhau 10 khung để đánh giá; không phải chỉ lấy
+  một phần mười ảnh để train. Dùng cùng các mốc test giữa những camera tương ứng.
+- Kiểm tra người trong đúng đoạn dữ liệu đã ingest trên Kaggle. Nếu xác nhận không có
+  người thì bỏ SMPL cho cả ba nhóm camera của mỗi renderer. Nếu có người, dùng chung
+  cache SMPL giữa các run để giữ nhất quán dữ liệu người.
+
+Hai renderer dùng config đã có: `omnire_ut_fastgs_fastergs.yaml` và
+`omnire_geer_fastgs_fastergs.yaml`. Các thông số densify đặc thù vẫn theo config của
+mỗi renderer: 3DGUT có `refine_interval=100`, `densify_grad_thresh=0.0005`;
+3DGEER có `refine_interval=50`, `densify_grad_thresh=0.01`. Vì vậy, đối chiếu giữa
+hai renderer là đối chiếu hai cấu hình hoàn chỉnh, không chỉ riêng phép render.
+
+Lưu ý phạm vi:
+
+- Cả sáu run chạy đủ 30.000 bước; bước pruning của FastGS bắt đầu từ mốc 15.000
+  theo config hiện có.
+- Run kết hợp có gấp đôi số ảnh nhưng cùng số bước train. Đây là so sánh ở cùng số bước
+  tối ưu, không bảo đảm cùng số lần học trên mỗi ảnh.
+- Bước SMPL KITTI-360 hiện lấy tư thế người từ hai camera pinhole. Nếu dùng cache này,
+  “fisheye-only” chỉ nói về ảnh tham gia train cảnh, không phải toàn bộ quy trình độc lập
+  với pinhole. Người chỉ xuất hiện ở fisheye có thể phải dùng node biến dạng.
+
+### Chạy và đọc kết quả
+
+Kiểm tra calibration, mask và ảnh render ở những bước đầu trước khi để mỗi run chạy
+hết 30.000 bước. Dùng lại cache tiền xử lý; mỗi run dùng một GPU T4 và tuân theo
+ba đợt ưu tiên ở trên. Ghi thời gian train, VRAM đỉnh và số Gaussian.
+
+Trong từng renderer, so pinhole của run kết hợp với run pinhole-only, và so fisheye của
+run kết hợp với run fisheye-only trên cùng ảnh test. Báo PSNR, SSIM và LPIPS theo từng
+camera và nhóm camera, đồng thời xem vùng chồng lấn, hai bên hông và vật thể động.
+Metric theo camera nằm ở `per_camera` trong `summary.json` (protocol `0.3`); với fisheye, SSIM và
+LPIPS chỉ tính trên điểm ảnh hợp lệ như PSNR. Không so SSIM, LPIPS của run mới với run
+protocol `0.2` cũ. Không kết luận hai loại camera “không gộp được” chỉ từ một điểm PSNR chung hoặc một
+lần chạy ngắn; cần xem cả độ phủ, sai lệch calibration và mức hội tụ.
+
+Có thể render pinhole ảo tại vị trí `image_00` từ mô hình fisheye-only để khảo sát góc
+nhìn chưa được train. Kết quả này cần báo riêng với đánh giá trên chính nhóm camera
+đã dùng để train.
+
+Tổng ngân sách của sáu run là 180.000 bước tối ưu. Mở rộng đoạn đường làm sau khi
+kiểm tra được kết quả trên đoạn 0–199; chưa chốt chạy ngay toàn bộ 864 khung.
+
+### Kết quả chạy thử cũ
+
+Ngày 14/11, trainer 3DGUT tĩnh đã ngừng hỗ trợ từng chạy trên bản KITTI-360 0003 của
+teammate (lấy 1/5 số khung), 30 khung, 3.000 bước, Quadro T2000 4 GB, PSNR 21,3.
+Camera và độ phân giải chưa được ghi lại. Kết quả này không thay thế sáu run OmniRe ở trên.

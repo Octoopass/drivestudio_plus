@@ -553,22 +553,24 @@ Bộ kiểm tra (CONTRACTS mục 3.2) theo cách NVIDIA kiểm tra dữ liệu (
 
 Mỗi stage là một lớp đăng ký theo tên, theo interface ở CONTRACTS mục 5.1; nơi ghi kết quả ở CONTRACTS mục 5.2.
 
-| Stage | Việc | Cache | Mã có sẵn để dựa vào |
-|---|---|---|---|
-| `prep.select` | Chọn camera, đoạn khung, độ phân giải | có | |
-| `prep.undistort` | Khử méo về pinhole cho approach chỉ nhận pinhole | có | `data.pixel_source.undistort` của loader PhysicalAI |
-| `prep.masks_segformer` | Mask bầu trời và mask vật động tinh; cần GPU (`D2S_DEVICE`) | có | `drive2sim/recon/preprocess/masks/segformer_hf.py` |
-| `prep.smpl` | Tư thế người cho OmniRe; cần GPU, `hmr2` và box 3D. KITTI-360 dùng lại nhánh KITTI (`recon/preprocess/kitti360/human.py`), chỉ trên hai camera pinhole; dataset khung KITTI (KITTI, KITTI-360) có cảnh không có người thì bỏ qua (trả thư mục rỗng, `train.drivestudio` tắt `load_smpl`) | có | `drive2sim/recon/preprocess/smpl/run.py`, `extract.py` |
-| `prep.smpl_release` | Tư thế người lấy từ bản DriveStudio phát hành sẵn (`docs/datasets/human_pose.md`, hiện khai báo 10 cảnh nuScenes v1.0-mini): tải zip một lần mỗi máy (`~/.cache/drive2sim/smpl_release/`, kiểm sha256), đọc pickle bằng `core/safe_pickle.py` (chỉ cho dict và tensor; `torch.storage._load_from_bytes` thay bằng `torch.load(weights_only=True)`), ghi lại `humanpose/smpl.pkl` bằng joblib, cùng loại artifact `smpl`. Không tốn GPU. Cảnh không có trong bản phát hành: `unavailable_reason` báo lý do, lựa chọn bị khoá. Trên `scene-0061` khớp `prep.smpl`: 19 người, mặt nạ trùng hết, tư thế lệch trung bình 1e-4 | có | `drive2sim/stages/prep/smpl_release.py` |
-| `init.lidar` | Điểm khởi tạo từ LiDAR | có | `get_lidar_samples` trong `drive2sim/recon/data/driving_dataset.py` |
-| `init.depth` | Điểm khởi tạo từ pose dataset + depth metric | có | Chưa có |
-| `init.slam` | Pose và điểm từ SLAM, khi rig không có pose | có | Chưa có |
-| `train.drivestudio` | Train bằng trainer DriveStudio; method, renderer, FastGS, CamPose chọn qua tham số. Cần LiDAR: config hiện có khởi tạo Gaussian từ LiDAR | không | `drive2sim/recon/tools/train.py` |
-| `train.external` | Train bằng codebase ngoài, trong môi trường riêng | không | Chưa có |
-| `eval.standard` | Đánh giá theo protocol chung (SPEC mục 9) | không | `drive2sim/recon/tools/eval.py` (`do_evaluation`) |
-| `render.videos` | Video ảnh gốc, ảnh render, sai khác theo camera | không | `drive2sim/recon/rendering/videos.py` |
-| `export.ply_world` | PLY 3DGS trong hệ world | không | `drive2sim/recon/tools/export_ply.py` |
-| `export.preview` | Gói xem trước cho Spark | không | Mở rộng `drive2sim/recon/tools/export_ply.py`; dữ liệu cần (`instances_quats`, `instances_trans`, `instances_fv`, `points_ids`) có sẵn trong `state_dict()` của RigidNodes (`drive2sim/recon/models/nodes/rigid.py:483`) |
+Bảng gồm cả stage đã có và stage theo thiết kế đích; cột Trạng thái cho biết stage đã đăng ký trong registry chưa (17/11/2026).
+
+| Stage | Trạng thái | Việc | Cache | Mã có sẵn để dựa vào |
+|---|---|---|---|---|
+| `prep.select` | Chưa có | Chọn camera, đoạn khung, độ phân giải | có | |
+| `prep.undistort` | Chưa có | Khử méo về pinhole cho approach chỉ nhận pinhole | có | `data.pixel_source.undistort` của loader PhysicalAI |
+| `prep.masks_segformer` | Đã có | Mask bầu trời và mask vật động tinh; cần GPU (`D2S_DEVICE`) | có | `drive2sim/recon/preprocess/masks/segformer_hf.py` |
+| `prep.smpl` | Đã có | Tư thế người cho OmniRe; cần GPU, `hmr2` và box 3D. KITTI-360 dùng lại nhánh KITTI (`recon/preprocess/kitti360/human.py`), chỉ trên hai camera pinhole; dataset khung KITTI (KITTI, KITTI-360) có cảnh không có người thì bỏ qua (trả thư mục rỗng, `train.drivestudio` tắt `load_smpl`) | có | `drive2sim/recon/preprocess/smpl/run.py`, `extract.py` |
+| `prep.smpl_release` | Đã có | Tư thế người lấy từ bản DriveStudio phát hành sẵn (`docs/datasets/human_pose.md`, hiện khai báo 10 cảnh nuScenes v1.0-mini): tải zip một lần mỗi máy (`~/.cache/drive2sim/smpl_release/`, kiểm sha256), đọc pickle bằng `core/safe_pickle.py` (chỉ cho dict và tensor; `torch.storage._load_from_bytes` thay bằng `torch.load(weights_only=True)`), ghi lại `humanpose/smpl.pkl` bằng joblib, cùng loại artifact `smpl`. Không tốn GPU. Cảnh không có trong bản phát hành: `unavailable_reason` báo lý do, lựa chọn bị khoá. Trên `scene-0061` khớp `prep.smpl`: 19 người, mặt nạ trùng hết, tư thế lệch trung bình 1e-4 | có | `drive2sim/stages/prep/smpl_release.py` |
+| `init.lidar` | Chưa có (khởi tạo LiDAR vẫn nằm trong loader, mục 7.2) | Điểm khởi tạo từ LiDAR | có | `get_lidar_samples` trong `drive2sim/recon/data/driving_dataset.py` |
+| `init.depth` | Chưa có | Điểm khởi tạo từ pose dataset + depth metric | có | Chưa có |
+| `init.slam` | Chưa có | Pose và điểm từ SLAM, khi rig không có pose | có | Chưa có |
+| `train.drivestudio` | Đã có | Train bằng trainer DriveStudio; method, renderer, FastGS, CamPose chọn qua tham số. Cần LiDAR: config hiện có khởi tạo Gaussian từ LiDAR | không | `drive2sim/recon/tools/train.py` |
+| `train.external` | Chưa có | Train bằng codebase ngoài, trong môi trường riêng | không | Chưa có |
+| `eval.standard` | Đã có (chỉ đọc metric do `train.py` ghi) | Đánh giá theo protocol chung (SPEC mục 9) | không | `drive2sim/recon/tools/eval.py` (`do_evaluation`) |
+| `render.videos` | Chưa có (video do `train.py` ghi) | Video ảnh gốc, ảnh render, sai khác theo camera | không | `drive2sim/recon/rendering/videos.py` |
+| `export.ply_world` | Đã có | PLY 3DGS trong hệ world | không | `drive2sim/recon/tools/export_ply.py` |
+| `export.preview` | Đã có | Gói xem trước cho Spark | không | Mở rộng `drive2sim/recon/tools/export_ply.py`; dữ liệu cần (`instances_quats`, `instances_trans`, `instances_fv`, `points_ids`) có sẵn trong `state_dict()` của RigidNodes (`drive2sim/recon/models/nodes/rigid.py:483`) |
 
 **Thư mục cảnh ảo.** Script DriveStudio đều đọc và ghi trong một thư mục cảnh `<data_root>/<số>/`, trong khi thư mục cảnh `data/<scene_id>/` không được sửa và stage chỉ được ghi vào thư mục của nó (CONTRACTS mục 5.1). Các stage bọc DriveStudio vì vậy dựng trong thư mục của mình một `view/000/` gồm symlink tới từng mục của thư mục cảnh, cộng các artifact cần thêm (ví dụ `sky_masks/` từ cache), rồi chạy script trên đó (`drive2sim/stages/scene_view.py`). Mục script tạo mới là thư mục thật trong thư mục của stage. View không chứa symlink tới các mục stage sắp ghi, nên script không thể ghi qua symlink vào dữ liệu thật. View có symlink tới `manifest.yaml` (chỉ đọc; loader KITTI-360 đọc mô hình và cỡ camera từ đó), không có `splits/`, `reports/`. Cách này không sửa dòng nào trong mã DriveStudio; đã kiểm `segformer_hf.py` chỉ ghi `sky_masks/`, `fine_dynamic_masks/` và quy trình SMPL chỉ ghi dưới `humanpose/`.
 
@@ -684,6 +686,10 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (thư mục DriveStudio
 
 ### 7.1 Tiến độ
 
+Số test ghi trong từng dòng là số lúc hoàn thành việc đó. Hiện tại (17/11/2026): `make check` ở
+`.venv` nhẹ 441 test đạt, 15 bỏ qua (cần PyTorch hoặc numpy); `make test-gpu` ở conda env GPU
+chạy cả các test đó, 496 test đạt, không bỏ qua test nào.
+
 | Việc | Trạng thái | Commit |
 |---|---|---|
 | Bàn giao `d2s pack`, ingest và môi trường thân thiện, SMPL theo split | Code và test local hoàn tất; chưa nghiệm thu train GPU cho thay đổi loader; gói 11 run thật đã ghi trên USB và kiểm đủ 15.708 mã băm sau giải nén; Studio đọc 11 run, đã render thử một frame bằng GPU có sẵn | |
@@ -692,7 +698,8 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (thư mục DriveStudio
 | Sửa chạy tiếp khi train | Xong trong code; chưa chạy thật | `7851701` |
 | Khung thư mục của tool, submodule NCore (pin `v19.9.0`, mục 2.2) | Xong; các thư mục còn trống | `ceacb2c` |
 | `core`: định danh, schema mọi file trong CONTRACTS (kể cả `job.json`, `result.json`), đọc ghi, split | Xong; 66 test đạt trên Python 3.9 và 3.12; test đọc mọi ví dụ trong CONTRACTS; qua `ruff check` | `9bb7bbc`, `96876ad` |
-| `core`: phép biến đổi toạ độ, mô hình camera | Chưa làm | |
+| `core`: mô hình camera (`core/camera.py`: khớp Mei của KITTI-360 sang OpenCV fisheye, chiếu điểm) | Xong; test trên máy có numpy; đã kiểm trên chuỗi KITTI-360 0003 thật (xem dòng KITTI-360 bên dưới) | |
+| `core`: phép biến đổi toạ độ dùng chung | Chưa làm; mỗi converter và loader còn tự đổi toạ độ | |
 | `engine`: interface stage và registry | Xong; kiểm tra khai báo stage lúc đăng ký | `35bc590` |
 | `engine`: resolve (mục cấu hình, preset, `auto`, điều kiện dữ liệu, ràng buộc, nối đầu vào) | Xong | `37d5159` |
 | `engine`: thư mục làm việc, cache, tạo và chạy run (chạy tiếp, huỷ, ghi lỗi) | Xong; chạy với stage giả; 108 test đạt trên Python 3.9 và 3.12 | |
@@ -722,6 +729,9 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (thư mục DriveStudio
 | Loader DriveStudio cho KITTI-360 (`recon/data/loaders/kitti360.py`, lớp con của loader KITTI): mô hình, cỡ camera đọc từ `manifest.yaml`, ảnh PNG, camera mắt cá vẽ theo mô hình OpenCV fisheye (không khử méo), vùng ngoài 1,45 rad bị loại khỏi loss; config `kitti360/4cams`, `kitti360/2cams`; `train.drivestudio` tự chọn config theo manifest | Xong trong code; test với cảnh giả trên CPU (tia, góc tia so với `cv2.fisheye`, chiếu điểm, camera pinhole giữ đường cũ, `DrivingDataset` dựng được với LiDAR); **chưa chạy thật** (chưa train OmniRe, Street GS trên cảnh KITTI-360 thật) | |
 | Chạy local trọn đường (`d2s run start --executor local`) cho OmniRe và Street GS trên nuScenes | **Đã chạy thật** 16/11/2026 trên Quadro T2000 (4 GB), `scene-0061`, split `front1`, 500 bước, FastGS + Faster-GS, mask và SMPL dùng lại cache: Street GS `03b6` xong mọi stage (train 250 giây, PSNR 23,66); OmniRe `3740` xong mọi stage (train 534 giây, VRAM đỉnh 2,9 GB, PSNR 23,57, gói xem trước có 18 người và trời). Lần chạy OmniRe trước đó (`aaa7`) hết VRAM vì frame server của trang Xem 3D còn giữ 984 MB trên cùng GPU. Chưa kiểm: `prep.smpl` tính từ đầu ở local (lần thử 14/11 kẹt ở bước tải weight 4D-Humans 2,6 GB; chạy được trên Kaggle), cài môi trường từ đầu trên máy mới; 30 000 bước với `front3` không vừa GPU 4 GB (Kaggle đo đỉnh 3,4–4,7 GB) | |
 | Densify bằng MCMC cho OmniRe (`recon/densify/mcmc.py`, mục `densify: default | mcmc`, nền, xe, vật biến dạng; người giữ nguyên) | Xong trong code, tắt mặc định; test trên CPU và so kernel CUDA của gsplat; chưa có run 30 000 bước (`docs/methods/densify_mcmc.md`) | |
+| Metric theo camera và theo vùng hợp lệ (protocol `0.3`): `train.py` ghi PSNR, SSIM, LPIPS theo từng camera, `eval.standard` đổi chỉ số camera sang `camera_id` để điền `per_camera`; khi loader có `valid_masks` (mắt cá KITTI-360, Waymo, PhysicalAI) SSIM và LPIPS chỉ tính trên điểm ảnh hợp lệ như PSNR (trước đây vùng không hợp lệ bị tô đen ở cả hai ảnh nên SSIM, LPIPS bị đẩy lên tốt hơn thực tế); ảnh không có điểm hợp lệ bị bỏ qua thay vì làm trung bình thành NaN | Xong trong code; test trên CPU (`tests/drive2sim/recon/rendering/test_image_metrics.py`); **đã chạy thật** 17/11/2026 trên Quadro T2000: OmniRe + 3DGUT + FastGS + Faster-GS, KITTI-360 0003 ingest lại trên máy 20 khung, split `every5_mixed4` (68 ảnh train, 12 test, cả 4 camera), 500 bước: mọi stage xong (SMPL bỏ qua vì đoạn không có người), `per_camera` đủ 4 camera (PSNR `image_00` 18,7, `image_01` 18,9, `image_02` 16,2, `image_03` 15,0; chỉ để kiểm đường chạy, 500 bước chưa hội tụ), train 120 giây, VRAM đỉnh 2,2 GB. Loader KITTI-360 mắt cá, `export.ply_world`, `export.preview` cũng chạy qua trong run này. Run cũ giữ `summary.json` protocol `0.2`: SSIM, LPIPS của camera có `valid_masks` không so trực tiếp được với run mới | |
+| `converter_version` thêm hậu tố `.dirty-<hash8>` khi mã converter (`ingest/`, `recon/preprocess/`, `core/`) có thay đổi chưa commit, để khoá cache không trùng giữa hai bản code chưa commit | Xong; test với repo git tạm | |
+| `make test-gpu`: chạy toàn bộ test bằng conda env GPU, gồm test cần PyTorch mà `make check` bỏ qua | Xong | |
 | `sim/` (L2–L4) | Chưa làm | |
 
 Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiền xử lý (mask, SMPL); OmniRe, Street GS, PVG, Deformable-GS; renderer 3DGS / 3DGUT / 3DGEER; rolling shutter ở `ut`/`geer`; FastGS; `tools/eval.py`; video; `tools/viewer.py`; `tools/export_ply.py`; đọc NCore V4 cho PhysicalAI.
@@ -739,7 +749,7 @@ Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiề
 | Config chép nguyên file: `streetgs_nocampose.yaml` khác `streetgs.yaml` 9 dòng trên 148; các bản `_ut`, `_geer`, `_fastgs` khác 10–19 dòng | `drive2sim/configs/methods/*.yaml` | Một config gốc cho mỗi method; biến thể chỉ ghi phần khác, ứng với các mục cấu hình |
 | Render nằm lẫn trong viewer và trainer | `drive2sim/recon/tools/viewer.py` (2523 dòng), `drive2sim/recon/trainers/base.py` (1125 dòng) | Tách hàm render dùng riêng cho `sim/` |
 | Export không có sky, SMPL, vật biến dạng; SH của xe không xoay theo xe | `drive2sim/recon/tools/export_ply.py` | Ghi rõ giới hạn; mở rộng cho `export.preview` |
-| Chưa có test cho `drive2sim/recon/` (`core/` đã có 60 test) | `drive2sim/recon/` | `tests/drive2sim/recon/`, bắt đầu bằng kiểm tra hồi quy của loader |
+| Test cho `drive2sim/recon/` mới phủ một phần: loader KITTI-360, densify MCMC, gom node, hướng nhìn SMPL, Faster-GS, FastGS, metric ảnh, export; chỉ chạy ở conda env GPU (`make test-gpu`), `make check` bỏ qua | `drive2sim/recon/`, `tests/drive2sim/recon/` | Thêm kiểm tra hồi quy cho loader các dataset khác; chạy `make test-gpu` trước khi commit thay đổi ở `recon/` |
 | Phiên bản PyTorch chưa khớp: `requirements.txt` ghi `torch==2.0.0+cu117`, gsplat-geer ghi đã chạy với 2.4.1 | `requirements.txt` | Đã sửa: `requirements.txt` ghi `torch==2.4.1+cu121`, bỏ `xformers` (không dùng), `numpy 1.23.5` và `open3d 0.17.0` (bản 1.23.1 và 0.16.0 không có cho Python 3.11 của Kaggle) |
 
 ### 7.3 Nguyên tắc khi refactor
@@ -753,7 +763,7 @@ Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiề
 
 0. **Di chuyển mã DriveStudio vào `drive2sim/recon/`** (đã làm, ba lượt): đổi chỗ file, sửa import trong mã và chuỗi import trong config, thêm `pyproject.toml`, `drive2sim/paths.py` cho `assets/`; lượt hai tách `preprocess/` khỏi `data/loaders/`, chuyển import tương đối sang tuyệt đối, gom config method vào `configs/methods/`, docs vào `docs/datasets/` và `docs/methods/`; lượt ba chuyển `configs/` vào `drive2sim/configs/`. Sau đó tạo khung thư mục của tool và thêm submodule NCore. Đã kiểm tra tĩnh (mọi import `drive2sim...` và mọi chuỗi import trong config trỏ tới lớp có thật); **chưa chạy thật**.
 1. **Kaggle chạy tiếp được:** sửa chạy tiếp (mục 7.2; đã sửa trong code, chưa chạy thử) và làm `drive2sim/kaggle/`. Chạy được OmniRe trên cảnh nuScenes mini mà teammate đã dùng; đây cũng là lần kiểm tra hành vi của bước 0.
-2. **Engine và stage bọc mã hiện có:** registry, file approach có mục cấu hình, `train.drivestudio`, `eval.standard`, `render.videos`, `export.ply_world`, `run.json`, CLI `d2s`. Đạt L1 theo thiết kế; Studio nhóm A–D làm song song.
+2. **Engine và stage bọc mã hiện có:** registry, file approach có mục cấu hình, `train.drivestudio`, `eval.standard`, `export.ply_world`, `run.json`, CLI `d2s`. Video vẫn do `train.py` ghi sau đánh giá cuối; chưa tách thành stage `render.videos`. Đạt L1 theo thiết kế; Studio nhóm A–D làm song song.
 3. **Tầng dữ liệu:** `source inspect`; `scene ingest` cho nuScenes (gọi script có sẵn, sinh `manifest.yaml`); bộ kiểm tra. Sau bước này `d2s run start omnire` chạy trọn đường. Chạy thật trên Kaggle cùng cảnh nuScenes mini mà teammate đã dùng, so PSNR với đường cũ. Rồi stage `prep.masks_segformer`, `prep.smpl` ghi vào cache.
 4. **Tách khởi tạo:** `init.lidar` tách khỏi dataset, rồi `init.depth`. Thí nghiệm có LiDAR so với không LiDAR là đổi mục cấu hình `init`.
 5. **Config kế thừa** thay cho config chép file. Đã cài `extends` (`drive2sim/core/config.py`, CONTRACTS mục 10.5); các biến thể `*_nocampose`, `*_geer`, `*_ut`, `*_fastgs` đã chuyển sang dạng kế thừa; `tests/drive2sim/core/test_config.py` (`VARIANTS`) kiểm mỗi biến thể chỉ khác file cha ở đúng các khoá đã khai. File gốc lấy từ DriveStudio (`omnire.yaml`, `streetgs.yaml`, `omnire_extended_cam.yaml`, `pvg.yaml`, `deformablegs.yaml`) giữ nguyên.

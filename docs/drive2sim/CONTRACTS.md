@@ -76,7 +76,7 @@ source:
   dataset: nuscenes               # waymo | nuscenes | nuplan | argoverse2 | pandaset | kitti | kitti360 | physicalai | carla | colmap | custom
   sequence_id: scene-0061
   converter: drivestudio.nuscenes # converter đã dùng: script tiền xử lý DriveStudio cho nuScenes
-  converter_version: "0.1.0+96876ad"   # <phiên bản drive2sim>+<commit> lúc ingest
+  converter_version: "0.1.0+96876ad"   # <phiên bản drive2sim>+<commit>[.dirty-<hash8>] lúc ingest
   output_version: 1               # phiên bản đầu ra của converter; tăng tay khi đầu ra đổi
   data_license: "CC BY-NC-SA 4.0"
 track: pinhole                    # pinhole | fisheye; fisheye khi có ít nhất một camera mắt cá
@@ -101,6 +101,7 @@ available:
 - Manifest `1.2` thêm `available.human_frames`: các đoạn `[đầu, cuối]` có box người, tính cả hai đầu. `[]` nghĩa là không có người; trường vắng hoặc `null` nghĩa là chưa biết. Với cảnh cũ có dữ liệu local, `Workdir` đọc lại `instances/` trong bộ nhớ. Nhãn hỏng giữ trạng thái chưa biết. Split không giao đoạn có người thì `smpl: auto` chọn `none`; chưa biết thì vẫn chọn stage SMPL.
 - `cameras` xếp đúng thứ tự chỉ số camera của DriveStudio cho dataset đó, vì `images/<khung>_<camera>.jpg` và config dataset dùng chỉ số này; stage train đổi `camera_id` của split sang chỉ số theo thứ tự đó.
 - `source.dataset` chọn loader và config dataset có sẵn của DriveStudio khi train.
+- `source.converter_version`: `<phiên bản drive2sim>+<commit>`; khi mã converter (`drive2sim/ingest/`, `drive2sim/recon/preprocess/`, `drive2sim/core/`) có thay đổi chưa commit thì thêm `.dirty-<hash8>` (8 ký tự hex đầu của sha256 trên diff so với `HEAD` và các file mới chưa theo dõi), ví dụ `0.1.0+2867e48.dirty-5b0e1796`. Trường này nằm trong khoá cache của mọi stage nhận cảnh, nên hai lần ingest bằng hai bản code chưa commit khác nhau không dùng chung cache.
 - `source.output_version` (thêm từ `1.1`, không bắt buộc): phiên bản đầu ra của converter lúc ingest, số nguyên ≥ 1 tăng tay **chỉ khi dữ liệu converter ghi ra đổi** (`drive2sim/ingest/manifest.py`: `KITTI360_OUTPUT_VERSION` hiện là `2` từ lần viết lại khớp Mei; `DRIVESTUDIO_OUTPUT_VERSION` dùng chung cho mọi converter `drivestudio.<dataset>`, hiện là `1`). Manifest `1.0` không có trường này vẫn đọc được và được coi là `1` (riêng `converter_version` ghi commit `188fb9b`, đã có khớp Mei mới, được coi là `2` với KITTI-360). Cảnh có phiên bản khác phiên bản hiện tại của converter là **cảnh cũ**: `scene validate`, Studio, `approach check`, `run start` cảnh báo (không chặn), `kaggle ingest` dùng notebook mới (mục 9.4). Converter không do tool quản lý (cảnh tự làm) không có phiên bản, không bị xét. Trường này không nằm trong khoá cache (mục 5.2) hay tên dataset cảnh trên Kaggle (mục 10.1), để cache và dataset đã có vẫn dùng được.
 - Thay đổi từ `0.1`: bỏ phần `ncore` (dữ liệu chuẩn không còn là NCore); file `0.x` không đọc được nữa.
 - `cameras[].model` ghi đúng mô hình trong nguồn, nên có thể là `ideal_pinhole` (với nguồn NCore); approach chỉ khai báo nhận ba mô hình chuẩn (mục 10.3), và `ideal_pinhole` được coi là `opencv_pinhole` với hệ số méo bằng 0. Mỗi camera ghi mô hình riêng; một cảnh có thể có cả camera pinhole lẫn mắt cá (KITTI-360). `track` của cảnh là `fisheye` khi có ít nhất một camera thuộc track fisheye. Engine vẫn kiểm từng camera của split với mô hình approach nhận (mục 4.2), nên approach chỉ vẽ pinhole bị khoá trên split có camera mắt cá.
@@ -222,9 +223,10 @@ stages:                            # chạy lần lượt; ${...} được thay 
       campose: "${options.campose}"
       fastgs: "${options.fastgs}"
   - {stage: eval.standard}
-  - {stage: render.videos}
   - {stage: export.ply_world}
 ```
+
+Ví dụ trên là dạng đích: stage `init.*` chưa có (ARCHITECTURE mục 4.3), nên `drive2sim/approaches/omnire.yaml` hiện chưa có mục `init`; video do `train.py` ghi, chưa có stage `render.videos`.
 
 - Một stage dùng được artifact của bất kỳ stage nào đứng trước. Engine nối theo kiểu artifact: stage cần `points_init` nhận artifact `points_init` gần nhất phía trước.
 - `${options.<tên mục>}` được thay bằng lựa chọn cụ thể trước khi chạy. Sau khi thay, danh sách stage là cố định; không có điều kiện, nhánh song song hay vòng lặp lúc đang chạy.
@@ -445,7 +447,7 @@ Tóm tắt metric theo protocol của SPEC mục 9, do `eval.standard` ghi vào 
 ```json
 {
   "schema_version": "d2s-summary/0.4",
-  "protocol": {"version": "0.2", "image_dtype": "uint8", "resolution": "downscale_when_loading=[2, 2, 2], downscale=1",
+  "protocol": {"version": "0.3", "image_dtype": "uint8", "resolution": "downscale_when_loading=[2, 2, 2], downscale=1",
                "lpips": {"net": "alex", "package": "torchmetrics", "package_version": "0.10.3"}},
   "split_id": "every8_allcams",
   "overall": {"psnr": 27.1, "ssim": 0.83, "lpips": 0.21,
@@ -463,12 +465,12 @@ Tóm tắt metric theo protocol của SPEC mục 9, do `eval.standard` ghi vào 
 
 Các con số trong ví dụ chỉ minh hoạ định dạng. Metric vùng người, vùng xe chỉ có khi cảnh có box.
 
-- Cách đo (`protocol.version` `0.2`): cuối `train.py`, sau bước train cuối, model vẽ lại mọi ảnh của tập test; ảnh render được làm tròn về 8 bit như ảnh gốc rồi so với ảnh camera từng ảnh một, sau đó lấy trung bình. PSNR là `−10·log10(MSE)` trên điểm ảnh hợp lệ; SSIM dùng `skimage.metrics.structural_similarity`; LPIPS dùng `torchmetrics` với backbone `alex`. `eval.standard` chỉ đọc kết quả này, không đo lại. Thay đổi từ `0.1`: `0.1` so ảnh render ở dạng số thực.
+- Cách đo (`protocol.version` `0.3`): cuối `train.py`, sau bước train cuối, model vẽ lại mọi ảnh của tập test; ảnh render được làm tròn về 8 bit như ảnh gốc rồi so với ảnh camera từng ảnh một, sau đó lấy trung bình. PSNR là `−10·log10(MSE)`; SSIM dùng `skimage.metrics.structural_similarity`; LPIPS dùng `torchmetrics` với backbone `alex`. Khi loader đánh dấu điểm ảnh không hợp lệ (`valid_masks`: mắt cá ngoài vùng nhìn dùng được, thân xe), cả ba metric chỉ xét điểm ảnh hợp lệ: PSNR trên các điểm đó, SSIM lấy trung bình bản đồ SSIM trên các điểm đó, LPIPS đo trên khung bao vùng hợp lệ với ảnh gốc dán vào điểm không hợp lệ (điểm không hợp lệ còn lại trong khung, như góc ảnh mắt cá, vẫn làm LPIPS loãng đi một chút). Ảnh không có điểm hợp lệ nào bị bỏ qua. `eval.standard` chỉ đọc kết quả này, không đo lại. Thay đổi từ `0.1`: `0.1` so ảnh render ở dạng số thực. Thay đổi từ `0.2`: `0.2` tính SSIM, LPIPS trên toàn ảnh sau khi tô đen vùng không hợp lệ ở cả hai ảnh, nên vùng đó được tính là khớp hoàn toàn và SSIM, LPIPS của camera có `valid_masks` tốt hơn thực tế; thêm metric theo camera. Hai run khác protocol không so SSIM, LPIPS của các camera này với nhau.
 - Metric theo vùng (lấy từ metric test của DriveStudio): `human_psnr` vùng người (gồm cả xe đạp, xe máy vì người ngồi trên đó đổi dáng), `vehicle_psnr` vùng xe, `dynamic_psnr` vùng mọi vật động (`masked_psnr` của DriveStudio), `occupied_psnr` vùng **không phải bầu trời** (`Non-Sky PSNR`, không phải vùng vật động). Vùng người, xe, vật động là hình chữ nhật bao quanh box 3D chiếu lên ảnh.
 - `train_time_s`, `peak_vram_mb`, `num_gaussians`, `num_iters` đọc từ `train_stats.json` mà `train.py` ghi cùng mỗi checkpoint. `train_time_s` là **thời gian train thực**: chỉ tính các bước train (lấy batch, forward, backward, cập nhật), không tính lúc khởi động, nạp checkpoint, vẽ ảnh kiểm tra, lưu checkpoint hay đánh giá cuối; chạy tiếp từ checkpoint thì cộng tiếp từ số đã lưu cùng checkpoint đó, nên các bước bị làm lại sau khi ngắt không bị tính hai lần. `num_gaussians` là tổng mọi node của model (nền, xe, người, vật biến dạng).
 - `render_fps`: số khung chia cho thời gian model vẽ ảnh tập test (chỉ tính lời gọi model, có đồng bộ GPU, bỏ 3 khung đầu), ở độ phân giải `render_resolution`. FPS phụ thuộc GPU; tên GPU nằm trong `env.json`.
 - Các trường trên để trống (`null`) khi không có số liệu, ví dụ model train bằng `train.py` cũ chưa ghi `train_stats.json`.
-- `per_camera` để trống với DriveStudio, vì `train.py` không tách metric theo camera. Trainer ghi thêm khoá `image_metrics/test/per_camera/<camera_id>/<psnr|ssim|lpips>` trong file metric test thì `eval.standard` điền `per_camera`.
+- `per_camera`: `train.py` ghi khoá `image_metrics/test/per_camera/<chỉ số camera>/<psnr|ssim|lpips>` trong file metric test, với chỉ số là vị trí của camera trong `manifest.yaml` (cách `train.drivestudio` đánh số camera cho DriveStudio); `eval.standard` đổi chỉ số sang `camera_id`. Trainer khác có thể ghi thẳng `camera_id`. Model train bằng `train.py` cũ (protocol `0.2` trở về trước) không có khoá này nên `per_camera` để trống.
 - `protocol.resolution` đọc từ `config.yaml` của DriveStudio; không có file này thì lấy trường `resolution` trong `train_stats.json` (ví dụ `downscale=2`).
 - `speedups`: các thuật toán, kỹ thuật tăng tốc **thật sự** đã bật khi train, đọc từ `train_stats.json`: `fastgs` (`docs/methods/fastgs.md`), `fastergs.<kỹ thuật>` (`docs/methods/fastergs.md`). Rỗng khi không bật gì hoặc model train bằng `train.py` cũ. Mục cấu hình của run chỉ ghi công tắc; trường này ghi cái công tắc thật sự làm, để hai run cùng `fastergs: true` mà khác kỹ thuật (ví dụ ở hai phiên bản code) không bị coi là cùng cấu hình.
 - Thay đổi từ `0.1`: `train_time_s`, `peak_vram_mb`, `num_gaussians` thành tuỳ chọn. Thay đổi từ `0.2`: thêm `dynamic_psnr`, `num_iters`, `render_fps`, `render_resolution`; `occupied_psnr` ghi đúng nghĩa là vùng không phải bầu trời. Thay đổi từ `0.3`: thêm `speedups`. Thay đổi từ `0.4`: thêm `eval_time_s`: thời gian đánh giá cuối trong stage train (vẽ ảnh test, tính metric, render video), `train.py` đo rồi ghi vào `train_stats.json`; trang run tách thời gian stage train thành train, khởi động và lưu checkpoint, đánh giá và render video. Stage `eval.standard` chỉ đọc kết quả nên gần như không tốn thời gian.
