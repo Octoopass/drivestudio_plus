@@ -116,7 +116,7 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
           <button className="btn" onClick={onClose}>
             {t("common.action.cancel")}
           </button>
-          <button className="btn primary" onClick={ingest} disabled={!report?.ingest_supported || !sequence || busy}>
+          <button className="btn primary" onClick={ingest} disabled={!report?.ingest_supported || !sequence || busy || (interpolate > 0 && Boolean(report?.missing_sweeps?.length))}>
             {t("ingest.action.start")}
           </button>
         </>
@@ -175,6 +175,9 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
             <Note key={note} kind={report.ingest_supported ? "info" : "warn"}>
               {note}
             </Note>
+          ))}
+          {(report.errors ?? []).map((message) => (
+            <Note key={message} kind="warn">{message}</Note>
           ))}
           {!report.ingest_supported && report.inventory.length > 0 && (
             <div className="table-wrap panel">

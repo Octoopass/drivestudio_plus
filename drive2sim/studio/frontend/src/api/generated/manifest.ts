@@ -40,6 +40,7 @@ export type Lidar = boolean;
 export type Cuboids = "gt" | "autolabel" | "none";
 export type CameraLabels = string[];
 export type EgocarMask = boolean;
+export type HumanFrames = [unknown, unknown][] | null;
 
 /**
  * Schema của file ``manifest.yaml`` đi kèm dữ liệu chuẩn của một cảnh (CONTRACTS mục 2.2).
@@ -134,10 +135,16 @@ export interface Timeline {
  *     cuboids: Nguồn của box 3D: ``gt`` (nhãn gốc), ``autolabel`` (sinh tự động) hoặc ``none``.
  *     camera_labels: Nhãn theo ảnh có sẵn trong nguồn, ví dụ ``["depth", "segmentation"]``.
  *     egocar_mask: Nguồn có mask thân xe không.
+ *     human_frames: Các đoạn khung ``[đầu, cuối]`` (tính cả hai đầu) có ít nhất một box người
+ *         (lớp OmniRe dựng bằng SMPL, ``drive2sim/core/instances.py``); ``[]`` nếu cảnh không
+ *         có người; ``None`` nếu không biết. Engine dùng để bỏ bước dựng SMPL khi đoạn khung
+ *         của split không có người. Thêm từ ``d2s-manifest/1.2``; manifest cũ không có trường
+ *         này thì ``Workdir.load_scene`` tự đọc ``instances/`` nếu cảnh có trên máy.
  */
 export interface Available {
   lidar: Lidar;
   cuboids: Cuboids;
   camera_labels?: CameraLabels;
   egocar_mask?: EgocarMask;
+  human_frames?: HumanFrames;
 }

@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from drive2sim.colab.client import ColabError
 from drive2sim.engine.cache import CacheBusyError
+from drive2sim.engine.environment import EnvironmentMissingError
 from drive2sim.engine.housekeeping import InUseError
 from drive2sim.engine.registry import REGISTRY, StageRegistry, load_builtin_stages
 from drive2sim.engine.resolve import BlockedError, ResolveError
@@ -127,6 +128,10 @@ def _install_error_handlers(app: FastAPI) -> None:
             {"message": r.message, "option": r.option, "choice": r.choice} for r in error.reasons
         ]
         return error_response(422, "blocked", "approach không chạy được", {"reasons": reasons})
+
+    @app.exception_handler(EnvironmentMissingError)
+    async def env_missing(request: Request, error: EnvironmentMissingError) -> JSONResponse:
+        return error_response(422, "env_missing", str(error), {"environment": error.environment})
 
     @app.exception_handler(SplitExistsError)
     async def conflict_split(request: Request, error: SplitExistsError) -> JSONResponse:

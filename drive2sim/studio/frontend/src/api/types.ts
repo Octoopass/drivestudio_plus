@@ -158,6 +158,9 @@ export interface SourceReport {
   ingest_supported: boolean;
   inventory: Record<string, unknown>[];
   notes: string[];
+  errors: string[];
+  missing_sweeps: string[];
+  candidates: { path: string; dataset: string; relation: "child" | "parent" }[];
 }
 
 export interface CacheEntry {

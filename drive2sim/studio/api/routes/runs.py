@@ -4,7 +4,8 @@ Theo CONTRACTS mục 11; phục vụ SPEC mục 8 nhóm B (tiến trình) và C 
 
 File này chứa:
 - ``POST /api/runs``: tạo run rồi xếp vào hàng đợi chạy nền (hoặc đẩy lên Kaggle, Colab); trả
-  ``202`` kèm ``run.json``.
+  ``202`` kèm ``run.json``. Chạy trên máy mà máy thiếu môi trường thì trả ``422 env_missing``
+  trước khi tạo run, cùng câu với ``d2s run start``.
 - ``GET /api/runs``, ``GET /api/runs/{run_id}``: liệt kê run; xem ``run.json`` kèm ``summary``.
 - ``POST /api/runs/{run_id}/resume``: chạy tiếp một run.
 - ``POST /api/runs/{run_id}/cancel``: huỷ run đang chạy hoặc đang chờ.
@@ -30,7 +31,10 @@ from pydantic import BaseModel, ConfigDict
 from drive2sim.core import files
 from drive2sim.core.schema import Preview, RunRecord
 from drive2sim.engine import housekeeping
+from drive2sim.engine.approaches import load_approach
 from drive2sim.engine.artifacts import run_artifacts, train_curve
+from drive2sim.engine.environment import require_local_environment
+from drive2sim.engine.registry import produces_artifact
 from drive2sim.engine.render_check import render_readiness
 from drive2sim.engine.report import train_params
 from drive2sim.engine.run import (
@@ -122,6 +126,19 @@ def _claim(request: Request, run_dir: Path, run_id: str) -> None:
         raise HTTPException(409, f"run {run_id} đang chạy, đang xếp hàng hoặc đang tải về")
 
 
+def _require_local(request: Request, approach_id: str, stage_ids: list[str]) -> None:
+    """Dừng sớm (``422 env_missing``) nếu máy chạy Studio thiếu môi trường để chạy run trên máy.
+
+    Raises:
+        EnvironmentMissingError: Nếu thiếu GPU, gói của môi trường chính hoặc file SMPL.
+    """
+    require_local_environment(
+        load_approach(approach_id).codebase,
+        needs_smpl=produces_artifact(stage_ids, "smpl"),
+        workdir_root=state_of(request).workdir.root,
+    )
+
+
 def _tail(path: Path, lines: int = LOG_TAIL_LINES) -> str:
     """Đọc ``lines`` dòng cuối của một file văn bản; trả chuỗi rỗng nếu không có file."""
     if not path.is_file():
@@ -143,6 +160,8 @@ def start_run(body: CreateRunBody, request: Request) -> dict:
     """
     state = state_of(request)
     scene, split, plan = plan_from_body(state, body.approach_id, body)
+    if body.executor == "local":
+        _require_local(request, plan.approach_id, [stage.stage_id for stage in plan.stages])
     run_dir = create_run(plan, state.workdir, scene, split, executor=body.executor)
     if body.executor == "kaggle":
         kaggle.submit_push(state, run_dir.name)
@@ -203,6 +222,10 @@ def resume_run(run_id: str, request: Request) -> dict:
         ``run.json`` hiện tại.
     """
     run_dir, record = _load(request, run_id)
+    if record.executor == "local":
+        _require_local(
+            request, record.approach.approach_id, [stage.stage_id for stage in record.stages]
+        )
     _claim(request, run_dir, run_id)
     state_of(request).queue.submit(run_dir, claimed=True)
     return record.model_dump(mode="json")

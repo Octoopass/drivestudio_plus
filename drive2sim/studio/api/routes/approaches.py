@@ -143,7 +143,7 @@ def check(approach_id: str, body: PlanBody, request: Request) -> dict:
     scene, split, plan = plan_from_body(state, approach_id, body)
     reused = preview_reuse(plan, scene, split, state.workdir, state.registry)
     blocked = blocked_choices(
-        load_approach(approach_id), scene.manifest, state.registry, split.cameras
+        load_approach(approach_id), scene.manifest, state.registry, split.cameras, split
     )
     return {
         "approach_id": plan.approach_id,

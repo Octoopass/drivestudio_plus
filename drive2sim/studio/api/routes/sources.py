@@ -81,7 +81,13 @@ def ingest(body: IngestBody, request: Request) -> dict:
     """
     state = state_of(request)
     raw_dir = Path(body.path).expanduser()
-    target = plan_ingest(_inspect(body.path), body.source_type, body.version, body.sequence)
+    target = plan_ingest(
+        _inspect(body.path),
+        body.source_type,
+        body.version,
+        body.sequence,
+        interpolate_n=body.interpolate_n,
+    )
 
     def work() -> str:
         scene_dir = run_ingest(
