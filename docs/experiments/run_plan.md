@@ -97,6 +97,40 @@ bước. PSNR là PSNR test trong `summary.json`. "FrGS" là Faster-GS.
 - Mỗi dòng là một run; chưa lặp lại seed, nên chênh lệch nhỏ giữa hai run gần giống nhau
   (ví dụ `453a` và `f8a6`) chưa đủ để kết luận.
 
+### Chất lượng test ở bước 15.000 so với bước cuối
+
+Đánh giá lại `checkpoint_15000.pth` của từng run trên máy (Quadro T2000, 17/11/2026) bằng
+`drive2sim.recon.tools.eval`, cùng tập test 57 ảnh của `front3`; thư mục cảnh ảo dựng lại từ
+`data/nuscenes_scene-0061` và cache `prep.masks_segformer@0.1.0-a8f3d932`,
+`prep.smpl@0.1.0-d1199b29` như lúc train. Kiểm tra cách đo: đánh giá lại `checkpoint_final.pth`
+của `f8a6` ra PSNR 25,0063, khớp `summary.json` gốc. Cột "cuối" lấy từ `summary.json`.
+
+| Run | Renderer | Densify | FastGS | FrGS | PSNR 15k | PSNR cuối | Chênh | SSIM 15k → cuối | LPIPS 15k → cuối |
+|---|---|---|---|---|---:|---:|---:|---|---|
+| `2d33` | 3DGS | gốc | | | 23,00 | 25,15 | +2,16 | 0,745 → 0,785 | 0,331 → 0,251 |
+| `8d9c` | 3DGS | gốc | | có | 22,82 | 25,20 | +2,38 | 0,741 → 0,785 | 0,338 → 0,251 |
+| `453a` | 3DGS | gốc | có | | 24,40 | 25,02 | +0,62 | 0,767 → 0,777 | 0,301 → 0,268 |
+| `f8a6` | 3DGS | gốc | có | có | 24,33 | 25,01 | +0,68 | 0,767 → 0,778 | 0,302 → 0,269 |
+| `60e5` | 3DGUT | gốc | có | có | 23,88 | 23,99 | +0,11 | 0,751 → 0,750 | 0,347 → 0,333 |
+| `a8a9` | 3DGEER (mỗi 50 bước) | gốc | có | có | 21,47 | 21,77 | +0,30 | 0,746 → 0,752 | 0,325 → 0,300 |
+| `6b85` | 3DGEER (mỗi 300 bước) | gốc | có | có | 21,45 | 21,66 | +0,21 | 0,743 → 0,744 | 0,334 → 0,317 |
+| `a022` | 3DGS | MCMC | | có | 20,91 | 23,56 | +2,66 | 0,646 → 0,716 | 0,522 → 0,403 |
+| `44d8` | 3DGUT | MCMC | | có | 20,51 | 23,19 | +2,68 | 0,630 → 0,711 | 0,536 → 0,415 |
+| `ccec` | Street GS 3DGS | gốc | có | | 24,19 | 25,02 | +0,83 | 0,765 → 0,779 | 0,300 → 0,264 |
+| `ecaa` | Street GS 3DGS | gốc | có | có | 24,18 | 24,96 | +0,79 | 0,764 → 0,779 | 0,302 → 0,264 |
+
+Đọc bảng:
+
+- Densify gốc không FastGS và MCMC còn tăng 2,2–2,7 dB sau bước 15.000: dừng ở 15.000 bước
+  là thiếu rõ.
+- Có FastGS: 3DGS tăng 0,6–0,8 dB; 3DGUT, 3DGEER chỉ tăng 0,1–0,3 dB.
+- Giới hạn: checkpoint ở bước 15.000 của một lịch 30.000 bước chưa giảm learning rate tới
+  cuối lịch, nên **không bằng** một run train 15.000 bước với lịch rút gọn. Muốn biết rút số
+  bước có được không thì phải chạy run 15.000 bước thật; bảng này chỉ cho biết chất lượng còn
+  tăng bao nhiêu sau nửa đầu lịch.
+- Sau khi đo, các `checkpoint_15000.pth` trên máy đã xoá (17/11/2026) để giải phóng ổ đĩa;
+  output notebook Kaggle của các run vẫn còn.
+
 ## Fisheye (pinhole + mắt cá)
 
 ### Kế hoạch hiện tại: 6 run, mỗi run 30.000 bước
