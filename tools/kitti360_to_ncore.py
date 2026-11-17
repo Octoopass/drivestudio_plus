@@ -66,6 +66,14 @@ CAMERAS = {
     "image_03": ("CAM_BACK_LEFT", "camera_fisheye_right_03", "fisheye"),
 }
 LIDAR_ID = "lidar_velodyne"
+# --target drivestudio: DriveStudio+'s PhysicalAI preprocessor only reads these sensor ids (index 0, the
+# front-wide camera, is its reference clock) and only F-theta cameras. The names are labels; the geometry
+# stays KITTI-360's. image_01 is left out: the preprocessor has no second front camera of the same kind.
+DRIVESTUDIO_SENSOR_IDS = {
+    "image_00": "camera_front_wide_120fov",
+    "image_02": "camera_cross_left_120fov",
+    "image_03": "camera_cross_right_120fov",
+}
 FRAME_DT_US = 100_000  # 10 Hz
 FISHEYE_MAX_ANGLE = 1.45  # range of the MEI -> Kannala-Brandt fit
 FTHETA_MAX_ANGLE = 1.6  # 92 deg: radius ~658 px, the edge of the KITTI-360 fisheye image circle
@@ -193,6 +201,28 @@ NV_CROSS_120 = {
 }
 
 
+def pinhole_to_ftheta(info: dict, w: int, h: int) -> FThetaCameraModelParameters:
+    """F-theta model of a rectified KITTI-360 perspective camera (r = fy tan theta), for readers that only
+    accept F-theta (DriveStudio+'s PhysicalAI loader). Fitted up to the image corner; the fit error is
+    checked in tests/test_kitti360_ncore.py."""
+    K = np.array(info["camera_intrinsic"], dtype=np.float64)
+    corners = np.array([[0, 0], [w, 0], [0, h], [w, h]], dtype=np.float64) - K[:2, 2]
+    corner_r = np.max(np.hypot(corners[:, 0] * K[1, 1] / K[0, 0], corners[:, 1]))
+    max_angle = float(np.arctan(corner_r / K[1, 1]) + 0.02)
+    theta = np.linspace(0.0, max_angle, 4000)
+    r = K[1, 1] * np.tan(theta)
+    return FThetaCameraModelParameters(
+        resolution=np.array([w, h], dtype=np.uint64), shutter_type=ShutterType.GLOBAL,
+        external_distortion_parameters=None,
+        principal_point=np.array([K[0, 2], K[1, 2]], dtype=np.float32),
+        reference_poly=FThetaCameraModelParameters.PolynomialType.ANGLE_TO_PIXELDIST,
+        pixeldist_to_angle_poly=_poly_fit(r, theta),
+        angle_to_pixeldist_poly=_poly_fit(theta, r),
+        max_angle=max_angle,
+        linear_cde=np.array([K[0, 0] / K[1, 1], 0.0, 0.0], dtype=np.float32),
+    )
+
+
 def nv_cross_120(c: str) -> FThetaCameraModelParameters:
     t = NV_CROSS_120[c]
     return FThetaCameraModelParameters(
@@ -255,13 +285,15 @@ class FisheyeRectifier:
         return Image.fromarray(bad.astype(np.uint8) * 255, mode="L")
 
 
-def camera_params(info: dict, model: str, w: int, h: int, fisheye_model: str = "ftheta"):
+def camera_params(info: dict, model: str, w: int, h: int, fisheye_model: str = "ftheta", pinhole_ftheta: bool = False):
     K = np.array(info["camera_intrinsic"], dtype=np.float64)
     res = np.array([w, h], dtype=np.uint64)
     # NCore's OpenCV models put pixel centres at +0.5; KITTI-360 (OpenCV) K puts them at integers
     pp = np.array([K[0, 2] + 0.5, K[1, 2] + 0.5], dtype=np.float32)
     if model == "fisheye" and fisheye_model == "ftheta":
         return mei_to_ftheta(info, w, h)
+    if model == "pinhole" and pinhole_ftheta:
+        return pinhole_to_ftheta(info, w, h)
     if model == "pinhole":
         return OpenCVPinholeCameraModelParameters(
             resolution=res, shutter_type=ShutterType.GLOBAL, external_distortion_parameters=None,
@@ -328,6 +360,18 @@ def convert(args) -> Path:
     for c in cams:
         if c not in CAMERAS:
             sys.exit(f"unknown camera {c}; choose from {list(CAMERAS)}")
+    drivestudio = getattr(args, "target", "nurec") == "drivestudio"
+    if drivestudio:
+        dropped = [c for c in cams if c not in DRIVESTUDIO_SENSOR_IDS]
+        cams = [c for c in cams if c in DRIVESTUDIO_SENSOR_IDS]
+        if dropped:
+            log(f"--target drivestudio: skipping {dropped} (no matching PhysicalAI sensor id)")
+        if "image_00" not in cams:
+            sys.exit("--target drivestudio needs image_00: it becomes the reference front-wide camera")
+        args.fisheye_model = "ftheta"
+
+    def sensor_id(c: str) -> str:
+        return DRIVESTUDIO_SENSOR_IDS[c] if drivestudio else CAMERAS[c][1]
 
     # ---- timeline: 10 Hz from frame id; sequence = [0, t_last + 1)
     t_us = {f: (f - fids[0]) * FRAME_DT_US for f in fids}
@@ -349,6 +393,8 @@ def convert(args) -> Path:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     seq_id = args.sequence_id or f"kitti360_{seq.split('_drive_')[1].split('_')[0]}_{fids[0]:06d}_{len(fids)}f"
+    if drivestudio and not seq_id.startswith("pai_"):
+        seq_id = "pai_" + seq_id  # the PhysicalAI preprocessor globs **/pai_*.json
     writer = SequenceComponentGroupsWriter(
         output_dir_path=UPath(out), store_base_name=seq_id, sequence_id=seq_id,
         sequence_timestamp_interval_us=interval,
@@ -363,7 +409,7 @@ def convert(args) -> Path:
     # ---- poses
     pw = writer.register_component_writer(PosesComponent.Writer, "default")
     for c in cams:
-        pw.store_static_pose(CAMERAS[c][1], "rig", cam_to_rig[c])
+        pw.store_static_pose(sensor_id(c), "rig", cam_to_rig[c])
     if args.lidar:
         pw.store_static_pose(LIDAR_ID, "rig", lidar_to_rig)
     pw.store_static_pose("world", "world_global", np.eye(4))
@@ -373,7 +419,8 @@ def convert(args) -> Path:
     iw = writer.register_component_writer(IntrinsicsComponent.Writer, "default")
     mw = writer.register_component_writer(MasksComponent.Writer, "default")
     for c in cams:
-        key, sensor_id, model = CAMERAS[c]
+        key, _, model = CAMERAS[c]
+        sid = sensor_id(c)
         raw = read_tar(data / f"data_2d_raw/{seq}_{c}.tar", ".png", wanted)
         first = Image.open(io.BytesIO(raw[f"{fids[0]:010d}"]))
         w, h = first.size
@@ -381,10 +428,10 @@ def convert(args) -> Path:
         rect = None
         if model == "fisheye" and args.fisheye_model == "rectify120":
             rect = FisheyeRectifier(info, nv_cross_120(c), w, h)
-            iw.store_camera_intrinsics(sensor_id, rect.target)
+            iw.store_camera_intrinsics(sid, rect.target)
         else:
-            iw.store_camera_intrinsics(sensor_id, camera_params(info, model, w, h, args.fisheye_model))
-        cw = writer.register_component_writer(CameraSensorComponent.Writer, sensor_id, group_name=sensor_id)
+            iw.store_camera_intrinsics(sid, camera_params(info, model, w, h, args.fisheye_model, pinhole_ftheta=drivestudio))
+        cw = writer.register_component_writer(CameraSensorComponent.Writer, sid, group_name=sid)
         for f in fids:
             img = Image.open(io.BytesIO(raw[f"{f:010d}"])).convert("RGB")
             if rect is not None:
@@ -403,9 +450,9 @@ def convert(args) -> Path:
             log(f"{c}: ego mask covers {np.asarray(mask).mean() / 2.55:.0f}% of pixels")
         else:
             mask = Image.new("L", (w, h), 0)
-        mw.store_camera_masks(sensor_id, {"ego": mask})
+        mw.store_camera_masks(sid, {"ego": mask})
         size = "x".join(str(int(v)) for v in rect.target.resolution) if rect is not None else f"{w}x{h}"
-        log(f"{c} -> {sensor_id} ({model if rect is None else 'fisheye -> F-theta 120deg'}, {size}, {len(fids)} frames)")
+        log(f"{c} -> {sid} ({model if rect is None else 'fisheye -> F-theta 120deg'}, {size}, {len(fids)} frames)")
         del raw
 
     # ---- lidar
@@ -456,6 +503,10 @@ def main(argv=None):
                    help="rectify120: resample to NVIDIA's 120-degree F-theta camera (Instant NuRec); "
                         "ftheta: full fisheye as F-theta; opencv: full fisheye as Kannala-Brandt (3DGUT/gsplat)")
     p.add_argument("--sequence-id", default="")
+    p.add_argument("--target", choices=["nurec", "drivestudio"], default="nurec",
+                   help="nurec: Instant NuRec clip (default); drivestudio: clip for DriveStudio+'s PhysicalAI "
+                        "preprocessor (F-theta cameras, PhysicalAI sensor ids, pai_ prefix; image_00/02/03 only). "
+                        "Preprocess it with --frame_stride 1, KITTI-360 is 10 Hz")
     args = p.parse_args(argv)
     print(convert(args))
 

@@ -92,6 +92,10 @@ if __name__ == "__main__":
     )
     parser.add_argument("--dataset", type=str, default="waymo", help="dataset name")
     parser.add_argument(
+        "--frame_stride", type=int, default=3,
+        help="PhysicalAI/NCore only: keep every Nth frame of the reference camera (3 for 30 Hz PhysicalAI, 1 for 10 Hz KITTI-360 clips)",
+    )
+    parser.add_argument(
         "--split",
         type=str,
         default="training",
@@ -254,6 +258,7 @@ if __name__ == "__main__":
             process_keys=args.process_keys,
             process_id_list=scene_ids_list,
             workers=args.workers,
+            frame_stride=args.frame_stride,
         )
     else:
         raise ValueError(f"Unknown dataset {args.dataset}, please choose from waymo, pandaset, argoverse, nuscenes, kitti, nuplan, physicalai")
