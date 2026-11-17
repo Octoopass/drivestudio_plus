@@ -128,6 +128,16 @@ của `f8a6` ra PSNR 25,0063, khớp `summary.json` gốc. Cột "cuối" lấy 
   cuối lịch, nên **không bằng** một run train 15.000 bước với lịch rút gọn. Muốn biết rút số
   bước có được không thì phải chạy run 15.000 bước thật; bảng này chỉ cho biết chất lượng còn
   tăng bao nhiêu sau nửa đầu lịch.
+- Kết luận:
+  - Không có FastGS (densify gốc, MCMC): phải train đủ 30.000 bước.
+  - FastGS và số bước là hai việc khác nhau. FastGS cắt bớt Gaussian nên **mỗi bước** nhanh
+    hơn, nhưng không đổi **số bước**: run hiện tại vẫn chạy đủ 30.000 bước.
+  - Với 3DGUT, 3DGEER có FastGS, chất lượng gần như đã đạt ở bước 15.000. Giả thuyết: đặt
+    `train.drivestudio.num_iters=15000` thì thời gian train giảm khoảng một nửa mà PSNR chỉ
+    kém khoảng 0,1–0,3 dB. **Chưa kiểm chứng**; tạm thời vẫn giữ 30.000 bước.
+  - Việc cần làm để kiểm chứng: một run OmniRe + 3DGUT + FastGS + Faster-GS, nuScenes
+    `scene-0061`, `front3`, 15.000 bước, so với `60e5` (30.000 bước, PSNR 23,99). Kém dưới
+    khoảng 0,2 dB thì dùng 15.000 bước cho các đợt 3DGUT, 3DGEER sau, kể cả KITTI-360.
 - Sau khi đo, các `checkpoint_15000.pth` trên máy đã xoá (17/11/2026) để giải phóng ổ đĩa;
   output notebook Kaggle của các run vẫn còn.
 
