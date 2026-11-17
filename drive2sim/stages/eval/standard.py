@@ -17,12 +17,14 @@ File này chứa:
 - ``make_summary``: dựng ``Summary`` từ metric và thống kê train đọc được.
 - ``EvalStandardStage``: stage đăng ký với engine.
 
-Giới hạn hiện tại: DriveStudio không tách metric theo camera nên ``per_camera`` để trống. Trainer
-khác ghi cùng định dạng file có thể ghi thêm khoá
-``image_metrics/test/per_camera/<camera_id>/<psnr|ssim|lpips>``; khi có, stage điền
-``per_camera``. Tách
-đánh giá khỏi ``train.py`` là việc sau (ARCHITECTURE mục 7.2). Phần đo thời gian, VRAM, số
-Gaussian và FPS trong ``train.py`` chưa chạy thật (cần GPU).
+Metric theo camera: ``train.py`` ghi khoá
+``image_metrics/test/per_camera/<chỉ số>/<psnr|ssim|lpips>``
+với chỉ số là vị trí của camera trong ``manifest.yaml`` (cách ``train.drivestudio`` đánh số
+camera cho DriveStudio); stage đổi chỉ số sang ``camera_id`` để điền ``per_camera``. Khoá đã là
+``camera_id`` (trainer khác ghi) thì giữ nguyên. Model train bằng ``train.py`` cũ không có khoá
+này nên ``per_camera`` để trống.
+
+Giới hạn hiện tại: tách đánh giá khỏi ``train.py`` là việc sau (ARCHITECTURE mục 7.2).
 """
 
 import json
@@ -38,9 +40,12 @@ from drive2sim.core.schema import SCHEMA_VERSIONS, EvalProtocol, LpipsSetting, M
 from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import NoParams, Stage, StageContext
 
+# 0.3: khi loader đánh dấu điểm ảnh không hợp lệ (``valid_masks``: camera mắt cá ngoài vùng nhìn
+# dùng được, thân xe), SSIM và LPIPS cũng chỉ tính trên điểm ảnh hợp lệ như PSNR; ảnh không có điểm
+# hợp lệ nào bị bỏ qua thay vì làm trung bình thành NaN; thêm metric theo camera.
 # 0.2: ảnh render được làm tròn về 8 bit trước khi đo, như ảnh gốc (SPEC mục 9); 0.1 đo ảnh render
 # ở dạng số thực.
-PROTOCOL_VERSION = "0.2"
+PROTOCOL_VERSION = "0.3"
 METRIC_PREFIX = "image_metrics/test/"
 SUMMARY_FILE = "summary.json"
 TRAIN_STATS_FILE = "train_stats.json"
@@ -123,11 +128,30 @@ def _resolution_of(model_dir: Path) -> str:
     )
 
 
+def _camera_name(key: str, camera_ids: Optional[list[str]]) -> str:
+    """Đổi khoá camera trong file metric sang ``camera_id``.
+
+    ``train.py`` ghi chỉ số camera (``"2"``), là vị trí của camera trong ``manifest.yaml``.
+
+    Args:
+        key: Khoá camera đọc được, ví dụ ``"2"`` hoặc ``"CAM_FRONT"``.
+        camera_ids: ``camera_id`` theo thứ tự manifest; ``None`` thì không đổi.
+
+    Returns:
+        ``camera_id`` ứng với chỉ số, ví dụ ``"image_02"``; khoá không phải chỉ số hợp lệ thì
+        trả nguyên khoá.
+    """
+    if camera_ids is not None and key.isdigit() and int(key) < len(camera_ids):
+        return camera_ids[int(key)]
+    return key
+
+
 def make_summary(
     metrics: dict[str, float],
     split_id: str,
     model_dir: Path,
     train_stats: Optional[dict[str, object]] = None,
+    camera_ids: Optional[list[str]] = None,
 ) -> Summary:
     """Dựng ``summary.json`` từ metric của DriveStudio và ``train_stats.json``.
 
@@ -139,6 +163,8 @@ def make_summary(
         split_id: Split của run.
         model_dir: Thư mục train, để đọc độ phân giải trong config.
         train_stats: Kết quả ``read_train_stats``; thiếu trường nào thì trường đó để trống.
+        camera_ids: ``camera_id`` theo thứ tự trong ``manifest.yaml``, để đổi khoá chỉ số camera
+            (``per_camera/0/psnr``) sang ``camera_id``. ``None`` thì giữ nguyên khoá.
 
     Returns:
         Đối tượng ``Summary``.
@@ -156,13 +182,12 @@ def make_summary(
         return int(value) if isinstance(value, (int, float)) and value >= 0 else None
 
     width, height = optional("render_width"), optional("render_height")
-    # Metric theo camera, khi trainer ghi khoá ``per_camera/<camera_id>/<metric>`` (trainer
-    # khác ghi; DriveStudio không ghi nên per_camera để trống như trước).
+    # Metric theo camera: khoá ``per_camera/<chỉ số hoặc camera_id>/<metric>``.
     per_camera: dict[str, dict[str, float]] = {}
     for key, value in metrics.items():
         parts = key.split("/")
         if len(parts) == 3 and parts[0] == PER_CAMERA_PREFIX:
-            per_camera.setdefault(parts[1], {})[parts[2]] = value
+            per_camera.setdefault(_camera_name(parts[1], camera_ids), {})[parts[2]] = value
     train_time = (train_stats or {}).get("train_time_s")
     eval_time = (train_stats or {}).get("eval_time_s")
     speedups = (train_stats or {}).get("speedups")
@@ -213,7 +238,7 @@ def make_summary(
 class EvalStandardStage(Stage):
     """Đổi metric DriveStudio ghi khi train sang ``summary.json`` theo protocol chung."""
 
-    version: ClassVar[str] = "0.1.0"
+    version: ClassVar[str] = "0.2.0"
     cacheable: ClassVar[bool] = False
     uses_lidar: ClassVar[bool] = False
     inputs: ClassVar[dict[str, str]] = {"model": "model", "split": "split"}
@@ -237,7 +262,11 @@ class EvalStandardStage(Stage):
         (ctx.output_dir / REPORT_FILE).write_text(json.dumps(metrics, indent=2) + "\n")
         files.dump(
             make_summary(
-                metrics, ctx.split.split_id, inputs["model"], read_train_stats(inputs["model"])
+                metrics,
+                ctx.split.split_id,
+                inputs["model"],
+                read_train_stats(inputs["model"]),
+                camera_ids=[camera.camera_id for camera in ctx.scene.manifest.cameras],
             ),
             ctx.output_dir / SUMMARY_FILE,
         )

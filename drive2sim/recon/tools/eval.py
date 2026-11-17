@@ -83,6 +83,11 @@ def do_evaluation(
                     "render_height",
                 ]:
                     eval_dict[f"image_metrics/test/{k}"] = v
+            # drive2sim: per-camera metrics as image_metrics/test/per_camera/<cam_index>/<name>;
+            # eval.standard maps the index to the camera_id of manifest.yaml.
+            for camera, values in render_results.get("per_camera", {}).items():
+                for name, value in values.items():
+                    eval_dict[f"image_metrics/test/per_camera/{camera}/{name}"] = value
             if args.enable_wandb:
                 wandb.log(eval_dict)
             test_metrics_file = f"{cfg.log_dir}/metrics{post_fix}/images_test_{current_time}.json"

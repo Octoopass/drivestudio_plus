@@ -44,6 +44,59 @@ def compute_psnr(prediction: Tensor, target: Tensor) -> float:
     return (-10 * torch.log10(F.mse_loss(prediction, target))).item()
 
 
+def compute_image_metrics(
+    rgb: Tensor,
+    gt: Tensor,
+    valid: Optional[Tensor],
+    lpips_fn: Callable[[Tensor, Tensor], Tensor],
+) -> Optional[tuple]:
+    """drive2sim: PSNR, SSIM and LPIPS of one rendered image, restricted to valid pixels.
+
+    When the loader marks invalid pixels (``valid_masks``: fisheye outside the usable field of
+    view, ego-car body), all three metrics use only valid pixels, so a fisheye camera is measured
+    on the same footing as a pinhole one: PSNR uses the valid pixels and SSIM averages its
+    per-pixel map over them. LPIPS has no per-pixel map in torchmetrics, so it is measured on the
+    bounding box of the valid pixels with the ground truth pasted into the invalid ones (zero
+    difference there); invalid pixels inside that box (fisheye corners, ego-car body) still dilute
+    it a little. Without a mask the whole image is used, as in DriveStudio.
+
+    Before this, render_images zeroed invalid pixels in both images and measured SSIM and LPIPS on
+    the full frame, so the black region counted as a perfect match and inflated both scores.
+
+    Args:
+        rgb: Rendered image, (H, W, 3) in [0, 1].
+        gt: Ground-truth image, (H, W, 3) in [0, 1].
+        valid: Boolean mask (H, W), or None.
+        lpips_fn: LPIPS module taking two (1, 3, H, W) tensors.
+
+    Returns:
+        (psnr, ssim, lpips) as floats, or None when the mask has no valid pixel (the image is
+        then left out of the averages instead of turning them into NaN).
+    """
+    if valid is None:
+        psnr = compute_psnr(rgb, gt)
+        ssim_score = ssim(get_numpy(rgb), get_numpy(gt), data_range=1.0, channel_axis=-1)
+        rgb_for_lpips = rgb
+    else:
+        valid = valid.bool()
+        if not valid.any():
+            return None
+        psnr = compute_psnr(rgb[valid], gt[valid])
+        ssim_map = ssim(
+            get_numpy(rgb), get_numpy(gt), data_range=1.0, channel_axis=-1, full=True
+        )[1]
+        ssim_score = ssim_map[get_numpy(valid).astype(bool)].mean()
+        rows = torch.nonzero(valid.any(dim=1)).flatten()
+        cols = torch.nonzero(valid.any(dim=0)).flatten()
+        box = (slice(int(rows[0]), int(rows[-1]) + 1), slice(int(cols[0]), int(cols[-1]) + 1))
+        rgb_for_lpips = torch.where(valid[..., None], rgb, gt)[box]
+        gt = gt[box]
+    lpips = lpips_fn(
+        rgb_for_lpips[None, ...].permute(0, 3, 1, 2), gt[None, ...].permute(0, 3, 1, 2)
+    ).item()
+    return float(psnr), float(ssim_score), float(lpips)
+
+
 def render_images(
     trainer: BasicTrainer,
     dataset: SplitWrapper,
@@ -138,6 +191,9 @@ def render(
 
     if compute_metrics:
         psnrs, ssim_scores, lpipss = [], [], []
+        # drive2sim: per-camera lists, keyed by the DriveStudio camera index (cam_id), which
+        # train.drivestudio sets to the camera's position in manifest.yaml.
+        per_camera_metrics: Dict[str, Dict[str, List[float]]] = {}
         masked_psnrs, masked_ssims = [], []
         human_psnrs, human_ssims = [], []
         vehicle_psnrs, vehicle_ssims = [], []
@@ -265,29 +321,24 @@ def render(
                 lidar_on_images.append(lidar_on_image)
 
             if compute_metrics:
-                if "valid_masks" in image_infos:
-                    valid = image_infos["valid_masks"].bool()
-                    psnr = (
-                        compute_psnr(rgb[valid], image_infos["pixels"][valid])
-                        if valid.any()
-                        else float("nan")
-                    )
+                metric_values = compute_image_metrics(
+                    rgb, image_infos["pixels"], image_infos.get("valid_masks"), trainer.lpips
+                )
+                if metric_values is None:
+                    logger.warning(f"Frame {i}: no valid pixel, skipped in metrics")
                 else:
-                    psnr = compute_psnr(rgb, image_infos["pixels"])
-                ssim_score = ssim(
-                    get_numpy(rgb),
-                    get_numpy(image_infos["pixels"]),
-                    data_range=1.0,
-                    channel_axis=-1,
-                )
-                lpips = trainer.lpips(
-                    rgb[None, ...].permute(0, 3, 1, 2),
-                    image_infos["pixels"][None, ...].permute(0, 3, 1, 2)
-                )
-                logger.info(f"Frame {i}: PSNR {psnr:.4f}, SSIM {ssim_score:.4f}")
-                psnrs.append(psnr)
-                ssim_scores.append(ssim_score)
-                lpipss.append(lpips.item())
+                    psnr, ssim_score, lpips = metric_values
+                    logger.info(f"Frame {i}: PSNR {psnr:.4f}, SSIM {ssim_score:.4f}")
+                    psnrs.append(psnr)
+                    ssim_scores.append(float(ssim_score))
+                    lpipss.append(lpips)
+                    camera_metrics = per_camera_metrics.setdefault(
+                        str(cam_infos["cam_id"].flatten()[0].item()),
+                        {"psnr": [], "ssim": [], "lpips": []},
+                    )
+                    camera_metrics["psnr"].append(psnr)
+                    camera_metrics["ssim"].append(float(ssim_score))
+                    camera_metrics["lpips"].append(lpips)
                 
                 if "sky_masks" in image_infos:
                     occupied_mask = ~get_numpy(image_infos["sky_masks"]).astype(bool)
@@ -423,6 +474,11 @@ def render(
     results_dict["psnr"] = non_zero_mean(psnrs) if compute_metrics else -1
     results_dict["ssim"] = non_zero_mean(ssim_scores) if compute_metrics else -1
     results_dict["lpips"] = non_zero_mean(lpipss) if compute_metrics else -1
+    if compute_metrics:
+        results_dict["per_camera"] = {
+            camera: {name: non_zero_mean(values) for name, values in lists.items()}
+            for camera, lists in sorted(per_camera_metrics.items())
+        }
     results_dict["occupied_psnr"] = non_zero_mean(occupied_psnrs) if compute_metrics else -1
     results_dict["occupied_ssim"] = non_zero_mean(occupied_ssims) if compute_metrics else -1
     results_dict["masked_psnr"] = non_zero_mean(masked_psnrs) if compute_metrics else -1

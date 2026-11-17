@@ -393,6 +393,32 @@ def test_eval_adds_train_stats_and_render_speed(tmp_path: Path) -> None:
     assert bare.train_time_s is None and bare.num_gaussians is None and bare.speedups == []
 
 
+def test_eval_maps_camera_index_to_camera_id(tmp_path: Path) -> None:
+    metrics_dir = tmp_path / "metrics"
+    metrics_dir.mkdir()
+    values = {
+        "image_metrics/test/psnr": 25.0,
+        "image_metrics/test/ssim": 0.8,
+        "image_metrics/test/lpips": 0.2,
+    }
+    for index, psnr in (("0", 26.0), ("2", 22.0)):
+        for name, value in (("psnr", psnr), ("ssim", 0.8), ("lpips", 0.2)):
+            values[f"image_metrics/test/per_camera/{index}/{name}"] = value
+    (metrics_dir / "images_test_2026-11-17_120000.json").write_text(json.dumps(values))
+    metrics = read_drivestudio_metrics(tmp_path)
+    summary = make_summary(
+        metrics,
+        "every10_mixed4",
+        tmp_path,
+        camera_ids=["image_00", "image_01", "image_02", "image_03"],
+    )
+    assert summary.per_camera["image_00"].psnr == 26.0
+    assert summary.per_camera["image_02"].psnr == 22.0
+    assert set(summary.per_camera) == {"image_00", "image_02"}
+    # không có danh sách camera thì giữ nguyên khoá
+    assert set(make_summary(metrics, "s", tmp_path).per_camera) == {"0", "2"}
+
+
 def test_eval_without_metrics(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="ảnh test"):
         read_drivestudio_metrics(tmp_path)
