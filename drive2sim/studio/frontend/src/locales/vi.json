@@ -128,6 +128,8 @@
   "scene.frames.frame": "Khung {frame} / {last}",
   "scene.frames.fps": "{fps} khung/giây",
   "scene.frames.missing": "không có ảnh",
+  "scene.outdated.title": "Cảnh được ingest bằng converter {converter} cũ",
+  "scene.outdated.detail": "Đầu ra phiên bản {recorded}, converter hiện tại ghi phiên bản {current}. Cảnh vẫn chạy được; ingest lại để dùng đầu ra mới (với cảnh trên Kaggle, d2s kaggle ingest tự tạo notebook mới).",
   "scene.kaggle.title": "Cảnh này được nạp trên Kaggle: ảnh, LiDAR, mask nằm trên Kaggle, máy này chỉ có manifest và báo cáo kiểm tra, nên không xem được ảnh ở đây.",
   "scene.kaggle.detail": "Notebook nạp cảnh: {kernel}. Các tab Camera, Kiểm tra vẫn xem được. Run của cảnh này phải chạy trên Kaggle (executor kaggle); notebook train tự gắn output của notebook nạp cảnh.",
   "scene.frames.split": "Hiện split",

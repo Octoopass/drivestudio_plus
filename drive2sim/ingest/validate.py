@@ -19,6 +19,8 @@ Các phép kiểm tra, mỗi lỗi gộp theo camera để báo cáo không dài
 - ``lidar.missing`` (cảnh báo): manifest có LiDAR nhưng thiếu file ở một số khung.
 - ``objects.unreadable`` (lỗi): file ``instances/*.json`` không đọc được.
 - ``projection.not_run`` (thông tin): chưa chiếu LiDAR lên ảnh.
+- ``converter.outdated`` (cảnh báo): cảnh được ingest bằng converter cũ (phiên bản đầu ra trong
+  manifest khác phiên bản hiện tại, ``outdated_output_version``); cảnh vẫn dùng được.
 """
 
 import json
@@ -29,7 +31,7 @@ from typing import Optional
 from drive2sim.core.schema import SCHEMA_VERSIONS, Check, Manifest, ReportSummary, ValidationReport
 from drive2sim.engine.workdir import KAGGLE_SCENE_FILE
 from drive2sim.ingest.images import read_image_size
-from drive2sim.ingest.manifest import frame_indices
+from drive2sim.ingest.manifest import frame_indices, outdated_message, outdated_output_version
 
 _SHOWN_FRAMES = 10
 
@@ -156,6 +158,16 @@ def validate_scene(scene_dir: Path, manifest: Manifest) -> ValidationReport:
             checks.append(
                 _check("objects.unreadable", "error", f"không đọc được instances/{path.name}")
             )
+    outdated = outdated_output_version(manifest.source)
+    if outdated is not None:
+        checks.append(
+            Check(
+                check_id="converter.outdated",
+                severity="warning",
+                message=outdated_message(manifest) or "",
+                details={"output_version": outdated[0], "current_output_version": outdated[1]},
+            )
+        )
     checks.append(
         _check(
             "projection.not_run",

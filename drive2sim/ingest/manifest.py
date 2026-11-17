@@ -7,7 +7,13 @@ vào nó để hiện tổng quan cảnh.
 
 File này chứa:
 - ``frame_indices``: các chỉ số khung có ảnh của một camera.
-- ``converter_version``: phiên bản converter ghi vào manifest.
+- ``converter_version``: phiên bản converter ghi vào manifest (đổi theo mọi commit).
+- ``DRIVESTUDIO_OUTPUT_VERSION``, ``KITTI360_OUTPUT_VERSION``: phiên bản đầu ra của từng
+  converter, tăng tay khi dữ liệu converter ghi ra đổi; ``current_output_version`` tra theo tên
+  converter.
+- ``outdated_output_version``, ``outdated_message``: cảnh đã ingest bằng converter cũ chưa (đầu ra
+  ghi trong manifest khác đầu ra hiện tại). Validate, Studio, ``run start``, ``approach check`` và
+  ``kaggle ingest`` dùng để cảnh báo hoặc chọn notebook mới (CONTRACTS mục 2.2, 9.4).
 - ``build_manifest``: dựng ``Manifest`` từ thư mục cảnh.
 
 Mọi thông tin đọc từ chính các file trong thư mục cảnh (tên file ảnh, header ảnh, thư mục
@@ -19,7 +25,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Optional
 
-from drive2sim.core.schema import CAMERA_TRACK, SCHEMA_VERSIONS, Manifest
+from drive2sim.core.schema import CAMERA_TRACK, SCHEMA_VERSIONS, Manifest, ManifestSource
 from drive2sim.engine.run import code_commit
 from drive2sim.ingest.images import IMAGE_SUFFIXES, read_image_size
 
@@ -57,6 +63,89 @@ def converter_version() -> str:
     return f"{package}+{code_commit()}"
 
 
+# Phiên bản đầu ra của converter (``source.output_version``, CONTRACTS mục 2.2). Tăng tay **chỉ
+# khi dữ liệu converter ghi ra đổi** (file, toạ độ, intrinsics, mask...), không tăng khi chỉ sửa
+# code mà đầu ra giữ nguyên. Cảnh ingest bằng phiên bản nhỏ hơn bị coi là cũ: validate, Studio,
+# run start cảnh báo; kaggle ingest đẩy notebook mới thay vì dùng lại notebook cũ. Bảng nằm ở đây
+# (không nằm trong từng file converter) vì converter và bộ kiểm tra cùng import file này; đặt
+# trong kitti360.py thì validate.py phải import kitti360.py, mà kitti360.py lại import validate.py.
+# Mọi converter ``drivestudio.<dataset>`` (script tiền xử lý của DriveStudio) dùng chung một số.
+DRIVESTUDIO_OUTPUT_VERSION = 1
+# 1: các bản trước 17/11/2026. 2: khớp Mei sang opencv_fisheye viết lại, intrinsics của image_02,
+# image_03 đổi (commit 188fb9b, 17/11/2026).
+KITTI360_OUTPUT_VERSION = 2
+# Tên converter KITTI-360 ghi trong manifest (``kitti360.CONVERTER``; không import để tránh vòng).
+_KITTI360_CONVERTER = "kitti360"
+# Manifest viết trước ``d2s-manifest/1.1`` không có ``output_version``: coi là bản đầu, trừ khi
+# ``converter_version`` ghi một commit đã có đầu ra mới nhưng chưa ghi trường này. Commit 188fb9b
+# (trên origin/drive2sim) đã viết lại khớp Mei; notebook ingest đẩy ở commit đó ra đầu ra 2.
+_FIRST_OUTPUT_VERSION = 1
+_UNRECORDED_OUTPUT_VERSIONS: dict[tuple[str, str], int] = {(_KITTI360_CONVERTER, "188fb9b"): 2}
+
+
+def current_output_version(converter: str) -> Optional[int]:
+    """Trả về phiên bản đầu ra hiện tại của một converter.
+
+    Args:
+        converter: Tên converter như trong manifest, ví dụ ``kitti360``,
+            ``drivestudio.nuscenes``.
+
+    Returns:
+        Phiên bản đầu ra, ví dụ ``2``; ``None`` nếu converter không do tool quản lý (cảnh mẫu,
+        cảnh tự làm), khi đó không xét cảnh cũ hay mới.
+    """
+    if converter == _KITTI360_CONVERTER:
+        return KITTI360_OUTPUT_VERSION
+    if converter.startswith("drivestudio."):
+        return DRIVESTUDIO_OUTPUT_VERSION
+    return None
+
+
+def outdated_output_version(source: ManifestSource) -> Optional[tuple[int, int]]:
+    """Cho biết cảnh có được ingest bằng converter cũ không.
+
+    Cảnh cũ khi phiên bản đầu ra ghi trong manifest khác phiên bản hiện tại của converter đó.
+    Manifest không ghi phiên bản (viết trước ``d2s-manifest/1.1``) được coi là phiên bản ``1``:
+    converter chưa từng đổi đầu ra (DriveStudio) thì cảnh vẫn mới; converter đã tăng lên ``2``
+    (KITTI-360) thì cảnh cũ. Ngoại lệ: commit trong ``converter_version`` nằm trong
+    ``_UNRECORDED_OUTPUT_VERSIONS`` (đã có đầu ra mới nhưng chưa ghi trường này) thì lấy phiên bản
+    ở đó.
+
+    Args:
+        source: Phần ``source`` của manifest.
+
+    Returns:
+        ``(phiên bản trong manifest, phiên bản hiện tại)`` nếu cảnh cũ, ví dụ ``(1, 2)``;
+        ``None`` nếu cảnh mới hoặc converter không có phiên bản đầu ra.
+    """
+    current = current_output_version(source.converter)
+    commit = source.converter_version.rsplit("+", 1)[-1][:7]
+    recorded = source.output_version or _UNRECORDED_OUTPUT_VERSIONS.get(
+        (source.converter, commit), _FIRST_OUTPUT_VERSION
+    )
+    if current is None or recorded == current:
+        return None
+    return recorded, current
+
+
+def outdated_message(manifest: Manifest) -> Optional[str]:
+    """Câu cảnh báo khi cảnh được ingest bằng converter cũ; ``None`` nếu cảnh mới.
+
+    Chỉ cảnh báo, không chặn: run đã chạy trên cảnh cũ vẫn xem, chạy tiếp được.
+
+    Returns:
+        Ví dụ ``"cảnh kitti360_... được ingest bằng converter kitti360 cũ (đầu ra phiên bản 1,
+        hiện tại 2); ingest lại để dùng đầu ra mới"``.
+    """
+    outdated = outdated_output_version(manifest.source)
+    if outdated is None:
+        return None
+    return (
+        f"cảnh {manifest.scene_id} được ingest bằng converter {manifest.source.converter} cũ "
+        f"(đầu ra phiên bản {outdated[0]}, hiện tại {outdated[1]}); ingest lại để dùng đầu ra mới"
+    )
+
+
 def build_manifest(
     scene_dir: Path,
     scene_id: str,
@@ -73,11 +162,12 @@ def build_manifest(
 
     Số khung lấy theo camera đầu tiên. Độ phân giải đọc từ ảnh đầu tiên của từng camera. Cảnh có
     LiDAR khi ``lidar/`` có file ``.bin``; có box khi ``instances/instances_info.json`` không rỗng.
-    Mọi camera ghi cùng mô hình ``camera_model`` và shutter ``GLOBAL``; track của cảnh suy ra từ
-    mô hình (``CAMERA_TRACK``): ``opencv_pinhole`` là track pinhole, ``ftheta`` (PhysicalAI) là
-    track fisheye. Cảnh có nhiều loại camera (KITTI-360: hai pinhole, hai mắt cá) truyền
-    ``camera_models`` theo từng camera; khi đó track là ``fisheye`` nếu có ít nhất một camera
-    thuộc track fisheye (CONTRACTS mục 2.2).
+    ``source.output_version`` ghi phiên bản đầu ra hiện tại của ``converter``
+    (``current_output_version``). Mọi camera ghi cùng mô hình ``camera_model`` và shutter
+    ``GLOBAL``; track của cảnh suy ra từ mô hình (``CAMERA_TRACK``): ``opencv_pinhole`` là
+    track pinhole, ``ftheta`` (PhysicalAI) là track fisheye. Cảnh có nhiều loại camera
+    (KITTI-360: hai pinhole, hai mắt cá) truyền ``camera_models`` theo từng camera; khi đó track
+    là ``fisheye`` nếu có ít nhất một camera thuộc track fisheye (CONTRACTS mục 2.2).
 
     Args:
         scene_dir: Thư mục cảnh đã tiền xử lý.
@@ -134,6 +224,7 @@ def build_manifest(
                 "sequence_id": sequence_id,
                 "converter": converter,
                 "converter_version": converter_version(),
+                "output_version": current_output_version(converter),
                 "data_license": data_license,
             },
             "track": (

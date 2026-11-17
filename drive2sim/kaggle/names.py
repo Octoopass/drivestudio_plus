@@ -8,7 +8,8 @@ Kaggle), tối đa 50 ký tự (giới hạn tiêu đề notebook và dataset c�
 - Dataset cảnh upload từ máy: ``d2s-scene-<cảnh>-<commit converter>``, ví dụ
   ``d2s-scene-nuscenes-0061-96876ad``.
 - Notebook ingest: ``d2s-ingest-<nguồn>[-<số của chuỗi gốc>]`` hoặc ``d2s-ingest-<--scene>``, ví
-  dụ ``d2s-ingest-nuscenes-mini-0061``.
+  dụ ``d2s-ingest-nuscenes-mini-0061``; thêm ``-c<phiên bản đầu ra>`` khi notebook cũ cùng tên
+  ingest bằng converter cũ (phiên bản > 1), ví dụ ``d2s-ingest-kitti360-0003-c2``.
 - Dataset dữ liệu gốc (người dùng tự tạo): ``d2s-raw-<dataset>-<phần>``, ví dụ
   ``d2s-raw-kitti360-0003``.
 - Dataset mô hình có bản quyền riêng (người dùng tự tạo): ``d2s-model-<tên>``, ví dụ
@@ -129,16 +130,26 @@ def cache_dataset(scene_id: str, keys_hash: str) -> str:
     return _fit(f"d2s-cache-{scene_label(scene_id)}", "", slug(keys_hash))
 
 
-def ingest_kernel(scene: Optional[str], sequence: Optional[str], source: str) -> str:
+def ingest_kernel(
+    scene: Optional[str], sequence: Optional[str], source: str, output_version: int = 1
+) -> str:
     """Tên notebook ingest: theo ``--scene`` nếu có, không thì theo nguồn và ``--sequence``.
 
     Args:
         scene: ``scene_id`` người dùng đặt (``--scene``), hoặc ``None``.
         sequence: Chuỗi gốc (``--sequence``), hoặc ``None`` khi nguồn chỉ có một chuỗi.
         source: Dataset hoặc notebook nguồn, ``<người dùng>/<tên>``.
+        output_version: Phiên bản đầu ra của converter mà notebook phải giữ. ``1`` (mặc định)
+            không thêm gì, nên notebook đã có giữ tên; lớn hơn thì thêm ``-c<phiên bản>`` ở cuối
+            (không bị cắt khi tên dài), để notebook ingest bằng converter mới không ghi đè
+            output của notebook cũ mà run cũ còn dùng.
+
+    Returns:
+        Ví dụ ``d2s-ingest-kitti360-0003``, ``d2s-ingest-kitti360-0003-c2``.
     """
+    tail = f"c{output_version}" if output_version > 1 else ""
     if scene:
-        return _fit("d2s-ingest", slug(scene), "")
+        return _fit("d2s-ingest", slug(scene), tail)
     # Bỏ các chữ không nói lên nội dung: tiền tố d2s, chữ raw của dataset dữ liệu gốc.
     name = re.sub(r"(^d2s-|^raw-|-raw$)", "", slug(source.split("/")[-1]))
     name = re.sub(r"^raw-", "", name)
@@ -149,4 +160,4 @@ def ingest_kernel(scene: Optional[str], sequence: Optional[str], source: str) ->
         # Tên nguồn đã có số chuỗi (d2s-raw-kitti360-0003) thì không lặp lại.
         if not name.endswith(f"-{number}"):
             middle = f"{name}-{number}"
-    return _fit("d2s-ingest", middle, "")
+    return _fit("d2s-ingest", middle, tail)

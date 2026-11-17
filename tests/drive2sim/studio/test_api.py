@@ -3,7 +3,8 @@
 File này dựng một thư mục làm việc tạm có cảnh mẫu (manifest, ảnh giả, báo cáo kiểm tra), một
 approach giả ``toy`` dùng ba stage giả (``init.toy`` có cache và cần LiDAR, ``train.toy`` ghi một
 video, ``eval.standard`` ghi ``summary.json``), rồi kiểm tra:
-- route cảnh và split: liệt kê, xem, ảnh theo khung, tạo split, các lỗi 400, 404, 409;
+- route cảnh và split: liệt kê, xem, ảnh theo khung, tạo split, các lỗi 400, 404, 409; cảnh
+  ingest bằng converter cũ có ``converter_outdated`` và cảnh báo ``converter.outdated``;
 - route approach: xem, ``check`` (stage dùng lại cache, lựa chọn bị khoá), lỗi 422 khi bị khoá,
   400 khi sai lựa chọn hoặc có trường lạ;
 - route run: tạo run chạy nền (``202``), chờ xong, xem ``run.json`` kèm ``summary``, liệt kê,
@@ -185,6 +186,7 @@ def test_scenes_and_splits(client: TestClient) -> None:
     assert scene["manifest"]["scene_id"] == SCENE
     assert scene["validation"]["summary"]["errors"] == 0
     assert scene["kaggle"] is None
+    assert scene["converter_outdated"] is None
     frame = client.get(f"/api/scenes/{SCENE}/frames/3").json()
     assert frame["images"][0] == {
         "camera_id": "CAM_FRONT",
@@ -220,6 +222,19 @@ def test_scene_ingested_on_kaggle(client: TestClient, tmp_path: Path) -> None:
     scene_file = tmp_path / "work" / "data" / SCENE / "kaggle_scene.json"
     scene_file.write_text(json.dumps({"kernels": kernels}))
     assert client.get(f"/api/scenes/{SCENE}").json()["kaggle"] == kernels
+
+
+def test_scene_ingested_with_outdated_converter(client: TestClient, tmp_path: Path) -> None:
+    path = tmp_path / "work" / "data" / SCENE / "manifest.yaml"
+    data = files.load(path, Manifest).model_dump(mode="json")
+    data["source"].update({"converter": "kitti360", "converter_version": "0.1.0+e567e29"})
+    files.dump(Manifest.model_validate(data), path)
+    assert client.get(f"/api/scenes/{SCENE}").json()["converter_outdated"] == {
+        "output_version": 1,
+        "current_output_version": 2,
+    }
+    checks = client.post(f"/api/scenes/{SCENE}/validate").json()["checks"]
+    assert "converter.outdated" in [check["check_id"] for check in checks]
 
 
 def test_colab_setup_route(client: TestClient) -> None:

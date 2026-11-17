@@ -2,37 +2,47 @@
 
 ## Where the code is
 
-- Python part: `drive2sim/recon/speedups/fastergs.py` (class `FasterGS`) and `drive2sim/recon/trainers/base.py`. Each technique has a flag in `trainer.fastergs`: `fused_adam`, `fused_ssim`, `fewer_syncs`, and `morton_order` (off by default).
-- Kernel part: the project's fork of gsplat-geer in `third_party/gsplat-geer`. Each technique is a new argument of `rasterization()` that keeps the old behaviour by default: `exact_tiles`, `two_stage_sort`, `per_gaussian_backward`. The fork reports which renderer supports which technique through `gsplat.fastergs_support()`, and the trainer only enables supported ones.
-- GPU equivalence tests: `third_party/gsplat-geer/tests/test_drive2sim_*.py`. Active techniques are recorded under `speedups` in `summary.json`.
+- Python: `drive2sim/recon/speedups/fastergs.py` (`FasterGS`), `drive2sim/recon/trainers/base.py`. Flags in `trainer.fastergs`: `fused_adam`, `fused_ssim`, `fewer_syncs`, `morton_order`.
+- Kernels: the project's gsplat-geer fork, `third_party/gsplat-geer`. Each technique is a new `rasterization()` argument defaulting to the old behaviour: `exact_tiles`, `two_stage_sort`, `per_gaussian_backward`. The trainer enables only what `gsplat.fastergs_support()` reports for the renderer.
+- GPU equivalence tests: `third_party/gsplat-geer/tests/test_drive2sim_*.py`. `summary.json` records active techniques under `speedups`.
 
 ## What it does
 
-It makes each training step faster without changing the algorithm. Densification, the number of Gaussians and the results stay the same. Images match bit for bit, and gradients differ only at the level of floating-point rounding.
+It makes each step faster without changing the algorithm: densification and Gaussian count are unchanged, images match bit for bit, gradients differ only by rounding.
 
-- Fused Adam updates all parameters of a group in one kernel.
-- Fused SSIM computes the SSIM loss and its gradient in one kernel.
-- Fewer host synchronisations remove points where the CPU waits for the GPU.
-- Exact tile selection assigns a Gaussian only to the image tiles that its ellipse really overlaps.
-- Two-stage sorting sorts Gaussians by depth and tiles in two cheaper passes.
-- Per-Gaussian backward computes the rasterizer gradient per Gaussian instead of per pixel.
+- Fused Adam: one kernel updates a whole parameter group.
+- Fused SSIM: one kernel computes the SSIM loss and its gradient.
+- Fewer host synchronisations: the CPU waits less for the GPU.
+- Exact tile selection: a Gaussian goes only to tiles its ellipse overlaps.
+- Two-stage sorting: depth and tile sorting in two cheaper passes.
+- Per-Gaussian backward: rasterizer gradients per Gaussian, not per pixel.
+
+## Why this method
+
+OmniRe runs must fit a 12-hour Kaggle T4 session, and a speed-up must not change results. Options:
+
+- Taming 3DGS kernels: per-Gaussian backward and fused SSIM. Faster-GS includes both; Taming's code modifies the Inria rasterizer, not gsplat.
+- gsplat packed mode: keeps only visible Gaussian-camera pairs. gsplat calls it more memory efficient, not necessarily faster; the trainer requires `packed=false` for 3DGUT and 3DGEER.
+- Speedy-Splat: exact tile intersection plus pruning of over 90 % of Gaussians. Pruning changes the model (FastGS covers that here), and for tile culling the Faster-GS paper found Radl et al.'s method faster.
+
+Faster-GS was chosen because it collects these kernels and a fused optimizer, keeps results identical, and makes each technique a flag. On nuScenes (OmniRe, 3DGS, single runs) training fell from 219 to 198 min; PSNR went from 25.15 to 25.20 and peak memory from 6.6 to 6.9 GB.
 
 ## First-principles explanation
 
-A training step has four parts: rendering (forward and backward), the loss, the parameter update, and method-specific work. For OmniRe the method-specific work is gathering and transforming the Gaussians of the background, vehicles and humans. Faster-GS speeds up rendering, the SSIM loss and the Adam update. The total gain is limited by the part that it does not touch (Amdahl's law). In a profile of OmniRe at step 20 000, the rasterizer took about 9 % of GPU time per step, the optimizer about 14 %, and the remaining 77 % was OmniRe's own work. Making 23 % of the step twice as fast gives at most about 13 % on the whole step. The measured training time fell by about 10 %, which matches this estimate. For static scenes, rendering and the update dominate the step, which is why the paper reports four to five times faster training.
+A step has four parts: rendering, loss, parameter update, and method-specific work (for OmniRe, gathering and transforming node Gaussians). Faster-GS speeds up rendering, SSIM and Adam; the untouched part limits the gain (Amdahl's law). Profiled at step 20 000, OmniRe spent about 9 % of GPU time in the rasterizer, 14 % in the optimizer and 77 % in its own work. Doubling the speed of that 23 % gives at most about 13 %; the measured gain was about 10 %. In static scenes rendering and the update dominate, hence the paper's four- to fivefold speed-up.
 
 ## Difference from the original code, method or paper
 
-The reference is "Faster-GS: Analyzing and Improving Gaussian Splatting Optimization" (Hahlbohm et al., CVPR 2026) and its code `nerficg-project/faster-gaussian-splatting`.
+Reference: "Faster-GS: Analyzing and Improving Gaussian Splatting Optimization" (Hahlbohm et al., CVPR 2026), code `nerficg-project/faster-gaussian-splatting`.
 
-- The original runs in the NeRFICG framework with its own rasterizer, which supports only pinhole cameras and returns only colour. OmniRe needs depth, alpha and fisheye cameras, so the techniques were re-implemented inside gsplat-geer instead of using the original rasterizer.
-- Fused activations and the separate spherical-harmonics buffer of the paper are not implemented.
-- Skipping invisible Gaussians in the update is not used. gsplat-geer's `SelectiveAdam` also removes Adam's bias correction, which changes the optimisation.
-- The kernel techniques are implemented only for the standard renderer. For 3DGUT, exact tile selection is unsafe because it evaluates Gaussians along 3D rays, and the other two techniques do not yet have a 3DGUT version. For 3DGEER, tile selection is already exact.
+- The original NeRFICG rasterizer supports only pinhole cameras and returns only colour. OmniRe needs depth, alpha and fisheye, so the techniques were re-implemented in gsplat-geer.
+- The paper's fused activations and separate spherical-harmonics buffer are not implemented.
+- Skipping invisible Gaussians in the update is unused: gsplat-geer's `SelectiveAdam` also drops Adam's bias correction, changing optimisation.
+- Kernel techniques exist only for the standard renderer. For 3DGUT, exact tile selection is unsafe because it evaluates Gaussians along 3D rays; the other two lack a 3DGUT version. 3DGEER's tile selection is already exact.
 
 ## Limits, risks and possible gains
 
 - Per-Gaussian backward uses about 300 MB more GPU memory.
-- `morton_order` (Z-order sorting of background Gaussians) gives only statistically equivalent results; it is off by default.
-- A larger gain for OmniRe would come from the method-specific part: fewer Gaussians (FastGS) or faster node gathering (`omnire_node_gather.md`).
-- For 3DGUT, the rasterizer is only about 14 % of a step, so porting the kernel techniques to 3DGUT would make a step at most about 5 % faster.
+- `morton_order` (Z-order sorting of background Gaussians) gives only statistically equivalent results; off by default.
+- Larger gains lie in OmniRe's own work: fewer Gaussians (FastGS) or faster node gathering (`omnire_node_gather.md`).
+- For 3DGUT the rasterizer is about 14 % of a step; porting the kernels would gain at most about 5 %.

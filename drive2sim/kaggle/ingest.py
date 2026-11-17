@@ -11,11 +11,14 @@ Luồng của ``ingest_on_kaggle``:
 1. Tên notebook ``<người dùng>/d2s-ingest-<nguồn>-<chuỗi>`` (``kaggle/names.py``), nên gọi lại
    cùng tham số thì dùng lại notebook đã chạy (chờ tiếp nếu đang chạy, tải về nếu đã xong).
 2. Đẩy notebook (template ``templates/ingest.ipynb``) khi chưa có hoặc lần trước lỗi.
-3. Chờ notebook xong, đọc các file nhỏ của cảnh từ log notebook (``read_light_files``), ghi vào
-   ``data/<scene_id>/`` cùng ``kaggle_scene.json``.
+3. Chờ notebook xong, đọc các file nhỏ của cảnh từ log notebook (``read_light_files``).
+4. Manifest trong đó ghi phiên bản đầu ra cũ hơn phiên bản hiện tại của converter
+   (``outdated_output_version``): giữ nguyên notebook cũ (run cũ còn gắn output của nó), làm lại
+   bước 2–3 với notebook ``...-c<phiên bản hiện tại>``.
+5. Ghi các file nhỏ vào ``data/<scene_id>/`` cùng ``kaggle_scene.json``.
 
 File này chứa ``KaggleSceneRef``, ``IngestRequest``, ``load_scene_refs``, ``load_scene_ref``,
-``build_ingest_notebook``, ``ingest_on_kaggle``.
+``build_ingest_notebook``, ``read_light_files``, ``ingest_on_kaggle``.
 """
 
 import base64
@@ -30,10 +33,13 @@ from pathlib import Path
 from string import Template
 from typing import Optional
 
+import yaml
+
 from drive2sim import paths
 from drive2sim.core import files
 from drive2sim.core.schema import Manifest
 from drive2sim.engine.workdir import KAGGLE_SCENE_FILE, Workdir
+from drive2sim.ingest.manifest import outdated_output_version
 from drive2sim.kaggle import names
 from drive2sim.kaggle.client import KaggleClient, KaggleError
 from drive2sim.kaggle.executor import code_source
@@ -86,9 +92,16 @@ class IngestRequest:
         args = list(self.args)
         return args[args.index(flag) + 1] if flag in args[:-1] else None
 
-    def kernel_name(self) -> str:
-        """Tên notebook (không có người dùng), theo ``--scene`` hoặc nguồn và ``--sequence``."""
-        return names.ingest_kernel(self.option("--scene"), self.option("--sequence"), self.source)
+    def kernel_name(self, output_version: int = 1) -> str:
+        """Tên notebook (không có người dùng), theo ``--scene`` hoặc nguồn và ``--sequence``.
+
+        Args:
+            output_version: Phiên bản đầu ra của converter; lớn hơn 1 thì tên có thêm
+                ``-c<phiên bản>`` (``names.ingest_kernel``).
+        """
+        return names.ingest_kernel(
+            self.option("--scene"), self.option("--sequence"), self.source, output_version
+        )
 
     def signature(self) -> dict:
         """Nguồn và tham số; notebook ghi lại để biết lần ingest trước có cùng yêu cầu không."""
@@ -222,38 +235,41 @@ def _signature(light: dict) -> dict:
     return {key: light["result"].get(key) for key in ("source", "path", "args")}
 
 
-def ingest_on_kaggle(
-    workdir: Workdir,
-    request: IngestRequest,
-    client: Optional[KaggleClient] = None,
-    branch: str = "drive2sim",
-    timeout_s: float = WAIT_S,
-    sleep: Callable[[float], None] = time.sleep,
-    notify: Callable[[str], None] = lambda message: None,
-    now: Callable[[], str] = lambda: time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
-) -> Path:
-    """Ingest một cảnh trên Kaggle và ghi các file nhỏ của nó vào ``data/<scene_id>/``.
-
-    Args:
-        workdir: Thư mục làm việc trên máy.
-        request: Nguồn và tham số ingest.
-        client: Kaggle; mặc định gọi lệnh ``kaggle``.
-        branch: Branch notebook clone.
-        timeout_s: Chờ notebook tối đa bao lâu.
-        sleep: Hàm chờ giữa hai lần hỏi trạng thái (test thay).
-        notify: Nhận từng thay đổi trạng thái để in ra.
-        now: Thời điểm hiện tại dạng ISO (test thay).
+def _outdated(light: dict) -> Optional[tuple[int, int]]:
+    """Notebook đã ingest bằng converter cũ chưa, theo ``manifest.yaml`` trong file nhỏ của nó.
 
     Returns:
-        Thư mục cảnh trên máy (chỉ có ``manifest.yaml``, ``reports/``, ``kaggle_scene.json``).
+        ``(phiên bản đầu ra trong manifest, phiên bản hiện tại)`` nếu cũ; ``None`` nếu mới,
+        converter không có phiên bản đầu ra, hoặc kết quả không có manifest (bước sau báo lỗi).
+    """
+    text = light["files"].get("manifest.yaml")
+    if text is None:
+        return None
+    return outdated_output_version(Manifest.model_validate(yaml.safe_load(text)).source)
+
+
+def _finish_kernel(
+    client: KaggleClient,
+    request: IngestRequest,
+    kernel: str,
+    branch: str,
+    timeout_s: float,
+    sleep: Callable[[float], None],
+    notify: Callable[[str], None],
+) -> tuple[dict, str]:
+    """Dùng lại, chờ hoặc đẩy một notebook ingest tới khi nó xong, rồi đọc file nhỏ của cảnh.
+
+    Notebook đã xong thì chỉ đọc log; đang chạy thì chờ; chưa có, lỗi, hoặc xong theo template cũ
+    (log không có file nhỏ) thì đẩy.
+
+    Returns:
+        ``(file nhỏ, commit)``: file nhỏ như ``read_light_files``; commit của code nếu lần này đẩy
+        notebook, chuỗi rỗng nếu dùng lại.
 
     Raises:
-        KaggleError: Nếu notebook lỗi, output không có cảnh, hoặc cảnh đã có trên máy mà không
-            phải cảnh ingest trên Kaggle với cùng dữ liệu (chạy bằng tài khoản thứ hai thì thêm
-            notebook của tài khoản đó vào ``kaggle_scene.json``).
+        KaggleError: Nếu notebook cùng tên đã ingest với nguồn hoặc tham số khác, notebook kết
+            thúc không thành công, hoặc log không có file nhỏ.
     """
-    client = client or KaggleClient()
-    kernel = f"{client.username()}/{request.kernel_name()}"
     try:
         status = client.kernel_status(kernel)
     except KaggleError:
@@ -283,6 +299,71 @@ def ingest_on_kaggle(
     light = light or read_light_files(client, kernel)
     if light is None:
         raise KaggleError(f"log của {kernel} không có kết quả ingest ({LIGHT_MARKER})")
+    return light, commit
+
+
+def ingest_on_kaggle(
+    workdir: Workdir,
+    request: IngestRequest,
+    client: Optional[KaggleClient] = None,
+    branch: str = "drive2sim",
+    timeout_s: float = WAIT_S,
+    sleep: Callable[[float], None] = time.sleep,
+    notify: Callable[[str], None] = lambda message: None,
+    now: Callable[[], str] = lambda: time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
+) -> Path:
+    """Ingest một cảnh trên Kaggle và ghi các file nhỏ của nó vào ``data/<scene_id>/``.
+
+    Notebook theo tên của ``request`` đã ingest bằng converter cũ (phiên bản đầu ra trong
+    manifest của nó khác phiên bản hiện tại) thì không đẩy lại notebook đó, vì đẩy lại sẽ thay
+    output mà run cũ đang gắn; thay vào đó dùng notebook ``...-c<phiên bản hiện tại>``
+    (``names.ingest_kernel``). Gọi lại cùng lệnh thì đi đúng con đường đó và dùng lại notebook
+    mới.
+
+    Args:
+        workdir: Thư mục làm việc trên máy.
+        request: Nguồn và tham số ingest.
+        client: Kaggle; mặc định gọi lệnh ``kaggle``.
+        branch: Branch notebook clone.
+        timeout_s: Chờ notebook tối đa bao lâu.
+        sleep: Hàm chờ giữa hai lần hỏi trạng thái (test thay).
+        notify: Nhận từng thay đổi trạng thái để in ra.
+        now: Thời điểm hiện tại dạng ISO (test thay).
+
+    Returns:
+        Thư mục cảnh trên máy (chỉ có ``manifest.yaml``, ``reports/``, ``kaggle_scene.json``).
+
+    Raises:
+        KaggleError: Nếu notebook lỗi, output không có cảnh, notebook mới vẫn ingest bằng
+            converter cũ, hoặc cảnh đã có trên máy mà không phải cảnh ingest trên Kaggle với
+            cùng dữ liệu (chạy bằng tài khoản thứ hai thì thêm notebook của tài khoản đó vào
+            ``kaggle_scene.json``; cảnh trên máy ingest bằng converter cũ thì báo cách thay).
+    """
+    client = client or KaggleClient()
+    username = client.username()
+    kernel = f"{username}/{request.kernel_name()}"
+    light, commit = _finish_kernel(client, request, kernel, branch, timeout_s, sleep, notify)
+    outdated = _outdated(light)
+    if outdated is not None:
+        newer = f"{username}/{request.kernel_name(outdated[1])}"
+        if newer == kernel:
+            raise KaggleError(
+                f"notebook {kernel} ingest bằng đầu ra phiên bản {outdated[0]}, mới hơn converter "
+                f"hiện tại ({outdated[1]}); cập nhật code rồi chạy lại"
+            )
+        notify(
+            f"{kernel} ingest bằng converter cũ (đầu ra phiên bản {outdated[0]}, hiện tại "
+            f"{outdated[1]}); giữ nguyên notebook đó cho run cũ, dùng notebook {newer}"
+        )
+        kernel = newer
+        light, commit = _finish_kernel(client, request, kernel, branch, timeout_s, sleep, notify)
+        outdated = _outdated(light)
+        if outdated is not None:
+            raise KaggleError(
+                f"notebook {kernel} vẫn ingest bằng converter cũ (đầu ra phiên bản "
+                f"{outdated[0]}, hiện tại {outdated[1]}); kiểm tra commit đẩy lên đã có converter "
+                "mới chưa"
+            )
     result = light["result"]
     scene_id = result["scene_id"]
     if "manifest.yaml" not in light["files"]:
@@ -305,7 +386,18 @@ def ingest_on_kaggle(
                     f"cảnh {scene_id} đã có trên máy ở {workdir.relative(scene_dir)}; xoá bằng "
                     f"d2s scene delete {scene_id}, hoặc đặt --scene khác"
                 )
-            if not _same_scene(files.load(scene_dir / "manifest.yaml", Manifest), remote_manifest):
+            local_manifest = files.load(scene_dir / "manifest.yaml", Manifest)
+            local_outdated = outdated_output_version(local_manifest.source)
+            if local_outdated is not None:
+                # Không tự thay cảnh trên máy: split, cache, run cũ được làm từ dữ liệu cũ.
+                raise KaggleError(
+                    f"cảnh {scene_id} trên máy được ingest bằng converter cũ (đầu ra phiên bản "
+                    f"{local_outdated[0]}); {kernel} đã ingest lại bằng phiên bản "
+                    f"{local_outdated[1]}. Xoá cảnh cũ bằng d2s scene delete {scene_id} (xoá cả "
+                    "split, cache, run của nó; notebook cũ trên Kaggle giữ nguyên) rồi chạy lại "
+                    "lệnh, hoặc đặt --scene khác"
+                )
+            if not _same_scene(local_manifest, remote_manifest):
                 raise KaggleError(
                     f"cảnh {scene_id} trên máy khác cảnh trong {kernel} (camera, khung...); "
                     "đặt --scene khác"

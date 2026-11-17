@@ -2,7 +2,8 @@
 
 File này chứa:
 - ``GET /api/scenes``: danh sách cảnh (manifest).
-- ``GET /api/scenes/{scene_id}``: manifest, báo cáo kiểm tra và danh sách split của một cảnh.
+- ``GET /api/scenes/{scene_id}``: manifest, báo cáo kiểm tra, danh sách split của một cảnh và
+  cảnh có được ingest bằng converter cũ không.
 - ``GET /api/scenes/{scene_id}/frames/{frame_index}``: đường dẫn ảnh của mọi camera ở một khung,
   cho lưới ảnh đồng bộ.
 - ``GET /api/scenes/{scene_id}/splits``, ``GET .../splits/{split_id}``: đọc split.
@@ -22,6 +23,7 @@ from drive2sim.core import files
 from drive2sim.engine import housekeeping, scenes
 from drive2sim.engine.workdir import KAGGLE_SCENE_FILE
 from drive2sim.ingest.images import IMAGE_SUFFIXES
+from drive2sim.ingest.manifest import outdated_output_version
 from drive2sim.ingest.validate import validate_scene
 from drive2sim.studio.api.state import state_of
 
@@ -62,11 +64,14 @@ def get_scene(scene_id: str, request: Request) -> dict:
     """Trả về manifest, báo cáo kiểm tra và danh sách split của một cảnh.
 
     Returns:
-        ``{"manifest", "validation", "splits", "split_cameras", "kaggle"}``; ``split_cameras``
+        ``{"manifest", "validation", "splits", "split_cameras", "kaggle",
+        "converter_outdated"}``; ``split_cameras``
         là camera của từng split (``{split_id: [camera_id]}``), để giao diện hiện loại ống kính và
         xét approach theo camera của split; ``validation`` là ``null`` nếu chưa có
         báo cáo; ``kaggle`` là danh sách notebook ingest (``kaggle_scene.json``) nếu cảnh được nạp
-        trên Kaggle (máy chỉ có manifest và báo cáo, không có ảnh), ngược lại ``null``.
+        trên Kaggle (máy chỉ có manifest và báo cáo, không có ảnh), ngược lại ``null``;
+        ``converter_outdated`` là ``{"output_version", "current_output_version"}`` khi cảnh được
+        ingest bằng converter cũ (``outdated_output_version``), ngược lại ``null``.
     """
     workdir = state_of(request).workdir
     scene = workdir.load_scene(scene_id)
@@ -77,12 +82,18 @@ def get_scene(scene_id: str, request: Request) -> dict:
     if kaggle_path.is_file():
         kaggle = json.loads(kaggle_path.read_text("utf-8"))["kernels"]
     splits = scenes.list_splits(workdir, scene_id)
+    outdated = outdated_output_version(scene.manifest.source)
     return {
         "manifest": scene.manifest.model_dump(mode="json"),
         "validation": validation,
         "splits": [split.split_id for split in splits],
         "split_cameras": {split.split_id: list(split.cameras) for split in splits},
         "kaggle": kaggle,
+        "converter_outdated": (
+            {"output_version": outdated[0], "current_output_version": outdated[1]}
+            if outdated
+            else None
+        ),
     }
 
 

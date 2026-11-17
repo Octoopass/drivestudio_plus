@@ -27,6 +27,7 @@ from drive2sim.ingest import kitti360
 from drive2sim.ingest.detect import inspect_source
 from drive2sim.ingest.dispatch import plan_ingest, run_ingest
 from drive2sim.ingest.drivestudio import IngestError
+from drive2sim.ingest.manifest import KITTI360_OUTPUT_VERSION, outdated_output_version
 from tests.drive2sim.samples import FISHEYE_COEFFS_02, GAMMA_02, MEI_02
 
 SEQ = "2013_05_28_drive_0003_sync"
@@ -211,6 +212,8 @@ def test_ingest_writes_kitti_layout(tmp_path: Path, extracted: bool) -> None:
     manifest = files.load(scene_dir / "manifest.yaml", Manifest)
     assert manifest.source.dataset == "kitti360"
     assert manifest.source.converter == "kitti360"
+    assert manifest.source.output_version == KITTI360_OUTPUT_VERSION  # cảnh mới không bị coi là cũ
+    assert outdated_output_version(manifest.source) is None
     assert [c.model for c in manifest.cameras] == [
         "opencv_pinhole",
         "opencv_pinhole",

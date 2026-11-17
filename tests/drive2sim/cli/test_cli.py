@@ -6,6 +6,8 @@ File này dựng một thư mục làm việc tạm có một cảnh mẫu, mộ
 - ``split create/list/show`` ghi và đọc split, đặt tên mặc định theo CONTRACTS mục 10.1, từ
   chối tên trùng và camera không có;
 - ``approach check`` in danh sách stage và stage nào dùng lại cache;
+- cảnh ingest bằng converter cũ: ``approach check`` và ``run start`` in cảnh báo ra stderr nhưng
+  vẫn chạy;
 - ``run start/status/list/resume`` chạy trọn một run giả; ``--set`` đổi được mục cấu hình và
   tham số stage;
 - ``approach check omnire`` chạy được trên cảnh mẫu với ba stage bọc DriveStudio;
@@ -236,6 +238,22 @@ def test_check_run_status_list_resume(
     assert [item["run_id"] for item in data] == [run_id]
     code, data = run_json(capsys, "run", "resume", run_id)
     assert code == 0 and data["status"] == "succeeded"
+
+
+def test_outdated_converter_warns_but_does_not_block(
+    workdir: Path, split_id: str, capsys: pytest.CaptureFixture
+) -> None:
+    path = workdir / "data" / SCENE / "manifest.yaml"
+    data = files.load(path, Manifest).model_dump(mode="json")
+    data["source"].update({"converter": "kitti360", "converter_version": "0.1.0+e567e29"})
+    files.dump(Manifest.model_validate(data), path)
+    capsys.readouterr()
+    base = ["--scene", SCENE, "--split", split_id, "--json"]
+    for argv in (["approach", "check", "toy"], ["run", "start", "toy"]):
+        assert main([*argv, *base]) == 0
+        captured = capsys.readouterr()
+        assert "cảnh báo:" in captured.err and "converter kitti360 cũ" in captured.err
+        assert json.loads(captured.out)  # stdout vẫn là JSON
 
 
 def test_exit_codes(workdir: Path, split_id: str, capsys: pytest.CaptureFixture) -> None:

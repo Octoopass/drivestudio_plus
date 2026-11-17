@@ -32,7 +32,7 @@ from drive2sim.ingest.drivestudio import (
     ingest_drivestudio,
 )
 from drive2sim.ingest.images import read_image_size
-from drive2sim.ingest.manifest import build_manifest
+from drive2sim.ingest.manifest import DRIVESTUDIO_OUTPUT_VERSION, build_manifest
 from drive2sim.ingest.validate import validate_scene
 from drive2sim.paths import SCENE_LISTS_DIR
 
@@ -196,6 +196,7 @@ def test_build_manifest(tmp_path: Path) -> None:
     assert manifest.lidars == ["LIDAR_TOP"] and manifest.available.lidar
     assert manifest.available.cuboids == "gt"
     assert manifest.source.converter_version.count("+") == 1
+    assert manifest.source.output_version == DRIVESTUDIO_OUTPUT_VERSION
     assert manifest.track == "pinhole" and manifest.cameras[0].model == "opencv_pinhole"
     # PhysicalAI giữ ảnh F-theta gốc: cảnh thuộc track fisheye.
     fisheye = build_manifest(
@@ -231,6 +232,20 @@ def test_validate_clean_and_broken(tmp_path: Path) -> None:
     assert ("lidar.missing", None) in by_id
     assert report.summary.errors == 2 and report.summary.warnings == 2
     ValidationReport.model_validate(report.model_dump())
+
+
+def test_validate_warns_about_outdated_converter(tmp_path: Path) -> None:
+    scene_dir = make_processed_scene(tmp_path)
+    data = manifest_for(scene_dir).model_dump(mode="json")
+    # Commit trước khi converter KITTI-360 đổi đầu ra (không phải commit hiện tại của repo).
+    data["source"].update(
+        {"converter": "kitti360", "converter_version": "0.1.0+e567e29", "output_version": None}
+    )
+    report = validate_scene(scene_dir, Manifest.model_validate(data))
+    check = next(c for c in report.checks if c.check_id == "converter.outdated")
+    assert check.severity == "warning" and "converter kitti360 cũ" in check.message
+    assert check.details == {"output_version": 1, "current_output_version": 2}
+    assert report.summary.errors == 0 and report.summary.warnings == 1
 
 
 def fake_preprocess(calls: list[list[str]], fail: bool = False):  # noqa: ANN201

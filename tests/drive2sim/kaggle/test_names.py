@@ -67,6 +67,14 @@ def test_scene_dataset_and_ingest_kernel() -> None:
         == "d2s-ingest-kitti360-0003"
     )
     assert names.ingest_kernel("kitti360_0003_a", None, "x/y") == "d2s-ingest-kitti360-0003-a"
+    # Phiên bản đầu ra 1 giữ tên cũ; lớn hơn thì thêm -c<phiên bản>, không bị cắt khi tên dài.
+    assert names.ingest_kernel("kitti360_0003_a", None, "x/y", 1) == "d2s-ingest-kitti360-0003-a"
+    assert (
+        names.ingest_kernel(None, "2013_05_28_drive_0003_sync", "alice/d2s-raw-kitti360-0003", 2)
+        == "d2s-ingest-kitti360-0003-c2"
+    )
+    long_name = names.ingest_kernel("kitti360_" + "x" * 60, None, "x/y", 3)
+    assert len(long_name) <= names.MAX_LENGTH and long_name.endswith("-c3")
     # nguồn đã mang số chuỗi: không lặp
     assert (
         names.ingest_kernel(None, "2013_05_28_drive_0003_sync", "alice/d2s-raw-kitti360-0003")

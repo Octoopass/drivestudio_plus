@@ -64,6 +64,7 @@ from drive2sim.ingest.manifest import build_manifest
 from drive2sim.ingest.validate import validate_scene
 
 DATASET = "kitti360"
+# Đổi dữ liệu converter ghi ra thì tăng ``KITTI360_OUTPUT_VERSION`` trong ingest/manifest.py.
 CONVERTER = "kitti360"
 DATA_LICENSE = "CC BY-NC-SA 3.0"
 # Id camera giữ nguyên tên thư mục của KITTI-360 (CONTRACTS mục 10.1); thứ tự là chỉ số camera.

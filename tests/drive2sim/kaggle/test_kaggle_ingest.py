@@ -5,10 +5,13 @@ File này kiểm tra:
   chỉ ghi file nhỏ của cảnh về máy cùng ``kaggle_scene.json``; gọi lại thì không đẩy lại;
 - ``d2s kaggle push`` của run trên cảnh đó không upload cảnh mà gắn output notebook ingest, và
   notebook train tìm được cảnh trong output đó;
-- cảnh chỉ có trên Kaggle không chạy được trên máy, không kiểm tra lại được trên máy.
+- cảnh chỉ có trên Kaggle không chạy được trên máy, không kiểm tra lại được trên máy;
+- converter đổi đầu ra: notebook cũ không bị đẩy lại, lệnh dùng notebook ``-c<phiên bản>`` mới;
+  cảnh cũ trên máy không bị thay âm thầm.
 """
 
 import base64
+import copy
 import json
 import re
 import shutil
@@ -21,6 +24,7 @@ from drive2sim.cli.main import main
 from drive2sim.core import files
 from drive2sim.core.schema import Manifest
 from drive2sim.engine.workdir import KAGGLE_SCENE_FILE, Workdir
+from drive2sim.ingest import manifest as manifest_module
 from drive2sim.ingest.validate import validate_scene
 from drive2sim.kaggle import executor, ingest
 from drive2sim.kaggle.bundle import materialize, read_bundle
@@ -47,6 +51,8 @@ class FakeIngestKaggle(FakeKaggle):
         self.datasets[SOURCE] = ["v1.0-mini"]
         self.patterns: list[Optional[str]] = []
         self.logs: dict[str, str] = {}
+        self.manifest: dict = MANIFEST  # manifest mà notebook ingest "ghi ra"
+        self.pushed: list[str] = []
 
     def kernel_logs(self, slug: str) -> str:
         """Log của notebook (notebook ingest in file nhỏ của cảnh vào đây)."""
@@ -58,10 +64,11 @@ class FakeIngestKaggle(FakeKaggle):
         name = metadata["code_file"]
         notebook = json.loads((folder / name).read_text())
         self.kernels[metadata["id"]] = {"metadata": metadata, "notebook": notebook}
+        self.pushed.append(metadata["id"])
         if name == "ingest.ipynb":  # notebook ingest "chạy": output có cảnh đầy đủ
             out = self.root / "output" / metadata["id"].split("/")[1]
             scene = out / "data" / SCENE
-            files.dump(Manifest.model_validate(MANIFEST), scene / "manifest.yaml")
+            files.dump(Manifest.model_validate(self.manifest), scene / "manifest.yaml")
             (scene / "images").mkdir(exist_ok=True)
             (scene / "images" / "000_0.jpg").write_bytes(b"jpg")
             (scene / "reports").mkdir(exist_ok=True)
@@ -261,3 +268,70 @@ def test_complete_notebook_without_log_result_is_rerun(
     ingest.ingest_on_kaggle(workdir, REQUEST, client=fake, sleep=lambda s: None)
     assert len(pushes) == 1
     assert fake.patterns == []  # không liệt kê output
+
+
+def kitti360_manifest(output_version: Optional[int]) -> dict:
+    """Manifest của cảnh ingest bằng converter KITTI-360 với phiên bản đầu ra cho trước."""
+    data = copy.deepcopy(MANIFEST)
+    data["source"]["converter"] = "kitti360"
+    if output_version is not None:
+        data["source"]["output_version"] = output_version
+    return data
+
+
+def test_outdated_converter_uses_new_notebook_and_keeps_old_one(
+    tmp_path: Path, fake: FakeIngestKaggle, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workdir = Workdir(tmp_path / "work")
+    workdir.root.mkdir()
+    old_kernel = f"alice/{REQUEST.kernel_name()}"
+    new_kernel = f"alice/{REQUEST.kernel_name(2)}"
+    assert new_kernel == old_kernel + "-c2"
+
+    # Notebook cũ: ingest khi converter KITTI-360 còn ở phiên bản 1 (manifest chưa có trường).
+    with monkeypatch.context() as patch:
+        patch.setattr(manifest_module, "KITTI360_OUTPUT_VERSION", 1)
+        fake.manifest = kitti360_manifest(None)
+        ingest.ingest_on_kaggle(workdir, REQUEST, client=fake, sleep=lambda s: None)
+    assert fake.pushed == [old_kernel]
+    old_notebook = fake.kernels[old_kernel]
+
+    # Converter đổi đầu ra: đẩy notebook mới, không đẩy lại notebook cũ (run cũ còn gắn output).
+    fake.manifest = kitti360_manifest(2)
+    messages: list[str] = []
+    with pytest.raises(KaggleError, match="converter cũ.*d2s scene delete"):
+        ingest.ingest_on_kaggle(
+            workdir, REQUEST, client=fake, sleep=lambda s: None, notify=messages.append
+        )
+    assert fake.pushed == [old_kernel, new_kernel]
+    assert fake.kernels[old_kernel] is old_notebook
+    assert any("converter cũ" in m and new_kernel in m for m in messages)
+    # Cảnh cũ trên máy không bị thay âm thầm.
+    scene_dir = workdir.scene_dir(SCENE)
+    assert workdir.load_scene(SCENE).manifest.source.output_version is None
+    assert [r.kernel for r in ingest.load_scene_refs(scene_dir)] == [old_kernel]
+
+    # Xoá cảnh cũ rồi chạy lại cùng lệnh: dùng lại notebook mới, không đẩy gì thêm.
+    shutil.rmtree(scene_dir)
+    ingest.ingest_on_kaggle(workdir, REQUEST, client=fake, sleep=lambda s: None)
+    assert fake.pushed == [old_kernel, new_kernel]
+    assert workdir.load_scene(SCENE).manifest.source.output_version == 2
+    assert [r.kernel for r in ingest.load_scene_refs(scene_dir)] == [new_kernel]
+
+
+def test_fresh_notebook_is_reused_without_suffix(tmp_path: Path, fake: FakeIngestKaggle) -> None:
+    workdir = Workdir(tmp_path / "work")
+    workdir.root.mkdir()
+    fake.manifest = kitti360_manifest(2)
+    ingest.ingest_on_kaggle(workdir, REQUEST, client=fake, sleep=lambda s: None)
+    ingest.ingest_on_kaggle(workdir, REQUEST, client=fake, sleep=lambda s: None)
+    assert fake.pushed == [f"alice/{REQUEST.kernel_name()}"]
+
+
+def test_new_notebook_still_outdated_is_reported(tmp_path: Path, fake: FakeIngestKaggle) -> None:
+    workdir = Workdir(tmp_path / "work")
+    workdir.root.mkdir()
+    fake.manifest = kitti360_manifest(None)  # code đẩy lên chưa có converter mới
+    with pytest.raises(KaggleError, match="vẫn ingest bằng converter cũ"):
+        ingest.ingest_on_kaggle(workdir, REQUEST, client=fake, sleep=lambda s: None)
+    assert fake.pushed == [f"alice/{REQUEST.kernel_name()}", f"alice/{REQUEST.kernel_name(2)}"]

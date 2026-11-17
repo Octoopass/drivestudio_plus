@@ -37,6 +37,8 @@ export interface SceneDetail {
   split_cameras?: Record<string, string[]>;
   /** Notebook ingest trên Kaggle khi cảnh được nạp ở đó (máy không có ảnh); ``null`` nếu cảnh ở máy. */
   kaggle: { username: string; kernel: string; source: string }[] | null;
+  /** Cảnh ingest bằng converter cũ: phiên bản đầu ra trong manifest và hiện tại; ``null`` nếu cảnh mới. */
+  converter_outdated?: { output_version: number; current_output_version: number } | null;
 }
 
 export interface FrameImages {

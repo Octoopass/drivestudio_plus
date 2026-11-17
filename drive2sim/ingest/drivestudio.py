@@ -23,6 +23,9 @@ chỉ số camera trong tên ảnh ``<khung>_<chỉ số>.jpg``. Tên LiDAR lấ
 Script chạy trong một thư mục tạm với đường dẫn đích tương đối không chứa chữ ``processed``, vì
 script nuScenes thay mọi chữ đó trong đường dẫn đích khi nội suy.
 
+Đổi dữ liệu mà converter ghi ra (cho mọi dataset) thì tăng ``DRIVESTUDIO_OUTPUT_VERSION`` trong
+``drive2sim/ingest/manifest.py``, để cảnh ingest trước đó được báo là cũ.
+
 Chưa chạy thật với dữ liệu nào: cần dữ liệu gốc và devkit của từng dataset (``docs/datasets/``).
 """
 

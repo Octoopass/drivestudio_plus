@@ -5,7 +5,7 @@ import { Pause, Play, RefreshCw, Trash2, Plus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, asApiError, del, post, seg, useApi, type ApiError } from "../api/client";
 import type { FrameImages, List, SceneDetail, Split } from "../api/types";
-import { ago, Confirm, Empty, ErrorBox, InfoTip, Loading, PageHead, Panel, Status, Tabs, useToast, yesNo } from "../components/ui";
+import { ago, Confirm, Empty, ErrorBox, InfoTip, Loading, Note, PageHead, Panel, Status, Tabs, useToast, yesNo } from "../components/ui";
 import { useI18n } from "../i18n";
 import { lensGroup, lensOf, lensSummary, type Lens } from "../lens";
 import { useLive } from "../live";
@@ -26,6 +26,7 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
   if (scene.error) return <div className="page"><ErrorBox error={scene.error} /></div>;
   if (!scene.data) return <div className="page"><Loading rows={5} /></div>;
   const { manifest, validation, splits, kaggle } = scene.data;
+  const outdated = scene.data.converter_outdated ?? null;
   const splitCameras = scene.data.split_cameras ?? {};
 
   const revalidate = async () => {
@@ -95,6 +96,16 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
           </>
         }
       />
+
+      {/* Cảnh ingest bằng converter cũ: chỉ cảnh báo, run trên cảnh vẫn chạy được. */}
+      {outdated && (
+        <Note kind="warn">
+          <strong>{t("scene.outdated.title", { converter: manifest.source.converter })}</strong>
+          <div className="detail">
+            {t("scene.outdated.detail", { recorded: outdated.output_version, current: outdated.current_output_version })}
+          </div>
+        </Note>
+      )}
 
       <section className="panel">
         <Tabs<Tab>

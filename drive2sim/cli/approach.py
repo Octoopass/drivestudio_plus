@@ -6,12 +6,13 @@ File này chứa:
 - ``check_approach``: chạy đúng bước kiểm tra mà ``d2s run start`` sẽ chạy, rồi in danh sách stage
   sẽ chạy và stage nào dùng lại cache, mà không chạy gì (CONTRACTS mục 10.4).
 - ``resolve_from_args``: đọc cảnh, split, approach và ``--set`` rồi gọi ``resolve``; ``d2s run
-  start`` dùng lại hàm này để hai lệnh luôn cho cùng kết quả.
+  start`` dùng lại hàm này để hai lệnh luôn cho cùng kết quả. Cảnh ingest bằng converter cũ thì
+  in cảnh báo ra stderr, không chặn.
 """
 
 import argparse
 
-from drive2sim.cli.output import emit, format_table, format_value, parse_set
+from drive2sim.cli.output import emit, format_table, format_value, info, parse_set
 from drive2sim.core.schema import Split
 from drive2sim.engine.approaches import list_approach_ids, load_approach
 from drive2sim.engine.environment import environment_check
@@ -20,6 +21,7 @@ from drive2sim.engine.resolve import QUICK_NUM_ITERS, Plan, camera_support, reso
 from drive2sim.engine.run import preview_reuse
 from drive2sim.engine.stage import Scene
 from drive2sim.engine.workdir import Workdir
+from drive2sim.ingest.manifest import outdated_message
 
 
 def add_plan_arguments(parser: argparse.ArgumentParser) -> None:
@@ -147,6 +149,9 @@ def resolve_from_args(args: argparse.Namespace) -> tuple[Workdir, Scene, Split, 
         args: Tham số dòng lệnh có ``approach_id``, ``scene_id``, ``split_id``, ``preset``,
             ``sets``, ``quick``, ``workdir``.
 
+    Cảnh được ingest bằng converter cũ (``outdated_message``) thì in cảnh báo ra stderr rồi chạy
+    tiếp: run trên cảnh cũ vẫn hợp lệ, chỉ không dùng đầu ra mới của converter.
+
     Returns:
         Bộ ``(thư mục làm việc, cảnh, split, plan)``.
 
@@ -158,6 +163,9 @@ def resolve_from_args(args: argparse.Namespace) -> tuple[Workdir, Scene, Split, 
     """
     workdir = Workdir.from_env(args.workdir)
     scene = workdir.load_scene(args.scene_id)
+    warning = outdated_message(scene.manifest)
+    if warning:
+        info(args, f"cảnh báo: {warning}")
     split = workdir.load_split(args.scene_id, args.split_id)
     approach = load_approach(args.approach_id)
     options, stage_params = parse_set(args.sets)

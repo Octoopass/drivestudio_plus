@@ -17,6 +17,7 @@ export type Dataset =
 export type SequenceId = string;
 export type Converter = string;
 export type ConverterVersion = string;
+export type OutputVersion = number | null;
 export type DataLicense = string | null;
 export type Track = "pinhole" | "fisheye";
 /**
@@ -76,6 +77,12 @@ export interface Manifest {
  *     converter_version: Phiên bản converter, dạng ``<phiên bản drive2sim>+<commit>``; nằm
  *         trong khoá cache của mọi stage nhận cảnh, nên ingest lại bằng code khác thì cache cũ
  *         không bị dùng nhầm.
+ *     output_version: Phiên bản đầu ra của converter lúc ingest, số nguyên tăng tay mỗi khi
+ *         converter đổi dữ liệu nó ghi ra (``KITTI360_OUTPUT_VERSION``,
+ *         ``DRIVESTUDIO_OUTPUT_VERSION`` trong ``drive2sim/ingest/manifest.py``). Khác
+ *         ``converter_version`` (đổi theo mọi commit), số này chỉ đổi khi đầu ra đổi, nên dùng
+ *         để biết cảnh đã cũ. Thêm từ ``d2s-manifest/1.1``; manifest cũ không có trường này
+ *         được coi là phiên bản ``1`` (trừ commit ghi trong ``manifest.py``).
  *     data_license: License của dữ liệu nguồn, nếu biết.
  */
 export interface ManifestSource {
@@ -83,6 +90,7 @@ export interface ManifestSource {
   sequence_id: SequenceId;
   converter: Converter;
   converter_version: ConverterVersion;
+  output_version?: OutputVersion;
   data_license?: DataLicense;
 }
 /**

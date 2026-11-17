@@ -70,13 +70,14 @@ Mask thân xe KITTI-360 là asset của loader trong package, không phải dữ
 ### 2.2 `manifest.yaml`
 
 ```yaml
-schema_version: d2s-manifest/1.0
+schema_version: d2s-manifest/1.1
 scene_id: nuscenes_scene-0061
 source:
   dataset: nuscenes               # waymo | nuscenes | nuplan | argoverse2 | pandaset | kitti | kitti360 | physicalai | carla | colmap | custom
   sequence_id: scene-0061
   converter: drivestudio.nuscenes # converter đã dùng: script tiền xử lý DriveStudio cho nuScenes
   converter_version: "0.1.0+96876ad"   # <phiên bản drive2sim>+<commit> lúc ingest
+  output_version: 1               # phiên bản đầu ra của converter; tăng tay khi đầu ra đổi
   data_license: "CC BY-NC-SA 4.0"
 track: pinhole                    # pinhole | fisheye; fisheye khi có ít nhất một camera mắt cá
 cameras:
@@ -99,6 +100,7 @@ available:
 - `available` là cơ sở để khoá approach (mục 4.2).
 - `cameras` xếp đúng thứ tự chỉ số camera của DriveStudio cho dataset đó, vì `images/<khung>_<camera>.jpg` và config dataset dùng chỉ số này; stage train đổi `camera_id` của split sang chỉ số theo thứ tự đó.
 - `source.dataset` chọn loader và config dataset có sẵn của DriveStudio khi train.
+- `source.output_version` (thêm từ `1.1`, không bắt buộc): phiên bản đầu ra của converter lúc ingest, số nguyên ≥ 1 tăng tay **chỉ khi dữ liệu converter ghi ra đổi** (`drive2sim/ingest/manifest.py`: `KITTI360_OUTPUT_VERSION` hiện là `2` từ lần viết lại khớp Mei; `DRIVESTUDIO_OUTPUT_VERSION` dùng chung cho mọi converter `drivestudio.<dataset>`, hiện là `1`). Manifest `1.0` không có trường này vẫn đọc được và được coi là `1` (riêng `converter_version` ghi commit `188fb9b`, đã có khớp Mei mới, được coi là `2` với KITTI-360). Cảnh có phiên bản khác phiên bản hiện tại của converter là **cảnh cũ**: `scene validate`, Studio, `approach check`, `run start` cảnh báo (không chặn), `kaggle ingest` dùng notebook mới (mục 9.4). Converter không do tool quản lý (cảnh tự làm) không có phiên bản, không bị xét. Trường này không nằm trong khoá cache (mục 5.2) hay tên dataset cảnh trên Kaggle (mục 10.1), để cache và dataset đã có vẫn dùng được.
 - Thay đổi từ `0.1`: bỏ phần `ncore` (dữ liệu chuẩn không còn là NCore); file `0.x` không đọc được nữa.
 - `cameras[].model` ghi đúng mô hình trong nguồn, nên có thể là `ideal_pinhole` (với nguồn NCore); approach chỉ khai báo nhận ba mô hình chuẩn (mục 10.3), và `ideal_pinhole` được coi là `opencv_pinhole` với hệ số méo bằng 0. Mỗi camera ghi mô hình riêng; một cảnh có thể có cả camera pinhole lẫn mắt cá (KITTI-360). `track` của cảnh là `fisheye` khi có ít nhất một camera thuộc track fisheye. Engine vẫn kiểm từng camera của split với mô hình approach nhận (mục 4.2), nên approach chỉ vẽ pinhole bị khoá trên split có camera mắt cá.
 - Các giá trị trong ví dụ chỉ minh hoạ định dạng.
@@ -145,6 +147,8 @@ Approach khai báo các `strategy` mà codebase của nó hỗ trợ (`requires.
 ```
 
 `severity` lấy một trong: `error` (không chạy được), `warning`, `info`.
+
+`converter.outdated` (`warning`): cảnh được ingest bằng converter cũ (mục 2.2), `details` là `{"output_version", "current_output_version"}`; cảnh vẫn chạy được.
 
 ## 4. Approach
 
@@ -719,7 +723,8 @@ Chưa chạy thật: mọi đoạn mã chạy trên VM đã chạy trong test v�
 
 Dữ liệu gốc lớn (ví dụ KITTI-360 đủ khung, khoảng 8,8 GB một chuỗi) không cần nằm trên máy, và cảnh ingest từ nó không cần upload từ máy. Dữ liệu gốc là một dataset private hoặc output của một notebook trên Kaggle; `d2s kaggle ingest <nguồn> [--path <thư mục con>] [tuỳ chọn của scene ingest]` ingest ngay trên Kaggle (`drive2sim/kaggle/ingest.py`):
 
-- **Notebook** `<người dùng>/d2s-ingest-<nguồn>[-<số của --sequence>]`, hoặc `d2s-ingest-<--scene>` khi đặt `--scene` (mục 10.1, ví dụ `d2s-ingest-nuscenes-mini-0061`), private, chỉ CPU, có internet, sinh từ `drive2sim/kaggle/templates/ingest.ipynb`. Chạy lại cùng lệnh thì dùng lại notebook: đang chạy thì chờ tiếp, đã xong thì chỉ tải về, lỗi hoặc chưa có thì đẩy (lại). Notebook ghi nguồn, `--path` và tuỳ chọn vào `ingest_result.json`; cùng tên mà khác tham số thì lệnh từ chối (đẩy lại sẽ ghi đè output mà run cũ đang dùng) và bảo đặt `--scene` khác. Nguồn là dataset (`kaggle datasets` thấy nó) thì gắn qua `dataset_sources`, không thì coi là notebook và gắn qua `kernel_sources`.
+- **Notebook** `<người dùng>/d2s-ingest-<nguồn>[-<số của --sequence>]`, hoặc `d2s-ingest-<--scene>` khi đặt `--scene` (mục 10.1, ví dụ `d2s-ingest-nuscenes-mini-0061`), private, chỉ CPU, có internet, sinh từ `drive2sim/kaggle/templates/ingest.ipynb`. Chạy lại cùng lệnh thì dùng lại notebook: đang chạy thì chờ tiếp, đã xong thì chỉ tải về, lỗi hoặc chưa có thì đẩy (lại). Notebook ghi nguồn, `--path` và tuỳ chọn vào `ingest_result.json`; cùng tên mà khác tham số thì lệnh từ chối (đẩy lại sẽ ghi đè output mà run cũ đang dùng) và bảo đặt `--scene` khác.
+- **Converter đổi đầu ra**: notebook đã xong mà `manifest.yaml` của nó là cảnh cũ (mục 2.2) thì lệnh **không** đẩy lại notebook đó (run cũ còn gắn output của nó) mà dùng notebook `<tên trên>-c<phiên bản đầu ra hiện tại>` (ví dụ `d2s-ingest-kitti360-0003-c2`), theo đúng luật dùng lại ở trên; chạy lại cùng lệnh thì đi đúng con đường đó. Notebook mới vẫn ra cảnh cũ (commit đẩy lên chưa có converter mới) thì báo lỗi. Hậu tố chỉ có khi phiên bản > 1, nên notebook đã có giữ tên. Cảnh cùng `scene_id` đã có trên máy mà là cảnh cũ thì lệnh không tự thay (split, cache, run cũ làm từ dữ liệu cũ): báo xoá cảnh cũ bằng `d2s scene delete` rồi chạy lại lệnh (notebook mới đã xong nên chỉ tải về), hoặc đặt `--scene` khác. Nguồn là dataset (`kaggle datasets` thấy nó) thì gắn qua `dataset_sources`, không thì coi là notebook và gắn qua `kernel_sources`.
 - Notebook clone đúng commit như mục 9.2 (không cần submodule), cài môi trường nhẹ trong venv Python 3.10: tool, numpy 1.23.5, PyTorch 2.4.1 bản CPU (mã tiền xử lý import torch), `nuscenes-devkit` 1.2.0, OpenCV. Nó tìm thư mục nguồn theo tên dưới `/kaggle/input` (sâu tối đa ba mức), chạy `d2s scene ingest <nguồn>/<--path> --workdir /kaggle/working <tuỳ chọn>`, rồi chỉ giữ `data/<scene_id>/` và `ingest_result.json` (`scene_id`, `commit`, `exit_code`, `source`, `path`, `args`) trong output. Mã thoát 1 (báo cáo kiểm tra có lỗi) vẫn giữ cảnh để xem báo cáo.
 - Lệnh chờ notebook xong (hỏi mỗi 60 giây, tối đa 6 giờ), đọc **chỉ** kết quả, `manifest.yaml` và `reports/*.json` từ **log** của notebook (`kaggle kernels logs`): notebook ghi chúng vào stderr của tiến trình sau chữ `D2S_INGEST_LIGHT`, dạng base64 của JSON `{"result", "files"}`. Không dùng `kaggle kernels output --file-pattern`, vì lệnh đó liệt kê mọi file của output trước khi lọc, và với cảnh lớn (KITTI-360 0003: khoảng 17 000 file) bị Kaggle trả 429. Notebook đã xong mà log không có dòng này (template cũ) thì đẩy lại. Ghi vào `data/<scene_id>/` cùng `kaggle_scene.json`. Notebook private, nên mỗi tài khoản Kaggle cần notebook ingest của riêng nó: chạy lệnh bằng tài khoản thứ hai (dữ liệu gốc là dataset đã chia sẻ cho tài khoản đó) thì thêm một mục vào `kaggle_scene.json`, với điều kiện manifest giống cảnh đã có (bỏ qua phiên bản converter); cảnh cùng tên mà ingest trên máy, hoặc manifest khác, thì từ chối. Mã thoát 1 nếu báo cáo có lỗi.
 - `kaggle push` của run trên cảnh có `kaggle_scene.json` không upload cảnh: notebook train gắn output của notebook ingest qua `kernel_sources` (trước các notebook chạy tiếp), `kaggle.json` ghi notebook đó ở trường `dataset`; `d2s kaggle run` tìm cảnh theo `manifest.yaml` như mục 9.2. `push` lấy notebook ingest của đúng tài khoản lệnh `kaggle` đang đăng nhập; tài khoản đó chưa ingest thì từ chối và chỉ lệnh cần chạy.
@@ -749,7 +754,7 @@ Dữ liệu gốc lớn (ví dụ KITTI-360 đủ khung, khoảng 8,8 GB một c
 | `schema_version` | `d2s-<loại>/<major>.<minor>` | `d2s-run/0.1` |
 | Notebook train trên Kaggle | `d2s-<cảnh>-<approach>-<biến thể>-<4 hex của run>-<lần đẩy>`. `<cảnh>` là `<dataset>-<số cuối của chuỗi gốc>`; `<biến thể>` là lựa chọn của mọi mục chọn (renderer luôn có) cộng các mục bật/tắt khác mặc định (bật: tên mục, tắt: `no-<tên>`), `base` nếu không có gì. Tối đa 50 ký tự (giới hạn của Kaggle): quá thì bỏ tiền tố `d2s-`, rồi bỏ nguyên từ ở cuối biến thể (`drive2sim/kaggle/names.py`) | `d2s-nuscenes-0061-omnire-3dgs-fastgs-453a-1`, `d2s-nuscenes-0061-omnire-3dgeer-fastergs-8d9c-2` |
 | Dataset cảnh trên Kaggle, thư mục cảnh trên VM Colab | `d2s-scene-<cảnh>-<commit converter>` | `d2s-scene-nuscenes-0061-96876ad` |
-| Notebook ingest trên Kaggle | `d2s-ingest-<nguồn bỏ d2s-, raw>[-<số của --sequence>]`, hoặc `d2s-ingest-<--scene>` | `d2s-ingest-nuscenes-mini-0061`, `d2s-ingest-kitti360-0003` |
+| Notebook ingest trên Kaggle | `d2s-ingest-<nguồn bỏ d2s-, raw>[-<số của --sequence>]`, hoặc `d2s-ingest-<--scene>`; thêm `-c<phiên bản đầu ra>` khi notebook tên đó ingest bằng converter cũ (chỉ khi phiên bản > 1, mục 9.4) | `d2s-ingest-nuscenes-mini-0061`, `d2s-ingest-kitti360-0003`, `d2s-ingest-kitti360-0003-c2` |
 | Dataset dữ liệu gốc trên Kaggle (người dùng tạo) | `d2s-raw-<dataset>-<phần>` | `d2s-raw-kitti360-0003`, `d2s-raw-nuscenes-mini` |
 | Dataset mô hình trên Kaggle (người dùng tạo, có bản quyền riêng) | `d2s-model-<tên>` | `d2s-model-smpl` (đặt vào `D2S_KAGGLE_SMPL_DATASET`) |
 
@@ -788,13 +793,13 @@ Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dà
 |---|---|
 | `d2s source inspect <thư mục>` | Xem trước thư mục dữ liệu gốc: nhận ra dataset, báo có gì, gợi ý lệnh ingest; không ghi gì |
 | `d2s scene ingest <nguồn> [--source-type <dataset>] [--version <phiên bản>] [--sequence <chuỗi gốc>] [--scene <scene_id>] [--interpolate-n <N>] [--workers <N>] [--start-frame <số hiệu>] [--num-frames <N>] [--cameras <id,...>] [--max-gap <N>]` | Chuyển một chuỗi của nguồn sang `data/<scene_id>/`, ghi manifest và báo cáo kiểm tra; bỏ `--source-type` thì tự nhận dạng như `source inspect`. `scene_id` mặc định `<dataset>_<chuỗi gốc>`. Mã thoát `1` nếu báo cáo có lỗi. Hỗ trợ nuScenes, Waymo, Argoverse 2, PandaSet, KITTI, nuPlan, PhysicalAI, KITTI-360; phiên bản và chuỗi được tự chọn khi chỉ có một. Bốn tuỳ chọn cuối chỉ dùng cho KITTI-360: số hiệu khung gốc nhỏ nhất, số khung tối đa (mặc định cả đoạn liền nhau dài nhất), camera cần ghi, khoảng cách lớn nhất giữa hai khung liền nhau (mặc định 5) |
-| `d2s scene validate <scene_id>` | Kiểm tra lại, ghi `validation.json` |
+| `d2s scene validate <scene_id>` | Kiểm tra lại, ghi `validation.json`; cảnh ingest bằng converter cũ có mục cảnh báo `converter.outdated` (mục 3.2) |
 | `d2s scene list` / `d2s scene show <scene_id>` | Liệt kê cảnh; xem manifest và báo cáo |
 | `d2s scene delete <scene_id>` | Xoá dữ liệu chuẩn, split, cache và run của cảnh; hỏi xác nhận |
 | `d2s split create <scene_id> --strategy every_nth_frame:8 [--cameras <id,...>] [--frame-range <đầu>,<cuối>] [--split <split_id>]` | Tạo split; mặc định mọi camera và cả cảnh, tên theo mục 10.1 |
 | `d2s split list <scene_id>` / `d2s split show <scene_id> <split_id>` / `d2s split delete <scene_id> <split_id>` | Liệt kê, xem, xoá split |
 | `d2s approach list` / `d2s approach show <approach_id>` | Liệt kê approach; xem mục cấu hình, preset, ràng buộc |
-| `d2s approach check <approach_id> --scene <scene_id> --split <split_id> [--preset <tên>] [--set <mục>=<giá trị>]... [--quick]` | Kiểm tra điều kiện và in danh sách stage sẽ chạy, stage nào dùng lại cache |
+| `d2s approach check <approach_id> --scene <scene_id> --split <split_id> [--preset <tên>] [--set <mục>=<giá trị>]... [--quick]` | Kiểm tra điều kiện và in danh sách stage sẽ chạy, stage nào dùng lại cache; cảnh ingest bằng converter cũ (mục 2.2) thì in cảnh báo ra stderr, không chặn (`run start` cũng vậy) |
 | `d2s run start <approach_id> --scene <scene_id> --split <split_id> [--preset <tên>] [--set <mục>=<giá trị>]... [--quick] [--executor local\|kaggle\|colab] [--no-push]` | Chạy; `--quick` là chạy thử nhanh 3000 iteration (mục 6.2); `--no-push` (executor kaggle, colab) chỉ tạo run, đẩy sau, ví dụ hai run chung một notebook bằng `d2s kaggle push RUN1 RUN2` |
 | `d2s run resume <run_id>` | Chạy tiếp từ stage dở |
 | `d2s run status <run_id>` / `d2s run list [--scene <scene_id>]` / `d2s run cancel <run_id>` / `d2s run delete <run_id>` | Theo dõi, liệt kê, huỷ, xoá thư mục run |
@@ -867,7 +872,7 @@ Route đã có (`drive2sim/studio/api/routes/`):
 
 | Route | Việc | Tương ứng CLI |
 |---|---|---|
-| `GET /api/scenes`, `GET /api/scenes/{scene_id}` | Liệt kê cảnh; manifest, `validation` (báo cáo kiểm tra hoặc `null`), `splits` (danh sách `split_id`), `split_cameras` (camera của từng split, `{split_id: [camera_id]}`; giao diện hiện loại ống kính và xét approach theo camera của split, như engine), `kaggle` (danh sách notebook nạp cảnh trong `kaggle_scene.json` khi cảnh được nạp trên Kaggle, máy không có ảnh; ngược lại `null`) | `scene list`, `scene show` |
+| `GET /api/scenes`, `GET /api/scenes/{scene_id}` | Liệt kê cảnh; manifest, `validation` (báo cáo kiểm tra hoặc `null`), `splits` (danh sách `split_id`), `split_cameras` (camera của từng split, `{split_id: [camera_id]}`; giao diện hiện loại ống kính và xét approach theo camera của split, như engine), `kaggle` (danh sách notebook nạp cảnh trong `kaggle_scene.json` khi cảnh được nạp trên Kaggle, máy không có ảnh; ngược lại `null`), `converter_outdated` (`{"output_version", "current_output_version"}` khi cảnh được ingest bằng converter cũ, mục 2.2; ngược lại `null`) | `scene list`, `scene show` |
 | `GET /api/scenes/{scene_id}/frames/{frame_index}` | `{"frame_index", "images": [{"camera_id", "url"}]}` cho lưới ảnh đồng bộ; `url` là `null` khi thiếu ảnh | |
 | `GET`, `POST /api/scenes/{scene_id}/splits`, `GET .../splits/{split_id}` | Liệt kê, tạo, xem split; thân của `POST`: `strategy`, `cameras`, `frame_range`, `split_id` | `split list`, `split create`, `split show` |
 | `GET /api/approaches`, `GET /api/approaches/{approach_id}` | Đọc file approach | `approach list`, `approach show` |
