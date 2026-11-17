@@ -143,7 +143,9 @@ def create_app():
         reconstruction.shutdown()
 
     app = FastAPI(title="Fisheye Fusion Lab", lifespan=lifespan)
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
+    # Local-only by default. FUSION_ALLOWED_HOSTS (comma separated) adds hosts, e.g. for a read-only preview proxy.
+    extra_hosts = [h.strip() for h in os.environ.get("FUSION_ALLOWED_HOSTS", "").split(",") if h.strip()]
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver", *extra_hosts])
 
     @app.middleware("http")
     async def local_origin(request: Request, call_next):
