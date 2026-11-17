@@ -17,6 +17,7 @@ out of scope.
 | Colab notebook (`tools/kitti360_3dgut_fast3dgs_colab.ipynb`) | Same trainer, cell by cell, with Drive | Updated to the current trainer, not re-run end to end | — |
 | Local Web UI and Python CLI (`fisheye_fusion/`) | Preview fusion, sampling, KITTI-360 import, small gsplat and GEER experiments | CPU baseline; small static scene 19.50 dB, GEER 19.62 dB held-out | below, [docs/small-scene.md](docs/small-scene.md), [docs/geer-experiment.md](docs/geer-experiment.md) |
 | Instant NuRec runner | Inference with pretrained weights in a separate environment | Needs NCore input and a checkpoint | [docs/reconstruction.md](docs/reconstruction.md) |
+| DriveStudio+ (`models/`, `datasets/`, `configs/`, `utils/`, `third_party/`) | Merged fork of [ziyc/drivestudio](https://github.com/ziyc/drivestudio): 3DGS / 3DGUT / 3DGEER renderers, fisheye and FTheta, FastGS-style densification, world-frame `.ply` export | Merged from [Octoopass/drivestudio_plus](https://github.com/Octoopass/drivestudio_plus); not run in this repo | [README_drivestudio_plus.md](README_drivestudio_plus.md) |
 
 Method registry: [docs/backend_matrix.md](docs/backend_matrix.md). Project log and decisions:
 [context.md](context.md).
@@ -51,7 +52,8 @@ limitations in [docs/kitti360-3dgut.md](docs/kitti360-3dgut.md#limitations).
 | Path | Content |
 |---|---|
 | `fflab/` | Node.js CLI, backend and accelerator manifests, tests |
-| `tools/` | Python trainer, renderer, projection check, Colab notebook, earlier experiment scripts |
+| `tools/` | Python trainer, renderer, projection check, Colab notebook, earlier experiment scripts, plus DriveStudio+ `train.py`-side tools (`viewer.py`, `export_ply.py`) |
+| `models/`, `datasets/`, `configs/`, `utils/`, `third_party/` | DriveStudio+ framework (separate environment, see `requirements-drivestudio.txt`) |
 | `fisheye_fusion/` | Local Web UI (FastAPI) and Python CLI |
 | `docs/` | Method and experiment documentation |
 | `tests/` | Python tests (`python -m pytest -q`) |
