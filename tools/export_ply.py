@@ -59,7 +59,7 @@ def main():
     ap.add_argument("--min_opacity", type=float, default=0.005)
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
-    ck = torch.load(a.ckpt, map_location="cpu")
+    ck = torch.load(a.ckpt, map_location="cpu", weights_only=False)  # own DriveStudio checkpoint; numpy scalars inside
     models = ck["models"]
     print("nodes in checkpoint:", list(models.keys()))
 
