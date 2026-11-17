@@ -63,6 +63,40 @@ Ghi chú:
 - Faster-GS với 3DGUT, 3DGEER chỉ có phần Python (fused Adam, fused SSIM, ít chờ GPU); ba kỹ thuật kernel chỉ có cho 3DGS (`docs/methods/fastergs.md`). Không port sang 3DGUT vì rasterizer chỉ chiếm khoảng 14% mỗi bước ở bước 20 000 (profile `60e5`).
 - Run nên chạy tiếp: 3DGUT densify gốc + Faster-GS (mốc sạch cho `60e5` và `44d8`); MCMC chỉ cho nền (kiểm giả thuyết ở trên).
 
+### Số Gaussian ở bước 15.000 và bước cuối (30.000)
+
+Đếm từ `checkpoint_15000.pth` và `checkpoint_final.pth` của từng run (17/11/2026, đếm số
+hàng `_means` của mỗi node trong checkpoint). Cùng nuScenes `scene-0061`, `front3`, 30.000
+bước. PSNR là PSNR test trong `summary.json`. "FrGS" là Faster-GS.
+
+| Run | Approach | Renderer | Densify | FastGS | FrGS | Nền 15k → cuối | Xe 15k → cuối | Biến dạng 15k → cuối | Người (SMPL) | Tổng 15k → cuối | Giữ lại | PSNR |
+|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|
+| `2d33` | OmniRe | 3DGS | gốc | | | 2.824.372 → 1.281.994 | 117.629 → 103.982 | 17.867 → 13.432 | 124.020 | 3.083.888 → 1.523.428 | 49% | 25,15 |
+| `8d9c` | OmniRe | 3DGS | gốc | | có | 2.810.017 → 1.274.449 | 114.497 → 105.459 | 17.783 → 13.580 | 124.020 | 3.066.317 → 1.517.508 | 49% | 25,20 |
+| `453a` | OmniRe | 3DGS | gốc | có | | 1.385.935 → 389.932 | 86.782 → 29.148 | 9.738 → 4.839 | 124.020 | 1.606.475 → 547.939 | 34% | 25,02 |
+| `f8a6` | OmniRe | 3DGS | gốc | có | có | 1.385.485 → 388.408 | 87.307 → 29.284 | 9.848 → 4.924 | 124.020 | 1.606.660 → 546.636 | 34% | 25,01 |
+| `60e5` | OmniRe | 3DGUT | gốc | có | có | 511.129 → 194.450 | 14.399 → 9.398 | 3.871 → 2.695 | 124.020 | 653.419 → 330.563 | 51% | 23,99 |
+| `a8a9` | OmniRe | 3DGEER (densify mỗi 50 bước) | gốc | có | có | 1.229.480 → 391.351 | 47.978 → 22.634 | 10.587 → 5.650 | 124.020 | 1.412.065 → 543.655 | 39% | 21,77 |
+| `6b85` | OmniRe | 3DGEER (mỗi 300 bước) | gốc | có | có | 806.068 → 292.939 | 25.804 → 15.456 | 7.311 → 4.640 | 124.020 | 963.203 → 437.055 | 45% | 21,66 |
+| `a022` | OmniRe | 3DGS | MCMC | | có | 1.000.000 → 1.000.000 | 50.000 → 50.000 | 10.000 → 10.000 | 124.020 | 1.184.020 → 1.184.020 | 100% | 23,56 |
+| `44d8` | OmniRe | 3DGUT | MCMC | | có | 1.000.000 → 1.000.000 | 50.000 → 50.000 | 10.000 → 10.000 | 124.020 | 1.184.020 → 1.184.020 | 100% | 23,19 |
+| `ccec` | Street GS | 3DGS | gốc | có | | 1.457.051 → 399.921 | 83.245 → 27.697 | | | 1.540.296 → 427.618 | 28% | 25,02 |
+| `ecaa` | Street GS | 3DGS | gốc | có | có | 1.461.528 → 399.758 | 83.202 → 28.109 | | | 1.544.730 → 427.867 | 28% | 24,96 |
+
+Đọc bảng:
+
+- Densify gốc không FastGS (`2d33`, `8d9c`) cũng giảm khoảng một nửa số Gaussian sau bước
+  15.000, do bước cắt (prune) của DriveStudio; chưa kiểm tra quy tắc cắt nào bỏ nhiều nhất. FastGS bắt đầu
+  với ít Gaussian hơn (1,6 triệu so với 3,1 triệu ở bước 15.000) và cắt mạnh hơn (còn 34%),
+  nên model cuối nhỏ khoảng 2,8 lần, PSNR thấp hơn khoảng 0,15–0,2 dB.
+- Faster-GS gần như không đổi số Gaussian (`453a` so với `f8a6`, `2d33` so với `8d9c`):
+  nó tăng tốc tính toán, không đổi quy tắc densify.
+- MCMC giữ đúng giới hạn đặt trước (1.000.000 nền, 50.000 xe, 10.000 biến dạng) từ bước
+  15.000 tới cuối; cắt và thêm Gaussian chỉ đổi chỗ, không đổi số lượng.
+- Người (SMPL) cố định 124.020 Gaussian ở mọi run: densify không áp cho node SMPL.
+- Mỗi dòng là một run; chưa lặp lại seed, nên chênh lệch nhỏ giữa hai run gần giống nhau
+  (ví dụ `453a` và `f8a6`) chưa đủ để kết luận.
+
 ## Fisheye (pinhole + mắt cá)
 
 ### Kế hoạch hiện tại: 6 run, mỗi run 30.000 bước
