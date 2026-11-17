@@ -1,6 +1,6 @@
 BACKENDS = [
-    {"id": "street-gaussians", "label": "Street Gaussians", "runtime": "isolated", "status": "research"},
-    {"id": "omnire", "label": "OmniRe / DriveStudio", "runtime": "isolated", "status": "research"},
+    {"id": "street-gaussians", "label": "Street Gaussians (DriveStudio+)", "runtime": "isolated CUDA (own venv)", "status": "experimental; fflab train --backend drivestudio --method configs/streetgs_ut.yaml"},
+    {"id": "omnire", "label": "OmniRe (DriveStudio+)", "runtime": "isolated CUDA (own venv)", "status": "experimental; fflab train --backend drivestudio --method configs/omnire.yaml"},
     {"id": "3dgut", "label": "3DGUT", "runtime": "local-cuda", "status": "planned"},
     {"id": "splatad", "label": "SplatAD", "runtime": "colab-t4", "status": "research"},
     {"id": "idsplat", "label": "IDSplat", "runtime": "isolated", "status": "research"},

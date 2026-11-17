@@ -130,3 +130,18 @@ Test gồm phần đơn vị, một lần chạy `fflab check` thật trên arch
 - Lần đầu trên mỗi VM, gsplat compile kernel CUDA khoảng 13–15 phút (793 s trong lần đo); it/s in ra trong lúc đó bị kéo thấp.
 - `google-colab-cli` không hỗ trợ Windows, nên `fflab colab` trên Windows phải chạy qua WSL.
 - Backend hiện chỉ đọc sequence 0003 của KITTI-360 (giới hạn của trainer).
+
+## DriveStudio+ backend (experimental)
+
+`backends/drivestudio.json` runs the merged DriveStudio+ trainer (`tools/train.py`) through `tools/drivestudio_run.py`.
+It needs its own environment (`requirements-drivestudio.txt`; `gsplat-geer` for `--render-mode geer`), so point fflab at it
+with `--venv` and preprocess the dataset first (see `docs/PhysicalAI.md`, `docs/Waymo.md`, ...).
+
+```bash
+fflab train --backend drivestudio --venv ~/venvs/ds --method configs/streetgs_ut.yaml \
+  --dataset physicalai/7cams --scene-idx 0 --steps 30000 --run-name ds1 --overrides "data.pixel_source.load_smpl=False"
+fflab train --backend drivestudio --dry-run --method configs/streetgs_fastgs.yaml   # print the plan only
+```
+
+`--method` picks the config (`*_ut` = 3DGUT, `*_geer` = 3DGEER, `*_fastgs` = FastGS-style densification), `--overrides` passes any OmegaConf
+override. KITTI-360 is not a DriveStudio dataset yet; see `README_drivestudio_plus.md`.

@@ -93,3 +93,15 @@ function spawnPython() {
   const r = spawnSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' });
   return r.status === 0 ? r.stdout.trim() : null;
 }
+
+test('drivestudio backend: valid manifest, --method maps to DRIVESTUDIO_CONFIG, steps only when given', () => {
+  const ds = getBackend(reg, 'drivestudio');
+  validateBackend(ds);
+  const plan = buildPlan({ backend: ds, command: 'train', opts: { method: 'configs/omnire.yaml', 'scene-idx': '3' }, run: 'r9' });
+  assert.equal(plan.env.DRIVESTUDIO_CONFIG, 'configs/omnire.yaml');
+  assert.equal(plan.env.DRIVESTUDIO_SCENE_IDX, '3');
+  assert.equal(plan.env.DRIVESTUDIO_RUN_NAME, 'r9');
+  assert.equal(plan.env.DRIVESTUDIO_STEPS, undefined, 'no default steps: the config value is kept');
+  assert.equal(plan.script, 'drivestudio_run.py');
+  assert.throws(() => buildPlan({ backend: ds, command: 'train', opts: { frames: '3' }, run: 'r' }), /unknown option/);
+});
