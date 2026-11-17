@@ -1526,7 +1526,8 @@ def create_gsplat_viewer(
         with state_lock:
             return int(current_frame)
 
-    server = viser.ViserServer(port=port, verbose=False)
+    # DRIVESTUDIO_VIEWER_HOST=127.0.0.1 keeps the viewer local (the Web UI does this); the default stays viser's 0.0.0.0
+    server = viser.ViserServer(host=os.environ.get("DRIVESTUDIO_VIEWER_HOST", "0.0.0.0"), port=port, verbose=False)
     if initial_camera is not None:
         server.initial_camera.position = initial_camera["position"]
         server.initial_camera.look_at = initial_camera["look_at"]
