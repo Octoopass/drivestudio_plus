@@ -34,7 +34,7 @@ outputs/*
 .idea/
 
 # Local datasets, external backends and their outputs
-kitti360/
+/kitti360/
 /backends/
 fflab-runs/
 
