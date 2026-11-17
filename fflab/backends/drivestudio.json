@@ -1,0 +1,108 @@
+{
+  "id": "drivestudio",
+  "name": "DriveStudio+ (OmniRe / Street Gaussians; 3DGS, 3DGUT, 3DGEER; FastGS-style densification)",
+  "status": "experimental",
+  "requiresCuda": true,
+  "requirements": [],
+  "buildRequirements": [],
+  "importCheck": [
+    "torch",
+    "gsplat",
+    "omegaconf",
+    "cv2"
+  ],
+  "accelerators": [],
+  "logEnv": "DRIVESTUDIO_LOG",
+  "notes": "Needs its own environment (requirements-drivestudio.txt, gsplat 1.5.3 or Bosch's gsplat-geer for render-mode geer). Run fflab with --venv pointing at it. Data must be preprocessed first (docs/PhysicalAI.md, docs/Waymo.md, ...). KITTI-360 is not a DriveStudio dataset yet: see README_drivestudio_plus.md.",
+  "commands": {
+    "train": {
+      "script": "drivestudio_run.py",
+      "outputs": "out",
+      "options": [
+        {
+          "flag": "method",
+          "env": "DRIVESTUDIO_CONFIG",
+          "type": "string",
+          "default": "configs/streetgs_ut.yaml",
+          "help": "method config under configs/ (streetgs*, omnire*; *_ut = 3DGUT, *_geer = 3DGEER, *_fastgs = FastGS-style densification)"
+        },
+        {
+          "flag": "dataset",
+          "env": "DRIVESTUDIO_DATASET",
+          "type": "string",
+          "default": "",
+          "help": "dataset config under configs/datasets/, e.g. waymo/3cams, nuscenes/1cams, physicalai/7cams; empty keeps the one named in the method config"
+        },
+        {
+          "flag": "scene-idx",
+          "env": "DRIVESTUDIO_SCENE_IDX",
+          "type": "int",
+          "default": 0,
+          "help": "index of the processed scene"
+        },
+        {
+          "flag": "render-mode",
+          "env": "DRIVESTUDIO_RENDER_MODE",
+          "type": "string",
+          "default": "",
+          "help": "default | ut | geer; empty keeps the config's value"
+        },
+        {
+          "flag": "fastgs",
+          "env": "DRIVESTUDIO_FASTGS",
+          "type": "string",
+          "default": "",
+          "help": "true | false to force FastGS-style densification; empty keeps the config's value"
+        },
+        {
+          "flag": "steps",
+          "env": "DRIVESTUDIO_STEPS",
+          "type": "int",
+          "help": "training iterations (trainer.optim.num_iters); omit to keep the config value"
+        },
+        {
+          "flag": "out",
+          "env": "DRIVESTUDIO_OUT",
+          "type": "path",
+          "default": "./fflab-runs/{run}",
+          "help": "output root; checkpoints and renders go to <out>/<project>/<run-name>"
+        },
+        {
+          "flag": "project",
+          "env": "DRIVESTUDIO_PROJECT",
+          "type": "string",
+          "default": "drivestudio",
+          "help": "sub-folder under --out"
+        },
+        {
+          "flag": "run-name",
+          "env": "DRIVESTUDIO_RUN_NAME",
+          "type": "string",
+          "default": "{run}",
+          "help": "run name"
+        },
+        {
+          "flag": "resume",
+          "env": "DRIVESTUDIO_RESUME",
+          "type": "path",
+          "default": "",
+          "help": "checkpoint to resume from"
+        },
+        {
+          "flag": "viewer",
+          "env": "DRIVESTUDIO_VIEWER",
+          "type": "bool",
+          "default": false,
+          "help": "start the interactive viewer"
+        },
+        {
+          "flag": "overrides",
+          "env": "DRIVESTUDIO_OVERRIDES",
+          "type": "string",
+          "default": "",
+          "help": "extra OmegaConf overrides, space separated, e.g. \"data.pixel_source.load_smpl=False\""
+        }
+      ]
+    }
+  }
+}

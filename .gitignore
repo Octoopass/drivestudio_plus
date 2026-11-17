@@ -35,7 +35,7 @@ outputs/*
 
 # Local datasets, external backends and their outputs
 kitti360/
-backends/
+/backends/
 fflab-runs/
 
 # --- drivestudio_plus ---
