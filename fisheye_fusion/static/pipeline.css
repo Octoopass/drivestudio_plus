@@ -72,7 +72,7 @@ small { display: block; font-size: 12.5px; margin-top: var(--s1); font-weight: 4
 
 .panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--r); padding: var(--s5); min-width: 0; }
 .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s5); }
-.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s4); margin-top: var(--s4); }
+.grid3 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1fr); gap: var(--s4); margin-top: var(--s4); }
 
 /* ---------------------------------------------------------------- KPI tiles */
 .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s4); }
@@ -124,7 +124,7 @@ button.small { min-height: 32px; padding: 4px 10px; font-size: 13px; }
 .tag.bad { background: var(--danger-soft); color: #fca5a5; }
 .tag.run { background: rgba(96, 165, 250, .15); color: #93c5fd; }
 .tag.warn { background: rgba(245, 158, 11, .15); color: #fcd34d; }
-.kv { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 6px var(--s3); margin: 0 0 var(--s2); font-size: 13.5px; }
+.kv { display: grid; grid-template-columns: 136px minmax(0, 1fr); gap: 6px var(--s3); margin: 0 0 var(--s2); font-size: 13.5px; }
 .kv dt { color: var(--muted-fg); }
 .kv dd { margin: 0; overflow-wrap: anywhere; }
 .bar { height: 6px; background: var(--muted); border-radius: 3px; overflow: hidden; margin-top: 6px; }
@@ -158,6 +158,8 @@ table.runs tbody tr[aria-selected=true] { background: var(--accent-soft); }
 table.runs td.num, .metrics td.num { text-align: right; font-variant-numeric: tabular-nums; }
 table.runs th.num { text-align: right; }
 table.runs td.best { color: #4ade80; font-weight: 600; }
+table.runs td.prov { color: var(--muted-fg); font-style: italic; }
+table.runs tfoot td { border-bottom: 0; font-size: 12.5px; white-space: normal; }
 table.runs .prog { min-width: 140px; }
 table.runs .prog .bar { margin-top: 4px; }
 .empty { padding: var(--s6) var(--s4); text-align: center; color: var(--muted-fg); white-space: normal !important; }

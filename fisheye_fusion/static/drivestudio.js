@@ -184,14 +184,22 @@ function renderRuns() {
     const pct = r.total ? Math.min(100, (100 * r.step) / r.total) : 0;
     const prog = r.step == null ? '<span class="muted">đang khởi tạo</span>'
       : `<span class="mono">${r.step.toLocaleString('vi-VN')}/${r.total.toLocaleString('vi-VN')}</span>${r.state === 'running' && r.eta ? ` <span class="muted">· còn ${esc(r.eta)}</span>` : ''}<div class="bar${r.state === 'running' ? ' run' : ''}"><i style="width:${pct}%"></i></div>`;
-    const cell = (key, d) => { const v = VALUE[key](r); return `<td class="num${best[key] != null && v === best[key] ? ' best' : ''}">${fmt(v, d)}</td>`; };
+    // only the evaluation after the last step is a test result; earlier blocks are periodic checks on a few images
+    const final = r.state === 'succeeded';
+    const cell = (key, d) => {
+      const v = VALUE[key](r);
+      if (!final && v != null) return `<td class="num prov" title="Đánh giá tạm trên ${r.eval_images ?? '?'} ảnh, chưa phải kết quả test">${fmt(v, d)}*</td>`;
+      return `<td class="num${best[key] != null && v === best[key] ? ' best' : ''}">${fmt(v, d)}</td>`;
+    };
     return `<tr tabindex="0" data-run="${esc(r.name)}" aria-selected="${r.name === selected}">
       <td><b>${esc(r.name)}</b></td><td>${esc(VALUE.method(r))}</td><td>${esc(VALUE.render(r))}</td><td>${esc(VALUE.fastgs(r))}</td>
       <td><span class="tag ${stateCls}" title="${esc(r.error || '')}">${stateText}</span></td>
       <td class="prog">${prog}</td>${cell('psnr', 2)}${cell('nonsky', 2)}${cell('ssim', 3)}${cell('lpips', 3)}
       <td class="num mono">${esc(r.elapsed || '—')}</td></tr>`;
   }).join('');
-  table.innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
+  const foot = runs.some((r) => r.state !== 'succeeded' && r.metrics)
+    ? `<tfoot><tr><td colspan="${COLS.length}" class="muted">* đánh giá tạm trong lúc train (vài ảnh), không so sánh được với kết quả test cuối.</td></tr></tfoot>` : '';
+  table.innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>${foot}`;
 }
 
 // ------------------------------------------------------------------ viewer
