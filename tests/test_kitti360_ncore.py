@@ -116,3 +116,16 @@ def test_eval_export_refits_ftheta_as_kannala_brandt():
             principal_point=K[:2, 2], focal_length=np.array([K[0, 0], K[1, 1]], np.float32),
             radial_coeffs=radial, max_angle=float(params.max_angle))
         assert np.abs(image_points(model(kb), rays) - want).max() < 0.5
+
+
+def test_pinhole_as_ftheta_matches_the_perspective_projection():
+    """--target drivestudio writes image_00 as F-theta; it must land where the pinhole projects (+0.5 in NCore)."""
+    i = {"camera_intrinsic": [[552.554261, 0, 682.049453], [0, 552.554261, 238.769549], [0, 0, 1]]}
+    params = k.camera_params(i, "pinhole", 1408, 376, pinhole_ftheta=True)
+    assert hasattr(params, "angle_to_pixeldist_poly")
+    g = np.random.default_rng(2)
+    uv = np.column_stack([g.uniform(0, 1408, 4000), g.uniform(0, 376, 4000)])  # every pixel of the image
+    rays = np.column_stack([(uv[:, 0] - 682.049453) / 552.554261, (uv[:, 1] - 238.769549) / 552.554261, np.ones(len(uv))])
+    rays /= np.linalg.norm(rays, axis=1, keepdims=True)
+    got = image_points(model(params), rays)
+    assert np.abs(got - (uv + 0.5)).max() < 0.3
