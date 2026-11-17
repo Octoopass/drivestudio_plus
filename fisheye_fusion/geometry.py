@@ -25,6 +25,18 @@ def invert_transform(matrix):
     return np.linalg.inv(rigid_transform(matrix))
 
 
+def _undistort_points_iter(uv, K, D):
+    """Iterative undistortion with a tight stop criterion.
+
+    OpenCV 4 exposes this as `undistortPointsIter`; OpenCV 5 removed it and `undistortPoints`
+    takes the criteria itself.
+    """
+    criteria = (cv2.TERM_CRITERIA_COUNT | cv2.TERM_CRITERIA_EPS, 50, 1e-12)
+    if hasattr(cv2, "undistortPointsIter"):
+        return cv2.undistortPointsIter(uv, K, D, None, None, criteria)
+    return cv2.undistortPoints(uv, K, D, None, None, None, criteria)
+
+
 def pixel_to_ray(uv, K, D=(), model="pinhole", xi=None):
     uv = np.asarray(uv, dtype=np.float64).reshape(-1, 1, 2)
     K = np.asarray(K, dtype=np.float64)
@@ -34,10 +46,7 @@ def pixel_to_ray(uv, K, D=(), model="pinhole", xi=None):
         rays = np.column_stack([xy, np.ones(len(xy))])
     elif model == "mei":
         _check_xi(xi)
-        xy = cv2.undistortPointsIter(
-            uv, K, D, None, None,
-            (cv2.TERM_CRITERIA_COUNT | cv2.TERM_CRITERIA_EPS, 50, 1e-12),
-        ).reshape(-1, 2)
+        xy = _undistort_points_iter(uv, K, D).reshape(-1, 2)
         r2 = np.sum(xy * xy, axis=1)
         radicand = 1 + (1 - xi * xi) * r2
         if np.any(radicand < 0):

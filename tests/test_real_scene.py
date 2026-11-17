@@ -68,7 +68,10 @@ class RealSceneTests(unittest.TestCase):
                     downloads.fetch("https://example.org/c", "c", 1)
                 request.assert_not_called()
 
-    @unittest.skipUnless((ROOT / "training.npz").exists(), "Run prepare_small_scene.py first")
+    @unittest.skipUnless(
+        (ROOT / "training.npz").exists() and (ROOT / "sparse" / "0" / "cameras.bin").exists(),
+        "Run prepare_small_scene.py first (the COLMAP .bin files are git-ignored, so a fresh clone lacks them)",
+    )
     def test_real_artifact_and_reprojection(self):
         metadata = json.loads((ROOT / "provenance.json").read_text())
         self.assertLessEqual(metadata["download_budget_charged_bytes"], LIMIT)
