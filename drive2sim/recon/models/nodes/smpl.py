@@ -1,5 +1,5 @@
 import os
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from omegaconf import OmegaConf
 import random
 import logging
@@ -353,7 +353,21 @@ class SMPLNodes(RigidNodes):
         quats_container = quats_container.reshape(-1, 4)
         return means_container, quats_container
     
-    def get_gaussians(self, cam: dataclass_camera) -> Dict[str, torch.Tensor]:
+    def get_gaussians(self, cam: dataclass_camera) -> Optional[Dict[str, torch.Tensor]]:
+        """Lấy Gaussian người ở khung hiện tại, với màu theo hướng nhìn camera.
+
+        Người vắng mặt có opacity bằng 0. Điểm trùng camera dùng hướng đơn vị dự phòng để
+        phép chuẩn hoá trong kernel SH không tạo NaN; các hướng không suy biến giữ nguyên.
+
+        Args:
+            cam: Camera OpenCV trong hệ world của cảnh.
+
+        Returns:
+            Tensor vị trí, màu, opacity, scale và quaternion; ``None`` nếu khung không có người.
+
+        Raises:
+            ValueError: Nếu các tensor kết quả có NaN hoặc giá trị vô hạn.
+        """
         filter_mask = torch.ones_like(self._means[:, 0], dtype=torch.bool)
         self.filter_mask = filter_mask
         # NOTE: hack here, need to consider a gaussian filter for efficient rendering
@@ -372,7 +386,16 @@ class SMPLNodes(RigidNodes):
         colors = torch.cat((self._features_dc[:, None, :], self._features_rest), dim=1)
         if self.sh_degree > 0:
             viewdirs = world_means.detach() - cam.camtoworlds.data[..., :3, 3]  # (N, 3)
-            viewdirs = viewdirs / viewdirs.norm(dim=-1, keepdim=True)
+            # drive2sim: người không có mặt ở khung này có điểm tạm ở gốc. Camera tại gốc
+            # làm hướng nhìn bằng 0; SH CUDA còn tự chuẩn hoá lần nữa (SphericalHarmonicsCUDA.cu),
+            # nên chỉ chặn mẫu số chưa đủ. Dùng hướng đơn vị cho trường hợp suy biến; opacity
+            # của người vắng mặt vẫn bằng 0 bên dưới. Các hướng thông thường giữ nguyên phép tính.
+            norms = viewdirs.norm(dim=-1, keepdim=True)
+            viewdirs = torch.where(
+                norms > 1e-8,
+                viewdirs / norms.clamp_min(1e-8),
+                viewdirs.new_tensor([0.0, 0.0, 1.0]),
+            )
             n = min(self.step // self.ctrl_cfg.sh_degree_interval, self.sh_degree)
             rgbs = spherical_harmonics(n, viewdirs, colors)
             rgbs = torch.clamp(rgbs + 0.5, 0.0, 1.0)
@@ -761,4 +784,3 @@ class SMPLNodes(RigidNodes):
             "positions": deformed_means,
             "colors": color,
         }
-        

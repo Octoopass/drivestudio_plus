@@ -317,7 +317,7 @@ class DrivingDataset(SceneDataset):
                     assert cur_node_type == "DeformableNodes", \
                         "Only exclude SMPL for DeformableNodes"
                     true_id = self.pixel_source.instances_true_id[ins_id].item()
-                    if true_id in self.pixel_source.smpl_human_all.keys():
+                    if true_id in self._smpl_humans():
                         continue
 
                 if ins_id not in instance_dict:
@@ -403,6 +403,18 @@ class DrivingDataset(SceneDataset):
                 )
         return instance_dict
     
+    def _smpl_humans(self) -> dict:
+        """SMPL theo người đã nạp; ``{}`` khi train tắt ``load_smpl``.
+
+        drive2sim: loader chỉ gán ``smpl_human_all`` khi ``load_smpl`` bật. Config OmniRe vẫn có
+        ``SMPLNodes`` khi split không có người (stage SMPL bị bỏ, ``train.drivestudio`` tắt
+        ``load_smpl``), nên đọc thẳng thuộc tính sẽ lỗi ``AttributeError``. Trả ``{}`` cho kết quả
+        như DriveStudio với ``smpl.pkl`` rỗng: không người nào được dựng bằng ``SMPLNodes`` (node
+        rỗng bị bỏ ở ``init_gaussians_from_dataset``), người có box (nếu có) vào
+        ``DeformableNodes``. Chưa chạy thật trên GPU.
+        """
+        return getattr(self.pixel_source, "smpl_human_all", {})
+
     def get_init_smpl_objects(self, only_moving: bool = False, traj_length_thres: float = 0.5):
         instance_dict = {}
         """
@@ -418,9 +430,10 @@ class DrivingDataset(SceneDataset):
         }
         """
         
+        smpl_humans = self._smpl_humans()
         for ins_id in range(self.instance_num):
             true_id = self.pixel_source.instances_true_id[ins_id].item()
-            if true_id in self.pixel_source.smpl_human_all.keys():
+            if true_id in smpl_humans:
                 if self.pixel_source.smpl_human_all[true_id]["frame_valid"].sum() == 0:
                     continue
                 smpl_trans = self.pixel_source.smpl_human_all[true_id]["smpl_trans"]
