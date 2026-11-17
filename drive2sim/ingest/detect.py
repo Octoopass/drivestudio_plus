@@ -5,10 +5,19 @@ cũng dùng nó để tự nhận dạng (ARCHITECTURE mục 4.2). Hàm chỉ đ
 
 File này chứa:
 - ``SourceReport``: kết quả xem trước: dataset nhận ra được, các chuỗi (cảnh gốc), camera, có
-  LiDAR và box không, ingest đã hỗ trợ chưa, và danh sách thư mục, file với dữ liệu lạ.
+  LiDAR và box không, ingest đã hỗ trợ chưa, lỗi sẽ làm ingest hỏng (nuScenes thiếu ``sweeps/``),
+  thư mục con hoặc cha có dataset (khi chính thư mục không có), và danh sách thư mục, file với
+  dữ liệu lạ.
 - ``inspect_source``: hàm chính.
 - Các hàm ``_detect_*``: mỗi hàm nhận ra một loại nguồn theo dấu hiệu trong thư mục và liệt kê
   phiên bản, chuỗi có trong đó.
+- ``_find_candidates``: khi không nhận ra gì, tìm dataset ở thư mục con (tới độ sâu 3) và thư mục
+  cha (hai cấp), để báo đúng thư mục cần truyền thay vì để người dùng tự đoán.
+
+Người dùng mới hay trỏ vào thư mục cha (``~/datasets`` thay vì ``~/datasets/nuscenes``) hoặc vào
+thư mục con (``nuscenes/v1.0-mini``). Tool **không tự đổi** sang thư mục tìm được mà chỉ báo tên
+nó: script tiền xử lý đọc đường dẫn theo đúng gốc dataset, thư mục cha có thể chứa nhiều dataset,
+và đường dẫn đã chọn hiện rõ trong lệnh tiếp theo (ARCHITECTURE mục 4.2).
 
 Với dữ liệu lạ, hàm **không đoán quy ước** (trục camera, chiều của pose, đơn vị), vì những thứ đó
 không suy ra được từ file; nó chỉ liệt kê thư mục ảnh và các loại file để người viết converter
@@ -31,6 +40,16 @@ from drive2sim.paths import SCENE_LISTS_DIR
 INGEST_SUPPORTED: frozenset[str] = frozenset(SOURCES) | {kitti360.DATASET}
 _MAX_DEPTH = 3
 _MAX_INVENTORY = 20
+_MAX_SEARCH_DIRS = 200  # số thư mục con tối đa được xem khi tìm dataset nằm sâu hơn
+_MAX_CANDIDATES = 10
+_PARENT_LEVELS = 2
+# Script nuScenes ở chế độ nội suy (--interpolate_N > 0, mặc định của tool là 4 cho 10 Hz) đọc
+# ảnh và LiDAR giữa hai keyframe: các sample_data không phải keyframe nằm trong sweeps/<kênh>/
+# (recon/preprocess/nuscenes/process.py: find_closest_img_tokens, find_cloest_lidar_tokens).
+NUSCENES_SWEEP_CHANNELS: tuple[str, ...] = (
+    *SOURCES["nuscenes"].cameras,
+    *SOURCES["nuscenes"].lidars,
+)
 
 
 @dataclass
@@ -48,6 +67,11 @@ class SourceReport:
         has_cuboids: Có box 3D không; ``None`` nếu không biết.
         inventory: Với dữ liệu lạ: mỗi mục là một thư mục ảnh hoặc một nhóm file cùng đuôi.
         notes: Ghi chú cho người dùng, tiếng Việt.
+        errors: Lỗi sẽ làm ingest hỏng với cách ingest mặc định, kèm cách sửa; tiếng Việt.
+        missing_sweeps: nuScenes: các ``sweeps/<kênh>`` còn thiếu mà ingest nội suy cần; rỗng
+            nếu đủ hoặc không phải nuScenes.
+        candidates: Khi không nhận ra dataset ở ``path``: các thư mục con hoặc cha có dataset,
+            mỗi mục ``{"path", "dataset", "relation": "child" | "parent"}``.
     """
 
     path: Path
@@ -58,6 +82,9 @@ class SourceReport:
     has_cuboids: Optional[bool] = None
     inventory: list[dict[str, object]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    missing_sweeps: list[str] = field(default_factory=list)
+    candidates: list[dict[str, str]] = field(default_factory=list)
 
     @property
     def ingest_supported(self) -> bool:
@@ -76,6 +103,9 @@ class SourceReport:
             "ingest_supported": self.ingest_supported,
             "inventory": self.inventory,
             "notes": self.notes,
+            "errors": self.errors,
+            "missing_sweeps": self.missing_sweeps,
+            "candidates": self.candidates,
         }
 
 
@@ -92,7 +122,11 @@ def _detect_nuscenes(root: Path, report: SourceReport) -> bool:
     """Nhận ra nuScenes: có thư mục ``v1.0-*`` chứa ``scene.json`` và ``sensor.json``.
 
     Đọc tên cảnh từ ``scene.json``, camera và LiDAR từ ``sensor.json`` (trường ``modality``),
-    và có box hay không từ ``sample_annotation.json`` (rỗng với bản ``v1.0-test``).
+    và có box hay không từ ``sample_annotation.json`` (rỗng với bản ``v1.0-test``). Kiểm thêm
+    ``sweeps/<kênh>`` cho 6 camera và ``LIDAR_TOP``: thiếu thì ghi ``missing_sweeps`` và một lỗi,
+    vì ingest mặc định (nội suy 10 Hz) đọc ảnh, LiDAR giữa các keyframe trong đó và sẽ hỏng ở
+    giữa script (``cp`` ảnh lỗi lặng lẽ, đọc LiDAR thì ném lỗi). Chỉ ingest keyframe 2 Hz
+    (``--interpolate-n 0``) thì không cần ``sweeps/``.
 
     Args:
         root: Thư mục nguồn.
@@ -116,6 +150,21 @@ def _detect_nuscenes(root: Path, report: SourceReport) -> bool:
     report.cameras = [s["channel"] for s in sensors if s.get("modality") == "camera"]
     report.has_lidar = any(s.get("modality") == "lidar" for s in sensors)
     report.has_cuboids = bool(_read_json_list(version_dirs[0] / "sample_annotation.json"))
+    report.missing_sweeps = [
+        channel for channel in NUSCENES_SWEEP_CHANNELS if not (root / "sweeps" / channel).is_dir()
+    ]
+    if report.missing_sweeps:
+        what = (
+            "thiếu thư mục sweeps/"
+            if len(report.missing_sweeps) == len(NUSCENES_SWEEP_CHANNELS)
+            else "sweeps/ thiếu " + ", ".join(report.missing_sweeps)
+        )
+        report.errors.append(
+            f"{what} (ảnh và LiDAR giữa các keyframe) mà ingest mặc định (--interpolate-n 4, "
+            "10 Hz) cần: tải đủ dữ liệu cảm biến của nuScenes (phần sweeps, cùng gói với "
+            f"samples/) rồi giải nén vào {root}; hoặc chỉ ingest keyframe 2 Hz bằng "
+            "--interpolate-n 0"
+        )
     return True
 
 
@@ -125,12 +174,15 @@ def _dirs(root: Path, pattern: str) -> list[Path]:
 
 
 def _detect_waymo(root: Path, report: SourceReport) -> bool:
-    """Nhận ra Waymo: có file ``.tfrecord``.
+    """Nhận ra Waymo: có file ``.tfrecord`` nằm ngay trong thư mục.
 
-    Script tiền xử lý chỉ đọc các segment có trong ``waymo_train_list.txt``, nên chuỗi liệt kê là
-    các segment vừa có file vừa có trong danh sách đó.
+    Script tiền xử lý đọc ``<thư mục>/<segment>.tfrecord`` (``recon/preprocess/waymo/process.py``)
+    và chỉ đọc các segment có trong ``waymo_train_list.txt``, nên chuỗi liệt kê là các segment vừa
+    có file vừa có trong danh sách đó. File nằm sâu hơn (``training/*.tfrecord``) thì không nhận ở
+    đây mà ``_find_candidates`` báo thư mục con cần truyền: truyền thư mục cha thì script không
+    thấy file.
     """
-    stems = sorted(path.stem for path in root.rglob("*.tfrecord"))
+    stems = sorted(path.stem for path in root.glob("*.tfrecord"))
     if not stems:
         return False
     report.dataset = "waymo"
@@ -246,21 +298,16 @@ def _detect_physicalai(root: Path, report: SourceReport) -> bool:
     return True
 
 
-def _detect_by_signature(root: Path, report: SourceReport) -> bool:
-    """Nhận ra các nguồn chưa có ingest: COLMAP và NCore khác PhysicalAI.
-
-    Dấu hiệu: COLMAP có ``sparse/0/cameras.bin``; NCore có ``.zarr.itar`` hoặc ``.zarr``.
-
-    Args:
-        root: Thư mục nguồn.
-        report: Kết quả, được điền thêm nếu nhận ra.
-
-    Returns:
-        ``True`` nếu nhận ra một nguồn.
-    """
+def _detect_colmap(root: Path, report: SourceReport) -> bool:
+    """Nhận ra COLMAP (chưa có ingest): có ``sparse/0/cameras.bin`` hoặc ``cameras.txt``."""
     if any((root / "sparse" / "0" / name).is_file() for name in ("cameras.bin", "cameras.txt")):
         report.dataset = "colmap"
         return True
+    return False
+
+
+def _detect_ncore(root: Path, report: SourceReport) -> bool:
+    """Nhận ra NCore khác PhysicalAI (chưa có ingest): có ``.zarr.itar`` hoặc ``.zarr``."""
     if any(root.rglob("*.zarr.itar")) or any(root.rglob("*.zarr")):
         report.dataset = "ncore"
         return True
@@ -276,8 +323,81 @@ _DETECTORS = (
     _detect_kitti,
     _detect_argoverse,
     _detect_pandaset,
-    _detect_by_signature,
+    _detect_colmap,
+    _detect_ncore,
 )
+# Dùng khi tìm dataset ở thư mục con, cha: chỉ các dấu hiệu nhìn ngay trong thư mục (không đi
+# sâu), để mỗi thư mục xem tốn ít. PhysicalAI và NCore tìm đệ quy nên nếu có ở thư mục con thì
+# đã được nhận ra ở chính thư mục người dùng truyền.
+_SHALLOW_DETECTORS = (
+    _detect_nuscenes,
+    _detect_waymo,
+    _detect_nuplan,
+    _detect_kitti360,
+    _detect_kitti,
+    _detect_argoverse,
+    _detect_pandaset,
+    _detect_colmap,
+)
+
+
+def _shallow_dataset(directory: Path) -> Optional[str]:
+    """Dataset nhận ra ngay ở ``directory`` theo ``_SHALLOW_DETECTORS``; ``None`` nếu không có."""
+    probe = SourceReport(path=directory)
+    try:
+        found = any(detect(directory, probe) for detect in _SHALLOW_DETECTORS)
+        return probe.dataset if found else None
+    except OSError:  # thư mục không đọc được (quyền, symlink hỏng): coi như không có
+        return None
+
+
+def _find_candidates(root: Path) -> list[dict[str, str]]:
+    """Tìm dataset ở thư mục con và thư mục cha của ``root``.
+
+    Thư mục con: duyệt theo chiều rộng tới độ sâu ``_MAX_DEPTH``, bỏ thư mục ẩn, không đi vào
+    thư mục đã nhận ra dataset, xem tối đa ``_MAX_SEARCH_DIRS`` thư mục để lệnh vẫn nhanh khi
+    người dùng trỏ vào một thư mục rất lớn. Thư mục cha: ``_PARENT_LEVELS`` cấp, cho trường hợp
+    trỏ vào bên trong dataset (``nuscenes/v1.0-mini``, ``kitti360/data_2d_raw``).
+
+    Args:
+        root: Thư mục người dùng truyền, nơi không nhận ra dataset nào.
+
+    Returns:
+        Tối đa ``_MAX_CANDIDATES`` mục ``{"path", "dataset", "relation"}``, thư mục con trước
+        (gần trước, theo tên), rồi thư mục cha (gần trước).
+    """
+    found: list[dict[str, str]] = []
+    queue = [(root, 0)]
+    visited = 0
+    while queue and visited < _MAX_SEARCH_DIRS and len(found) < _MAX_CANDIDATES:
+        directory, depth = queue.pop(0)
+        if depth >= _MAX_DEPTH:
+            continue
+        try:
+            children = sorted(
+                p for p in directory.iterdir() if p.is_dir() and not p.name.startswith(".")
+            )
+        except OSError:
+            continue
+        for child in children:
+            visited += 1
+            if visited > _MAX_SEARCH_DIRS or len(found) >= _MAX_CANDIDATES:
+                break
+            dataset = _shallow_dataset(child)
+            if dataset is not None:
+                found.append({"path": str(child), "dataset": dataset, "relation": "child"})
+            else:
+                queue.append((child, depth + 1))
+    parent = root.resolve()
+    for _ in range(_PARENT_LEVELS):
+        if parent.parent == parent or len(found) >= _MAX_CANDIDATES:
+            break
+        parent = parent.parent
+        dataset = _shallow_dataset(parent)
+        if dataset is not None:
+            found.append({"path": str(parent), "dataset": dataset, "relation": "parent"})
+            break
+    return found
 
 
 def _inventory(root: Path) -> list[dict[str, object]]:
@@ -319,7 +439,9 @@ def inspect_source(path: Path) -> SourceReport:
     """Xem trước một thư mục dữ liệu gốc.
 
     Thử lần lượt từng loại nguồn theo dấu hiệu trong thư mục (``_DETECTORS``); PhysicalAI được thử
-    trước NCore chung vì nó cũng là NCore. Không nhận ra thì liệt kê thư mục ảnh và loại file.
+    trước NCore chung vì nó cũng là NCore. Không nhận ra thì tìm dataset ở thư mục con, cha
+    (``_find_candidates``) và ghi chú tên thư mục cần truyền; không thấy cả ở đó thì liệt kê thư
+    mục ảnh và loại file.
 
     Args:
         path: Thư mục dữ liệu gốc.
@@ -338,6 +460,16 @@ def inspect_source(path: Path) -> SourceReport:
         if not report.ingest_supported:
             report.notes.append(
                 f"nhận ra {report.dataset} nhưng scene ingest chưa hỗ trợ nguồn này"
+            )
+        return report
+    report.candidates = _find_candidates(root)
+    if report.candidates:
+        for candidate in report.candidates:
+            where = "thư mục con" if candidate["relation"] == "child" else "thư mục cha"
+            report.notes.append(
+                f"không nhận ra dataset ở đúng thư mục này, nhưng thấy {candidate['dataset']} ở "
+                f"{where} {candidate['path']}; truyền thư mục đó: d2s source inspect "
+                f"{candidate['path']}"
             )
         return report
     report.inventory = _inventory(root)

@@ -6,7 +6,9 @@ File này chứa:
 - ``IngestRequestError``: lỗi do yêu cầu thiếu hoặc sai (mã lỗi ``invalid_request``).
 - ``IngestTarget``: dataset, phiên bản, chuỗi đã chọn.
 - ``plan_ingest``: từ kết quả ``inspect_source`` và lựa chọn của người dùng, chọn đúng một chuỗi;
-  tự chọn khi chỉ có một khả năng, báo rõ các lựa chọn khi có nhiều.
+  tự chọn khi chỉ có một khả năng, báo rõ các lựa chọn khi có nhiều. Từ chối sớm (trước khi chạy
+  script) khi dataset nằm ở thư mục con, cha (báo tên thư mục cần truyền) hoặc khi nuScenes thiếu
+  ``sweeps/`` mà ingest có nội suy.
 - ``run_ingest``: gọi converter của dataset: ``ingest_drivestudio`` với tham số riêng của
   dataset (nuScenes: nội suy), hoặc ``ingest_kitti360`` (khung đầu, số khung, camera, khoảng hở).
 """
@@ -45,6 +47,7 @@ def plan_ingest(
     source_type: Optional[str] = None,
     version: Optional[str] = None,
     sequence: Optional[str] = None,
+    interpolate_n: int = 4,
 ) -> IngestTarget:
     """Chọn đúng một chuỗi để ingest.
 
@@ -53,20 +56,31 @@ def plan_ingest(
         source_type: Dataset người dùng chỉ định; mặc định theo nhận dạng.
         version: Phiên bản; tự chọn khi thư mục chỉ có một.
         sequence: Chuỗi; tự chọn khi phiên bản chỉ có một chuỗi.
+        interpolate_n: nuScenes: số khung nội suy giữa hai keyframe; ``> 0`` thì cần
+            ``sweeps/``.
 
     Returns:
         Chuỗi đã chọn.
 
     Raises:
-        IngestRequestError: Nếu không nhận ra dataset, dataset chưa hỗ trợ ingest, hoặc phải
-            chọn phiên bản, chuỗi mà người dùng chưa chọn hay chọn sai; thông báo liệt kê lựa
-            chọn hợp lệ.
+        IngestRequestError: Nếu không nhận ra dataset (thông báo nêu thư mục con, cha có dataset
+            nếu tìm thấy), dataset chưa hỗ trợ ingest, nuScenes thiếu ``sweeps/`` mà
+            ``interpolate_n > 0``, hoặc phải chọn phiên bản, chuỗi mà người dùng chưa chọn hay
+            chọn sai; thông báo liệt kê lựa chọn hợp lệ.
     """
     dataset = source_type or report.dataset
     if dataset is None:
+        if report.candidates:
+            places = "; ".join(f"{c['dataset']} ở {c['path']}" for c in report.candidates)
+            raise IngestRequestError(
+                f"không nhận ra dataset ở {report.path}, nhưng thấy {places}; truyền đúng thư "
+                "mục gốc của dataset đó"
+            )
         raise IngestRequestError(
             "không nhận ra dataset; chạy d2s source inspect để xem thư mục có gì"
         )
+    if dataset == "nuscenes" and interpolate_n > 0 and report.missing_sweeps:
+        raise IngestRequestError(report.errors[0] if report.errors else "nuScenes thiếu sweeps/")
     if dataset not in INGEST_SUPPORTED:
         raise IngestRequestError(
             f"chưa hỗ trợ ingest {dataset}; hỗ trợ: {', '.join(sorted(INGEST_SUPPORTED))}"

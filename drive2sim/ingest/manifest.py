@@ -25,6 +25,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Optional
 
+from drive2sim.core.instances import human_frame_ranges
 from drive2sim.core.schema import CAMERA_TRACK, SCHEMA_VERSIONS, Manifest, ManifestSource
 from drive2sim.engine.run import code_commit
 from drive2sim.ingest.images import IMAGE_SUFFIXES, read_image_size
@@ -162,6 +163,10 @@ def build_manifest(
 
     Số khung lấy theo camera đầu tiên. Độ phân giải đọc từ ảnh đầu tiên của từng camera. Cảnh có
     LiDAR khi ``lidar/`` có file ``.bin``; có box khi ``instances/instances_info.json`` không rỗng.
+    ``available.human_frames`` là các đoạn khung có box người (``human_frame_ranges``), ``[]``
+    khi không có ``instances/``; nhãn có nhưng hỏng thì giữ ``None``. Lúc ingest, thư mục cảnh
+    là nguồn đầy đủ nên thiếu thư mục nhãn nghĩa là không có box. Ghi vào manifest để cảnh chỉ
+    có trên Kaggle cũng biết split nào không cần dựng SMPL.
     ``source.output_version`` ghi phiên bản đầu ra hiện tại của ``converter``
     (``current_output_version``). Mọi camera ghi cùng mô hình ``camera_model`` và shutter
     ``GLOBAL``; track của cảnh suy ra từ mô hình (``CAMERA_TRACK``): ``opencv_pinhole`` là
@@ -233,6 +238,12 @@ def build_manifest(
             "cameras": cameras,
             "lidars": lidars,
             "timeline": {"reference_sensor": camera_ids[0], "num_frames": frames[-1] + 1},
-            "available": {"lidar": bool(lidars), "cuboids": "gt" if has_cuboids else "none"},
+            "available": {
+                "lidar": bool(lidars),
+                "cuboids": "gt" if has_cuboids else "none",
+                "human_frames": (
+                    human_frame_ranges(scene_dir) if (scene_dir / "instances").exists() else []
+                ),
+            },
         }
     )

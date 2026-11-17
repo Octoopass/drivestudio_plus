@@ -52,9 +52,15 @@ def write_jpeg(path: Path, width: int, height: int) -> None:
     path.write_bytes(b"\xff\xd8" + app0 + sof0 + b"\xff\xd9")
 
 
-def make_raw_nuscenes(root: Path, scenes: tuple[str, ...] = ("scene-0061", "scene-0103")) -> Path:
+def make_raw_nuscenes(
+    root: Path, scenes: tuple[str, ...] = ("scene-0061", "scene-0103"), sweeps: bool = True
+) -> Path:
+    """Dựng thư mục nuScenes gốc giả: JSON của ``v1.0-mini`` và (tuỳ chọn) ``sweeps/<kênh>``."""
     version = root / "v1.0-mini"
     version.mkdir(parents=True)
+    if sweeps:
+        for channel in [*NUSCENES_CAMERAS, "LIDAR_TOP"]:
+            (root / "sweeps" / channel).mkdir(parents=True)
     (version / "scene.json").write_text(json.dumps([{"name": name} for name in scenes]))
     sensors = [{"channel": c, "modality": "camera"} for c in NUSCENES_CAMERAS]
     sensors.append({"channel": "LIDAR_TOP", "modality": "lidar"})
@@ -75,7 +81,8 @@ def make_processed_scene(scene_dir: Path, frames: int = 3, cameras: int = 6) -> 
         (scene_dir / "intrinsics").mkdir(parents=True, exist_ok=True)
         (scene_dir / "intrinsics" / f"{i}.txt").write_text("1 1 1 1")
     (scene_dir / "instances").mkdir(parents=True, exist_ok=True)
-    (scene_dir / "instances" / "instances_info.json").write_text(json.dumps({"0": {}}))
+    info = {"0": {"class_name": "human.pedestrian.adult"}}  # một người ở khung 0
+    (scene_dir / "instances" / "instances_info.json").write_text(json.dumps(info))
     (scene_dir / "instances" / "frame_instances.json").write_text(json.dumps({"0": [0]}))
     return scene_dir
 
@@ -102,6 +109,32 @@ def test_read_image_size(tmp_path: Path) -> None:
     assert read_image_size(tmp_path / "missing.png") is None
 
 
+def test_missing_sweeps_requires_keyframe_only(tmp_path: Path) -> None:
+    raw = make_raw_nuscenes(tmp_path / "raw", scenes=("scene-0061",), sweeps=False)
+    report = inspect_source(raw)
+    assert report.missing_sweeps
+    with pytest.raises(IngestRequestError, match="sweeps"):
+        plan_ingest(report)
+    assert plan_ingest(report, interpolate_n=0).sequence == "scene-0061"
+
+
+def test_source_suggests_dataset_root_in_both_directions(tmp_path: Path) -> None:
+    raw = make_raw_nuscenes(tmp_path / "nested" / "raw")
+    report = inspect_source(tmp_path)
+    assert any(c["path"] == str(raw) and c["relation"] == "child" for c in report.candidates)
+    with pytest.raises(IngestRequestError, match="thư mục gốc"):
+        plan_ingest(report)
+    inner = inspect_source(raw / "v1.0-mini")
+    assert any(c["path"] == str(raw) and c["relation"] == "parent" for c in inner.candidates)
+
+
+def test_manifest_keeps_corrupt_human_labels_unknown(tmp_path: Path) -> None:
+    scene = make_processed_scene(tmp_path / "scene")
+    assert manifest_for(scene).available.human_frames == [(0, 0)]
+    (scene / "instances/frame_instances.json").write_text("invalid JSON")
+    assert manifest_for(scene).available.human_frames is None
+
+
 def test_inspect_nuscenes(tmp_path: Path) -> None:
     report = inspect_source(make_raw_nuscenes(tmp_path))
     assert report.dataset == "nuscenes"
@@ -118,7 +151,7 @@ ARGOVERSE_LOG = (SCENE_LISTS_DIR / "argoverse_train_list.txt").read_text().split
     "layout,dataset,versions",
     [
         (
-            [f"training/{WAYMO_SEGMENT}.tfrecord", "training/not_listed.tfrecord"],
+            [f"{WAYMO_SEGMENT}.tfrecord", "not_listed.tfrecord"],
             "waymo",
             {"training": [WAYMO_SEGMENT]},
         ),
