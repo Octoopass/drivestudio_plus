@@ -6,6 +6,7 @@
 """
 
 from pathlib import Path
+from typing import Optional
 
 from drive2sim.core.schema import Manifest, RunApproach, RunRecord, Split, StageRecord
 from drive2sim.engine.report import (
@@ -125,8 +126,8 @@ def test_train_params_shows_only_non_default_params_not_in_approach_options() ->
     class Params(BaseModel):
         method: str  # bắt buộc: không có giá trị mặc định
         renderer: str = "3dgs"
-        num_iters: int | None = None
-        refine_interval: int | None = None
+        num_iters: Optional[int] = None
+        refine_interval: Optional[int] = None
         densify_stats: bool = False
         overrides: dict = {}
 

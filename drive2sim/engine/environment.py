@@ -8,7 +8,19 @@ PyTorch hay gsplat có thể vẫn chạy được nhưng cho kết quả khác 
 
 Chỉ kiểm cho run chạy trên máy này; run trên Kaggle cài môi trường trong notebook.
 
-File này chứa ``EXPECTED``, ``environment_check``.
+File này chứa:
+- ``EXPECTED``, ``environment_check``: bảng kiểm tra cho ``approach check`` và Studio; kết quả có
+  ``message`` là câu báo lỗi chung khi mức ``missing``.
+- ``EnvironmentMissingError``, ``require_local_environment``: ``d2s run start --executor local``,
+  ``d2s run resume`` và ``POST /api/runs`` gọi trước khi tạo hoặc chạy run trên máy, để dừng sớm
+  bằng một câu tiếng Việt (mã lỗi ``env_missing``) thay vì để stage đầu tiên lỗi giữa chừng.
+- ``MissingModuleError``, ``missing_module_message``: lệnh con của stage, ingest không nạp được
+  một gói Python (``ModuleNotFoundError``, ``ImportError``); ``run_logged``
+  (``drive2sim/stages/commands.py``) đổi lỗi đó thành câu cùng hướng dẫn, không in traceback.
+
+Lý do kiểm sớm: stage chạy script bằng chính Python đang chạy ``d2s`` (``sys.executable``). Chạy
+``d2s`` từ ``.venv`` nhẹ (chỉ để test, lint) thì script lỗi ngay ở ``import numpy``; người dùng mới
+chỉ thấy traceback mà không biết phải cài môi trường nào hay có thể chạy trên Kaggle, Colab.
 """
 
 import time
@@ -24,6 +36,13 @@ EXPECTED = {"main": {"pytorch": "2.4.1", "cuda": "12.1", "gsplat": "1.5.3"}}
 # Codebase của approach → môi trường cần; codebase không có ở đây (ví dụ approach mẫu) thì không
 # cần môi trường GPU nào.
 CODEBASE_ENV = {"drivestudio": "main"}
+# Lệnh dựng môi trường chính và cách chạy từ xa, dùng trong câu báo thiếu môi trường.
+INSTALL_STEPS = {
+    "main": "conda env create -f envs/main.yml && conda activate drive2sim && "
+    "bash envs/install_main.sh"
+}
+REMOTE_HINT = "hoặc chạy trên GPU của Kaggle, Colab: --executor kaggle hoặc --executor colab"
+_CHECK_LABELS = {"gpu": "GPU NVIDIA", "pytorch": "PyTorch", "cuda": "CUDA của PyTorch"}
 # Hỏi PyTorch tốn vài giây (tiến trình con), nên giữ kết quả một lúc.
 _CUDA_CACHE_S = 120
 _cuda_cache: dict[str, Any] = {}
@@ -57,12 +76,21 @@ def environment_check(
 
     Returns:
         ``{"env": tên hoặc None, "file", "install", "level": "ok" | "warn" | "missing",
-        "checks": [{"id", "level", "found", "expected"}]}``. ``env`` là ``None`` khi codebase
-        không cần môi trường GPU (``checks`` rỗng, ``level`` ``ok``).
+        "checks": [{"id", "level", "found", "expected"}], "message"}``. ``env`` là ``None`` khi
+        codebase không cần môi trường GPU (``checks`` rỗng, ``level`` ``ok``). ``message`` là câu
+        báo lỗi tiếng Việt khi ``level`` là ``missing`` (``missing_environment_message``), không
+        thì ``None``.
     """
     env = CODEBASE_ENV.get(codebase)
     if env is None:
-        return {"env": None, "file": None, "install": None, "level": "ok", "checks": []}
+        return {
+            "env": None,
+            "file": None,
+            "install": None,
+            "level": "ok",
+            "checks": [],
+            "message": None,
+        }
     expected = EXPECTED[env]
     versions = package_versions()
     gpus = _gpus()
@@ -115,10 +143,133 @@ def environment_check(
         )
     levels = {check["level"] for check in checks}
     level = "missing" if "missing" in levels else "warn" if "warn" in levels else "ok"
-    return {
+    result: dict[str, Any] = {
         "env": env,
         "file": f"envs/{env}.yml",
         "install": f"bash envs/install_{env}.sh",
         "level": level,
         "checks": checks,
     }
+    result["message"] = missing_environment_message(result)
+    return result
+
+
+def missing_environment_message(env: dict[str, Any]) -> Optional[str]:
+    """Viết câu báo thiếu môi trường từ kết quả ``environment_check``.
+
+    Câu đầu nói thiếu gì; sau đó là cách sửa: lệnh dựng môi trường chính khi thiếu gói, chỗ đặt
+    file SMPL khi thiếu file đó, và luôn kèm cách chạy trên Kaggle, Colab (không cần GPU trên máy).
+    Thiếu GPU thì không gợi ý cài gói, vì cài xong vẫn không chạy được.
+
+    Args:
+        env: Kết quả của ``environment_check``.
+
+    Returns:
+        Câu tiếng Việt, ví dụ ``"chưa chạy được trên máy này: môi trường main thiếu PyTorch
+        2.4.1, gsplat 1.5.3. Cài: conda env create ... ; hoặc chạy trên GPU của Kaggle, Colab:
+        ..."``; ``None`` nếu ``level`` không phải ``missing``.
+    """
+    if env.get("level") != "missing":
+        return None
+    missing = [check for check in env["checks"] if check["level"] == "missing"]
+    packages = [c for c in missing if c["id"] not in ("gpu", "smpl_model")]
+    items = [
+        " ".join(
+            part for part in (_CHECK_LABELS.get(c["id"], c["id"]), c["expected"] or "") if part
+        )
+        for c in missing
+        if c["id"] != "smpl_model"
+    ]
+    fixes = []
+    if packages:
+        fixes.append(
+            f"cài: {INSTALL_STEPS.get(env['env'], env['install'])}, rồi chạy lại lệnh trong "
+            "môi trường đó"
+        )
+    if any(c["id"] == "smpl_model" for c in missing):
+        items.append(SMPL_MODEL_NAME)
+        fixes.append(
+            f"đặt {SMPL_MODEL_NAME} ở <thư mục làm việc>/smpl_models/ hoặc trỏ biến "
+            "D2S_SMPL_MODEL tới nó (tải ở https://smpl.is.tue.mpg.de)"
+        )
+    fixes.append(REMOTE_HINT)
+    return (
+        f"chưa chạy được trên máy này: môi trường {env['env']} thiếu {', '.join(items)}. "
+        + "; ".join(fixes)
+    )
+
+
+class EnvironmentMissingError(Exception):
+    """Máy này thiếu môi trường để chạy run trên máy (mã lỗi ``env_missing``).
+
+    ``d2s run start --executor local``, ``d2s run resume`` và ``POST /api/runs`` ném lỗi này
+    trước khi tạo hoặc chạy run; CLI trả mã thoát ``3``, API trả ``422`` (CONTRACTS mục 11.3).
+
+    Attributes:
+        environment: Kết quả ``environment_check`` gây ra lỗi.
+    """
+
+    def __init__(self, message: str, environment: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.environment = environment
+
+
+def require_local_environment(
+    codebase: str, needs_smpl: bool = False, workdir_root: Optional[Path] = None
+) -> dict[str, Any]:
+    """Dừng sớm nếu máy này thiếu môi trường để chạy approach trên máy.
+
+    Chỉ chặn mức ``missing`` (run chắc chắn lỗi); mức ``warn`` (khác phiên bản) vẫn cho chạy như
+    ``approach check`` đã báo.
+
+    Args:
+        codebase: Trường ``codebase`` của file approach.
+        needs_smpl: Run có stage tạo artifact ``smpl`` (cần file mô hình SMPL).
+        workdir_root: Thư mục làm việc, một chỗ tìm file SMPL.
+
+    Returns:
+        Kết quả ``environment_check`` khi không thiếu gì.
+
+    Raises:
+        EnvironmentMissingError: Nếu mức là ``missing``; thông báo theo
+            ``missing_environment_message``.
+    """
+    env = environment_check(codebase, needs_smpl=needs_smpl, workdir_root=workdir_root)
+    if env["message"]:
+        raise EnvironmentMissingError(env["message"], env)
+    return env
+
+
+class MissingModuleError(RuntimeError):
+    """Lệnh con không nạp được một gói Python: môi trường đang chạy ``d2s`` thiếu gói.
+
+    ``run_logged`` ném lỗi này thay cho ``RuntimeError`` kèm traceback khi đầu ra của lệnh kết thúc
+    bằng ``ModuleNotFoundError`` hoặc ``ImportError``. Là lớp con của ``RuntimeError`` nên nơi đã
+    bắt ``RuntimeError`` (ingest) vẫn bắt được; engine ghi mã ``env_missing`` cho stage.
+
+    Attributes:
+        detail: Dòng lỗi gốc, ví dụ ``"ModuleNotFoundError: No module named 'numpy'"``.
+    """
+
+    def __init__(self, message: str, detail: str) -> None:
+        super().__init__(message)
+        self.detail = detail
+
+
+def missing_module_message(detail: str, python: str, log_name: str) -> str:
+    """Viết câu báo lỗi khi lệnh con thiếu gói Python.
+
+    Args:
+        detail: Dòng lỗi gốc của Python, ví dụ ``"ModuleNotFoundError: No module named 'numpy'"``.
+        python: Python đã chạy lệnh (``sys.executable``), để người dùng thấy đang ở môi trường nào.
+        log_name: Tên file log có traceback đầy đủ.
+
+    Returns:
+        Câu tiếng Việt: thiếu gì, cách dựng môi trường chính, cách chạy trên Kaggle, Colab.
+    """
+    return (
+        f"Python đang chạy d2s ({python}) thiếu gói mà bước này cần ({detail}); đây không phải "
+        f"môi trường drive2sim. Cài: {INSTALL_STEPS['main']}, rồi chạy lại lệnh trong môi trường "
+        "đó; hoặc để Kaggle, Colab chạy bước này (run: --executor kaggle hoặc --executor "
+        f"colab; ingest: d2s kaggle ingest). Traceback đầy đủ ở {log_name}"
+    )

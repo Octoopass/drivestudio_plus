@@ -42,6 +42,17 @@ def test_codebase_without_environment() -> None:
     assert environment.environment_check("toy")["env"] is None
 
 
+def test_missing_local_environment_is_actionable(monkeypatch: pytest.MonkeyPatch) -> None:
+    patch_machine(monkeypatch, None, None)
+    with pytest.raises(environment.EnvironmentMissingError) as caught:
+        environment.require_local_environment("drivestudio")
+    assert "conda env create" in str(caught.value)
+    assert "--executor kaggle" in str(caught.value)
+    assert caught.value.environment["level"] == "missing"
+    patch_machine(monkeypatch, "2.0.0+cu117", "1.3.0")
+    assert environment.require_local_environment("drivestudio")["level"] == "warn"
+
+
 def test_expected_versions_match_env_files() -> None:
     expected = environment.EXPECTED["main"]
     envs = paths.PACKAGE_DIR.parent / "envs"

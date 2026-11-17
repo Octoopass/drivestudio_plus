@@ -30,6 +30,7 @@ from drive2sim.cli import (
     colab,
     export,
     kaggle,
+    pack,
     report,
     run,
     scene,
@@ -41,6 +42,7 @@ from drive2sim.cli import (
 from drive2sim.cli.output import CommandError, UsageError
 from drive2sim.colab.client import ColabError
 from drive2sim.engine.cache import CacheBusyError
+from drive2sim.engine.environment import EnvironmentMissingError
 from drive2sim.engine.housekeeping import InUseError
 from drive2sim.engine.registry import load_builtin_stages
 from drive2sim.engine.resolve import BlockedError, ResolveError
@@ -98,6 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
         run,
         report,
         export,
+        pack,
         cache,
         kaggle,
         colab,
@@ -146,6 +149,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         }
         lines = "\n".join(f"  - {reason.message}" for reason in error.reasons)
         _print_error(args, "blocked", f"approach không chạy được:\n{lines}", details)
+        return EXIT_BLOCKED
+    except EnvironmentMissingError as error:
+        _print_error(args, "env_missing", str(error), {"environment": error.environment})
         return EXIT_BLOCKED
     except (ResolveError, UsageError) as error:
         _print_error(args, "invalid_request", str(error))

@@ -6,7 +6,9 @@ trúc bên trong theo CONTRACTS mục 2.1, 5.2 và 6.1.
 
 File này chứa:
 - ``Workdir``: biết mọi đường dẫn trong thư mục làm việc (thư mục cảnh, file split, thư mục
-  run), đọc manifest và split, tìm thư mục của một run theo ``run_id``.
+  run), đọc manifest và split, tìm thư mục của một run theo ``run_id``. Manifest cũ chưa có
+  ``available.human_frames`` thì điền từ ``instances/`` của cảnh (chỉ trong bộ nhớ, không ghi
+  file), để engine biết split nào không cần dựng SMPL.
 - ``WorkdirError``: lỗi khi không tìm thấy cảnh, split hoặc run.
 
 Mọi code khác (engine, CLI, Studio) lấy đường dẫn qua ``Workdir`` thay vì tự ghép chuỗi, để cấu
@@ -19,6 +21,7 @@ from typing import Optional
 
 from drive2sim.core import files
 from drive2sim.core.identifiers import RUN_ID_RE
+from drive2sim.core.instances import human_frame_ranges
 from drive2sim.core.schema import Manifest, Split
 from drive2sim.engine.stage import Scene
 
@@ -148,6 +151,11 @@ class Workdir:
     def load_scene(self, scene_id: str) -> Scene:
         """Đọc manifest của một cảnh đã ingest.
 
+        Manifest viết trước ``d2s-manifest/1.2`` không có ``available.human_frames``: nếu cảnh có
+        ``instances/`` trên máy thì điền trường này từ đó (``human_frame_ranges``), chỉ trong bộ
+        nhớ. Cảnh chỉ có trên Kaggle (không có ``instances/``) giữ ``None``: không biết khung nào
+        có người, engine vẫn dựng SMPL.
+
         Args:
             scene_id: Định danh cảnh.
 
@@ -165,6 +173,8 @@ class Workdir:
                 "chạy d2s scene ingest trước"
             )
         manifest = files.load(manifest_path, Manifest)
+        if manifest.available.human_frames is None:
+            manifest.available.human_frames = human_frame_ranges(self.scene_dir(scene_id))
         return Scene(scene_id, self.scene_dir(scene_id), manifest)
 
     def load_split(self, scene_id: str, split_id: str) -> Split:

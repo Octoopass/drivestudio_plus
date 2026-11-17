@@ -4,16 +4,19 @@ File này chứa:
 - ``register``: thêm các lệnh ``approach list``, ``approach show``, ``approach check``.
 - ``list_approaches``, ``show_approach``: liệt kê và xem mục cấu hình, preset, ràng buộc, stage.
 - ``check_approach``: chạy đúng bước kiểm tra mà ``d2s run start`` sẽ chạy, rồi in danh sách stage
-  sẽ chạy và stage nào dùng lại cache, mà không chạy gì (CONTRACTS mục 10.4).
+  sẽ chạy và stage nào dùng lại cache, mà không chạy gì (CONTRACTS mục 10.4). Approach có bước
+  dựng người SMPL thì in thêm một dòng nói split có người không và vì sao bước đó chạy hay bị bỏ.
 - ``resolve_from_args``: đọc cảnh, split, approach và ``--set`` rồi gọi ``resolve``; ``d2s run
   start`` dùng lại hàm này để hai lệnh luôn cho cùng kết quả. Cảnh ingest bằng converter cũ thì
   in cảnh báo ra stderr, không chặn.
 """
 
 import argparse
+from typing import Optional
 
 from drive2sim.cli.output import emit, format_table, format_value, info, parse_set
-from drive2sim.core.schema import Split
+from drive2sim.core.instances import humans_in_range
+from drive2sim.core.schema import Approach, Manifest, Split
 from drive2sim.engine.approaches import list_approach_ids, load_approach
 from drive2sim.engine.environment import environment_check
 from drive2sim.engine.registry import produces_artifact
@@ -181,6 +184,61 @@ def resolve_from_args(args: argparse.Namespace) -> tuple[Workdir, Scene, Split, 
     return workdir, scene, split, plan
 
 
+def _format_ranges(ranges: list[tuple[int, int]]) -> str:
+    """Viết các đoạn khung, ví dụ ``462–495, 600–610``; tối đa 5 đoạn."""
+    shown = ", ".join(f"{a}–{b}" for a, b in ranges[:5])
+    return shown + (", ..." if len(ranges) > 5 else "")
+
+
+def humans_summary(
+    approach: Approach, manifest: Manifest, split: Split, plan: Plan
+) -> Optional[tuple[str, dict[str, object]]]:
+    """Dòng giải thích bước dựng người SMPL chạy hay bị bỏ, cho ``approach check``.
+
+    Chỉ có với approach có stage tạo artifact ``smpl`` (cố định hoặc là lựa chọn của một mục
+    cấu hình), ví dụ OmniRe.
+
+    Args:
+        approach: File approach.
+        manifest: Manifest của cảnh (``available.human_frames``).
+        split: Split của run.
+        plan: Kết quả ``resolve``.
+
+    Returns:
+        ``(câu tiếng Việt, dữ liệu JSON)``; ``None`` nếu approach không dựng người SMPL. Dữ liệu
+        có ``human_frames`` (đoạn có người của cảnh, ``None`` nếu không biết), ``in_split``
+        (phần nằm trong split) và ``smpl_stages`` (stage SMPL sẽ chạy).
+    """
+    choices = [entry.stage for entry in approach.stages]
+    for spec in approach.options.values():
+        choices += [choice for choice in spec.choices if isinstance(choice, str)]
+    if not produces_artifact(choices, "smpl"):
+        return None
+    smpl_stages = [s.stage_id for s in plan.stages if produces_artifact([s.stage_id], "smpl")]
+    human_frames = manifest.available.human_frames
+    first, last = split.frame_range
+    in_split = humans_in_range(human_frames, (first, last)) if human_frames is not None else None
+    action = f"dựng SMPL bằng {', '.join(smpl_stages)}" if smpl_stages else "không dựng SMPL"
+    if human_frames is None:
+        text = (
+            "người (SMPL): không biết khung nào của cảnh có người (manifest chưa ghi "
+            "available.human_frames, máy không có instances/ của cảnh); "
+            f"{action} cho chắc. Ingest lại cảnh bằng tool mới để bước này tự bỏ khi split "
+            "không có người"
+        )
+    elif in_split:
+        text = f"người (SMPL): split có người ở khung {_format_ranges(in_split)}; {action}"
+    else:
+        where = (
+            f"cảnh có người ở khung {_format_ranges(human_frames)}"
+            if human_frames
+            else "cảnh không có người"
+        )
+        text = f"người (SMPL): split (khung {first}–{last}) không có người ({where}); {action}"
+    data = {"human_frames": human_frames, "in_split": in_split, "smpl_stages": smpl_stages}
+    return text, data
+
+
 def check_approach(args: argparse.Namespace) -> int:
     """Kiểm tra một approach chạy được trên cảnh và split không, in danh sách stage sẽ chạy.
 
@@ -204,7 +262,9 @@ def check_approach(args: argparse.Namespace) -> int:
         workdir_root=workdir.root,
     )
     env_lines = []
-    if env["env"] and env["level"] != "ok":
+    if env["message"]:
+        env_lines.append(f"chạy trên máy (--executor local): {env['message']}")
+    elif env["env"] and env["level"] != "ok":
         problems = [
             f"{c['id']} {c['found'] or 'chưa có'}"
             + (f" (cần {c['expected']})" if c["expected"] else "")
@@ -215,11 +275,13 @@ def check_approach(args: argparse.Namespace) -> int:
             f"môi trường {env['env']} trên máy này: {', '.join(problems)}; "
             f"cài bằng {env['install']} (chạy trên Kaggle thì notebook tự cài)"
         )
+    humans = humans_summary(load_approach(plan.approach_id), scene.manifest, split, plan)
     text = "\n".join(
         [
             f"approach {plan.approach_id} chạy được trên {scene.scene_id}, split {split.split_id}",
             f"cấu hình: {options or '(không có)'}",
             f"LiDAR dùng ở: {', '.join(plan.lidar_usage) or 'không dùng'}",
+            *([humans[0]] if humans else []),
             *(["chạy thử nhanh: metric không so được với run đủ iteration"] if plan.quick else []),
             *env_lines,
             format_table(["#", "stage", "", "tham số"], rows),
@@ -236,6 +298,7 @@ def check_approach(args: argparse.Namespace) -> int:
             for stage, hit in zip(plan.stages, reused)
         ],
         "environment": env,
+        "humans": humans[1] if humans else None,
     }
     emit(args, data, text)
     return 0

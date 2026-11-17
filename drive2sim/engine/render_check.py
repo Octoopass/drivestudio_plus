@@ -15,7 +15,10 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
+import yaml
+
 from drive2sim.engine.machine import _gpus, package_versions
+from drive2sim.paths import SMPL_MODEL_NAME, find_smpl_model
 
 CHECKPOINT = "checkpoint_final.pth"
 TORCH_PROBE = (
@@ -95,4 +98,20 @@ def render_readiness(run_dir: Optional[Path] = None) -> dict[str, Any]:
                 else f"không có {CHECKPOINT} trong stage train.* của run",
             }
         )
+        config_path = checkpoint.parent / "config.yaml" if checkpoint else None
+        if config_path is not None and config_path.is_file():
+            config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+            needs_smpl = "SMPLNodes" in config.get("model", {}) and config.get("data", {}).get(
+                "pixel_source", {}
+            ).get("load_smpl", False)
+            if needs_smpl:
+                root = run_dir.parents[3] if len(run_dir.parents) > 3 else None
+                model = find_smpl_model(root)
+                checks.append(
+                    {
+                        "id": "smpl_model",
+                        "ok": model is not None,
+                        "value": str(model) if model else SMPL_MODEL_NAME,
+                    }
+                )
     return {"ready": all(check["ok"] for check in checks), "checks": checks}

@@ -184,6 +184,10 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 
 ## 11. Yêu cầu chung
 
+- Viewer GPU phải render được khi camera trùng điểm tạm của người SMPL vắng mặt, không lỗi NaN màu.
+- Bàn giao kết quả: `d2s pack` đóng gói run được chọn cùng toàn bộ checkpoint, cảnh và cache cần thiết. Mentor giải nén vào workdir riêng và mở Studio; mô hình SMPL được kèm tại smpl_models/SMPL_NEUTRAL.pkl khi run cần dựng người. Lệnh có kiểm kê trước bằng `--dry-run`, không ghi đè gói cũ.
+- Ingest gợi ý thư mục dataset đúng và báo thiếu sweeps trước khi chạy. Run local báo thiếu môi trường kèm cách cài. OmniRe tự bỏ SMPL chỉ khi nhãn xác nhận đoạn frame của split không có người; dữ liệu chưa biết không bị xem là không có người.
+
 - Nhẹ: một tiến trình phục vụ cả API lẫn giao diện; trạng thái lưu trong thư mục, không cần cơ sở dữ liệu.
 - Approach từ codebase khác chạy trong môi trường riêng; các approach dòng DriveStudio dùng chung môi trường của repo.
 - Mọi run ghi kết quả theo cùng một định dạng, kèm cấu hình đầy đủ, phiên bản mã nguồn và thông tin phần cứng để chạy lại được.

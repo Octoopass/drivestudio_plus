@@ -2,8 +2,11 @@
 
 File này chứa:
 - ``register``: thêm các lệnh ``run start``, ``run resume``, ``run status``, ``run list``.
-- ``start_run``: kiểm tra như ``approach check``, tạo run rồi chạy hết các stage.
-- ``resume_run``: chạy tiếp một run dở hoặc lỗi; stage đã xong không chạy lại.
+- ``start_run``: kiểm tra như ``approach check``, tạo run rồi chạy hết các stage. Chạy trên máy
+  (``--executor local``) thì kiểm môi trường trước khi tạo run (``require_local_environment``):
+  thiếu thì dừng với một câu hướng dẫn, không tạo run rỗng.
+- ``resume_run``: chạy tiếp một run dở hoặc lỗi; stage đã xong không chạy lại; run chạy trên máy
+  cũng được kiểm môi trường trước.
 - ``status_run``, ``list_runs``: xem trạng thái một run và liệt kê các run.
 
 Tiến độ in ra stderr trong lúc chạy; kết quả cuối in ra stdout. Run lỗi trả mã thoát ``1``.
@@ -26,6 +29,9 @@ from drive2sim.colab import executor as colab_executor
 from drive2sim.core import files
 from drive2sim.core.schema import RunRecord
 from drive2sim.engine import housekeeping
+from drive2sim.engine.approaches import load_approach
+from drive2sim.engine.environment import require_local_environment
+from drive2sim.engine.registry import produces_artifact
 from drive2sim.engine.run import D2S_DIR, RUN_FILE, create_run, execute_run, request_cancel
 from drive2sim.engine.run import list_runs as read_runs
 from drive2sim.engine.workdir import Workdir
@@ -91,6 +97,20 @@ def _report(args: argparse.Namespace, record: RunRecord) -> int:
     return 0 if record.status == "succeeded" else 1
 
 
+def _require_local(approach_id: str, stage_ids: list[str], workdir: Workdir) -> None:
+    """Dừng sớm nếu máy này thiếu môi trường để chạy run trên máy.
+
+    Raises:
+        EnvironmentMissingError: Nếu thiếu GPU, gói của môi trường chính hoặc file SMPL mà run
+            cần; ``main`` trả mã thoát ``3`` với mã lỗi ``env_missing``.
+    """
+    require_local_environment(
+        load_approach(approach_id).codebase,
+        needs_smpl=produces_artifact(stage_ids, "smpl"),
+        workdir_root=workdir.root,
+    )
+
+
 def start_run(args: argparse.Namespace) -> int:
     """Tạo một run mới rồi chạy hết các stage, trên máy, trên Kaggle hoặc trên Colab.
 
@@ -103,8 +123,14 @@ def start_run(args: argparse.Namespace) -> int:
 
     Returns:
         ``0`` nếu run xong (hoặc đã đẩy lên Kaggle, Colab), ``1`` nếu một stage lỗi.
+
+    Raises:
+        EnvironmentMissingError: Nếu ``--executor local`` mà máy thiếu môi trường; kiểm trước khi
+            tạo run.
     """
     workdir, scene, split, plan = resolve_from_args(args)
+    if args.executor == "local":
+        _require_local(plan.approach_id, [stage.stage_id for stage in plan.stages], workdir)
     run_dir = create_run(plan, workdir, scene, split, executor=args.executor)
     info(args, f"tạo run {run_dir.name} ở {workdir.relative(run_dir)}")
     if args.executor != "local" and getattr(args, "no_push", False):
@@ -144,9 +170,18 @@ def resume_run(args: argparse.Namespace) -> int:
 
     Returns:
         ``0`` nếu run xong, ``1`` nếu một stage lỗi.
+
+    Raises:
+        EnvironmentMissingError: Nếu run chạy trên máy (``executor: local``) mà máy thiếu môi
+            trường.
     """
     workdir = Workdir.from_env(args.workdir)
     run_dir = workdir.find_run(args.run_id)
+    record = files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
+    if record.executor == "local":
+        _require_local(
+            record.approach.approach_id, [stage.stage_id for stage in record.stages], workdir
+        )
     return _report(args, execute_run(run_dir, workdir, sink=event_printer(args)))
 
 

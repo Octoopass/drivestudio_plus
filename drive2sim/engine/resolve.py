@@ -21,6 +21,12 @@ File này chứa:
 Studio, CLI (``d2s approach check``, ``d2s run start``) và ``run.py`` cùng gọi file này, nên
 chạy từ đâu cũng ra cùng danh sách stage và cùng lý do bị khoá (CONTRACTS mục 4.2).
 
+Mục cấu hình dùng làm stage có thể có lựa chọn ``none`` (``NO_STAGE``): bước đó bị bỏ khỏi danh
+sách stage. Điều kiện riêng của từng stage (``Stage.unavailable_reason``) nhận cả manifest và
+split, nên một stage có thể bị khoá theo đoạn khung của split; ví dụ OmniRe để ``smpl: auto`` với
+lựa chọn ``[prep.smpl_release, prep.smpl, none]``: split không có người thì hai stage SMPL bị
+khoá và ``auto`` chọn ``none``.
+
 Thông báo trong ``ResolveError`` và ``BlockedError`` hiện thẳng cho người dùng nên viết tiếng
 Việt (CONTRACTS mục 10.6).
 """
@@ -32,6 +38,7 @@ from pydantic import ValidationError
 
 from drive2sim.core.schema import (
     CAMERA_TRACK,
+    NO_STAGE,
     Approach,
     Manifest,
     OptionSpec,
@@ -251,11 +258,14 @@ def _choice_block(
     manifest: Manifest,
     registry: StageRegistry,
     cameras: Optional[list[str]] = None,
+    split: Optional[Split] = None,
 ) -> Optional[str]:
     """Kiểm tra một lựa chọn có dùng được với dữ liệu của cảnh không.
 
-    Hai điều kiện:
+    Ba điều kiện:
     - lựa chọn là tên một stage có ``uses_lidar = True`` mà cảnh không có LiDAR;
+    - lựa chọn là tên một stage mà ``unavailable_reason(manifest, split)`` trả lý do (ví dụ
+      ``prep.smpl`` khi đoạn khung của split không có người);
     - lựa chọn chỉ nhận một số mô hình camera (``OptionSpec.camera_models``) mà một camera đang
       dùng có mô hình khác, và approach không có ``prep.undistort``. Ví dụ renderer ``3dgs`` trên
       cảnh camera ``ftheta``.
@@ -267,6 +277,7 @@ def _choice_block(
         manifest: Manifest của cảnh.
         registry: Bảng stage, để biết stage có cần LiDAR không.
         cameras: Camera đang dùng (camera của split); ``None`` là mọi camera của cảnh.
+        split: Split đang chọn; ``None`` khi chưa chọn.
 
     Returns:
         Lý do bằng tiếng Việt nếu lựa chọn bị khoá, ``None`` nếu dùng được.
@@ -274,7 +285,7 @@ def _choice_block(
     if isinstance(choice, str) and choice in registry:
         if registry.get(choice).uses_lidar and not manifest.available.lidar:
             return f"{choice} cần LiDAR nhưng cảnh {manifest.scene_id} không có LiDAR"
-        reason = registry.get(choice).unavailable_reason(manifest)
+        reason = registry.get(choice).unavailable_reason(manifest, split)
         if reason:
             return reason
     allowed = choice_camera_models(approach.options[option_name], choice)
@@ -295,6 +306,7 @@ def blocked_choices(
     manifest: Manifest,
     registry: StageRegistry = REGISTRY,
     cameras: Optional[list[str]] = None,
+    split: Optional[Split] = None,
 ) -> dict[str, list[BlockReason]]:
     """Liệt kê các lựa chọn bị khoá vì dữ liệu của cảnh, theo từng mục cấu hình.
 
@@ -306,6 +318,7 @@ def blocked_choices(
         manifest: Manifest của cảnh đang chọn.
         registry: Bảng stage; mặc định là bảng chung.
         cameras: Camera của split đang chọn; ``None`` là mọi camera của cảnh.
+        split: Split đang chọn, cho điều kiện theo đoạn khung; ``None`` khi chưa chọn.
 
     Returns:
         Tên mục → danh sách lựa chọn bị khoá kèm lý do. Mục không có lựa chọn nào bị khoá thì không
@@ -315,7 +328,9 @@ def blocked_choices(
     result: dict[str, list[BlockReason]] = {}
     for option_name, spec in approach.options.items():
         for choice in spec.choices:
-            message = _choice_block(approach, option_name, choice, manifest, registry, cameras)
+            message = _choice_block(
+                approach, option_name, choice, manifest, registry, cameras, split
+            )
             if message is not None:
                 result.setdefault(option_name, []).append(
                     BlockReason(message, option_name, choice)
@@ -358,6 +373,7 @@ def _decide_options(
     option_values: dict[str, OptionValue],
     registry: StageRegistry,
     cameras: Optional[list[str]] = None,
+    split: Optional[Split] = None,
 ) -> tuple[dict[str, OptionValue], list[BlockReason]]:
     """Quyết định giá trị cụ thể cho mọi mục cấu hình.
 
@@ -374,6 +390,7 @@ def _decide_options(
         option_values: Tên mục → giá trị người dùng chọn.
         registry: Bảng stage.
         cameras: Camera của split, để khoá lựa chọn không nhận mô hình camera của chúng.
+        split: Split, cho điều kiện của stage theo đoạn khung (``Stage.unavailable_reason``).
 
     Returns:
         Bộ hai phần: giá trị đã quyết định của mọi mục cấu hình, và danh sách lý do bị khoá của
@@ -403,7 +420,8 @@ def _decide_options(
             usable = [
                 c
                 for c in choices
-                if _choice_block(approach, option_name, c, manifest, registry, cameras) is None
+                if _choice_block(approach, option_name, c, manifest, registry, cameras, split)
+                is None
             ]
             if usable:
                 chosen[option_name] = usable[0]
@@ -416,7 +434,7 @@ def _decide_options(
                     )
                 )
             continue
-        message = _choice_block(approach, option_name, value, manifest, registry, cameras)
+        message = _choice_block(approach, option_name, value, manifest, registry, cameras, split)
         if message is not None:
             reasons.append(
                 BlockReason(f"mục cấu hình {option_name!r}: {message}", option_name, value)
@@ -483,7 +501,7 @@ def _data_reasons(
     # approach.
     for entry, stage_id in zip(approach.stages, stage_ids):
         if option_reference(entry.stage) is None and stage_id in registry:
-            reason = registry.get(stage_id).unavailable_reason(manifest)
+            reason = registry.get(stage_id).unavailable_reason(manifest, split)
             if reason:
                 reasons.append(BlockReason(reason))
     if not manifest.available.lidar:
@@ -587,8 +605,8 @@ def _build_stages(
 
     Với từng bước trong ``stages`` của file approach: thay chỗ giữ chỗ trong tên stage và tham
     số, gộp tham số theo thứ tự mặc định của stage → ``params`` trong file → ``stage_params`` của
-    người dùng (CONTRACTS mục 4.1), rồi kiểm tra theo ``Params`` của stage. Cuối cùng nối đầu vào
-    bằng ``wire_inputs``.
+    người dùng (CONTRACTS mục 4.1), rồi kiểm tra theo ``Params`` của stage. Bước có giá trị
+    ``none`` (``NO_STAGE``) bị bỏ. Cuối cùng nối đầu vào bằng ``wire_inputs``.
 
     Args:
         approach: File approach.
@@ -607,6 +625,8 @@ def _build_stages(
     all_params: list[dict[str, object]] = []
     for index, entry in enumerate(approach.stages):
         stage_id = str(_substitute(entry.stage, chosen))
+        if stage_id == NO_STAGE:
+            continue
         if stage_id not in registry:
             raise ResolveError(
                 f"approach {approach.approach_id}, stages[{index}]: stage {stage_id} chưa có; "
@@ -715,12 +735,14 @@ def resolve(
         )
 
     chosen, reasons = _decide_options(
-        approach, manifest, preset, option_values or {}, registry, split.cameras
+        approach, manifest, preset, option_values or {}, registry, split.cameras, split
     )
     if preset is not None and option_values:
         # Người dùng chỉnh khác preset thì cấu hình không còn là preset đó: không ghi tên preset,
         # để run.json và bảng so sánh không gọi nhầm một cấu hình đã sửa bằng tên preset.
-        as_preset, _ = _decide_options(approach, manifest, preset, {}, registry, split.cameras)
+        as_preset, _ = _decide_options(
+            approach, manifest, preset, {}, registry, split.cameras, split
+        )
         if as_preset != chosen:
             preset = None
     # Gom mọi lý do bị khoá trước khi dựng danh sách stage, để người dùng sửa một lần.
@@ -731,7 +753,9 @@ def resolve(
         raise BlockedError(reasons)
     params = {stage_id: dict(values) for stage_id, values in (stage_params or {}).items()}
     if quick:
-        _apply_quick(approach.approach_id, stage_ids, params, registry)
+        _apply_quick(
+            approach.approach_id, [s for s in stage_ids if s != NO_STAGE], params, registry
+        )
     stages = _build_stages(approach, chosen, params, registry)
     return Plan(
         approach.approach_id, approach.version, approach.level, preset, chosen, stages, quick

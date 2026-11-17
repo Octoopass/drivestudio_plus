@@ -86,6 +86,7 @@ def inspect(args: argparse.Namespace) -> int:
                 "file khác: " + ", ".join(f"{i['suffix']} ({i['count']})" for i in others)
             )
     lines += report.notes
+    lines += [f"lỗi:      {error}" for error in report.errors]
     if report.ingest_supported:
         lines.append(f"lệnh tiếp theo:\n  {_suggestion(report)}")
     emit(args, report.to_dict(), "\n".join(lines))

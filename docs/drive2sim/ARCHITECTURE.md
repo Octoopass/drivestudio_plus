@@ -203,7 +203,13 @@ NCore vẫn dùng ở hai chỗ: là **một nguồn vào** (PhysicalAI, CARLA g
 - Không có khoá ghi giữa nhiều tiến trình; tool phải tự tránh bằng file khoá và thư mục `.partial`.
 - Liệt kê hàng nghìn run phải quét thư mục.
 
+**Lỗi SMPL trong viewer (17/11/2026).** Camera trùng điểm tạm tại gốc của người vắng mặt làm hướng nhìn bằng 0. Chuẩn hoá rồi tính SH tạo NaN, dù opacity của người đó là 0; lỗi đã tái hiện trên cả run gốc và gói bàn giao. `SMPLNodes.get_gaussians` dùng hướng đơn vị dự phòng khi norm ≤ 1e-8; các hướng còn lại giữ nguyên. Chỉ chặn mẫu số không đủ vì kernel SH CUDA tự chuẩn hoá lại. Không bỏ Gaussian hay sửa checkpoint. Thêm một phép chọn trên tensor SMPL; frame bình thường so trước/sau có max pixel delta 0. Chưa đo lại thời gian train đầy đủ.
+
 ### 2.7 Cache chỉ cho stage dùng chung, khoá đọc được
+
+**Bàn giao workdir (17/11/2026).** `engine/pack.py` kiểm kê run, scene và cache theo `RunRecord`; `cli/pack.py` cung cấp `d2s pack`. Tar không nén giữ đủ checkpoint và các đường dẫn workdir, kèm README và kiểm kê SHA-256. Loại các view bằng symlink mà train/viewer tự dựng lại, chuyển symlink còn lại thành tương đối và từ chối đích ngoài tập đã chọn. Cách này giữ khả năng mở lại trên máy khác, tránh nhân bản dữ liệu qua view. Đổi lại tar lớn hơn gói chỉ xem; `--dry-run` báo dung lượng và kiểm tra chỗ trống trước khi ghi. Không sửa dữ liệu nguồn, không tự dọn đĩa.
+
+**SMPL theo split.** `core/instances.py` đọc lớp box người và các đoạn frame vào manifest `1.2`; scene cũ được bổ sung trong bộ nhớ nếu có `instances/` local. `unavailable_reason` nhận split, `resolve` cho phép lựa chọn `none`, train không nhận SMPL thì tắt loader tương ứng. Ưu điểm là bỏ bước dựng người tốn GPU khi không cần; nhược điểm là phụ thuộc nhãn box. Nhãn thiếu/hỏng giữ trạng thái chưa biết, nên không tự bỏ SMPL. Test phải kiểm cả nhánh không biết và ranh giới frame.
 
 **Khái niệm.**
 - Stage được đánh dấu `cacheable` (các stage `prep.*` và `init.*`) ghi kết quả vào `cache/<scene_id>/<stage_id>@<version>-<hash8>/` (CONTRACTS mục 5.2). Phần băm là 8 ký tự đầu của sha256 trên tham số đã chuẩn hoá cùng khoá của các artifact đầu vào; không băm nội dung dữ liệu.
@@ -447,7 +453,7 @@ drivestudio_plus/                          branch drive2sim
 │   ├── core/                              identifiers.py, schema.py, files.py, split.py, camera.py (khớp Mei → OpenCV fisheye) (đã có); transforms.py (chưa có)
 │   ├── ingest/                            detect.py (source inspect), dispatch.py (chọn chuỗi), drivestudio.py (converter chung cho 7 dataset), kitti360.py (converter KITTI-360), kitti360_boxes.py (box 3D KITTI-360), images.py, manifest.py, validate.py
 │   ├── stages/                            commands.py, scene_view.py; prep/masks_segformer.py, prep/smpl.py, train/drivestudio.py, eval/standard.py, export/ply_world.py, export/preview.py (đã có); init/, render/ (khung)
-│   ├── engine/                            stage.py, registry.py, resolve.py, approaches.py, workdir.py, scenes.py, cache.py, run.py, report.py, housekeeping.py (xoá, dọn cache), remote.py (phần chung của executor Kaggle và Colab: kiểm tra commit, ghép output tải về)
+│   ├── engine/                            stage.py, registry.py, resolve.py, approaches.py, workdir.py, scenes.py, cache.py, run.py, report.py, housekeeping.py (xoá, dọn cache), pack.py (gói bàn giao), remote.py (phần chung của executor Kaggle và Colab: kiểm tra commit, ghép output tải về)
 │   ├── approaches/                        omnire.yaml, streetgs.yaml
 │   ├── kaggle/                            client.py, bundle.py, executor.py, ingest.py (ingest trên Kaggle), names.py (tên notebook và dataset, CONTRACTS mục 10.1), setup.py, templates/run.ipynb, templates/ingest.ipynb
 │   ├── colab/                             client.py, executor.py, setup.py, templates/job.sh (mục 2.16)
@@ -455,7 +461,7 @@ drivestudio_plus/                          branch drive2sim
 │   ├── studio/                            api/ (app.py, state.py, events.py, jobs.py, kaggle_watch.py, colab_watch.py, remote_watch.py, routes/<nhóm>.py); frontend/ (Vite + React: src/pages/, src/components/, src/viewer/ (Spark), src/live.tsx, src/locales/, src/api/generated/, dist/ đã build); viz/ (khung)
 │   ├── external/              (khung)     <codebase>/: worker cho codebase ngoài
 │   ├── scripts/                           công cụ phát triển chạy một lần: make_demo.py, check_kitti360_projection.py (chiếu LiDAR KITTI-360 lên ảnh, tỉ số cạnh)
-│   └── cli/                               main.py, output.py; source.py, scene.py, split.py, approach.py, run.py, report.py, export.py, cache.py, kaggle.py, colab.py, studio.py, schema.py
+│   └── cli/                               main.py, output.py; source.py, scene.py, split.py, approach.py, run.py, report.py, export.py, pack.py, cache.py, kaggle.py, colab.py, studio.py, schema.py
 ├── third_party/                           smplx (pip -e, import smplx); Humans4D (submodule, import hmr2); ncore (submodule, tag v19.9.0: converter NCore); gsplat-geer (submodule, fork `awun0105/3dgeer` nhánh `drive2sim`: gsplat-geer của Bosch `f15cee2` + `glm` + kỹ thuật kernel Faster-GS, cài bằng `envs/install_main.sh` bước 4)
 ├── envs/                                  main.yml (conda: Python 3.10), install_main.sh (cài môi trường chính, dùng chung cho Kaggle), install_cuda.sh (CUDA 12.8 riêng khi nvcc của máy khác major) (mục 2.9)
 └── tests/drive2sim/           (khung)     cùng cây thư mục với drive2sim/; fixtures/
@@ -491,6 +497,7 @@ Chạy script bằng `python -m`, ví dụ `python -m drive2sim.recon.tools.trai
 | File đi kèm package (mask thân xe, danh sách cảnh) | `drive2sim/assets/<loại>/` | | Truy cập qua `drive2sim/paths.py`, không dùng đường dẫn tương đối theo thư mục đang chạy |
 | Trainer mới chạy trong môi trường chính, không qua trainer DriveStudio (ví dụ gsplat 3DGUT) | `drive2sim/recon/tools/` | `train_<tên>.py`, đọc thẳng thư mục cảnh và split; ghi kết quả theo tên file của `train.drivestudio` (CONTRACTS mục 5.4, loại `model`) | Stage `train.<tên>` trong `drive2sim/stages/train/`; giá trị mới khai báo trong `IN_PACKAGE_CODEBASES` và `CODEBASE_ENV` |
 | Codebase ngoài | `drive2sim/external/<codebase>/` | `worker.py`; môi trường ở `envs/<codebase>.yml` | Stage `train.external` với tham số `codebase: <tên>` |
+| Gói kết quả để bàn giao | `drive2sim/engine/pack.py` | `plan_pack`, `write_pack` | CLI gọi qua `cli/pack.py`; CONTRACTS 10.4 |
 | Lệnh CLI mới | `drive2sim/cli/<nhóm>.py` | hàm `<hành_động>` | Theo CONTRACTS mục 10.4 |
 | API cho Studio | `drive2sim/studio/api/routes/<nhóm>.py` | đường dẫn `/api/<nhóm số nhiều>/...`, verb, lỗi và sự kiện theo CONTRACTS mục 11 | `app.py` |
 | Màn hình Studio | `drive2sim/studio/frontend/src/pages/` | `PascalCase.tsx`; chuỗi giao diện trong `src/locales/vi.json`, `en.json` (CONTRACTS mục 10.6) | Router của frontend |
@@ -645,7 +652,7 @@ Lệnh dạng `d2s <nhóm> <hành động>`. Danh sách đầy đủ, tuỳ ch�
 | `colab` | `push`, `status`, `logs`, `pull`, `stop` |
 | `export` | `ply`, `preview` |
 | `cache` | `list`, `gc` |
-| `report`, `studio`, `serve` | (lệnh đơn) |
+| `report`, `pack`, `studio`, `serve` | (lệnh đơn) |
 
 ## 5. Luồng dữ liệu
 
@@ -679,6 +686,7 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (thư mục DriveStudio
 
 | Việc | Trạng thái | Commit |
 |---|---|---|
+| Bàn giao `d2s pack`, ingest và môi trường thân thiện, SMPL theo split | Code và test local hoàn tất; chưa nghiệm thu train GPU cho thay đổi loader; gói 11 run thật đã ghi trên USB và kiểm đủ 15.708 mã băm sau giải nén; Studio đọc 11 run, đã render thử một frame bằng GPU có sẵn | |
 | Docs thiết kế (SPEC, ARCHITECTURE, CONTRACTS) | Xong, cập nhật theo từng quyết định | |
 | Di chuyển mã DriveStudio vào `drive2sim/recon/` (ba lượt) | Xong; kiểm tra tĩnh đạt; chưa chạy thật | `7a7c121`, `726b3ba`, `9f35aff` |
 | Sửa chạy tiếp khi train | Xong trong code; chưa chạy thật | `7851701` |

@@ -131,6 +131,26 @@ def test_approach_list_and_show(workdir: Path, capsys: pytest.CaptureFixture) ->
     assert "geer_fastgs: renderer=3dgeer, fastgs=true" in capsys.readouterr().out
 
 
+def test_missing_environment_does_not_create_run(
+    workdir: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from drive2sim.engine import environment
+
+    strategy = "every_nth_frame:8"
+    assert (
+        run_json(
+            capsys, "split", "create", SCENE, "--strategy", strategy, "--cameras", "CAM_FRONT"
+        )[0]
+        == 0
+    )
+    monkeypatch.setattr(environment, "_gpus", lambda: [])
+    code, data = run_json(
+        capsys, "run", "start", "omnire", "--scene", SCENE, "--split", "every8_pinhole1"
+    )
+    assert code == 3 and data["error"]["code"] == "env_missing"
+    assert not (workdir / "runs").exists()
+
+
 def test_split_create_list_show(workdir: Path, capsys: pytest.CaptureFixture) -> None:
     code, data = run_json(
         capsys,

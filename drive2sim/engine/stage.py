@@ -171,11 +171,19 @@ class Stage(ABC):
     Params: ClassVar[type[BaseModel]] = NoParams
 
     @classmethod
-    def unavailable_reason(cls, manifest: Manifest) -> Optional[str]:
+    def unavailable_reason(
+        cls, manifest: Manifest, split: Optional[Split] = None
+    ) -> Optional[str]:
         """Lý do stage không chạy được với cảnh này ngoài LiDAR và camera; ``None`` nếu được.
 
-        Ví dụ ``prep.smpl_release`` chỉ có SMPL phát hành sẵn cho một số cảnh. Engine khoá lựa
-        chọn ứng với stage này (kèm lý do) và ``auto`` bỏ qua nó, như với stage cần LiDAR.
+        Ví dụ ``prep.smpl_release`` chỉ có SMPL phát hành sẵn cho một số cảnh; ``prep.smpl``,
+        ``prep.smpl_release`` không cần chạy khi đoạn khung của split không có người. Engine khoá
+        lựa chọn ứng với stage này (kèm lý do) và ``auto`` bỏ qua nó, như với stage cần LiDAR.
+
+        Args:
+            manifest: Manifest của cảnh.
+            split: Split của run; ``None`` khi chưa chọn split (Studio trước khi chọn). Điều kiện
+                theo split thì coi như thoả khi ``split`` là ``None``.
         """
         return None
 

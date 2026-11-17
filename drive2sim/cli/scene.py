@@ -214,7 +214,11 @@ def ingest_scene(args: argparse.Namespace) -> int:
     workdir = Workdir.from_env(args.workdir)
     try:
         target = plan_ingest(
-            inspect_source(args.path), args.source_type, args.version, args.sequence
+            inspect_source(args.path),
+            args.source_type,
+            args.version,
+            args.sequence,
+            interpolate_n=args.interpolate_n,
         )
     except IngestRequestError as error:
         raise UsageError(str(error)) from None

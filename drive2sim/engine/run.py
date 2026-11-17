@@ -61,6 +61,7 @@ from drive2sim.engine.cache import (
     input_key_for_scene,
     input_key_for_split,
 )
+from drive2sim.engine.environment import MissingModuleError
 from drive2sim.engine.machine import current_machine, package_versions, same_machine
 from drive2sim.engine.registry import REGISTRY, StageRegistry
 from drive2sim.engine.resolve import Plan, validate_params, wire_inputs
@@ -832,8 +833,9 @@ class _Runner:
         """Ghi lại một stage bị lỗi và chuyển cả run sang ``failed``.
 
         Lỗi ghi vào ``run.json`` với mã ``stage_failed`` và thông báo tiếng Việt cho người dùng;
-        traceback đầy đủ ghi nối vào ``d2s/log.txt`` cho người sửa lỗi. Sau đó phát sự kiện
-        ``log``, ``status`` và ``done``.
+        traceback đầy đủ ghi nối vào ``d2s/log.txt`` cho người sửa lỗi. Lệnh con của stage thiếu
+        gói Python (``MissingModuleError``) thì ghi mã ``env_missing`` và chỉ câu hướng dẫn cài
+        môi trường, không kèm tên lớp lỗi. Sau đó phát sự kiện ``log``, ``status`` và ``done``.
 
         Args:
             stage_record: Bản ghi của stage trong ``run.json``.
@@ -841,10 +843,13 @@ class _Runner:
             started: Thời điểm stage bắt đầu, theo ``time.monotonic``.
         """
         stage_id = stage_record.stage_id
+        if isinstance(error, MissingModuleError):
+            code, message = "env_missing", f"stage {stage_id} không chạy được: {error}"
+        else:
+            code = "stage_failed"
+            message = f"stage {stage_id} lỗi: {type(error).__name__}: {error}"
         stage_record.error = ErrorInfo(
-            code="stage_failed",
-            message=f"stage {stage_id} lỗi: {type(error).__name__}: {error}",
-            details={"log": f"{D2S_DIR}/{LOG_FILE}"},
+            code=code, message=message, details={"log": f"{D2S_DIR}/{LOG_FILE}"}
         )
         log_path = self.run_dir / D2S_DIR / LOG_FILE
         with log_path.open("a", encoding="utf-8") as log_file:

@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from drive2sim.colab import client as colab_client
+from drive2sim.engine import environment
 from drive2sim.kaggle import client
 
 
@@ -61,3 +62,27 @@ def no_desktop(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def main_environment_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Coi máy chạy test như máy đã có môi trường chính (GPU, PyTorch, gsplat đúng phiên bản).
+
+    ``d2s run start --executor local`` và ``POST /api/runs`` dừng sớm khi máy thiếu môi trường
+    (``require_local_environment``); máy chạy test thường không có GPU, và hỏi ``nvidia-smi``,
+    PyTorch thật làm test chậm, kết quả tuỳ máy. Test cần máy thiếu môi trường thì tự patch
+    ``environment._gpus``, ``package_versions``, ``_cached_torch_cuda``.
+    """
+    expected = environment.EXPECTED["main"]
+    cuda_tag = expected["cuda"].replace(".", "")
+    monkeypatch.setattr(environment, "_gpus", lambda: [("Test GPU", 16384, "550")])
+    monkeypatch.setattr(
+        environment,
+        "package_versions",
+        lambda: {
+            "pytorch": f"{expected['pytorch']}+cu{cuda_tag}",
+            "cuda": expected["cuda"],
+            "gsplat": expected["gsplat"],
+        },
+    )
+    monkeypatch.setattr(environment, "_cached_torch_cuda", lambda: (True, "Test GPU"))

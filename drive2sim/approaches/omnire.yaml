@@ -66,15 +66,18 @@ options:
       - "Quy tắc của DriveStudio: Gaussian có gradient vị trí vượt ngưỡng thì nhân hoặc tách. Ngưỡng có đơn vị riêng của từng renderer; với 3DGUT ra ít Gaussian hơn 3DGS 40 %."
       - "Ngân sách Gaussian cố định mỗi node: dời Gaussian gần trong suốt sang chỗ đậm, thêm dần tới ngân sách, cộng nhiễu nhỏ vào vị trí. Không dùng ngưỡng gradient nên như nhau với mọi renderer. Không dùng cùng FastGS."
   smpl:
-    choices: [prep.smpl_release, prep.smpl]
+    # Thứ tự là thứ tự ưu tiên của auto. Hai stage SMPL bị khoá khi biết chắc đoạn khung của split
+    # không có box người (available.human_frames của manifest); khi đó auto chọn none.
+    choices: [prep.smpl_release, prep.smpl, none]
     default: auto
     group: data
     label: "Nguồn SMPL (người)"
-    help: "Tư thế người đi bộ (SMPL) cho các Gaussian người của OmniRe. Tự động: dùng bản DriveStudio phát hành sẵn nếu cảnh có trong đó, không thì tự tính."
-    labels: ["Bản phát hành DriveStudio", "Tự tính (4D-Humans)"]
+    help: "Tư thế người đi bộ (SMPL) cho các Gaussian người của OmniRe. Tự động: dùng bản DriveStudio phát hành sẵn nếu cảnh có trong đó, không thì tự tính; đoạn khung của split không có người thì bỏ bước này."
+    labels: ["Bản phát hành DriveStudio", "Tự tính (4D-Humans)", "Không dựng người SMPL"]
     descriptions:
       - "Tải SMPL DriveStudio đã tính sẵn (hiện có cho 10 cảnh nuScenes v1.0-mini): không tốn GPU. Trên scene-0061 kết quả gần như trùng bản tự tính (lệch tư thế trung bình 1e-4)."
       - "Chạy 4D-Humans + PHALP trên ảnh của cảnh (khoảng 72 phút GPU T4 với scene-0061); dùng được cho mọi cảnh có box người."
+      - "Không chạy bước SMPL; train tắt load_smpl nên không có node người SMPL. Tự chọn khi đoạn khung của split không có box người. Chọn tay khi split có người thì người được dựng như vật biến dạng (DeformableNodes); cách này chưa được đo."
   fastgs:
     choices: [false, true]
     default: false

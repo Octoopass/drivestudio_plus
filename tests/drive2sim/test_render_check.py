@@ -30,6 +30,26 @@ def test_ready_when_everything_present(tmp_path: Path, monkeypatch: pytest.Monke
     assert result["checks"][-1]["value"] == "d2s/stages/train.drivestudio/checkpoint_final.pth"
 
 
+def test_checkpoint_with_people_requires_body_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    test_ready_when_everything_present(tmp_path, monkeypatch)
+    train = tmp_path / "d2s/stages/train.drivestudio"
+    config = train / "config.yaml"
+    config.write_text("model: {SMPLNodes: {}}\ndata: {pixel_source: {load_smpl: true}}\n")
+    monkeypatch.setattr(render_check, "find_smpl_model", lambda root: None)
+    result = render_check.render_readiness(tmp_path)
+    assert not result["ready"]
+    assert result["checks"][-1] == {"id": "smpl_model", "ok": False, "value": "SMPL_NEUTRAL.pkl"}
+    monkeypatch.setattr(
+        render_check, "find_smpl_model", lambda root: tmp_path / "SMPL_NEUTRAL.pkl"
+    )
+    assert render_check.render_readiness(tmp_path)["ready"]
+    config.write_text("model: {SMPLNodes: {}}\ndata: {pixel_source: {load_smpl: false}}\n")
+    monkeypatch.setattr(render_check, "find_smpl_model", lambda root: None)
+    assert render_check.render_readiness(tmp_path)["ready"]
+
+
 def test_missing_pytorch_skips_cuda_probe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(render_check, "_gpus", lambda: [])
     monkeypatch.setattr(
