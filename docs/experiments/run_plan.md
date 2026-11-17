@@ -32,6 +32,8 @@ Cảnh dùng:
 | `20261116-043455-streetgs-ccec` | Xong (`haicaumuoi`): Street GS + FastGS | Street GS | 3DGS | có | không | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 25,02 | 0,779 | 0,264 | 22,94 / 24,48 / 24,01 | 1 giờ 11 phút | 3,4 GB | 0,43 triệu |
 | `20261116-043522-streetgs-ecaa` | Xong (`haicaumuoi`): Street GS + FastGS + Faster-GS | Street GS | 3DGS | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 24,96 | 0,779 | 0,264 | 22,57 / 24,38 / 23,76 | 1 giờ 3 phút | 3,7 GB | 0,43 triệu |
 | `20261116-064932-omnire-60e5` | Xong (`quynhctrc`): 3DGUT gốc (`ut_densify=native`) 30k, có profile, so với 3DGS `f8a6`; mask, SMPL dùng lại cache | OmniRe | 3DGUT | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 23,99 | 0,750 | 0,333 | 23,98 / 24,10 / 24,20 | 2 giờ 26 phút | 3,5 GB | 0,33 triệu |
+| `20261116-154844-omnire-a022` | Xong (`quynhctrc`, chung notebook với `44d8`): densify MCMC (`densify=mcmc`), SMPL bản phát hành; mốc sạch là `8d9c` | OmniRe | 3DGS | | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 23,56 | 0,716 | 0,403 | 22,39 / 20,82 / 21,76 | 2 giờ 31 phút | 3,8 GB | 1,18 triệu |
+| `20261116-154843-omnire-44d8` | Xong (`quynhctrc`, chung notebook với `a022`): densify MCMC; chưa có mốc 3DGUT sạch (`60e5` có FastGS) | OmniRe | 3DGUT | | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 23,19 | 0,711 | 0,415 | 22,38 / 20,21 / 21,32 | 2 giờ 39 phút | 3,6 GB | 1,18 triệu |
 | (kế hoạch) | Sau khi chỉnh ngưỡng | OmniRe | 3DGUT (ngưỡng đã chỉnh) | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | | | | | | | |
 | (kế hoạch, tuỳ chọn) | | OmniRe | 3DGUT (ngưỡng gốc của Bosch) | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | | | | | | | |
 | `20261114-123228-streetgs-60ad` | Đã tạo, chưa đẩy | Street GS | 3DGS | | | nuScenes `scene-0061` | `front1` | 172 / 19 | 800×450 | 30 000 | | | | | | | |
@@ -46,13 +48,30 @@ Ghi chú:
 - Run `60e5` (3DGUT gốc 30k) so với 3DGS `f8a6` (cùng FastGS + Faster-GS): PSNR 23,99 so với 25,01 (−1,0 dB), SSIM 0,750 so với 0,778, LPIPS 0,333 so với 0,269; vùng người, xe, vật động kém 0,2–0,7 dB. Thời gian train gần như bằng (2 giờ 26 phút so với 2 giờ 29 phút), VRAM ít hơn (3,5 so với 4,7 GB), Gaussian ít hơn 40% (0,33 so với 0,55 triệu): 3DGUT densify ít hơn hẳn (docs/methods/densify_3dgut.md), nên phần kém là chất lượng chứ không phải tốc độ. Lần dùng lại cache thật đầu tiên trên Kaggle: mask và SMPL lấy từ output `90dd`, bỏ được khoảng 99 phút GPU.
 - Profile `60e5` (30 bước ở bước 2 000 và 20 000, GPU T4): 243 rồi 181 ms mỗi bước; rasterizer 3DGUT chiếm 24% rồi 14% (bước 20 000: backward 17 ms, forward 4 ms), Adam 13%, phần còn lại 62–73% là các phép PyTorch của model (chép bộ nhớ trên GPU 24 ms, phép tính từng phần tử khoảng 45 ms). Kỹ thuật kernel của Faster-GS (sort hai bước, backward theo từng Gaussian) chỉ tác động lên phần rasterizer: giảm một nửa backward cũng chỉ nhanh khoảng 5% mỗi bước. **Kết luận: không port kernel Faster-GS sang 3DGUT**; nếu cần nhanh hơn thì tối ưu phần model dùng chung mọi renderer (chép bộ nhớ, gom Gaussian theo node); việc cần làm với 3DGUT là chất lượng (densify).
 
+- MCMC (`a022` so với mốc sạch `8d9c`, cùng 3DGS + Faster-GS, không FastGS): PSNR 23,56 so với 25,20 (−1,6 dB), SSIM 0,716 so với 0,785, LPIPS 0,403 so với 0,251; train nhanh hơn (2 giờ 31 phút so với 3 giờ 18 phút), VRAM ít hơn (3,8 so với 6,9 GB). Mỗi node chạm đúng mức trần (nền 1 000 000, xe 50 000, vật biến dạng 10 000; SMPL 124 020 không densify), tổng 1,18 triệu so với 1,52 triệu của `8d9c`.
+- Mức trần không phải nguyên nhân chính: `f8a6` chỉ có 0,39 triệu Gaussian nền và 29 nghìn Gaussian xe mà đạt 25,01 dB, PSNR xe 24,75. Phần kém nhất của MCMC là xe (20,82 so với 25,04 ở `8d9c`) và vùng động (21,76 so với 24,81); nền kém ít hơn (PSNR vùng không phải trời 23,48 so với 25,21). Giả thuyết chưa kiểm: nhiễu MCMC và phép dời Gaussian áp trong hệ toạ độ riêng của từng xe với cùng hệ số như nền, hoặc dời Gaussian giữa các xe khác nhau (lấy mẫu chung cho mọi xe). Kiểm bằng một run MCMC chỉ cho nền (`Background`), xe và vật biến dạng giữ quy tắc gốc.
+- `44d8` (3DGUT + MCMC) so với `60e5` (3DGUT + FastGS) không sạch vì khác cả FastGS; xe cũng tụt mạnh nhất (20,21 so với 24,10).
+
+### Tổ hợp renderer và cách densify trên nuScenes `scene-0061`
+
+| Renderer | Densify gốc (gradient) | + FastGS | + MCMC | FastGS + MCMC |
+|---|---|---|---|---|
+| 3DGS | `8d9c` 25,20 (có Faster-GS), `2d33` 25,15 (không) | `f8a6` 25,01 (có Faster-GS), `453a` 25,02 (không) | `a022` 23,56 | Không chạy được: MCMC thay đúng quy tắc densify mà FastGS sửa, tool cấm ghép |
+| 3DGUT | **Chưa chạy** (mốc 3DGUT sạch còn thiếu) | `60e5` 23,99 | `44d8` 23,19 | Không chạy được, như trên |
+| 3DGEER | Chưa chạy | `a8a9` 21,77 (densify mỗi 50 bước), `6b85` 21,66 (mỗi 300 bước) | Chưa chạy | Không chạy được, như trên |
+
+- Faster-GS với 3DGUT, 3DGEER chỉ có phần Python (fused Adam, fused SSIM, ít chờ GPU); ba kỹ thuật kernel chỉ có cho 3DGS (`docs/methods/fastergs.md`). Không port sang 3DGUT vì rasterizer chỉ chiếm khoảng 14% mỗi bước ở bước 20 000 (profile `60e5`).
+- Run nên chạy tiếp: 3DGUT densify gốc + Faster-GS (mốc sạch cho `60e5` và `44d8`); MCMC chỉ cho nền (kiểm giả thuyết ở trên).
+
 ## Fisheye (pinhole + mắt cá)
 
 | Run | Trạng thái | Approach | Renderer | FGS | FrGS | Dataset, cảnh | Camera | Khung | Độ phân giải | Iter | PSNR | SSIM | LPIPS | Thời gian train | VRAM đỉnh | Gaussian |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | (chạy thử, 14/11) | Xong (Quadro T2000 4 GB) | 3DGUT (trainer tĩnh đã ngừng hỗ trợ) | 3DGUT | | | KITTI-360 0003 (bản 1/5 khung của teammate) | chưa ghi lại | 30 | chưa ghi lại | 3 000 | 21,3 | | | | | |
-| (kế hoạch) | Chạy thử đo VRAM, tốc độ | OmniRe | thắng ở bảng pinhole (3DGEER hoặc 3DGUT) | có | có | KITTI-360 0003 đủ khung | `image_00`–`image_03` | 864 | pinhole 704×188, mắt cá 700×700 | 2 000 | | | | | | |
-| (kế hoạch) | Theo kết quả chạy thử | OmniRe | như trên | có | có | KITTI-360 0003 đủ khung | `image_00`–`image_03` | 864 (hoặc chia đoạn) | pinhole 704×188, mắt cá 700×700 | 30 000 | | | | | | |
+| (kế hoạch) | Đo thời gian, VRAM trên đoạn ngắn | OmniRe | 3DGUT | có | có | KITTI-360 `kitti360_drive0003` (nạp lại bằng converter mới, commit `188fb9b`) | `every10_pinhole2`: `image_00`, `image_01` | 0–199 (20 s, 246 m) | pinhole 704×188 | 30 000 | | | | | | |
+| (kế hoạch) | như trên | OmniRe | 3DGUT | có | có | như trên | `every10_fisheye2`: `image_02`, `image_03` | 0–199 | mắt cá 700×700 | 30 000 | | | | | | |
+| (kế hoạch) | như trên | OmniRe | 3DGUT | có | có | như trên | `every10_mixed4`: cả 4 camera | 0–199 | pinhole 704×188, mắt cá 700×700 | 30 000 | | | | | | |
+| (kế hoạch) | Theo kết quả đoạn ngắn | OmniRe | 3DGUT | có | có | như trên | cả 4 camera | 0–683 (68,4 s, 1 km) hoặc chia đoạn | pinhole 704×188, mắt cá 700×700 | 30 000 | | | | | | |
 
 ### Thí nghiệm: hai loại camera có gộp được vào một model không
 
