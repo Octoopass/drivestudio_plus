@@ -75,6 +75,24 @@ class EvaluateJob(BaseModel):
     every: int = Field(default=4, ge=1, le=100)
     gpu: int | None = Field(default=None, ge=0, le=63)
 
+class DriveStudioJob(BaseModel):
+    name: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
+    method: str = Field(min_length=1, max_length=200)
+    dataset: str = Field(min_length=1, max_length=200)
+    render_mode: Literal["", "default", "ut", "geer"] = ""
+    fastgs: bool | None = None
+    data_root: str = Field(default="", max_length=200)
+    steps: int = Field(default=30000, ge=100, le=100000)
+    gpu: int | None = Field(default=None, ge=0, le=63)
+
+class PrepareJob(BaseModel):
+    dataset: str = Field(min_length=1, max_length=512)
+    sequence: str = "2013_05_28_drive_0003_sync"
+    start: int = Field(default=0, ge=0)
+    frames: int = Field(default=100, ge=2, le=2000)
+    name: str = ""
+    objects: bool = True
+
 class TrainingInput(BaseModel):
     dataset: str = Field(min_length=1, max_length=512)
     camera_ids: list[str] | None = Field(default=None, max_length=4)
@@ -111,6 +129,8 @@ def create_app():
     from .pipeline import PipelineManager
     from .reconstruction import ReconstructionManager
     from .training import TrainingManager
+    from .drivestudio import DriveStudioRuns
+    drivestudio = DriveStudioRuns(WORKSPACE)
     reconstruction = ReconstructionManager(WORKSPACE)
     training = TrainingManager(WORKSPACE)
     pipeline = PipelineManager(WORKSPACE)
@@ -326,6 +346,32 @@ def create_app():
     @app.get("/api/pipeline/{job_id}/artifacts/{relative:path}")
     def pipeline_artifact(job_id: str, relative: str):
         return FileResponse(pipeline.artifact(job_id, relative))
+
+    @app.get("/api/drivestudio")
+    def drivestudio_overview():
+        return {"options": drivestudio.options(), "runs": drivestudio.runs()}
+
+    @app.post("/api/drivestudio/prepare")
+    def drivestudio_prepare(job: PrepareJob):
+        cfg = job.model_dump()
+        if not cfg["name"]:
+            cfg.pop("name")
+        return pipeline.prepare_drivestudio(cfg, drivestudio.venv)
+
+    @app.post("/api/drivestudio/train")
+    def drivestudio_train(job: DriveStudioJob):
+        return drivestudio.train(job.model_dump())
+
+    @app.get("/api/drivestudio/runs/{name}")
+    def drivestudio_run(name: str):
+        run = drivestudio.run(name)
+        if run is None:
+            return JSONResponse({"detail": "run not found"}, status_code=404)
+        return run
+
+    @app.get("/api/drivestudio/runs/{name}/files/{relative:path}")
+    def drivestudio_file(name: str, relative: str):
+        return FileResponse(drivestudio.file(name, relative))
 
     @app.get("/api/notebooks/instant-nurec/{platform}")
     def nurec_notebook(platform: Literal["colab", "kaggle"]):

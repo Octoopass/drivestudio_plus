@@ -4,121 +4,230 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Fisheye Fusion Lab</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
   <link rel="stylesheet" href="/static/pipeline.css">
 </head>
 <body>
-  <header class="top">
-    <div>
-      <strong>Fisheye Fusion Lab</strong>
-      <span class="sub">KITTI-360 → NCore → Instant NuRec → đánh giá</span>
-    </div>
-    <div class="status" id="status">Đang kiểm tra máy…</div>
-    <a class="legacy" href="/legacy">Giao diện cũ</a>
-  </header>
+  <!-- icons (Lucide shapes, inline so the page works offline) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-overview" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></symbol>
+    <symbol id="i-data" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></symbol>
+    <symbol id="i-scene" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol>
+    <symbol id="i-results" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></symbol>
+    <symbol id="i-gpu" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M8 16H3v5"/></symbol>
+    <symbol id="i-ext" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+  </svg>
 
-  <nav class="steps" id="steps">
-    <a href="#step-data" data-step="data"><b>1</b> Dữ liệu</a>
-    <a href="#step-convert" data-step="convert"><b>2</b> Chuyển sang NCore</a>
-    <a href="#step-nurec" data-step="nurec"><b>3</b> Chạy NuRec</a>
-    <a href="#step-results" data-step="results"><b>4</b> Kết quả</a>
-  </nav>
-
-  <main>
-    <!-- 1. data -->
-    <section class="card" id="step-data">
-      <h2><b>1</b> Dữ liệu và máy</h2>
-      <div class="grid2">
-        <div>
-          <h3>Bộ dữ liệu KITTI-360</h3>
-          <div id="datasets" class="list"><p class="muted">Đang tải…</p></div>
-        </div>
-        <div>
-          <h3>Môi trường</h3>
-          <dl id="env" class="kv"></dl>
-          <h3>GPU</h3>
-          <div id="gpus" class="list"></div>
-        </div>
+  <a class="skip" href="#main">Bỏ qua điều hướng</a>
+  <div class="shell">
+    <aside class="side">
+      <div class="brand">
+        <strong>Fisheye Fusion Lab</strong>
+        <span>Dựng cảnh lái xe từ camera fisheye + LiDAR</span>
       </div>
-    </section>
+      <nav id="steps" aria-label="Các bước">
+        <a href="#overview" data-step="data"><svg class="ic"><use href="#i-overview"/></svg><span>Tổng quan</span></a>
+        <a href="#step-convert" data-step="convert"><svg class="ic"><use href="#i-data"/></svg><span><b>1</b> Dữ liệu</span></a>
+        <a href="#step-train" data-step="nurec"><svg class="ic"><use href="#i-scene"/></svg><span><b>2</b> Dựng cảnh</span></a>
+        <a href="#step-results" data-step="results"><svg class="ic"><use href="#i-results"/></svg><span><b>3</b> Kết quả</span></a>
+      </nav>
+      <div class="side-foot">
+        <div class="status" id="status" role="status">Đang kiểm tra máy…</div>
+        <a class="legacy" href="/legacy">Giao diện cũ <svg class="ic sm"><use href="#i-ext"/></svg></a>
+      </div>
+    </aside>
 
-    <!-- 2. convert -->
-    <section class="card" id="step-convert">
-      <h2><b>2</b> Chuyển một đoạn KITTI-360 sang NCore</h2>
-      <p class="hint">Cắt một đoạn liên tục của sequence, gồm 4 camera, LiDAR và poses, ghi thành clip NCore V4 trong <code>outputs/ncore/</code>. Xong sẽ tự chạy kiểm tra chiếu LiDAR lên ảnh.</p>
-      <form id="convertForm" class="form">
-        <label>Bộ dữ liệu <select name="ds" required></select></label>
-        <label>Sequence <select name="sequence" required></select></label>
-        <label>Frame bắt đầu <input name="start" type="number" min="0" value="0"></label>
-        <label>Số frame <input name="frames" type="number" min="2" max="2000" value="40">
-          <small>Khoảng 5 frame id một bước. 40 frame ≈ 230 m đường.</small></label>
-        <fieldset>
-          <legend>Camera</legend>
-          <div id="convertCams" class="checks"></div>
-        </fieldset>
-        <label>Fisheye
-          <select name="fisheye_model">
-            <option value="rectify120" selected>Chuyển về camera 120° (dùng cho NuRec)</option>
-            <option value="ftheta">Giữ nguyên fisheye, mô hình F-theta</option>
-            <option value="opencv">Giữ nguyên fisheye, Kannala-Brandt (3DGUT/gsplat)</option>
-          </select></label>
-        <label class="inline"><input name="lidar" type="checkbox" checked> Kèm LiDAR</label>
-        <label>Tên clip <input name="clipname" placeholder="tự đặt nếu để trống" pattern="[A-Za-z0-9_.\-]{0,80}"></label>
-        <div class="actions"><button class="primary" type="submit">Chuyển đổi</button></div>
-      </form>
-      <div id="convertJob" class="job" hidden></div>
-    </section>
-
-    <!-- 3. nurec -->
-    <section class="card" id="step-nurec">
-      <h2><b>3</b> Dựng cảnh bằng Instant NuRec</h2>
-      <p class="hint">NuRec dùng trọng số có sẵn của NVIDIA, không train theo từng cảnh: đưa clip vào, sau vài phút ra file Gaussian PLY.</p>
-      <form id="nurecForm" class="form">
-        <label>Clip NCore <select name="clip" required></select></label>
-        <label>Model
-          <select name="model">
-            <option value="pa-multiview" selected>pa-multiview: 3 camera (trước, trái, phải)</option>
-            <option value="pa-front">pa-front: chỉ camera trước</option>
-            <option value="pq-front">pq-front: camera trước, ít Gaussian hơn</option>
-          </select></label>
-        <fieldset>
-          <legend>Camera đầu vào <small id="camHint"></small></legend>
-          <div id="nurecCams" class="slots"></div>
-        </fieldset>
-        <label>GPU <select name="gpu"></select></label>
-        <label>Số Gaussian tối đa <input name="n_gaussians" type="number" min="100000" max="2000000" step="100000" value="2000000"></label>
-        <label>Số chunk tối đa <input name="max_chunks" type="number" min="1" max="8" value="8">
-          <small>Mỗi chunk dựng một đoạn của clip rồi ghép lại.</small></label>
-        <div class="actions"><button class="primary" type="submit">Chạy NuRec</button></div>
-      </form>
-      <div id="nurecJob" class="job" hidden></div>
-    </section>
-
-    <!-- 4. results -->
-    <section class="card" id="step-results">
-      <h2><b>4</b> Kết quả</h2>
-      <div class="grid2">
-        <div>
-          <h3>Các lần dựng (PLY)</h3>
-          <div id="recons" class="list"></div>
+    <main id="main">
+      <!-- overview -->
+      <section class="sec" id="overview" aria-labelledby="h-overview">
+        <header class="sec-head">
+          <h1 id="h-overview">Tổng quan</h1>
+          <p class="lead">Quy trình: <b>1</b> lấy một đoạn KITTI-360, <b>2</b> dựng cảnh bằng DriveStudio+ (train từng cảnh) hoặc Instant NuRec (suy luận), <b>3</b> so sánh chất lượng trên ảnh giữ lại.</p>
+        </header>
+        <div class="kpis" id="dsKpis" aria-live="polite"></div>
+        <div class="grid3">
+          <div class="panel">
+            <h3><svg class="ic"><use href="#i-gpu"/></svg> GPU</h3>
+            <div id="gpus" class="list"></div>
+          </div>
+          <div class="panel">
+            <h3>Môi trường</h3>
+            <dl id="env" class="kv"></dl>
+            <dl id="dsEnv" class="kv"></dl>
+          </div>
+          <div class="panel">
+            <h3>Bộ dữ liệu KITTI-360</h3>
+            <div id="datasets" class="list"><p class="muted">Đang tải…</p></div>
+          </div>
         </div>
-        <div>
-          <h3>Đánh giá</h3>
-          <form id="evalForm" class="form compact">
-            <label>PLY <select name="ply" required></select></label>
-            <label>So với clip <select name="clip" required></select></label>
-            <label>Lấy mỗi N frame <input name="every" type="number" min="1" max="100" value="4"></label>
-            <label>GPU <select name="gpu"></select></label>
-            <div class="actions"><button class="primary" type="submit">Render và tính PSNR</button></div>
+      </section>
+
+      <!-- 1. data -->
+      <section class="sec" id="step-convert" aria-labelledby="h-data">
+        <header class="sec-head">
+          <h2 id="h-data"><b>1</b> Chuẩn bị dữ liệu</h2>
+          <p class="lead">Cắt một đoạn liên tục của sequence KITTI-360 và đưa về định dạng mà phương pháp dựng cảnh cần.</p>
+        </header>
+        <div class="tabs" role="tablist" aria-label="Đích chuyển đổi">
+          <button role="tab" id="t-data-ds" aria-controls="p-data-ds" aria-selected="true">Cho DriveStudio+</button>
+          <button role="tab" id="t-data-nurec" aria-controls="p-data-nurec" aria-selected="false" tabindex="-1">Cho Instant NuRec</button>
+        </div>
+
+        <div class="panel" role="tabpanel" id="p-data-ds" aria-labelledby="t-data-ds">
+          <p class="hint">3 camera (trước + 2 fisheye) dưới dạng F-theta, LiDAR và box 3D của xe/người làm object track. Chạy lần lượt: chuyển sang NCore → preprocess → sky mask (SegFormer). Kết quả ở <code>data/kitti360/processed_&lt;tên&gt;</code>.</p>
+          <form id="dsPrepareForm" class="form">
+            <label>Bộ dữ liệu <select name="dataset" required></select></label>
+            <label>Sequence <select name="sequence" required></select></label>
+            <label>Frame bắt đầu <input name="start" type="number" min="0" value="0" inputmode="numeric"></label>
+            <label>Số frame <input name="frames" type="number" min="2" max="2000" value="100" inputmode="numeric">
+              <small>100 frame ≈ 740 m đường (các frame cách nhau ~5 id).</small></label>
+            <label>Tên <input name="name" placeholder="tự đặt nếu để trống" pattern="[A-Za-z0-9_.\-]{0,80}">
+              <small>Chữ, số, <code>_ . -</code></small></label>
+            <label class="inline"><input name="objects" type="checkbox" checked> Kèm object track (box 3D)</label>
+            <div class="actions"><button class="primary" type="submit"><svg class="ic"><use href="#i-play"/></svg> Chuẩn bị dữ liệu</button></div>
           </form>
-          <p class="hint">PSNR chỉ tính trên vùng có Gaussian. Bầu trời của NuRec nằm ở file riêng, nên trong ảnh render sẽ có màu đen.</p>
+          <div id="dsPrepareJob" class="job" hidden></div>
         </div>
-      </div>
-      <div id="evalJob" class="job" hidden></div>
-      <div id="evals"></div>
-    </section>
-  </main>
 
-  <div id="toast" class="toast" hidden></div>
+        <div class="panel" role="tabpanel" id="p-data-nurec" aria-labelledby="t-data-nurec" hidden>
+          <p class="hint">4 camera, LiDAR và poses thành clip NCore V4 trong <code>outputs/ncore/</code>, sau đó tự kiểm tra chiếu LiDAR lên ảnh.</p>
+          <form id="convertForm" class="form">
+            <label>Bộ dữ liệu <select name="ds" required></select></label>
+            <label>Sequence <select name="sequence" required></select></label>
+            <label>Frame bắt đầu <input name="start" type="number" min="0" value="0" inputmode="numeric"></label>
+            <label>Số frame <input name="frames" type="number" min="2" max="2000" value="40" inputmode="numeric">
+              <small>40 frame ≈ 230 m đường.</small></label>
+            <fieldset>
+              <legend>Camera</legend>
+              <div id="convertCams" class="checks"></div>
+            </fieldset>
+            <label>Fisheye
+              <select name="fisheye_model">
+                <option value="rectify120" selected>Chuyển về camera 120° (dùng cho NuRec)</option>
+                <option value="ftheta">Giữ nguyên fisheye, mô hình F-theta</option>
+                <option value="opencv">Giữ nguyên fisheye, Kannala-Brandt (3DGUT/gsplat)</option>
+              </select></label>
+            <label class="inline"><input name="lidar" type="checkbox" checked> Kèm LiDAR</label>
+            <label>Tên clip <input name="clipname" placeholder="tự đặt nếu để trống" pattern="[A-Za-z0-9_.\-]{0,80}"></label>
+            <div class="actions"><button class="primary" type="submit"><svg class="ic"><use href="#i-play"/></svg> Chuyển đổi</button></div>
+          </form>
+          <div id="convertJob" class="job" hidden></div>
+        </div>
+      </section>
+
+      <!-- 2. reconstruction -->
+      <section class="sec" id="step-train" aria-labelledby="h-train">
+        <header class="sec-head">
+          <h2 id="h-train"><b>2</b> Dựng cảnh</h2>
+          <p class="lead">DriveStudio+ train một mô hình Gaussian cho từng cảnh (vài chục phút trên GPU). Instant NuRec dùng trọng số có sẵn của NVIDIA, ra PLY sau vài phút.</p>
+        </header>
+        <div class="tabs" role="tablist" aria-label="Phương pháp">
+          <button role="tab" id="t-train-ds" aria-controls="p-train-ds" aria-selected="true">DriveStudio+</button>
+          <button role="tab" id="t-train-nurec" aria-controls="step-nurec" aria-selected="false" tabindex="-1">Instant NuRec</button>
+        </div>
+
+        <div class="panel" role="tabpanel" id="p-train-ds" aria-labelledby="t-train-ds">
+          <form id="dsTrainForm" class="form">
+            <label>Tên lần chạy <input name="name" required pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,79}" placeholder="vd. k360_ut_30k"></label>
+            <label>Phương pháp <select name="method" required></select>
+              <small><code>streetgs</code>: nền + xe; <code>omnire</code>: thêm người. Hậu tố <code>_ut</code>/<code>_geer</code> chọn renderer, <code>_fastgs</code> bật densify kiểu FastGS.</small></label>
+            <label>Dataset config <select name="dataset" required></select></label>
+            <label>Dữ liệu đã chuẩn bị <select name="data_root"><option value="">theo dataset config</option></select></label>
+            <label>Renderer
+              <select name="render_mode">
+                <option value="">theo config</option>
+                <option value="ut">3DGUT (ut)</option>
+                <option value="geer">3DGEER (geer)</option>
+                <option value="default">3DGS (default, chỉ pinhole)</option>
+              </select>
+              <small>Camera fisheye cần <code>ut</code> hoặc <code>geer</code>.</small></label>
+            <label>FastGS
+              <select name="fastgs">
+                <option value="">theo config</option>
+                <option value="true">bật</option>
+                <option value="false">tắt</option>
+              </select></label>
+            <label>Số bước <input name="steps" type="number" min="100" max="100000" step="100" value="30000" inputmode="numeric"></label>
+            <label>GPU <select name="gpu"></select></label>
+            <div class="actions"><button class="primary" type="submit"><svg class="ic"><use href="#i-play"/></svg> Bắt đầu train</button>
+              <span class="hint" id="dsTrainHint"></span></div>
+          </form>
+        </div>
+
+        <div class="panel" role="tabpanel" id="step-nurec" aria-labelledby="t-train-nurec" hidden>
+          <form id="nurecForm" class="form">
+            <label>Clip NCore <select name="clip" required></select></label>
+            <label>Model
+              <select name="model">
+                <option value="pa-multiview" selected>pa-multiview: 3 camera (trước, trái, phải)</option>
+                <option value="pa-front">pa-front: chỉ camera trước</option>
+                <option value="pq-front">pq-front: camera trước, ít Gaussian hơn</option>
+              </select></label>
+            <fieldset>
+              <legend>Camera đầu vào <small id="camHint"></small></legend>
+              <div id="nurecCams" class="slots"></div>
+            </fieldset>
+            <label>GPU <select name="gpu"></select></label>
+            <label>Số Gaussian tối đa <input name="n_gaussians" type="number" min="100000" max="2000000" step="100000" value="2000000"></label>
+            <label>Số chunk tối đa <input name="max_chunks" type="number" min="1" max="8" value="8">
+              <small>Mỗi chunk dựng một đoạn của clip rồi ghép lại.</small></label>
+            <div class="actions"><button class="primary" type="submit"><svg class="ic"><use href="#i-play"/></svg> Chạy NuRec</button></div>
+          </form>
+          <div id="nurecJob" class="job" hidden></div>
+        </div>
+      </section>
+
+      <!-- 3. results -->
+      <section class="sec" id="step-results" aria-labelledby="h-results">
+        <header class="sec-head">
+          <h2 id="h-results"><b>3</b> Kết quả</h2>
+          <p class="lead">Chỉ số tính trên ảnh test giữ lại (mỗi 10 frame một ảnh). Bấm một dòng để xem ảnh render cạnh ảnh gốc.</p>
+        </header>
+        <div class="tabs" role="tablist" aria-label="Kết quả của">
+          <button role="tab" id="t-res-ds" aria-controls="p-res-ds" aria-selected="true">DriveStudio+</button>
+          <button role="tab" id="t-res-nurec" aria-controls="p-res-nurec" aria-selected="false" tabindex="-1">Instant NuRec</button>
+        </div>
+
+        <div class="panel" role="tabpanel" id="p-res-ds" aria-labelledby="t-res-ds">
+          <div class="toolbar">
+            <span id="dsUpdated" class="hint" aria-live="polite"></span>
+            <button type="button" class="small" id="dsRefresh"><svg class="ic sm"><use href="#i-refresh"/></svg> Làm mới</button>
+          </div>
+          <div class="table-wrap"><table class="runs" id="dsRuns" aria-describedby="h-results"></table></div>
+          <div id="dsViewer" class="viewer" hidden></div>
+        </div>
+
+        <div class="panel" role="tabpanel" id="p-res-nurec" aria-labelledby="t-res-nurec" hidden>
+          <div class="grid2">
+            <div>
+              <h3>Các lần dựng (PLY)</h3>
+              <div id="recons" class="list"></div>
+            </div>
+            <div>
+              <h3>Đánh giá</h3>
+              <form id="evalForm" class="form compact">
+                <label>PLY <select name="ply" required></select></label>
+                <label>So với clip <select name="clip" required></select></label>
+                <label>Lấy mỗi N frame <input name="every" type="number" min="1" max="100" value="4"></label>
+                <label>GPU <select name="gpu"></select></label>
+                <div class="actions"><button class="primary" type="submit">Render và tính PSNR</button></div>
+              </form>
+              <p class="hint">PSNR chỉ tính trên vùng có Gaussian. Bầu trời của NuRec nằm ở file riêng, nên ảnh render có trời màu đen.</p>
+            </div>
+          </div>
+          <div id="evalJob" class="job" hidden></div>
+          <div id="evals"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" role="alert" hidden></div>
   <script type="module" src="/static/pipeline.js"></script>
+  <script type="module" src="/static/drivestudio.js"></script>
 </body>
 </html>

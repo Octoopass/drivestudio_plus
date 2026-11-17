@@ -253,6 +253,53 @@ class PipelineManager:
         return self._start("convert", out, steps, self._env(None),
                            {"clip": self.discovery.rel(out / f"{name}.json"), "fisheye_model": fisheye_model})
 
+    def prepare_drivestudio(self, cfg: dict, venv: Path) -> dict:
+        """KITTI-360 -> NCore (--target drivestudio) -> DriveStudio+ preprocessing -> sky masks, in the DriveStudio+
+        venv (it has nvidia-ncore). Writes data/kitti360/raw_<name> and data/kitti360/processed_<name>/000."""
+        allowed = {"dataset", "sequence", "start", "frames", "name", "objects"}
+        if not isinstance(cfg, dict) or set(cfg) - allowed:
+            raise ValueError("unknown prepare fields")
+        py = Path(venv) / "bin" / "python"
+        if not py.is_file():
+            raise ValueError(f"DriveStudio+ environment not found at {venv}")
+        data = self._path(cfg.get("dataset", ""), directory=True)
+        seq = cfg.get("sequence", "")
+        if not SEQUENCE.fullmatch(str(seq)):
+            raise ValueError("sequence must look like 2013_05_28_drive_0003_sync")
+        start, frames, objects = cfg.get("start", 0), cfg.get("frames", 100), cfg.get("objects", True)
+        if type(start) is not int or start < 0 or type(frames) is not int or not 2 <= frames <= 2000:
+            raise ValueError("start must be >= 0 and frames in 2..2000")
+        if type(objects) is not bool:
+            raise ValueError("objects must be boolean")
+        name = cfg.get("name") or f"k360_{seq.split('_drive_')[1][:4]}_{start:06d}_{frames}f"
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", name):
+            raise ValueError("name: letters, digits, _ . - only")
+        root = self.workspace / "data" / "kitti360"
+        raw, processed = root / f"raw_{name}", root / f"processed_{name}"
+        if raw.exists() or processed.exists():
+            raise ValueError(f"data/kitti360/raw_{name} or processed_{name} already exists")
+        raw.mkdir(parents=True)
+        convert = [str(py), "-u", str(TOOLS / "kitti360_to_ncore.py"), "--data", str(data), "--out", str(raw / name),
+                   "--sequence", seq, "--start", str(start), "--frames", str(frames), "--target", "drivestudio",
+                   "--cameras", "image_00,image_02,image_03"]
+        keys = ["images", "lidar", "calib", "pose"] + (["objects", "dynamic_masks"] if objects else [])
+        if not objects:
+            convert.append("--no-objects")
+        repo = self.workspace
+        steps = [
+            ("convert", convert),
+            ("preprocess", [str(py), "-u", str(repo / "datasets" / "preprocess.py"), "--data_root", str(raw),
+                            "--target_dir", str(processed), "--dataset", "physicalai", "--frame_stride", "1",
+                            "--scene_ids", "0", "--workers", "1", "--process_keys", *keys]),
+            ("sky masks", [str(py), "-u", str(repo / "datasets" / "tools" / "extract_masks_hf.py"),
+                           "--data_root", str(processed), "--scene_ids", "0"]),
+        ]
+        env = self._env(None)
+        env["PYTHONPATH"] = str(repo)
+        return self._start("prepare", raw, steps, env, {
+            "data_root": self.discovery.rel(processed), "objects": objects,
+            "dataset_config": "kitti360/ncore_3cams_objects" if objects else "kitti360/ncore_3cams"})
+
     def evaluate(self, cfg: dict) -> dict:
         allowed = {"ply", "clip", "every", "gpu"}
         if not isinstance(cfg, dict) or set(cfg) - allowed:
