@@ -7,7 +7,8 @@ vào nó để hiện tổng quan cảnh.
 
 File này chứa:
 - ``frame_indices``: các chỉ số khung có ảnh của một camera.
-- ``converter_version``: phiên bản converter ghi vào manifest (đổi theo mọi commit).
+- ``converter_version``: phiên bản converter ghi vào manifest (đổi theo mọi commit; thêm hậu tố
+  ``.dirty-<hash8>`` khi mã converter có thay đổi chưa commit).
 - ``DRIVESTUDIO_OUTPUT_VERSION``, ``KITTI360_OUTPUT_VERSION``: phiên bản đầu ra của từng
   converter, tăng tay khi dữ liệu converter ghi ra đổi; ``current_output_version`` tra theo tên
   converter.
@@ -20,11 +21,14 @@ Mọi thông tin đọc từ chính các file trong thư mục cảnh (tên file
 ``lidar/``, ``instances/``), không đọc lại dữ liệu gốc.
 """
 
+import hashlib
 import json
+import subprocess
 from importlib import metadata
 from pathlib import Path
 from typing import Optional
 
+from drive2sim import paths
 from drive2sim.core.instances import human_frame_ranges
 from drive2sim.core.schema import CAMERA_TRACK, SCHEMA_VERSIONS, Manifest, ManifestSource
 from drive2sim.engine.run import code_commit
@@ -51,17 +55,72 @@ def frame_indices(scene_dir: Path, camera_index: int) -> list[int]:
     return sorted(indices)
 
 
+# Mã quyết định dữ liệu converter ghi ra; sửa chưa commit ở đây thì ``converter_version`` thêm
+# hậu tố ``.dirty-<hash8>``.
+CONVERTER_CODE_PATHS = ("drive2sim/ingest", "drive2sim/recon/preprocess", "drive2sim/core")
+
+
 def converter_version() -> str:
     """Trả về phiên bản converter dạng ``<phiên bản drive2sim>+<commit>``, ví dụ ``0.1.0+e567e29``.
 
     Phiên bản này nằm trong khoá cache của mọi stage nhận cảnh: ingest lại bằng code khác thì
-    cache cũ không bị dùng nhầm (ARCHITECTURE mục 2.7).
+    cache cũ không bị dùng nhầm (ARCHITECTURE mục 2.7). Khi mã converter có thay đổi chưa commit,
+    chỉ commit thì không phân biệt được hai lần ingest bằng hai bản code khác nhau, nên thêm hậu
+    tố ``.dirty-<hash8>`` băm từ phần thay đổi đó, ví dụ ``0.1.0+e567e29.dirty-1a2b3c4d``.
     """
     try:
         package = metadata.version("drive2sim")
     except metadata.PackageNotFoundError:
         package = "0.0.0"
-    return f"{package}+{code_commit()}"
+    return f"{package}+{code_commit()}{_uncommitted_suffix()}"
+
+
+def _uncommitted_suffix() -> str:
+    """Trả về ``.dirty-<hash8>`` nếu mã converter có thay đổi chưa commit, ngược lại chuỗi rỗng.
+
+    Băm gồm diff so với ``HEAD`` của các file đã theo dõi và nội dung các file mới chưa theo dõi
+    trong ``CONVERTER_CODE_PATHS``. Không có git hoặc không phải repo (cài từ wheel) thì coi như
+    không có thay đổi.
+
+    Returns:
+        Hậu tố, ví dụ ``".dirty-1a2b3c4d"``, hoặc ``""``.
+    """
+    repo = paths.PACKAGE_DIR.parent
+    try:
+        diff = subprocess.run(
+            ["git", "-C", str(repo), "diff", "HEAD", "--", *CONVERTER_CODE_PATHS],
+            capture_output=True,
+            check=True,
+            timeout=10,
+        ).stdout
+        untracked = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "ls-files",
+                "--others",
+                "--exclude-standard",
+                "-z",
+                "--",
+                *CONVERTER_CODE_PATHS,
+            ],
+            capture_output=True,
+            check=True,
+            timeout=10,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if not diff and not untracked:
+        return ""
+    digest = hashlib.sha256(diff)
+    for name in sorted(filter(None, untracked.split(b"\0"))):
+        digest.update(name)
+        try:
+            digest.update((repo / name.decode()).read_bytes())
+        except OSError:
+            continue
+    return f".dirty-{digest.hexdigest()[:8]}"
 
 
 # Phiên bản đầu ra của converter (``source.output_version``, CONTRACTS mục 2.2). Tăng tay **chỉ

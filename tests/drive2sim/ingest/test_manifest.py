@@ -6,16 +6,20 @@ File này kiểm tra:
 - ``outdated_output_version`` coi manifest không ghi phiên bản là phiên bản 1, trừ commit đã có
   đầu ra mới mà chưa ghi trường; cảnh mới và converter lạ không bị coi là cũ;
 - manifest ``d2s-manifest/1.0`` không có ``output_version`` vẫn đọc được;
-- ``outdated_message`` nêu cả hai phiên bản.
+- ``outdated_message`` nêu cả hai phiên bản;
+- ``converter_version`` thêm hậu tố ``.dirty-<hash8>`` khi mã converter có thay đổi chưa commit.
 """
 
 import copy
+import subprocess
+from pathlib import Path
 from typing import Optional
 
 import pytest
 
 from drive2sim.core.schema import Manifest
 from drive2sim.ingest import kitti360
+from drive2sim.ingest import manifest as manifest_module
 from drive2sim.ingest.manifest import (
     DRIVESTUDIO_OUTPUT_VERSION,
     KITTI360_OUTPUT_VERSION,
@@ -83,3 +87,29 @@ def test_outdated_message_names_both_versions() -> None:
     message = outdated_message(manifest_with("kitti360", None))
     assert message is not None
     assert "converter kitti360 cũ" in message and "phiên bản 1, hiện tại 2" in message
+
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+
+def test_uncommitted_converter_code_changes_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package = tmp_path / "drive2sim"
+    (package / "ingest").mkdir(parents=True)
+    (package / "ingest" / "conv.py").write_text("A = 1\n")
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init")
+    monkeypatch.setattr(manifest_module.paths, "PACKAGE_DIR", package)
+    assert manifest_module._uncommitted_suffix() == ""
+    (package / "ingest" / "conv.py").write_text("A = 2\n")
+    first = manifest_module._uncommitted_suffix()
+    assert first.startswith(".dirty-") and len(first) == len(".dirty-") + 8
+    (package / "ingest" / "conv.py").write_text("A = 3\n")
+    assert manifest_module._uncommitted_suffix() not in ("", first)
+    # file mới chưa theo dõi cũng tính
+    (package / "ingest" / "conv.py").write_text("A = 1\n")
+    (package / "ingest" / "new.py").write_text("B = 1\n")
+    assert manifest_module._uncommitted_suffix().startswith(".dirty-")
