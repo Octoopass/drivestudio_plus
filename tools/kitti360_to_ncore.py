@@ -49,6 +49,7 @@ from ncore.data.v4 import (
     SequenceComponentGroupsReader,
     SequenceComponentGroupsWriter,
 )
+from ncore.data import BBox3, CuboidTrackObservation, LabelSource
 from ncore.impl.common.transformations import HalfClosedInterval
 from ncore.impl.data.types import (
     FThetaCameraModelParameters,
@@ -137,6 +138,33 @@ def read_tar(path: Path, suffix: str, wanted: set[str]) -> dict[str, bytes]:
     if missing:
         sys.exit(f"{path}: {len(missing)} frames missing, e.g. {sorted(missing)[:3]}")
     return out
+
+
+# ------------------------------------------------------------------ object tracks
+# Class order of the ROSA 6-class info files (metainfo["classes"]).
+ROSA_CLASSES = ["car", "truck", "trailer", "motorcycle", "bicycle", "pedestrian"]
+
+
+def cuboid_observations(frames: list[dict], t_us: dict[int, int], lidar_id: str = LIDAR_ID) -> list:
+    """KITTI-360 ROSA boxes as NCore cuboid tracks.
+
+    Each info item lists `instances` with `bbox_3d = [x, y, z, l, w, h, yaw]` in the Velodyne frame of that
+    scan, z at the box's geometric centre (checked by projecting boxes onto image_00), yaw about +z, and an
+    `instance_token` that stays the same across frames. The token becomes the track id; the scan time is
+    the reference time, so the preprocessor places each box in the world with the LiDAR pose of its frame.
+    Source AUTOLABEL, because that is the only source the DriveStudio+ PhysicalAI preprocessor keeps."""
+    obs = []
+    for item in frames:
+        ts = int(t_us[item["frame_id"]])
+        for inst in item.get("instances", []):
+            x, y, z, l, w, h, yaw = (float(v) for v in inst["bbox_3d"])
+            obs.append(CuboidTrackObservation(
+                track_id=str(inst["instance_token"]), class_id=ROSA_CLASSES[int(inst["bbox_label_3d"])],
+                timestamp_us=ts, reference_frame_id=lidar_id, reference_frame_timestamp_us=ts,
+                bbox3=BBox3(centroid=(x, y, z), dim=(l, w, h), rot=(0.0, 0.0, yaw)),
+                source=LabelSource.AUTOLABEL,
+            ))
+    return obs
 
 
 # ------------------------------------------------------------------ camera models
@@ -477,8 +505,12 @@ def convert(args) -> Path:
         log(f"lidar -> {LIDAR_ID} ({len(fids)} scans)")
         del raw
 
-    # ---- empty cuboids (required by the NuRec loader)
-    writer.register_component_writer(CuboidsComponent.Writer, "default").store_observations([])
+    # ---- cuboids: the NuRec loader needs the component (empty is fine); --target drivestudio fills it with the
+    # ROSA boxes as tracks, which need the LiDAR pose to place them in the world
+    cuboids = cuboid_observations(frames, t_us) if drivestudio and args.lidar and args.objects else []
+    writer.register_component_writer(CuboidsComponent.Writer, "default").store_observations(cuboids)
+    if cuboids:
+        log(f"cuboids: {len(cuboids)} boxes in {len({o.track_id for o in cuboids})} tracks")
 
     store_paths = writer.finalize()
     meta = SequenceComponentGroupsReader(store_paths).get_sequence_meta()
@@ -503,6 +535,8 @@ def main(argv=None):
                    help="rectify120: resample to NVIDIA's 120-degree F-theta camera (Instant NuRec); "
                         "ftheta: full fisheye as F-theta; opencv: full fisheye as Kannala-Brandt (3DGUT/gsplat)")
     p.add_argument("--sequence-id", default="")
+    p.add_argument("--no-objects", dest="objects", action="store_false",
+                   help="--target drivestudio: do not write the ROSA 3D boxes as cuboid tracks")
     p.add_argument("--target", choices=["nurec", "drivestudio"], default="nurec",
                    help="nurec: Instant NuRec clip (default); drivestudio: clip for DriveStudio+'s PhysicalAI "
                         "preprocessor (F-theta cameras, PhysicalAI sensor ids, pai_ prefix; image_00/02/03 only). "
