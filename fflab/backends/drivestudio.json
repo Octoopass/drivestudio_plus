@@ -13,7 +13,7 @@
   ],
   "accelerators": [],
   "logEnv": "DRIVESTUDIO_LOG",
-  "notes": "Needs its own environment (requirements-drivestudio.txt, gsplat 1.5.3 or Bosch's gsplat-geer for render-mode geer). Run fflab with --venv pointing at it. Data must be preprocessed first (docs/PhysicalAI.md, docs/Waymo.md, ...). KITTI-360 is not a DriveStudio dataset yet: see README_drivestudio_plus.md.",
+  "notes": "Needs its own environment (requirements-drivestudio.txt, Bosch's gsplat-geer for render-mode ut/geer). Run fflab with --venv pointing at it. Data must be preprocessed first: KITTI-360 via docs/drivestudio-kitti360.md, other datasets via docs/PhysicalAI.md, docs/Waymo.md, ...",
   "commands": {
     "train": {
       "script": "drivestudio_run.py",

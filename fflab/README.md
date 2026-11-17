@@ -144,4 +144,5 @@ fflab train --backend drivestudio --dry-run --method configs/streetgs_fastgs.yam
 ```
 
 `--method` picks the config (`*_ut` = 3DGUT, `*_geer` = 3DGEER, `*_fastgs` = FastGS-style densification), `--overrides` passes any OmegaConf
-override. KITTI-360 is not a DriveStudio dataset yet; see `README_drivestudio_plus.md`.
+override. KITTI-360 goes through NCore: see `docs/drivestudio-kitti360.md`. The Web UI (`python -m uvicorn fisheye_fusion.server:app`)
+has the same steps: prepare data, start a run, compare runs.
