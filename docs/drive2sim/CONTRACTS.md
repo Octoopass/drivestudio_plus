@@ -65,6 +65,8 @@ Cảnh ingest bằng `d2s kaggle ingest` (mục 9.4) chỉ có `manifest.yaml`, 
 - **`intrinsics/<camera>.txt` theo mô hình camera** ghi trong manifest (`cameras[].model`): `opencv_pinhole` là 9 số `fx fy cx cy k1 k2 p1 p2 k3` (như Argoverse, KITTI); `opencv_fisheye` là 8 số `fx fy cx cy k1 k2 k3 k4` (thứ tự của `cv2.fisheye`, `theta_d = θ·(1 + k1·θ² + k2·θ⁴ + k3·θ⁶ + k4·θ⁸)`). Bốn số đầu luôn là `fx fy cx cy` (pixel, ảnh gốc). Hai dạng phân biệt bằng `model`, không bằng số phần tử. Camera mắt cá KITTI-360 (Mei) được khớp sang `opencv_fisheye`, chỉ đúng tới tia lệch trục 1,45 rad (`drive2sim/core/camera.py`).
 - Thư mục cảnh chỉ chứa những gì có từ nguồn. Mask bầu trời và SMPL do stage `prep.*` sinh ra là artifact trong `cache/` (mục 5), không ghi vào đây.
 
+Mask thân xe KITTI-360 là asset của loader trong package, không phải dữ liệu nguồn hay artifact `prep.masks_segformer`. `image_02.png` và `image_03.png` có kích thước 1400x1400: 255 là vùng bỏ qua, 0 là vùng giữ lại. Tên asset theo `camera_id` trong manifest, không theo chỉ số camera đã được ingest đánh lại. `available.egocar_mask` vẫn mô tả mask có từ nguồn.
+
 ### 2.2 `manifest.yaml`
 
 ```yaml
@@ -155,7 +157,7 @@ schema_version: d2s-approach/0.3
 approach_id: omnire
 name: "OmniRe"
 version: 0.1.0
-codebase: drivestudio              # drivestudio | gsplat | external:<tên>
+codebase: drivestudio              # drivestudio | external:<tên>
 level: L1                          # L1 | L2 | L3 | L4
 requires:
   camera_models: [opencv_pinhole, opencv_fisheye, ftheta]   # nhận được với ít nhất một tổ hợp lựa chọn
@@ -225,7 +227,7 @@ stages:                            # chạy lần lượt; ${...} được thay 
 - **Loại camera (track).** Approach không ghi track. Track suy ra từ mô hình camera: `opencv_pinhole`, `ideal_pinhole` là track `pinhole`; `opencv_fisheye`, `ftheta` là track `fisheye`. `requires.camera_models` là mọi mô hình approach nhận với **ít nhất một** tổ hợp lựa chọn. Lựa chọn chỉ nhận một phần thì ghi trong `camera_models` của mục cấu hình đó, mỗi lựa chọn một danh sách, chỉ dùng mô hình có trong `requires.camera_models` (thêm từ `0.3`). Ví dụ OmniRe: 3DGS gốc chỉ vẽ pinhole, 3DGUT và 3DGEER vẽ thêm fisheye, F-theta (`drive2sim/recon/trainers/base.py`, `camera_rasterization_kwargs`). Vậy track của từng preset suy ra từ lựa chọn của preset đó: `paper` chỉ pinhole, `geer` cả hai. API Studio (`GET /api/approaches`) và `d2s approach list`, `show` trả thêm `camera_support`: `{"tracks", "camera_models", "default": {...}, "presets": {tên: {...}}}` (`resolve.camera_support`). File `0.1`, `0.2` có trường `track` vẫn đọc được; trường đó bị bỏ qua.
 - Preset chỉ là cách điền nhanh các mục cấu hình. `run.json` ghi tên preset (`approach.preset`) chỉ khi cấu hình cuối đúng bằng preset đó; người dùng chọn preset rồi chỉnh một mục cấu hình khác đi (Studio, hoặc `--preset` kèm `--set` ở CLI) thì `preset` là `null`. Studio làm mờ lựa chọn vi phạm ràng buộc với các mục cấu hình đang chọn, kèm mục cấu hình cần đổi và `reason`.
 - Tham số cuối cùng của một stage được gộp theo thứ tự: mặc định của stage → `params` trong file → preset → lựa chọn của người dùng (Studio hoặc `--set` của CLI).
-- `codebase`: `drivestudio` là trainer DriveStudio trong `drive2sim/recon/`; `gsplat` là trainer gsplat viết trong package (`drive2sim/recon/tools/train_gsplat_3dgut.py`, stage `train.gsplat_3dgut`); cả hai chạy trong môi trường chính (`drive2sim/engine/environment.py`, `CODEBASE_ENV`). `external:<tên>` là codebase ngoài, môi trường riêng (mục 9).
+- `codebase`: `drivestudio` là trainer DriveStudio trong `drive2sim/recon/`, chạy trong môi trường chính. `external:<tên>` là codebase ngoài, môi trường riêng (mục 9). Thư viện `gsplat-geer` cung cấp renderer cho DriveStudio, không phải một codebase của approach.
 - `train.drivestudio` chọn **một file config có sẵn** trong `drive2sim/configs/methods/` theo năm tham số `method`, `renderer`, `campose`, `fastgs`, `fastergs` (bảng `CONFIG_FILES` trong `drive2sim/stages/train/drivestudio.py`), không tự sửa tham số train. Ví dụ `streetgs` + `3dgeer` + `fastgs: true` dùng `streetgs_geer_fastgs.yaml`. Tổ hợp chưa có file config bị từ chối khi kiểm tra tham số, và file approach khai báo `constraints` để Studio, CLI khoá sẵn các tổ hợp đó.
 
 ### 4.2 Điều kiện chạy
@@ -324,7 +326,7 @@ Riêng `train.*`: chạy tiếp bằng `checkpoint_resume.pth` (model, optimizer
 | `smpl` | Thư mục có `humanpose/smpl.pkl` (định dạng của `drive2sim/recon/preprocess/smpl/run.py`) cùng file trung gian trong `humanpose/temp/`, `humanpose/postprocess/`. Do `prep.smpl` ghi |
 | `depth_prior` | Depth metric theo camera và khung, mỗi ảnh một file `.npy` `float32`, mét; kèm tên model trong `artifact.json` |
 | `points_init` | `points_init.npz`: `points` `float32[M,3]` trong hệ `world`, `colors` `uint8[M,3]`, `track_ids` (tuỳ chọn) |
-| `model` | Thư mục log của codebase; với DriveStudio có `checkpoint_final.pth`, `config.yaml`, `metrics/`, `videos/` (mục 6.1). `train.gsplat_3dgut` ghi cùng tên ở những chỗ stage sau đọc: `checkpoint_final.pth` (chỉ node `Background`, tên trường như DriveStudio), `metrics/images_test_*.json`, `train_stats.json`, `cameras.json`; không có `config.yaml` của DriveStudio nên mode Render GPU của Studio không mở được run này |
+| `model` | Thư mục log của codebase; với DriveStudio có `checkpoint_final.pth`, `config.yaml`, `metrics/`, `videos/`, `train_stats.json`, `cameras.json` (mục 6.1). Codebase khác cung cấp kết quả qua định dạng chung của các stage sau |
 | `eval_report` | Thư mục chứa `summary.json` (mục 6.3) và metric gốc của codebase |
 | `videos` | Video MP4 H.264 |
 | `export_ply` | PLY 3DGS trong hệ `world` |
@@ -461,8 +463,8 @@ Các con số trong ví dụ chỉ minh hoạ định dạng. Metric vùng ngư�
 - `train_time_s`, `peak_vram_mb`, `num_gaussians`, `num_iters` đọc từ `train_stats.json` mà `train.py` ghi cùng mỗi checkpoint. `train_time_s` là **thời gian train thực**: chỉ tính các bước train (lấy batch, forward, backward, cập nhật), không tính lúc khởi động, nạp checkpoint, vẽ ảnh kiểm tra, lưu checkpoint hay đánh giá cuối; chạy tiếp từ checkpoint thì cộng tiếp từ số đã lưu cùng checkpoint đó, nên các bước bị làm lại sau khi ngắt không bị tính hai lần. `num_gaussians` là tổng mọi node của model (nền, xe, người, vật biến dạng).
 - `render_fps`: số khung chia cho thời gian model vẽ ảnh tập test (chỉ tính lời gọi model, có đồng bộ GPU, bỏ 3 khung đầu), ở độ phân giải `render_resolution`. FPS phụ thuộc GPU; tên GPU nằm trong `env.json`.
 - Các trường trên để trống (`null`) khi không có số liệu, ví dụ model train bằng `train.py` cũ chưa ghi `train_stats.json`.
-- `per_camera` để trống với DriveStudio, vì `train.py` không tách metric theo camera. Trainer ghi thêm khoá `image_metrics/test/per_camera/<camera_id>/<psnr|ssim|lpips>` trong file metric test (`train.gsplat_3dgut` ghi) thì `eval.standard` điền `per_camera`.
-- `protocol.resolution` đọc từ `config.yaml` của DriveStudio; không có file này thì lấy trường `resolution` trong `train_stats.json` (ví dụ `downscale=2` với `train.gsplat_3dgut`).
+- `per_camera` để trống với DriveStudio, vì `train.py` không tách metric theo camera. Trainer ghi thêm khoá `image_metrics/test/per_camera/<camera_id>/<psnr|ssim|lpips>` trong file metric test thì `eval.standard` điền `per_camera`.
+- `protocol.resolution` đọc từ `config.yaml` của DriveStudio; không có file này thì lấy trường `resolution` trong `train_stats.json` (ví dụ `downscale=2`).
 - `speedups`: các thuật toán, kỹ thuật tăng tốc **thật sự** đã bật khi train, đọc từ `train_stats.json`: `fastgs` (`docs/methods/fastgs.md`), `fastergs.<kỹ thuật>` (`docs/methods/fastergs.md`). Rỗng khi không bật gì hoặc model train bằng `train.py` cũ. Mục cấu hình của run chỉ ghi công tắc; trường này ghi cái công tắc thật sự làm, để hai run cùng `fastergs: true` mà khác kỹ thuật (ví dụ ở hai phiên bản code) không bị coi là cùng cấu hình.
 - Thay đổi từ `0.1`: `train_time_s`, `peak_vram_mb`, `num_gaussians` thành tuỳ chọn. Thay đổi từ `0.2`: thêm `dynamic_psnr`, `num_iters`, `render_fps`, `render_resolution`; `occupied_psnr` ghi đúng nghĩa là vùng không phải bầu trời. Thay đổi từ `0.3`: thêm `speedups`. Thay đổi từ `0.4`: thêm `eval_time_s`: thời gian đánh giá cuối trong stage train (vẽ ảnh test, tính metric, render video), `train.py` đo rồi ghi vào `train_stats.json`; trang run tách thời gian stage train thành train, khởi động và lưu checkpoint, đánh giá và render video. Stage `eval.standard` chỉ đọc kết quả nên gần như không tốn thời gian.
 

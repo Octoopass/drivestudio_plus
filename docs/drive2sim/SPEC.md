@@ -33,7 +33,7 @@ Trạng thái: bản nháp, ngày 12/11/2026.
 | Cấu hình sẵn (preset) | Bộ giá trị đặt sẵn cho các mục cấu hình, ví dụ `paper`, `no_lidar`. |
 | Chuẩn bị riêng | Các stage lấy bớt, sinh thêm hoặc đổi dạng dữ liệu chuẩn cho vừa một approach (mục 6.3). |
 | Codebase | Mã nguồn tái dựng mà approach chạy trên đó. Lõi là DriveStudio trong repo này; approach từ codebase khác (NuRec, feed-forward...) được bọc lại và chạy trong môi trường riêng. |
-| Track | Loại rig camera: **pinhole** hoặc **fisheye**, thường 4–8 camera (Argoverse 7, nuPlan 8). Cảnh có ít nhất một camera mắt cá (ví dụ KITTI-360: 2 pinhole, 2 mắt cá) thuộc track fisheye. Một lần dựng chỉ trộn camera pinhole và mắt cá khi renderer của approach vẽ được cả hai (3DGUT, 3DGEER), như approach `gsplat_3dgut`; còn lại split chỉ chọn camera cùng một loại. Một approach có thể dùng cho cả hai track; preset và lựa chọn (ví dụ renderer) quyết định track nào (CONTRACTS mục 4.1). |
+| Track | Loại rig camera: **pinhole** hoặc **fisheye**, thường 4–8 camera (Argoverse 7, nuPlan 8). Cảnh có ít nhất một camera mắt cá (ví dụ KITTI-360: 2 pinhole, 2 mắt cá) thuộc track fisheye. Một lần dựng chỉ trộn camera pinhole và mắt cá khi renderer của approach vẽ được cả hai (3DGUT, 3DGEER), qua trainer chung của OmniRe và Street GS; còn lại split chỉ chọn camera cùng một loại. Một approach có thể dùng cho cả hai track; preset và lựa chọn (ví dụ renderer) quyết định track nào (CONTRACTS mục 4.1). |
 | Run | Một lần chạy một approach trên một cảnh, với một split và một bộ tham số. |
 
 ## 4. Mức năng lực của approach
@@ -99,6 +99,8 @@ Dữ liệu sinh thêm được lưu lại theo cảnh, stage, phiên bản và 
 ### 6.4 Split
 
 Mỗi cảnh có file split ghi khung và camera nào để train, khung và camera nào để test. Mọi approach đánh giá trên cùng split. Không đánh giá trên khung đã dùng để train. Codebase có thể chỉ hỗ trợ một số kiểu split; khi đó approach bị khoá với split không hỗ trợ.
+
+Camera mắt cá KITTI-360 dùng mask thân xe cố định đi kèm package, chọn theo tên camera trong manifest. Mask được ghép với vùng tia hợp lệ khi nạp dữ liệu; không cần bước dò mask trong mỗi run. Giới hạn phép đo metric được ghi trong `docs/datasets/kitti360.md`.
 
 ## 7. Nơi chạy
 
@@ -192,7 +194,7 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 ## 12. Ngoài phạm vi
 
 - Nhiều người dùng, tài khoản, phân quyền, lưu trữ đám mây dùng chung.
-- Trộn camera pinhole và fisheye trong cùng một lần dựng với renderer chỉ vẽ được một loại (3DGS gốc). Renderer vẽ được cả hai (3DGUT, 3DGEER) thì được trộn (approach `gsplat_3dgut`).
+- Trộn camera pinhole và fisheye trong cùng một lần dựng với renderer chỉ vẽ được một loại (3DGS gốc). Renderer vẽ được cả hai (3DGUT, 3DGEER) thì được trộn (OmniRe và Street GS qua trainer chung).
 - Trích mesh va chạm.
 
 ## 13. Nghiệm thu

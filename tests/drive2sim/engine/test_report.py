@@ -197,3 +197,31 @@ def test_report_gpu_is_the_training_machine(tmp_path: Path) -> None:
     env.machines = [Machine(gpu="Tesla T4"), Machine(gpu="Quadro T2000")]
     files.dump(env, run_dir / "d2s" / "env.json")
     assert [row.gpu for row in report_rows(workdir)] == ["Tesla T4 + Quadro T2000"]
+
+
+def test_retired_approach_results_remain_readable(tmp_path: Path) -> None:
+    from drive2sim.core import files
+    from drive2sim.engine.report import report_rows
+    from drive2sim.engine.run import list_runs
+    from drive2sim.engine.workdir import Workdir
+    from tests.drive2sim.samples import MANIFEST, SPLIT
+
+    workdir = Workdir(tmp_path)
+    from drive2sim.core.schema import Manifest, Split
+
+    files.dump(
+        Manifest.model_validate(MANIFEST),
+        workdir.scene_dir(MANIFEST["scene_id"]) / "manifest.yaml",
+    )
+    files.dump(
+        Split.model_validate(SPLIT), workdir.split_path(MANIFEST["scene_id"], SPLIT["split_id"])
+    )
+    record = make_record([StageRecord(stage_id="train.gsplat_3dgut", status="succeeded")])
+    record.run_id = record.run_id.replace("-omnire-", "-gsplat_3dgut-")
+    record.approach.approach_id = "gsplat_3dgut"
+    folder = workdir.run_dir(record.scene_id, record.approach.approach_id, record.run_id)
+    files.dump(record, folder / "d2s" / "run.json")
+    assert [item.run_id for item in list_runs(workdir)] == [record.run_id]
+    rows = report_rows(workdir)
+    assert len(rows) == 1 and rows[0].approach_id == "gsplat_3dgut"
+    assert rows[0].train_params == {}

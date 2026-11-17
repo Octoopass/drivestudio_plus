@@ -50,7 +50,7 @@ Ghi chú:
 
 | Run | Trạng thái | Approach | Renderer | FGS | FrGS | Dataset, cảnh | Camera | Khung | Độ phân giải | Iter | PSNR | SSIM | LPIPS | Thời gian train | VRAM đỉnh | Gaussian |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| (chạy thử, 14/11) | Xong (Quadro T2000 4 GB) | `gsplat_3dgut` (cảnh tĩnh) | 3DGUT | | | KITTI-360 0003 (bản 1/5 khung của teammate) | chưa ghi lại | 30 | chưa ghi lại | 3 000 | 21,3 | | | | | |
+| (chạy thử, 14/11) | Xong (Quadro T2000 4 GB) | 3DGUT (trainer tĩnh đã ngừng hỗ trợ) | 3DGUT | | | KITTI-360 0003 (bản 1/5 khung của teammate) | chưa ghi lại | 30 | chưa ghi lại | 3 000 | 21,3 | | | | | |
 | (kế hoạch) | Chạy thử đo VRAM, tốc độ | OmniRe | thắng ở bảng pinhole (3DGEER hoặc 3DGUT) | có | có | KITTI-360 0003 đủ khung | `image_00`–`image_03` | 864 | pinhole 704×188, mắt cá 700×700 | 2 000 | | | | | | |
 | (kế hoạch) | Theo kết quả chạy thử | OmniRe | như trên | có | có | KITTI-360 0003 đủ khung | `image_00`–`image_03` | 864 (hoặc chia đoạn) | pinhole 704×188, mắt cá 700×700 | 30 000 | | | | | | |
 

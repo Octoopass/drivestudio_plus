@@ -55,6 +55,7 @@ def option(command: list[str], key: str) -> str:
 
 def test_builtin_stages_register() -> None:
     load_builtin_stages()
+    assert "train.gsplat_3dgut" not in REGISTRY
     for stage_id in (
         "train.drivestudio",
         "eval.standard",

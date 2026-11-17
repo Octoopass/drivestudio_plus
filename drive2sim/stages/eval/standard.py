@@ -18,7 +18,7 @@ File này chứa:
 - ``EvalStandardStage``: stage đăng ký với engine.
 
 Giới hạn hiện tại: DriveStudio không tách metric theo camera nên ``per_camera`` để trống. Trainer
-khác ghi cùng định dạng file (``train.gsplat_3dgut``) có thể ghi thêm khoá
+khác ghi cùng định dạng file có thể ghi thêm khoá
 ``image_metrics/test/per_camera/<camera_id>/<psnr|ssim|lpips>``; khi có, stage điền
 ``per_camera``. Tách
 đánh giá khỏi ``train.py`` là việc sau (ARCHITECTURE mục 7.2). Phần đo thời gian, VRAM, số
@@ -111,7 +111,7 @@ def _resolution_of(model_dir: Path) -> str:
     """
     config_path = model_dir / "config.yaml"
     if not config_path.is_file():
-        # Trainer không phải DriveStudio (train.gsplat_3dgut) ghi mô tả độ phân giải vào
+        # Trainer không phải DriveStudio có thể ghi mô tả độ phân giải vào
         # train_stats.json thay cho config.yaml.
         resolution = read_train_stats(model_dir).get("resolution")
         return resolution if isinstance(resolution, str) else "unknown"
@@ -157,7 +157,7 @@ def make_summary(
 
     width, height = optional("render_width"), optional("render_height")
     # Metric theo camera, khi trainer ghi khoá ``per_camera/<camera_id>/<metric>`` (trainer
-    # gsplat 3DGUT ghi; DriveStudio không ghi nên per_camera để trống như trước).
+    # khác ghi; DriveStudio không ghi nên per_camera để trống như trước).
     per_camera: dict[str, dict[str, float]] = {}
     for key, value in metrics.items():
         parts = key.split("/")

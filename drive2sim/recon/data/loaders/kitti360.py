@@ -27,7 +27,7 @@ LiDAR dùng nguyên ``KITTILiDARSource`` (cùng định dạng ``lidar/<khung>.b
 ``drive2sim/configs/datasets/kitti360/`` trỏ tới hai lớp này; stage ``train.drivestudio`` chọn
 config theo manifest. Xem ``docs/datasets/kitti360.md``, ARCHITECTURE mục 7.1.
 
-Quy ước pixel: giống loader KITTI và trainer ``train_gsplat_3dgut``, ``cx``, ``cy`` trong file
+Quy ước pixel: giống loader KITTI, ``cx``, ``cy`` trong file
 intrinsics được dùng nguyên (không cộng 0,5); tâm pixel ``i`` nằm ở toạ độ ``i + 0.5``.
 """
 
@@ -36,8 +36,10 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from PIL import Image
 from torch import Tensor
 
+from drive2sim import paths
 from drive2sim.core.camera import MEI_FIT_MAX_ANGLE
 from drive2sim.core.files import load
 from drive2sim.core.schema import Manifest
@@ -90,9 +92,30 @@ class KITTI360CameraData(KITTICameraData):
         self.camera_metadata = {
             "camera_name": camera.camera_id,
             "original_size": (height, width),
-            "egocar_visible": False,
+            "egocar_visible": camera.camera_id in ("image_02", "image_03"),
         }
         super().__init__(**kwargs)
+
+    def load_egocar_mask(self) -> None:
+        """Nạp mask thân xe cố định theo tên camera trong manifest.
+
+        Converter đánh lại chỉ số khi ingest một phần camera, nên ``cam_id`` không dùng để
+        chọn asset. Hai camera mắt cá dùng PNG 1400x1400 (trắng: bỏ, đen: giữ); pinhole không
+        có mask thân xe. Nội suy nearest giữ mask nhị phân khi giảm độ phân giải. Không dò
+        mask từ ảnh của run, nên vệt sáng hay bóng đổ không làm thay đổi vùng được giám sát.
+
+        Raises:
+            FileNotFoundError: Nếu package thiếu asset của camera mắt cá KITTI-360.
+        """
+        self.egocar_mask = None
+        if self.cam_name not in ("image_02", "image_03"):
+            return
+        mask_path = paths.EGO_MASKS_DIR / "kitti360" / f"{self.cam_name}.png"
+        with Image.open(mask_path) as mask:
+            resized = mask.convert("L").resize(
+                (self.load_size[1], self.load_size[0]), Image.Resampling.NEAREST
+            )
+            self.egocar_mask = torch.from_numpy(np.array(resized) > 0).float()
 
     def create_all_filelist(self) -> None:
         """Lập danh sách file như KITTI nhưng ảnh là PNG (converter chép nguyên PNG của KITTI-360)."""
@@ -211,7 +234,7 @@ class KITTI360CameraData(KITTICameraData):
 
         ``DrivingDataset`` gọi hàm này (nếu camera có) để tô màu và lập depth map từ LiDAR, và để
         bỏ điểm LiDAR không camera nào thấy. Camera fisheye còn bỏ điểm rơi vào pixel ngoài vùng
-        hợp lệ (``camera_rays``).
+        hợp lệ (``camera_rays``) hoặc bị thân xe che, trước khi tô màu và khởi tạo từ LiDAR.
 
         Args:
             world_points: Điểm trong hệ world của cảnh, dạng ``(N, 3)``.
@@ -235,6 +258,8 @@ class KITTI360CameraData(KITTICameraData):
         )
         if self.camera_model == "fisheye":
             _, region = self.camera_rays(intrinsics, self.HEIGHT, self.WIDTH)
+            if self.egocar_mask is not None:
+                region = region & ~self.egocar_mask.bool()
             selected = valid.nonzero().flatten()
             uv = pixels[selected].long()
             valid[selected] &= region[uv[:, 1], uv[:, 0]]

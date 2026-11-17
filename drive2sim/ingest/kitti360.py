@@ -29,7 +29,7 @@ File này chứa:
 - ``find_sequences``: các chuỗi có ảnh trong thư mục nguồn (cho ``source inspect``).
 - ``read_calibration``, ``read_poses``: đọc calib và pose chính thức.
 - ``rig_extrinsics``, ``camera_intrinsics``: dựng extrinsics (camera → Velodyne) và intrinsics.
-- ``select_frames``: chọn đoạn khung liên tục theo pose có sẵn (như ``--max-gap`` của teammate).
+- ``select_frames``: chọn đoạn khung liên tục theo pose có sẵn (``--max-gap``).
 - ``ingest_kitti360``: hàm chính mà ``drive2sim/ingest/dispatch.py`` gọi.
 - ``_write_boxes``: box 3D chính thức → ``instances/`` và ``dynamic_masks/`` (``kitti360_boxes``).
 
@@ -73,8 +73,8 @@ PINHOLE_CAMERAS = frozenset({"image_00", "image_01"})
 IMAGE_SUBDIRS = {"image_00": "data_rect", "image_01": "data_rect"}
 FISHEYE_SUBDIR = "data_rgb"
 LIDAR_ID = "velodyne"
-# Khoảng cách lớn nhất (theo số hiệu khung gốc) giữa hai khung liền nhau trong cảnh, như
-# KITTI360_MAX_GAP của teammate; bản tải về của chuỗi 0003 cách nhau 5 khung.
+# Khoảng cách lớn nhất (theo số hiệu khung gốc) giữa hai khung liền nhau trong cảnh; bản tải về
+# của chuỗi 0003 cách nhau 5 khung.
 DEFAULT_MAX_GAP = 5
 # Camera KITTI-360 chạy 10 Hz; dùng khi nguồn không có timestamps.txt.
 NOMINAL_FRAME_US = 100_000
@@ -457,9 +457,7 @@ def camera_intrinsics(calib: Kitti360Calibration, camera: str) -> tuple[str, lis
     fx, fy, coeffs = fit_mei_to_fisheye(
         mei["xi"], mei["k1"], mei["k2"], mei["gamma1"], mei["gamma2"]
     )
-    error = mei_fit_error_px(
-        mei["xi"], mei["k1"], mei["k2"], max(fx, fy) * (1 + mei["xi"]), coeffs
-    )
+    error = mei_fit_error_px(mei["xi"], mei["k1"], mei["k2"], mei["gamma1"], fx, coeffs)
     info = {**mei, "fit_max_angle": MEI_FIT_MAX_ANGLE, "fit_error_px": error}
     return "opencv_fisheye", [fx, fy, mei["u0"], mei["v0"], *coeffs], info
 
@@ -470,7 +468,7 @@ def select_frames(
     num_frames: Optional[int] = None,
     max_gap: int = DEFAULT_MAX_GAP,
 ) -> list[int]:
-    """Chọn một đoạn khung liền nhau, như ``select_items`` của teammate.
+    """Chọn một đoạn khung liền nhau.
 
     Khung xét là các số hiệu ``>= start_frame`` trong ``candidates`` (đã có ảnh mọi camera, LiDAR
     và pose). Hai khung liền nhau cách nhau quá ``max_gap`` thì cắt thành đoạn mới, để cảnh không
@@ -702,8 +700,8 @@ def _write_boxes(
     """Ghi ``instances/`` và ``dynamic_masks/{all,human,vehicle}/`` từ box 3D chính thức.
 
     Định dạng như script KITTI của DriveStudio (``kitti360_boxes``). Nguồn không có box của chuỗi
-    thì không ghi gì và báo cảnh báo: cảnh vẫn dùng được cho approach không cần box (Street GS
-    không có xe động, ``gsplat_3dgut``), còn OmniRe sẽ bị khoá (``requires.cuboids``).
+    thì không ghi gì và báo cảnh báo: OmniRe và Street GS cần box
+    (``requires.cuboids``) nên bị khoá với cảnh đó.
 
     Returns:
         Các phép kiểm tra thêm vào báo cáo.

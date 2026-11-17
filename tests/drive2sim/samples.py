@@ -9,6 +9,8 @@ Cuối file có tham số Mei thật của camera mắt cá ``image_02`` của K
 phép khớp Mei → OpenCV fisheye và của converter KITTI-360.
 """
 
+from drive2sim.core.camera import fit_mei_to_fisheye
+
 MANIFEST = {
     "schema_version": "d2s-manifest/1.0",
     "scene_id": "nuscenes_scene-0061",
@@ -52,10 +54,5 @@ SPLIT = {
 # Tham số Mei của image_02 trong calib thật của KITTI-360 (calibration/image_02.yaml).
 MEI_02 = {"xi": 2.2134047507854890, "k1": 1.6798235660113681e-02, "k2": 1.6548773243373522}
 GAMMA_02 = (1.3363220825849971e03, 1.3357883350012958e03)
-# Hệ số numpy.linalg.lstsq cho MEI_02 (cùng cách của teammate, chạy trong môi trường có numpy).
-NUMPY_COEFFS_02 = [
-    -0.009477485565102724,
-    0.009264348574303914,
-    -0.001678306810050497,
-    -0.00045523033695660204,
-]
+# Hệ số OpenCV fisheye khớp từ MEI_02 bằng drive2sim/core/camera.py.
+FISHEYE_COEFFS_02 = fit_mei_to_fisheye(MEI_02["xi"], MEI_02["k1"], MEI_02["k2"], *GAMMA_02)[2]

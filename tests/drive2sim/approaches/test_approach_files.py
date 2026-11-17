@@ -30,7 +30,8 @@ DRIVESTUDIO_FILES = [
 
 
 def test_approach_files_exist() -> None:
-    assert {path.stem for path in APPROACH_FILES} >= {"omnire", "streetgs", "gsplat_3dgut"}
+    assert "gsplat_3dgut" not in {path.stem for path in APPROACH_FILES}
+    assert {path.stem for path in APPROACH_FILES} >= {"omnire", "streetgs"}
     assert {path.stem for path in DRIVESTUDIO_FILES} == {"omnire", "streetgs"}
 
 

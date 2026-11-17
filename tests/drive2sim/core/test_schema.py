@@ -82,6 +82,7 @@ def test_approach_display_text() -> None:
     [
         lambda data: data.update(approach_id="OmniRe"),
         lambda data: data.update(codebase="nurec"),
+        lambda data: data.update(codebase="gsplat"),
         lambda data: data["options"]["renderer"].update(default="2dgs"),
         lambda data: data["presets"].update(bad={"renderer": "2dgs"}),
         lambda data: data["presets"].update(bad={"unknown": 1}),

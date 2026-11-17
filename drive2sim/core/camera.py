@@ -1,141 +1,100 @@
-"""Toán của mô hình camera dùng chung: đổi mô hình Mei (omnidirectional) sang OpenCV fisheye.
+"""Đổi mô hình camera Mei (unified omnidirectional) sang OpenCV fisheye.
 
-KITTI-360 hiệu chỉnh hai camera mắt cá (``image_02``, ``image_03``) bằng mô hình Mei (mô hình
-gương cầu, tham số ``xi`` cộng méo xuyên tâm ``k1``, ``k2`` và tiếp tuyến ``p1``, ``p2``). Tool chỉ
-có ba mô hình camera chuẩn (ARCHITECTURE mục 2.15), và renderer 3DGUT của gsplat chỉ vẽ được
-OpenCV fisheye (``theta_d = theta·(1 + k1·θ² + k2·θ⁴ + k3·θ⁶ + k4·θ⁸)``). File này khớp đa thức
-OpenCV fisheye với Mei bằng bình phương tối thiểu, theo cách của teammate
-(``tools/colab_cli_kitti360.py``, hàm ``mei_to_fisheye``, repo thaianh20021/fisheye-fusion-lab).
+KITTI-360 hiệu chỉnh hai camera mắt cá (``image_02``, ``image_03``) bằng mô hình Mei (C. Mei và P.
+Rives, "Single View Point Omnidirectional Camera Calibration from Planar Grids", ICRA 2007): một
+tia đơn vị ``(sin θ, 0, cos θ)`` được chiếu qua mặt cầu đơn vị rồi lên mặt phẳng ảnh,
+``m = sin θ / (cos θ + ξ)``, méo xuyên tâm ``m·(1 + k1·m² + k2·m⁴)`` (cộng méo tiếp tuyến ``p1``,
+``p2``), rồi nhân tiêu cự ``γ1``, ``γ2``. Renderer 3DGUT, 3DGEER và loader của tool chỉ có OpenCV
+fisheye: ``r = f·θ·(1 + k1·θ² + k2·θ⁴ + k3·θ⁶ + k4·θ⁸)``.
 
-File này chứa:
-- ``MEI_FIT_MAX_ANGLE``: góc tia lớn nhất (rad) mà phép khớp đảm bảo; tia lệch trục hơn góc này
-  phải bị che khi train và đánh giá.
-- ``mei_radius``: bán kính trên ảnh chuẩn hoá của một tia theo mô hình Mei (bỏ méo tiếp tuyến).
-- ``fisheye_radius``: bán kính trên ảnh chuẩn hoá theo đa thức OpenCV fisheye.
-- ``fit_mei_to_fisheye``: tìm ``fx, fy`` và ``k1..k4`` OpenCV fisheye gần nhất với một camera Mei.
-- ``mei_fit_error_px``: sai số lớn nhất của phép khớp, tính bằng pixel.
+Cách khớp: cả hai mô hình là hàm của một góc ``θ``, đối xứng quanh trục quang. Với mỗi ``θ`` trong
+miền khớp, đặt bán kính pixel bằng nhau theo trục u:
 
-Converter KITTI-360 (``drive2sim/ingest/kitti360.py``) gọi file này khi ghi intrinsics của camera
-mắt cá; trainer ``drive2sim/recon/tools/train_gsplat_3dgut.py`` dùng ``fisheye_radius`` và
-``MEI_FIT_MAX_ANGLE`` để dựng mask vùng ảnh không vẽ được. Viết bằng Python thuần (không numpy) để
-chạy được trong môi trường nhẹ của CLI.
+    γ1·r_Mei(θ) = a0·θ + a1·θ³ + a2·θ⁵ + a3·θ⁷ + a4·θ⁹,   với a0 = fx, a_i = fx·k_i.
 
-Giới hạn (ghi trong ``docs/datasets/kitti360.md``):
-- Méo tiếp tuyến ``p1``, ``p2`` của Mei bị bỏ, vì OpenCV fisheye không có; với KITTI-360 hai hệ
-  số này cỡ ``4e-4``, gây lệch dưới 1 pixel ở mép ảnh (đo ở ``docs/datasets/kitti360.md``).
-- Camera Mei của KITTI-360 nhìn rộng hơn 180 độ; renderer UT của gsplat không vẽ được tia có
-  ``theta >= pi/2``, và đa thức chỉ được khớp tới ``MEI_FIT_MAX_ANGLE``.
+Phương trình tuyến tính theo ``a0..a4``, nên giải trực tiếp bằng bình phương tối thiểu (phương
+trình chuẩn, khử Gauss), không lặp. ``fx = a0``, ``k_i = a_i / a0``; tỉ lệ hai trục của Mei giữ
+nguyên nên ``fy = fx·γ2/γ1``; tâm ảnh giữ ``u0``, ``v0``. Méo tiếp tuyến bị bỏ vì OpenCV fisheye
+không có (KITTI-360: ``p1``, ``p2`` cỡ 4e-4).
+
+Camera mắt cá KITTI-360 nhìn rộng hơn 180 độ, còn renderer UT không vẽ được tia từ π/2 trở ra, nên
+chỉ khớp tới ``MEI_FIT_MAX_ANGLE`` (1,45 rad, khoảng 83°); pixel có tia lệch trục hơn góc này phải
+bị che khi train và đánh giá.
+
+Viết bằng Python thuần (không numpy) để chạy trong môi trường nhẹ của CLI.
+
+File này chứa ``MEI_FIT_MAX_ANGLE``, ``mei_radius``, ``fisheye_radius``, ``fit_mei_to_fisheye``,
+``mei_fit_error_px``.
 """
 
 import math
 from collections.abc import Sequence
 
-# Góc tia lớn nhất (rad, khoảng 83 độ) dùng khi khớp, theo teammate (np.linspace(0.02, 1.45, 256)).
-# Vẫn dưới pi/2 là giới hạn của renderer UT trong gsplat.
 MEI_FIT_MAX_ANGLE = 1.45
-_FIT_MIN_ANGLE = 0.02
-_FIT_SAMPLES = 256
+FIT_SAMPLES = 400  # số góc đều trên (0, MEI_FIT_MAX_ANGLE] dùng để khớp
 
 
 def mei_radius(theta: float, xi: float, k1: float, k2: float) -> float:
-    """Tính bán kính trên ảnh chuẩn hoá (đơn vị tiêu cự ``gamma``) của một tia theo mô hình Mei.
+    """Bán kính chuẩn hoá (nhân ``γ`` ra pixel) của tia lệch trục ``theta`` theo mô hình Mei.
 
-    Tia đơn vị hợp với trục quang góc ``theta`` được chiếu lên mặt cầu rồi lên mặt phẳng ảnh:
-    ``u = sin θ / (cos θ + xi)``, sau đó méo xuyên tâm ``u·(1 + k1·u² + k2·u⁴)``. Pixel bằng
-    ``gamma · bán kính`` (cộng tâm ảnh). Bỏ méo tiếp tuyến ``p1``, ``p2``.
-
-    Args:
-        theta: Góc giữa tia và trục quang, radian.
-        xi: Tham số gương của Mei.
-        k1: Hệ số méo xuyên tâm bậc 2 của Mei.
-        k2: Hệ số méo xuyên tâm bậc 4 của Mei.
-
-    Returns:
-        Bán kính chuẩn hoá (nhân với ``gamma`` để ra pixel).
+    ``m = sin θ / (cos θ + ξ)`` rồi méo xuyên tâm ``m·(1 + k1·m² + k2·m⁴)``; bỏ méo tiếp tuyến.
     """
-    u = math.sin(theta) / (math.cos(theta) + xi)
-    u2 = u * u
-    return u * (1.0 + k1 * u2 + k2 * u2 * u2)
+    m = math.sin(theta) / (math.cos(theta) + xi)
+    m2 = m * m
+    return m * (1.0 + k1 * m2 + k2 * m2 * m2)
 
 
 def fisheye_radius(theta: float, coeffs: Sequence[float]) -> float:
-    """Tính bán kính trên ảnh chuẩn hoá theo đa thức OpenCV fisheye.
-
-    ``theta_d = θ·(1 + k1·θ² + k2·θ⁴ + k3·θ⁶ + k4·θ⁸)``; pixel bằng ``fx · theta_d`` theo hướng của
-    tia (cộng tâm ảnh). Đây đúng là mô hình gsplat dùng với ``camera_model="fisheye"``.
-
-    Args:
-        theta: Góc giữa tia và trục quang, radian.
-        coeffs: ``[k1, k2, k3, k4]``.
-
-    Returns:
-        ``theta_d``.
-    """
+    """``θ_d = θ·(1 + k1·θ² + k2·θ⁴ + k3·θ⁶ + k4·θ⁸)`` của OpenCV fisheye (nhân ``f`` ra pixel)."""
     t2 = theta * theta
-    k1, k2, k3, k4 = coeffs
-    return theta * (1.0 + t2 * (k1 + t2 * (k2 + t2 * (k3 + t2 * k4))))
+    poly, power = 1.0, 1.0
+    for k in coeffs:
+        power *= t2
+        poly += k * power
+    return theta * poly
 
 
-def _least_squares(rows: list[list[float]], target: list[float]) -> list[float]:
-    """Giải bài toán bình phương tối thiểu ``min ‖A·x − b‖`` bằng Gram–Schmidt cải tiến.
-
-    Dùng phân tích QR thay vì phương trình chuẩn ``AᵀA·x = Aᵀb`` vì các cột θ², θ⁴, θ⁶, θ⁸ gần
-    phụ thuộc tuyến tính; QR giữ được độ chính xác tốt hơn.
-
-    Args:
-        rows: Ma trận ``A`` theo hàng, ``m × n`` với ``m >= n``.
-        target: Vector ``b`` độ dài ``m``.
-
-    Returns:
-        Nghiệm ``x`` độ dài ``n``.
-    """
-    n = len(rows[0])
-    columns = [[row[j] for row in rows] for j in range(n)]
-    q: list[list[float]] = []
-    r = [[0.0] * n for _ in range(n)]
-    for j in range(n):
-        v = list(columns[j])
-        for i in range(j):
-            r[i][j] = sum(a * b for a, b in zip(q[i], v))
-            v = [a - r[i][j] * b for a, b in zip(v, q[i])]
-        r[j][j] = math.sqrt(sum(a * a for a in v))
-        q.append([a / r[j][j] for a in v])
-    qtb = [sum(a * b for a, b in zip(q[j], target)) for j in range(n)]
+def _solve(matrix: list[list[float]], rhs: list[float]) -> list[float]:
+    """Giải hệ vuông bằng khử Gauss có chọn trụ theo cột."""
+    n = len(rhs)
+    a = [row[:] + [value] for row, value in zip(matrix, rhs)]
+    for col in range(n):
+        pivot = max(range(col, n), key=lambda r: abs(a[r][col]))
+        if abs(a[pivot][col]) < 1e-300:
+            raise ValueError("hệ phương trình suy biến")
+        a[col], a[pivot] = a[pivot], a[col]
+        for r in range(col + 1, n):
+            factor = a[r][col] / a[col][col]
+            for c in range(col, n + 1):
+                a[r][c] -= factor * a[col][c]
     x = [0.0] * n
-    for j in reversed(range(n)):
-        x[j] = (qtb[j] - sum(r[j][k] * x[k] for k in range(j + 1, n))) / r[j][j]
+    for r in range(n - 1, -1, -1):
+        x[r] = (a[r][n] - sum(a[r][c] * x[c] for c in range(r + 1, n))) / a[r][r]
     return x
 
 
 def fit_mei_to_fisheye(
     xi: float, k1: float, k2: float, gamma1: float, gamma2: float
 ) -> tuple[float, float, list[float]]:
-    """Tìm mô hình OpenCV fisheye gần nhất với một camera Mei.
-
-    Gần trục quang, Mei cho bán kính ≈ ``θ / (1 + xi)``, nên tiêu cự fisheye là
-    ``gamma / (1 + xi)``. Còn lại khớp ``k1..k4`` sao cho
-    ``θ·(1 + k1·θ² + ...) = (1 + xi)·mei_radius(θ)`` trên 256 góc đều từ 0,02 tới
-    ``MEI_FIT_MAX_ANGLE`` rad, đúng cách của teammate (``mei_to_fisheye``).
-
-    Args:
-        xi: Tham số gương của Mei.
-        k1: Hệ số méo xuyên tâm bậc 2 của Mei.
-        k2: Hệ số méo xuyên tâm bậc 4 của Mei.
-        gamma1: Tiêu cự Mei theo trục u, pixel.
-        gamma2: Tiêu cự Mei theo trục v, pixel.
+    """OpenCV fisheye gần nhất với một camera Mei trên ``(0, MEI_FIT_MAX_ANGLE]``.
 
     Returns:
-        ``(fx, fy, [k1, k2, k3, k4])`` của OpenCV fisheye; tâm ảnh giữ nguyên ``u0``, ``v0``.
+        ``(fx, fy, [k1, k2, k3, k4])``; tâm ảnh giữ nguyên ``u0``, ``v0`` của Mei.
     """
-    step = (MEI_FIT_MAX_ANGLE - _FIT_MIN_ANGLE) / (_FIT_SAMPLES - 1)
-    rows, target = [], []
-    for i in range(_FIT_SAMPLES):
-        theta = _FIT_MIN_ANGLE + i * step
-        t2 = theta * theta
-        rows.append([t2, t2**2, t2**3, t2**4])
-        target.append((1.0 + xi) * mei_radius(theta, xi, k1, k2) / theta - 1.0)
-    coeffs = _least_squares(rows, target)
-    return gamma1 / (1.0 + xi), gamma2 / (1.0 + xi), coeffs
+    powers = (1, 3, 5, 7, 9)
+    normal = [[0.0] * 5 for _ in range(5)]
+    rhs = [0.0] * 5
+    for i in range(1, FIT_SAMPLES + 1):
+        theta = MEI_FIT_MAX_ANGLE * i / FIT_SAMPLES
+        row = [theta**p for p in powers]
+        target = gamma1 * mei_radius(theta, xi, k1, k2)
+        for r in range(5):
+            rhs[r] += row[r] * target
+            for c in range(5):
+                normal[r][c] += row[r] * row[c]
+    a = _solve(normal, rhs)
+    fx = a[0]
+    return fx, fx * gamma2 / gamma1, [value / fx for value in a[1:]]
 
 
 def mei_fit_error_px(
@@ -143,31 +102,16 @@ def mei_fit_error_px(
     k1: float,
     k2: float,
     gamma: float,
+    fx: float,
     coeffs: Sequence[float],
     max_angle: float = MEI_FIT_MAX_ANGLE,
     samples: int = 2000,
 ) -> float:
-    """Tính sai số lớn nhất (pixel) giữa đa thức fisheye đã khớp và mô hình Mei.
-
-    So bán kính pixel ``gamma·mei_radius(θ)`` với ``gamma/(1+xi)·fisheye_radius(θ)`` trên lưới dày
-    từ 0 tới ``max_angle``. Không tính méo tiếp tuyến (đa thức không có).
-
-    Args:
-        xi: Tham số gương của Mei.
-        k1: Hệ số méo xuyên tâm bậc 2 của Mei.
-        k2: Hệ số méo xuyên tâm bậc 4 của Mei.
-        gamma: Tiêu cự Mei, pixel.
-        coeffs: ``[k1, k2, k3, k4]`` đã khớp.
-        max_angle: Góc lớn nhất cần đo, radian.
-        samples: Số góc đo.
-
-    Returns:
-        Sai số lớn nhất, pixel.
-    """
-    worst = 0.0
-    for i in range(1, samples + 1):
-        theta = max_angle * i / samples
-        exact = gamma * mei_radius(theta, xi, k1, k2)
-        fitted = gamma / (1.0 + xi) * fisheye_radius(theta, coeffs)
-        worst = max(worst, abs(exact - fitted))
-    return worst
+    """Tính sai số bán kính lớn nhất (pixel) giữa Mei và fisheye trên ``[0, max_angle]``."""
+    return max(
+        abs(
+            gamma * mei_radius(max_angle * i / samples, xi, k1, k2)
+            - fx * fisheye_radius(max_angle * i / samples, coeffs)
+        )
+        for i in range(samples + 1)
+    )

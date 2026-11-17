@@ -27,7 +27,7 @@ from drive2sim.ingest import kitti360
 from drive2sim.ingest.detect import inspect_source
 from drive2sim.ingest.dispatch import plan_ingest, run_ingest
 from drive2sim.ingest.drivestudio import IngestError
-from tests.drive2sim.samples import GAMMA_02, MEI_02, NUMPY_COEFFS_02
+from tests.drive2sim.samples import FISHEYE_COEFFS_02, GAMMA_02, MEI_02
 
 SEQ = "2013_05_28_drive_0003_sync"
 # Khung có ảnh và LiDAR: 0..13; khung có pose: thiếu 4..7 (chỗ hở) và 13.
@@ -232,7 +232,7 @@ def test_ingest_writes_kitti_layout(tmp_path: Path, extracted: bool) -> None:
     assert pinhole == [552.5, 552.5, 682.0, 238.7, 0, 0, 0, 0, 0]
     fisheye = [float(v) for v in (scene_dir / "intrinsics" / "2.txt").read_text().split()]
     assert len(fisheye) == 8
-    assert fisheye[4:] == pytest.approx(NUMPY_COEFFS_02, abs=1e-9)
+    assert fisheye[4:] == pytest.approx(FISHEYE_COEFFS_02, abs=1e-9)
     assert fisheye[2:4] == [700.0, 705.0]
 
     # Extrinsics: camera → Velodyne = (cam_to_pose00 · velo→cam0)⁻¹ · cam_to_pose[k] · R_rect⁻¹.
@@ -329,13 +329,16 @@ def test_cli_ingest_split_and_check(
     assert main(["split", "create", "kitti360_cli", *strategy]) == 0
     capsys.readouterr()
     check = ["--scene", "kitti360_cli", "--split", "every2_mixed4", "--json", "--quiet"]
-    assert main(["approach", "check", "gsplat_3dgut", *check]) == 0
-    data = json.loads(capsys.readouterr().out)
-    assert [s["stage_id"] for s in data["stages"]] == [
-        "train.gsplat_3dgut",
-        "eval.standard",
-        "export.ply_world",
-        "export.preview",
-    ]
-    # OmniRe cần box 3D, cảnh KITTI-360 không có: bị khoá (mã 3).
+    # OmniRe và Street GS cần box 3D, cảnh mẫu không có: bị khoá (mã 3).
     assert main(["approach", "check", "omnire", *check]) == 3
+    assert main(["approach", "check", "streetgs", *check]) == 3
+
+    capsys.readouterr()
+    # The common trainer accepts the same mixed-camera split once box data is available.
+    manifest.available.cuboids = "gt"
+    files.dump(manifest, Workdir(tmp_path / "work").scene_dir("kitti360_cli") / "manifest.yaml")
+    for approach in ("omnire", "streetgs"):
+        assert main(["approach", "check", approach, *check, "--preset", "ut"]) == 0
+        plan = json.loads(capsys.readouterr().out)
+        train = next(stage for stage in plan["stages"] if stage["stage_id"] == "train.drivestudio")
+        assert train["params"]["renderer"] == "3dgut"

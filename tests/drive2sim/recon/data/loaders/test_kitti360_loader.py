@@ -33,14 +33,14 @@ from drive2sim.recon.data.base.pixel_source import get_rays  # noqa: E402
 from drive2sim.recon.data.loaders.kitti import KITTICameraData, KITTIPixelSource  # noqa: E402
 from drive2sim.recon.data.loaders.kitti360 import KITTI360PixelSource  # noqa: E402
 from drive2sim.recon.utils.visualization import get_layout  # noqa: E402
-from tests.drive2sim.samples import MANIFEST, NUMPY_COEFFS_02  # noqa: E402
+from tests.drive2sim.samples import FISHEYE_COEFFS_02, MANIFEST  # noqa: E402
 
 PINHOLE_SIZE = (32, 16)  # rộng, cao
 FISHEYE_SIZE = (40, 40)
 PINHOLE_INTRINSICS = [20.0, 20.0, 16.0, 8.0, 0, 0, 0, 0, 0]
 # Ảnh fisheye nạp ở một nửa kích thước (20x20): fx = 6, điểm chính (10.5, 10.5) là tâm
 # pixel (10, 10).
-FISHEYE_INTRINSICS = [12.0, 12.0, 21.0, 21.0, *NUMPY_COEFFS_02]
+FISHEYE_INTRINSICS = [12.0, 12.0, 21.0, 21.0, *FISHEYE_COEFFS_02]
 
 
 def make_scene(root: Path) -> Path:
@@ -112,7 +112,7 @@ def test_fisheye_model_and_radial_coeffs_reach_camera_infos(source: KITTI360Pixe
     assert (camera.HEIGHT, camera.WIDTH) == (20, 20)
     image, infos = camera.get_image(0)
     assert infos["camera_model"] == "fisheye"
-    assert torch.allclose(infos["radial_coeffs"], torch.tensor(NUMPY_COEFFS_02).float())
+    assert torch.allclose(infos["radial_coeffs"], torch.tensor(FISHEYE_COEFFS_02).float())
     # fx, fy, cx, cy nhân theo kích thước nạp; k1..k4 không đổi
     expected = torch.tensor([[6.0, 0, 10.5], [0, 6.0, 10.5], [0, 0, 1]])
     assert torch.allclose(infos["intrinsics"], expected)
@@ -128,7 +128,7 @@ def test_principal_point_ray_is_optical_axis(source: KITTI360PixelSource) -> Non
 def test_off_axis_ray_angle_matches_opencv_fisheye(source: KITTI360PixelSource) -> None:
     image, infos = source.camera_data[1].get_image(0)
     K = infos["intrinsics"].double().numpy()
-    D = np.array(NUMPY_COEFFS_02, dtype=np.float64)
+    D = np.array(FISHEYE_COEFFS_02, dtype=np.float64)
     for row, col in ((10, 14), (13, 7), (4, 15)):
         # tâm pixel (col, row) nằm ở toạ độ (col + 0.5, row + 0.5)
         point = np.array([[[col + 0.5, row + 0.5]]], dtype=np.float64)
@@ -172,7 +172,7 @@ def test_fisheye_project_points(source: KITTI360PixelSource) -> None:
         np.zeros(3),
         np.zeros(3),
         camera.intrinsics[0].double().numpy(),
-        np.array(NUMPY_COEFFS_02, dtype=np.float64),
+        np.array(FISHEYE_COEFFS_02, dtype=np.float64),
     )
     assert np.allclose(pixels[1].numpy(), expected[0, 0], atol=1e-4)
 
@@ -208,3 +208,160 @@ def test_layout_tiles_pinhole_and_fisheye_cameras() -> None:
     fisheye = np.ones((1400, 1400, 3), np.float32)
     tiled = layout([pinhole, fisheye, fisheye], ["image_00", "image_02", "image_03"])
     assert tiled.shape == (376 + 1408, 2 * 1408, 3)
+
+
+@pytest.mark.parametrize("camera_name", ["image_02", "image_03"])
+def test_ego_mask_follows_manifest_name_after_camera_reindex(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, camera_name: str
+) -> None:
+    from drive2sim import paths
+
+    scene = make_scene(tmp_path / "scene")
+    manifest = yaml.safe_load((scene / "manifest.yaml").read_text())
+    manifest["cameras"][1]["camera_id"] = camera_name
+    (scene / "manifest.yaml").write_text(yaml.safe_dump(manifest))
+    mask_dir = tmp_path / "assets" / "kitti360"
+    mask_dir.mkdir(parents=True)
+    for name, row in (("image_02", 12), ("image_03", 22)):
+        pixels = np.zeros((40, 40), dtype=np.uint8)
+        pixels[row : row + 4, 18:22] = 255
+        Image.fromarray(pixels).save(mask_dir / f"{name}.png")
+    monkeypatch.setattr(paths, "EGO_MASKS_DIR", mask_dir.parent)
+    camera = make_source(scene).camera_data[1]
+    expected = torch.from_numpy(
+        np.array(
+            Image.open(mask_dir / f"{camera_name}.png").resize((20, 20), Image.Resampling.NEAREST)
+        )
+        > 0
+    )
+    assert torch.equal(camera.egocar_mask.bool(), expected)
+    for factor in (1.0, 0.5):
+        camera.set_downscale_factor(factor)
+        image, infos = camera.get_image(0)
+        height, width = int(infos["height"]), int(infos["width"])
+        _, angular_valid = camera.camera_rays(infos["intrinsics"], height, width)
+        ego = torch.nn.functional.interpolate(
+            expected[None, None].float(), size=(height, width), mode="nearest"
+        )[0, 0].bool()
+        assert bool((ego & angular_valid).any())
+        assert torch.equal(image["valid_masks"], angular_valid & ~ego)
+        assert torch.equal(image["egocar_masks"].bool(), ~image["valid_masks"])
+
+    camera.set_downscale_factor(1.0)
+    # Ray through the centre of the excluded patch: LiDAR must not use it for colour/depth.
+    row = 6 if camera_name == "image_02" else 11
+    rays, _ = camera.camera_rays(camera.intrinsics[0], 20, 20)
+    _, _, visible = camera.project_points(rays[row, 9][None] * 5, 0)
+    assert not bool(visible[0])
+
+
+def test_packaged_masks_keep_road_and_exclude_hardware() -> None:
+    from drive2sim import paths
+
+    for camera, gps_x, button_x in (("image_02", 100, 325), ("image_03", 1299, 1074)):
+        with Image.open(paths.EGO_MASKS_DIR / "kitti360" / f"{camera}.png") as mask:
+            pixels = np.array(mask)
+        assert pixels.shape == (1400, 1400)
+        assert set(np.unique(pixels)) == {0, 255}
+        assert pixels[930, gps_x] == 255
+        assert pixels[1080, button_x] == 255
+        assert pixels[1250, 700] == 255
+        assert pixels[1050, 700] == 0  # road, even when the vehicle casts a shadow here
+        assert pixels[410, 700] == 0  # fixed sun streak is not vehicle hardware
+
+
+def test_masked_rgb_does_not_contribute_to_training_loss(source: KITTI360PixelSource) -> None:
+    from types import SimpleNamespace
+
+    from drive2sim.recon.trainers.base import BasicTrainer
+
+    image, infos = source.camera_data[1].get_image(0)
+    image["sky_masks"] = torch.zeros_like(image["valid_masks"]).float()
+    trainer = SimpleNamespace(
+        losses_dict=OmegaConf.create({"rgb": {"w": 0.8}, "ssim": {"w": 0.2}}),
+        ssim=lambda a, b: 1 - (a - b).abs().mean(),
+        sky_opacity_loss_fn=None,
+        use_depth_supervision=False,
+        gaussian_classes={},
+        models={},
+    )
+    rgb = image["pixels"].clone()
+    rgb[~image["valid_masks"]] = 1
+    outputs = {"rgb": rgb, "opacity": torch.ones_like(image["valid_masks"]).float()}
+    losses = BasicTrainer.compute_losses(trainer, outputs, image, infos)
+    assert sum(losses.values()).item() == pytest.approx(0)
+    rgb[image["valid_masks"]] += 0.1
+    assert sum(BasicTrainer.compute_losses(trainer, outputs, image, infos).values()).item() > 0
+
+
+def test_evaluation_ignores_rgb_errors_inside_vehicle_mask(
+    source: KITTI360PixelSource, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from drive2sim.recon.rendering.videos import render
+
+    camera = source.camera_data[1]
+    monkeypatch.setattr(torch.Tensor, "cuda", lambda tensor, **kwargs: tensor)
+    monkeypatch.setattr(torch.cuda, "synchronize", lambda: None)
+
+    class Images:
+        split = "test"
+
+        def __len__(self) -> int:
+            return 1
+
+        def get_image(self, index: int, downscale: float) -> tuple:
+            return camera.get_image(index)
+
+    class Trainer:
+        changed = False
+
+        def _get_downscale_factor(self) -> int:
+            return 1
+
+        def __call__(self, image: dict, camera: dict) -> dict:
+            rgb = image["pixels"].clone() + 0.1
+            if self.changed:
+                rgb[~image["valid_masks"]] = 1
+            return {"rgb": rgb}
+
+        def lpips(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+            # Do not download a network: verify the tensors passed to the metric consumer.
+            return (prediction - target).abs().mean()
+
+    trainer = Trainer()
+    before = render(Images(), trainer, compute_metrics=True)
+    trainer.changed = True
+    after = render(Images(), trainer, compute_metrics=True)
+    for key in ("psnr", "ssim", "lpips"):
+        assert before[key] == pytest.approx(after[key])
+    image, _ = camera.get_image(0)
+    assert after["psnr"] == pytest.approx(
+        -20 * math.log10(round((40 / 255 + 0.1) * 255) / 255 - 40 / 255)
+    )
+
+
+def test_vehicle_mask_survives_reversed_camera_order(tmp_path: Path) -> None:
+    from drive2sim import paths
+
+    scene = make_scene(tmp_path)
+    manifest = yaml.safe_load((scene / "manifest.yaml").read_text())
+    manifest["cameras"].reverse()
+    (scene / "manifest.yaml").write_text(yaml.safe_dump(manifest))
+    for directory, suffix, prefixes in (
+        ("images", ".png", ["000_", "001_"]),
+        ("intrinsics", ".txt", [""]),
+        ("extrinsics", ".txt", [""]),
+    ):
+        for prefix in prefixes:
+            first = scene / directory / f"{prefix}0{suffix}"
+            second = scene / directory / f"{prefix}1{suffix}"
+            a, b = first.read_bytes(), second.read_bytes()
+            first.write_bytes(b)
+            second.write_bytes(a)
+    source = make_source(scene)
+    camera = source.camera_data[0]
+    assert camera.cam_name == "image_02"
+    with Image.open(paths.EGO_MASKS_DIR / "kitti360" / "image_02.png") as mask:
+        expected = np.array(mask.resize((40, 40), Image.Resampling.NEAREST)) > 0
+    assert torch.equal(camera.egocar_mask.bool(), torch.from_numpy(expected))
+    assert source.camera_data[1].egocar_mask is None
