@@ -6,7 +6,7 @@
   <title>Fisheye Fusion Lab</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
   <link rel="stylesheet" href="/static/pipeline.css">
 </head>
 <body>
@@ -193,6 +193,17 @@
         </div>
 
         <div class="panel" role="tabpanel" id="p-res-ds" aria-labelledby="t-res-ds">
+          <div class="stage" id="dsStage" aria-live="polite">
+            <div class="stage-bar">
+              <svg class="ic"><use href="#i-scene"/></svg><strong>Viewer 3D</strong>
+              <select id="dsViewRun" aria-label="Lần chạy để xem"></select>
+              <button type="button" class="play" id="dsViewStart"><svg class="ic sm"><use href="#i-play"/></svg> Xem 3D</button>
+              <button type="button" class="small" id="dsViewStop" hidden>Dừng viewer</button>
+              <a class="small-link" id="dsViewOpen" target="_blank" rel="noopener" hidden>Mở tab riêng <svg class="ic sm"><use href="#i-ext"/></svg></a>
+              <span class="hint" id="dsViewState"></span>
+            </div>
+            <div class="stage-body" id="dsStageBody"></div>
+          </div>
           <div class="toolbar">
             <span id="dsUpdated" class="hint" aria-live="polite"></span>
             <button type="button" class="small" id="dsRefresh"><svg class="ic sm"><use href="#i-refresh"/></svg> Làm mới</button>

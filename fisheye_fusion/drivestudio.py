@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import socket
 import subprocess
 import time
 from pathlib import Path
@@ -195,5 +196,63 @@ class DriveStudioRuns:
                                                 stdout=log, stderr=subprocess.STDOUT, shell=False, start_new_session=True)
         return {"name": name, "argv": argv[1:]}
 
+    # ---------------------------------------------------------------- interactive viewer (tools/viewer.py)
+    VIEWER_PORT = int(os.environ.get("DRIVESTUDIO_VIEWER_PORT", "8080"))
+
+    def _checkpoint(self, name: str) -> Path:
+        root = self._run_dir(name)
+        cks = sorted(root.glob("drivestudio/*/checkpoint_final.pth")) or sorted(
+            root.glob("drivestudio/*/checkpoint_*.pth"), key=lambda p: int(re.sub(r"\D", "", p.stem) or 0))
+        if not cks:
+            raise ValueError(f"run {name} has no checkpoint yet")
+        return cks[-1]
+
+    def viewer_status(self) -> dict:
+        proc = getattr(self, "_viewer", None)
+        alive = proc is not None and proc.poll() is None
+        listening = False
+        if alive:
+            with socket.socket() as sock:
+                sock.settimeout(0.3)
+                listening = sock.connect_ex(("127.0.0.1", self.VIEWER_PORT)) == 0
+        info = dict(getattr(self, "_viewer_info", {}) or {})
+        state = "ready" if listening else "loading" if alive else ("failed" if proc is not None and proc.returncode else "stopped")
+        log = ""
+        if info.get("log") and Path(info["log"]).exists():
+            log = _read_tail(Path(info["log"]), 4000).decode(errors="replace")
+        return {"state": state, "port": self.VIEWER_PORT, "run": info.get("run"), "checkpoint": info.get("checkpoint"),
+                "log": log if state in ("loading", "failed") else ""}
+
+    def viewer_start(self, name: str, gpu: int | None = None) -> dict:
+        ckpt = self._checkpoint(name)
+        if not self.options()["venv_ok"]:
+            raise ValueError(f"DriveStudio+ environment not found at {self.venv}")
+        self.viewer_stop()
+        env = dict(os.environ, PYTHONPATH=str(self.workspace), DRIVESTUDIO_VIEWER_HOST="127.0.0.1")
+        if gpu is not None:
+            env["CUDA_VISIBLE_DEVICES"] = str(int(gpu))
+        log = self._run_dir(name) / "viewer.log"
+        with log.open("wb") as f:
+            self._viewer = subprocess.Popen(
+                [str(self.venv / "bin" / "python"), "tools/viewer.py", "--ckpt", str(ckpt), "--port", str(self.VIEWER_PORT),
+                 "--output_dir", str(self._run_dir(name) / "viewer_exports")],
+                cwd=self.workspace, env=env, stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT,
+                shell=False, start_new_session=True)
+        self._viewer_info = {"run": name, "checkpoint": ckpt.relative_to(self.workspace).as_posix(), "log": str(log)}
+        return self.viewer_status()
+
+    def viewer_stop(self) -> dict:
+        proc = getattr(self, "_viewer", None)
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        self._viewer = None
+        self._viewer_info = {}
+        return {"state": "stopped", "port": self.VIEWER_PORT, "run": None, "checkpoint": None, "log": ""}
+
     def shutdown(self):
-        """Runs started from the UI keep going when the server stops: training takes hours."""
+        """Runs started from the UI keep going when the server stops (training takes hours); the viewer does not."""
+        self.viewer_stop()

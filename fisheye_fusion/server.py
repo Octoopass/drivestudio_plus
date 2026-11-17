@@ -93,6 +93,10 @@ class PrepareJob(BaseModel):
     name: str = ""
     objects: bool = True
 
+class ViewerJob(BaseModel):
+    name: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
+    gpu: int | None = Field(default=None, ge=0, le=63)
+
 class TrainingInput(BaseModel):
     dataset: str = Field(min_length=1, max_length=512)
     camera_ids: list[str] | None = Field(default=None, max_length=4)
@@ -139,6 +143,7 @@ def create_app():
     async def lifespan(app):
         yield
         pipeline.shutdown()
+        drivestudio.shutdown()
         training.shutdown()
         reconstruction.shutdown()
 
@@ -363,6 +368,18 @@ def create_app():
     @app.post("/api/drivestudio/train")
     def drivestudio_train(job: DriveStudioJob):
         return drivestudio.train(job.model_dump())
+
+    @app.get("/api/drivestudio/viewer")
+    def drivestudio_viewer():
+        return drivestudio.viewer_status()
+
+    @app.post("/api/drivestudio/viewer")
+    def drivestudio_viewer_start(job: ViewerJob):
+        return drivestudio.viewer_start(job.name, job.gpu)
+
+    @app.post("/api/drivestudio/viewer/stop")
+    def drivestudio_viewer_stop():
+        return drivestudio.viewer_stop()
 
     @app.get("/api/drivestudio/runs/{name}")
     def drivestudio_run(name: str):

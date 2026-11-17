@@ -109,3 +109,39 @@ def test_api_lists_runs(tmp_path, monkeypatch):
     assert client.get("/api/drivestudio/runs/r1/files/drivestudio/r1/images/step_2000_rgbs.png").status_code == 200
     assert client.get("/api/drivestudio/runs/r1/files/..%2F..%2Fx.png").status_code in (400, 404)
     assert client.get("/api/drivestudio/runs/missing").status_code == 404
+
+
+def test_viewer_starts_on_localhost_with_the_final_checkpoint(tmp_path, monkeypatch):
+    root = make_run(tmp_path, "r1", LOG)
+    (root / "drivestudio" / "r1" / "checkpoint_15000.pth").write_bytes(b"x")
+    (root / "drivestudio" / "r1" / "checkpoint_final.pth").write_bytes(b"x")
+    (tmp_path / "venv" / "bin").mkdir(parents=True)
+    (tmp_path / "venv" / "bin" / "python").write_text("")
+    calls = []
+
+    class FakePopen:
+        returncode = None
+
+        def __init__(self, argv, **kw):
+            calls.append((argv, kw))
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.returncode = -15
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+    monkeypatch.setattr(subprocess, "Popen", FakePopen)
+    runs = ds.DriveStudioRuns(tmp_path, venv=tmp_path / "venv")
+    st = runs.viewer_start("r1", gpu=0)
+    argv, kw = calls[0]
+    assert argv[1] == "tools/viewer.py" and argv[argv.index("--ckpt") + 1].endswith("checkpoint_final.pth")
+    assert kw["env"]["DRIVESTUDIO_VIEWER_HOST"] == "127.0.0.1" and kw["env"]["CUDA_VISIBLE_DEVICES"] == "0"
+    assert st["run"] == "r1" and st["state"] in ("loading", "ready")
+    assert runs.viewer_stop()["state"] == "stopped"
+    with pytest.raises(ValueError, match="no checkpoint"):
+        make_run(tmp_path, "r2", LOG)
+        runs.viewer_start("r2")

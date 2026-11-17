@@ -13,6 +13,8 @@ let setup = null;
 let selected = null;
 let sort = { key: 'updated', dir: -1 };
 let pollTimer = null;
+let viewer = { state: 'stopped' };
+let viewerTimer = null;
 
 async function api(path, body) {
   const res = await fetch(path, body === undefined ? {} : {
@@ -121,6 +123,7 @@ async function loadRuns() {
     <dt>Dữ liệu đã chuẩn bị</dt><dd>${(o.data_roots || []).map((d) => `<code>${esc(d)}</code>`).join(' ') || '<span class="muted">chưa có, xem bước 1</span>'}</dd>`;
   renderKpis();
   renderRuns();
+  renderViewerRuns();
   if (selected) renderViewer();
   $('#dsUpdated').textContent = `Cập nhật ${new Date().toLocaleTimeString('vi-VN')}`;
   clearTimeout(pollTimer);
@@ -240,6 +243,70 @@ function renderViewer() {
     ${run.videos.length ? `<h3 style="margin-top:16px">Video tập test</h3><div class="list">${run.videos.map((v) => `<a href="/api/drivestudio/runs/${enc(run.name)}/files/${enc(v)}" target="_blank" rel="noopener">${esc(v.split('/').pop())}</a>`).join('')}</div>` : ''}`;
 }
 
+// ------------------------------------------------------------------ 3D viewer (DriveStudio tools/viewer.py, served on its own port)
+const viewerUrl = () => `${location.protocol}//${location.hostname}:${viewer.port}/`;
+
+function renderViewerRuns() {
+  const sel = $('#dsViewRun');
+  const ready = overview.runs.filter((r) => r.checkpoint);
+  fill(sel, ready.map((r) => [r.name, `${r.name}${r.metrics?.['Full Image PSNR'] != null && r.state === 'succeeded' ? ` · ${r.metrics['Full Image PSNR'].toFixed(2)} dB` : ''}`]));
+  if (viewer.run && ready.some((r) => r.name === viewer.run)) sel.value = viewer.run;
+  else if (selected && ready.some((r) => r.name === selected)) sel.value = selected;
+  $('#dsViewStart').disabled = !ready.length;
+}
+
+function renderStage() {
+  const body = $('#dsStageBody');
+  const st = viewer.state;
+  $('#dsViewStop').hidden = !(st === 'ready' || st === 'loading');
+  $('#dsViewOpen').hidden = st !== 'ready';
+  if (st === 'ready') $('#dsViewOpen').href = viewerUrl();
+  $('#dsViewState').innerHTML = {
+    ready: `<span class="tag ok">đang mở</span> <code>${esc(viewer.run)}</code>`,
+    loading: `<span class="tag run">đang nạp checkpoint…</span> <code>${esc(viewer.run)}</code>`,
+    failed: '<span class="tag bad">viewer lỗi</span>',
+    stopped: '',
+  }[st] || '';
+  const frame = body.querySelector('iframe');
+  if (st === 'ready') {
+    if (!frame || frame.dataset.run !== viewer.run) {
+      body.innerHTML = `<iframe title="DriveStudio viewer: ${esc(viewer.run)}" src="${viewerUrl()}" data-run="${esc(viewer.run)}" allow="fullscreen"></iframe>`;
+    }
+    return;
+  }
+  if (st === 'loading') {
+    body.innerHTML = `<div class="stage-empty"><span class="spinner" aria-hidden="true"></span><b>Đang khởi động viewer trên GPU của kit</b>Nạp checkpoint và dữ liệu mất khoảng 30–60 giây.<pre class="log">${esc(viewer.log.split('\n').slice(-8).join('\n'))}</pre></div>`;
+  } else if (st === 'failed') {
+    body.innerHTML = `<div class="stage-empty"><b>Viewer dừng vì lỗi</b><pre class="log">${esc(viewer.log.split('\n').slice(-14).join('\n'))}</pre></div>`;
+  } else {
+    body.innerHTML = `<div class="stage-empty"><b>Xem cảnh đã dựng trong không gian 3D</b>Chọn một lần chạy có checkpoint rồi bấm <b>Xem 3D</b>: viewer của DriveStudio chạy trên GPU của kit, bạn xoay, bay trong cảnh, đổi camera, chọn khung hình, tắt bật nền và vật thể.</div>`;
+  }
+}
+
+async function loadViewer() {
+  viewer = await api('/api/drivestudio/viewer');
+  renderStage();
+  clearTimeout(viewerTimer);
+  if (viewer.state === 'loading') viewerTimer = setTimeout(() => loadViewer().catch(() => {}), 3000);
+}
+
+function initViewer() {
+  $('#dsViewStart').addEventListener('click', async () => {
+    const name = $('#dsViewRun').value;
+    if (!name) return;
+    const free = [...(setup?.gpus || [])].sort((a, b) => (a.memory_used_mib - b.memory_used_mib))[0];
+    $('#dsViewStart').disabled = true;
+    try {
+      viewer = await api('/api/drivestudio/viewer', { name, gpu: free ? free.index : null });
+      renderStage();
+      loadViewer();
+    } catch (err) { toast(err.message, true); } finally { $('#dsViewStart').disabled = false; }
+  });
+  $('#dsViewStop').addEventListener('click', async () => {
+    try { viewer = await api('/api/drivestudio/viewer/stop', {}); renderStage(); } catch (err) { toast(err.message, true); }
+  });
+}
+
 // ------------------------------------------------------------------ jobs
 async function pollJob(id, box, onDone) {
   const st = await api(`/api/pipeline/${id}`);
@@ -331,4 +398,5 @@ function initForms() {
 initTabs();
 initNav();
 initForms();
-Promise.all([loadSetup(), loadRuns()]).then(renderKpis).catch((err) => toast(err.message, true));
+initViewer();
+Promise.all([loadSetup(), loadRuns()]).then(() => { renderKpis(); return loadViewer(); }).catch((err) => toast(err.message, true));
