@@ -105,7 +105,7 @@ IN_PACKAGE_CODEBASES: tuple[str, ...] = ("drivestudio",)
 
 # Phiên bản schema hiện tại của từng loại file.
 SCHEMA_VERSIONS: dict[str, str] = {
-    "manifest": "d2s-manifest/1.1",
+    "manifest": "d2s-manifest/1.2",
     "split": "d2s-split/0.1",
     "report": "d2s-report/0.1",
     "approach": "d2s-approach/0.3",
@@ -119,6 +119,9 @@ SCHEMA_VERSIONS: dict[str, str] = {
 }
 
 OPTION_REFERENCE_RE = re.compile(r"^\$\{options\.([a-z][a-z0-9_]*)\}$")
+# Lựa chọn của mục cấu hình dùng làm stage (``stage: "${options.<mục>}"``) có nghĩa "không chạy
+# stage nào ở bước này": engine bỏ bước đó khỏi danh sách stage (CONTRACTS mục 4.1).
+NO_STAGE = "none"
 EVERY_NTH_FRAME_RE = re.compile(r"^every_nth_frame:(\d+)$")
 
 
@@ -338,12 +341,35 @@ class Available(StrictModel):
         cuboids: Nguồn của box 3D: ``gt`` (nhãn gốc), ``autolabel`` (sinh tự động) hoặc ``none``.
         camera_labels: Nhãn theo ảnh có sẵn trong nguồn, ví dụ ``["depth", "segmentation"]``.
         egocar_mask: Nguồn có mask thân xe không.
+        human_frames: Các đoạn khung ``[đầu, cuối]`` (tính cả hai đầu) có ít nhất một box người
+            (lớp OmniRe dựng bằng SMPL, ``drive2sim/core/instances.py``); ``[]`` nếu cảnh không
+            có người; ``None`` nếu không biết. Engine dùng để bỏ bước dựng SMPL khi đoạn khung
+            của split không có người. Thêm từ ``d2s-manifest/1.2``; manifest cũ không có trường
+            này thì ``Workdir.load_scene`` tự đọc ``instances/`` nếu cảnh có trên máy.
     """
 
     lidar: bool
     cuboids: Literal["gt", "autolabel", "none"]
     camera_labels: list[str] = []
     egocar_mask: bool = False
+    human_frames: Optional[list[tuple[int, int]]] = None
+
+    @field_validator("human_frames")
+    @classmethod
+    def _validate_human_frames(
+        cls, value: Optional[list[tuple[int, int]]]
+    ) -> Optional[list[tuple[int, int]]]:
+        """Kiểm tra mỗi đoạn có ``0 <= đầu <= cuối``.
+
+        Raises:
+            ValueError: Nếu một đoạn sai.
+        """
+        for start, end in value or []:
+            if not 0 <= start <= end:
+                raise ValueError(
+                    "human_frames entries must be [start, end] with 0 <= start <= end"
+                )
+        return value
 
 
 class Manifest(VersionedFile):
@@ -840,7 +866,8 @@ class Approach(VersionedFile):
     def _check_stage_entry(self, index: int, entry: StageEntry) -> None:
         """Kiểm tra một bước: ``stage_id`` hợp lệ, chỗ giữ chỗ trỏ tới mục cấu hình có thật.
 
-        Nếu ``stage`` là chỗ giữ chỗ thì mọi lựa chọn của mục cấu hình đó phải là ``stage_id``.
+        Nếu ``stage`` là chỗ giữ chỗ thì mọi lựa chọn của mục cấu hình đó phải là ``stage_id``,
+        hoặc ``NO_STAGE`` (``none``: bỏ bước này).
 
         Args:
             index: Vị trí của bước trong danh sách.
@@ -861,7 +888,8 @@ class Approach(VersionedFile):
                         f"stages[{index}]: option {option_name!r} is used as a stage "
                         f"but has non-stage choice {choice!r}"
                     )
-                identifiers.check_stage_id(choice)
+                if choice != NO_STAGE:
+                    identifiers.check_stage_id(choice)
         for param_name, value in entry.params.items():
             referenced = option_reference(value)
             if referenced is not None and referenced not in self.options:
