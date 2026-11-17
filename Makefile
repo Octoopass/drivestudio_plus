@@ -95,13 +95,14 @@ load_ports() {
 }
 endef
 
-.PHONY: help setup test test-py39 lint format check types build studio dev demo demo-data down status clean
+.PHONY: help setup test test-py39 test-gpu lint format check types build studio dev demo demo-data down status clean
 
 help:
 	@echo "drive2sim — lệnh có sẵn:"
 	@echo "  make setup       # tạo .venv và cài drive2sim[dev,studio,kaggle]; npm ci cho Studio"
 	@echo "  make test        # chạy pytest bằng .venv"
 	@echo "  make test-py39   # chạy pytest bằng Python 3.9 (qua uv)"
+	@echo "  make test-gpu    # chạy pytest bằng conda env GPU (GPU_ENV=drive2sim), gồm test cần PyTorch"
 	@echo "  make lint        # ruff check"
 	@echo "  make format      # ruff format"
 	@echo "  make check       # format + lint + test (trước khi commit)"
@@ -129,6 +130,14 @@ test:
 
 test-py39:
 	@uv run --python 3.9 --no-project $(PY39_DEPS) python -m pytest -q
+
+# Test cần PyTorch, numpy (recon/, metric, camera) bị bỏ qua ở .venv nhẹ; chạy chúng bằng conda env
+# GPU. Lần đầu cài pytest và httpx (TestClient của Studio) vào env đó nếu chưa có.
+GPU_ENV ?= drive2sim
+test-gpu:
+	@GPU_PY="$$(conda info --base)/envs/$(GPU_ENV)/bin/python"; \
+	"$$GPU_PY" -c "import pytest, httpx" 2>/dev/null || "$$GPU_PY" -m pip install -q pytest httpx; \
+	"$$GPU_PY" -m pytest -q -p no:cacheprovider
 
 lint:
 	@uvx ruff check $(LINT_PATHS)

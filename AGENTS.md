@@ -191,6 +191,7 @@ def make_cache_key(
 - Test không được gọi Kaggle hay Colab thật: `tests/drive2sim/conftest.py` chặn lệnh `kaggle` và `colab` cho mọi test; test cần Kaggle, Colab thì truyền runner hoặc client giả.
 - Test không được mở cửa sổ trên máy: `conftest.py` bỏ `DISPLAY` và `WAYLAND_DISPLAY` cho mọi test, nên `/api/reveal` và `/api/pick-folder` báo máy không có giao diện; test cần giao diện thì tự đặt biến và patch lệnh chạy.
 - Trước khi commit: `uvx ruff format drive2sim tests`, `uvx ruff check drive2sim tests`, rồi chạy test (`make check` làm cả ba).
+- Test cần PyTorch hoặc numpy (`tests/drive2sim/recon/`, metric, camera) bị bỏ qua ở `.venv` nhẹ; chạy chúng bằng `make test-gpu` (conda env GPU, mặc định `GPU_ENV=drive2sim`). Sửa `drive2sim/recon/` hoặc phần dùng PyTorch thì chạy `make test-gpu` trước khi commit.
 - Kiểm tra Python 3.9 (`make test-py39`): `uv run --python 3.9 --no-project --with "pydantic>=2.5,<3" --with "pyyaml>=6" --with "pytest>=7" --with "fastapi>=0.110" --with "httpx>=0.24" python -m pytest -q`.
 - Thay đổi hành vi ở `drive2sim/recon/` không chạy được trên máy không có GPU: ghi rõ "chưa chạy thật" trong commit và docs, rồi kiểm tra hồi quy trên Kaggle (train lại cùng cảnh, so PSNR) theo `ARCHITECTURE.md` mục 7.3 và 10.
 
