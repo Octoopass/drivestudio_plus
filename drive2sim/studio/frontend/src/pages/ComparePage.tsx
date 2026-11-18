@@ -277,14 +277,14 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
                     >
                       <span className="th-metric">
                         {metric.text ? (
-                          <span>{t(metric.label)}</span>
+                          <span title={t(metric.label)}>{t(metric.short ?? metric.label)}</span>
                         ) : (
                           <button
                             onClick={() => chooseSort(metric)}
                             className={sort.key === metric.key ? "sorted" : undefined}
-                            title={t("compare.sort.click")}
+                            title={`${t(metric.label)} · ${t("compare.sort.click")}`}
                           >
-                            {t(metric.label)}
+                            {t(metric.short ?? metric.label)}
                             {metric.unit && <span className="faint th-unit">({metric.unit})</span>}
                             <BetterArrow better={metric.better} />
                             {/* Ô icon chiều sắp xếp có độ rộng cố định ở mọi cột: bấm cột nào cũng không

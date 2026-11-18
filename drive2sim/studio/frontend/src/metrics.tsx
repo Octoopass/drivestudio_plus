@@ -11,6 +11,8 @@ export interface MetricDef {
   key: MetricKey;
   /** Khoá i18n của tên metric. */
   label: string;
+  /** Khoá i18n của tên ngắn cho tiêu đề cột bảng so sánh; không có thì dùng ``label``. */
+  short?: string;
   /** Khoá i18n của giải thích (icon i), nếu có. */
   hint?: string;
   unit?: string;
@@ -79,9 +81,9 @@ export const METRIC_GROUPS: MetricGroup[] = [
     label: "metrics.group.time",
     hint: "metrics.group.time_hint",
     metrics: [
-      { key: "train_time_s", hardware: true, label: "run.result.train_time", hint: "metrics.hint.train_time", better: "low", format: (r) => duration(r.train_time_s), value: num("train_time_s") },
+      { key: "train_time_s", hardware: true, label: "run.result.train_time", short: "metrics.short.train_time", hint: "metrics.hint.train_time", better: "low", format: (r) => duration(r.train_time_s), value: num("train_time_s") },
       { key: "recon_time_s", hardware: true, label: "run.result.recon_time", hint: "metrics.hint.recon_time", better: "low", format: (r) => duration(r.recon_time_s), value: num("recon_time_s") },
-      { key: "num_iters", label: "run.result.iters", hint: "metrics.hint.iters", format: (r) => count(r.num_iters), value: num("num_iters") },
+      { key: "num_iters", label: "run.result.iters", short: "metrics.short.iters", hint: "metrics.hint.iters", format: (r) => count(r.num_iters), value: num("num_iters") },
     ],
   },
   {
@@ -90,8 +92,8 @@ export const METRIC_GROUPS: MetricGroup[] = [
     label: "metrics.group.resources",
     hint: "metrics.group.resources_hint",
     metrics: [
-      { key: "peak_vram_mb", hardware: true, label: "run.result.vram", hint: "metrics.hint.vram", unit: "GB", better: "low", format: (r) => (r.peak_vram_mb ? (r.peak_vram_mb / 1024).toFixed(1) : "–"), value: num("peak_vram_mb") },
-      { key: "render_fps", hardware: true, label: "run.result.fps", hint: "metrics.hint.fps", unit: "fps", better: "high", format: digits("render_fps", 1), value: num("render_fps") },
+      { key: "peak_vram_mb", hardware: true, label: "run.result.vram", short: "metrics.short.vram", hint: "metrics.hint.vram", unit: "GB", better: "low", format: (r) => (r.peak_vram_mb ? (r.peak_vram_mb / 1024).toFixed(1) : "–"), value: num("peak_vram_mb") },
+      { key: "render_fps", hardware: true, label: "run.result.fps", short: "metrics.short.fps", hint: "metrics.hint.fps", unit: "fps", better: "high", format: digits("render_fps", 1), value: num("render_fps") },
       { key: "gpu", label: "metrics.gpu", hint: "metrics.hint.gpu", text: true, format: (r) => r.gpu ?? "–", value: () => null },
     ],
   },
@@ -101,10 +103,10 @@ export const METRIC_GROUPS: MetricGroup[] = [
     label: "metrics.group.data",
     hint: "metrics.group.data_hint",
     metrics: [
-      { key: "train_resolution", label: "metrics.train_resolution", hint: "metrics.hint.train_resolution", text: true, format: (r) => size(r.train_resolution), value: () => null },
-      { key: "source_resolution", label: "metrics.source_resolution", hint: "metrics.hint.source_resolution", text: true, format: (r) => size(r.source_resolution), value: () => null },
-      { key: "train_images", label: "metrics.train_images", hint: "metrics.hint.train_images", format: (r) => count(r.train_images), value: num("train_images") },
-      { key: "test_images", label: "metrics.test_images", hint: "metrics.hint.test_images", format: (r) => count(r.test_images), value: num("test_images") },
+      { key: "train_resolution", label: "metrics.train_resolution", short: "metrics.short.train_resolution", hint: "metrics.hint.train_resolution", text: true, format: (r) => size(r.train_resolution), value: () => null },
+      { key: "source_resolution", label: "metrics.source_resolution", short: "metrics.short.source_resolution", hint: "metrics.hint.source_resolution", text: true, format: (r) => size(r.source_resolution), value: () => null },
+      { key: "train_images", label: "metrics.train_images", short: "metrics.short.train_images", hint: "metrics.hint.train_images", format: (r) => count(r.train_images), value: num("train_images") },
+      { key: "test_images", label: "metrics.test_images", short: "metrics.short.test_images", hint: "metrics.hint.test_images", format: (r) => count(r.test_images), value: num("test_images") },
       { key: "test_every", label: "metrics.test_every", hint: "metrics.hint.test_every", format: (r) => (r.test_every ? `1 / ${r.test_every}` : "–"), value: num("test_every") },
     ],
   },
@@ -114,7 +116,7 @@ export const METRIC_GROUPS: MetricGroup[] = [
     label: "metrics.group.size",
     hint: "metrics.group.size_hint",
     metrics: [
-      { key: "num_gaussians", label: "run.result.gaussians", hint: "metrics.hint.gaussians", format: (r) => count(r.num_gaussians), value: num("num_gaussians") },
+      { key: "num_gaussians", label: "run.result.gaussians", short: "metrics.short.gaussians", hint: "metrics.hint.gaussians", format: (r) => count(r.num_gaussians), value: num("num_gaussians") },
       { key: "ply_gaussians", label: "run.result.ply_gaussians", hint: "metrics.hint.ply_gaussians", format: (r) => count(r.ply_gaussians), value: num("ply_gaussians") },
       { key: "ply_size_mb", label: "run.result.ply_size", hint: "metrics.hint.ply_size", unit: "MB", format: digits("ply_size_mb", 1), value: num("ply_size_mb") },
       { key: "preview_gaussians", label: "metrics.preview_gaussians", hint: "metrics.hint.preview_gaussians", format: (r) => count(r.preview_gaussians), value: num("preview_gaussians") },
