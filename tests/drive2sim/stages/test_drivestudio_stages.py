@@ -497,7 +497,7 @@ def test_eval_remeasures_old_metrics_from_checkpoint(
             "image_metrics/test/per_camera/0/lpips": 0.2,
         }
         folder = output_dir / standard.REEVAL_DIR / "metrics_eval"
-        folder.mkdir(parents=True)
+        folder.mkdir(parents=True, exist_ok=True)
         (folder / "images_test_2026-11-18_000000.json").write_text(json.dumps(new))
 
     monkeypatch.setattr(standard, "run_logged", fake_run)
