@@ -303,7 +303,7 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
               {blocks.map((block) => (
               <tbody key={block.id}>
                 <tr className="group-row">
-                  <td colSpan={(!currentSplit && !grouped ? 4 : 3) + group.metrics.length}>
+                  <td className="block-head" colSpan={(!currentSplit && !grouped ? 4 : 3) + group.metrics.length}>
                     {grouped && (
                       <>
                         {t("compare.table.split")} <b>{block.split}</b> ·{" "}
