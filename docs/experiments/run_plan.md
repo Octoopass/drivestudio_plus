@@ -187,7 +187,7 @@ Cách kiểm tra:
 Kiểm tra việc dùng ảnh pinhole và fisheye để học một cảnh 3D chung trên KITTI-360
 `kitti360_drive0003`. Chạy đủ ba nhóm camera cho cả OmniRe + 3DGUT và OmniRe + 3DGEER.
 Trong mỗi nhóm renderer, ba run chỉ thay camera dùng để train; mỗi run tạo một mô hình
-riêng để đối chiếu. Cả sáu run hiện chưa khởi chạy.
+riêng để đối chiếu. Đợt 1 và 2 (bốn run) đã chạy xong ngày 17/11; đợt 3 chưa chạy.
 
 Chạy theo ba đợt ưu tiên dưới đây. Trong mỗi đợt, chạy cặp 3DGEER và 3DGUT song
 song nếu quota cho phép; nếu chỉ đủ một GPU thì chạy lần lượt theo thứ tự trong bảng.
@@ -196,10 +196,10 @@ cặp pinhole-only. Nếu phát hiện lỗi dữ liệu hoặc phép chiếu, x
 
 | Đợt ưu tiên | Renderer | Camera train | Split | Ảnh train / test | Bước train | Trạng thái |
 |---|---|---|---|---:|---:|---|
-| 1 | 3DGEER | Fisheye: `image_02`, `image_03` | `every10_fisheye2` | 362 / 38 | 30.000 | Chưa chạy |
-| 1 | 3DGUT | Fisheye: `image_02`, `image_03` | `every10_fisheye2` | 362 / 38 | 30.000 | Chưa chạy |
-| 2 | 3DGEER | Kết hợp: cả bốn camera | `every10_mixed4` | 724 / 76 | 30.000 | Chưa chạy |
-| 2 | 3DGUT | Kết hợp: cả bốn camera | `every10_mixed4` | 724 / 76 | 30.000 | Chưa chạy |
+| 1 | 3DGEER | Fisheye: `image_02`, `image_03` | `every10_fisheye2` | 362 / 38 | 30.000 | Xong, `e3e3` |
+| 1 | 3DGUT | Fisheye: `image_02`, `image_03` | `every10_fisheye2` | 362 / 38 | 30.000 | Xong, `146b` |
+| 2 | 3DGEER | Kết hợp: cả bốn camera | `every10_mixed4` | 724 / 76 | 30.000 | Xong, `0b27` |
+| 2 | 3DGUT | Kết hợp: cả bốn camera | `every10_mixed4` | 724 / 76 | 30.000 | Xong, `e627` |
 | 3 | 3DGEER | Pinhole: `image_00`, `image_01` | `every10_pinhole2` | 362 / 38 | 30.000 | Chưa chạy |
 | 3 | 3DGUT | Pinhole: `image_00`, `image_01` | `every10_pinhole2` | 362 / 38 | 30.000 | Chưa chạy |
 
@@ -253,6 +253,43 @@ nhìn chưa được train. Kết quả này cần báo riêng với đánh giá
 
 Tổng ngân sách của sáu run là 180.000 bước tối ưu. Mở rộng đoạn đường làm sau khi
 kiểm tra được kết quả trên đoạn 0–199; chưa chốt chạy ngay toàn bộ 864 khung.
+
+### Kết quả đợt 1 và 2 (protocol 0.3)
+
+Bốn run chạy trên Kaggle T4 ngày 17/11, OmniRe + FastGS + Faster-GS, 30.000 bước. Cả bốn
+được đo bằng `eval.standard` 0.3.0: hai run fisheye đo ngay sau train, hai run kết hợp đo
+lại từ `checkpoint_final.pth` (`d2s kaggle push --rerun eval.standard`). Kết quả nằm ở
+`runs/kitti360_drive0003/omnire/<run_id>/d2s/stages/eval.standard/summary.json`.
+
+| Run | Renderer | Split | PSNR | SSIM | LPIPS | PSNR xe | Gaussian | Train | VRAM đỉnh | FPS render |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `e3e3` | 3DGEER | `every10_fisheye2` | 22,90 | 0,746 | **0,220** | 22,20 | 194k | 2 giờ 30 | 3,5 GB | 11,3 |
+| `146b` | 3DGUT | `every10_fisheye2` | **23,08** | **0,760** | 0,224 | **22,74** | 272k | **2 giờ 16** | **3,1 GB** | 11,3 |
+| `0b27` | 3DGEER | `every10_mixed4` | 21,37 | 0,765 | **0,214** | **21,45** | 218k | 2 giờ 01 | 3,4 GB | 12,9 |
+| `e627` | 3DGUT | `every10_mixed4` | **23,72** | **0,769** | 0,234 | 21,14 | 208k | **1 giờ 37** | **3,1 GB** | **14,9** |
+
+Theo từng camera (PSNR / SSIM / LPIPS):
+
+| Camera | `e3e3` 3DGEER fisheye | `146b` 3DGUT fisheye | `0b27` 3DGEER kết hợp | `e627` 3DGUT kết hợp |
+|---|---|---|---|---|
+| `image_00` pinhole | | | 20,15 / 0,790 / 0,218 | **25,74** / 0,807 / 0,226 |
+| `image_01` pinhole | | | 19,95 / 0,778 / 0,221 | **25,09** / 0,795 / 0,224 |
+| `image_02` fisheye | 23,23 / 0,776 / 0,226 | 23,83 / 0,785 / 0,232 | **23,89** / 0,795 / 0,200 | 23,04 / 0,770 / 0,248 |
+| `image_03` fisheye | 22,57 / 0,717 / 0,214 | 22,33 / 0,736 / 0,216 | **21,48** / 0,698 / 0,218 | 21,00 / 0,703 / 0,236 |
+
+Nhận xét:
+
+- Trên fisheye hai renderer ngang nhau: chỉ train fisheye thì 3DGUT hơn 0,18 dB và mỗi
+  bên thắng một camera; trong run kết hợp, 3DGEER còn hơn 3DGUT trên cả hai fisheye
+  (0,85 dB và 0,48 dB) với LPIPS thấp hơn.
+- Khoảng cách 2,35 dB PSNR chung của run kết hợp nằm hết ở pinhole: 3DGEER chỉ đạt khoảng
+  20 dB trên `image_00`, `image_01`, thấp hơn 3DGUT khoảng 5,3 dB. Cần đợt 3
+  (pinhole-only) để biết đây là lỗi phép chiếu pinhole của 3DGEER hay do gộp camera.
+- Gộp pinhole không làm hỏng fisheye: fisheye của run kết hợp gần bằng run chỉ fisheye
+  (3DGEER `image_02` còn tăng 0,66 dB; `image_03` giảm khoảng 1,1–1,3 dB ở cả hai renderer).
+- 3DGUT train nhanh hơn và tốn ít VRAM hơn ở cả hai split.
+- SSIM, LPIPS ở đây không so được với số protocol 0.2 cũ của `0b27`, `e627`
+  (0,823/0,183 và 0,829/0,198); PSNR không đổi giữa hai protocol.
 
 ### Kết quả chạy thử cũ
 
