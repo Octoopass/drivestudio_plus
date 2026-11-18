@@ -73,7 +73,7 @@ options:
     group: data
     label: "Nguồn SMPL (người)"
     help: "Tư thế người đi bộ (SMPL) cho các Gaussian người của OmniRe. Tự động: dùng bản DriveStudio phát hành sẵn nếu cảnh có trong đó, không thì tự tính; đoạn khung của split không có người thì bỏ bước này."
-    labels: ["Bản phát hành DriveStudio", "Tự tính (4D-Humans)", "Không dựng người SMPL"]
+    labels: ["DriveStudio SMPL", "Tự tính SMPL", "Không dùng SMPL"]
     descriptions:
       - "Tải SMPL DriveStudio đã tính sẵn (hiện có cho 10 cảnh nuScenes v1.0-mini): không tốn GPU. Trên scene-0061 kết quả gần như trùng bản tự tính (lệch tư thế trung bình 1e-4)."
       - "Chạy 4D-Humans + PHALP trên ảnh của cảnh (khoảng 72 phút GPU T4 với scene-0061); dùng được cho mọi cảnh có box người."
