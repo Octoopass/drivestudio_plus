@@ -26,7 +26,7 @@ from typing import Optional
 from drive2sim.core import files
 from drive2sim.core.schema import Manifest, RunRecord
 from drive2sim.engine.cache import ARTIFACT_FILE
-from drive2sim.engine.run import D2S_DIR, RUN_FILE
+from drive2sim.engine.run import D2S_DIR, RUN_FILE, reset_stage
 from drive2sim.engine.workdir import Workdir
 
 BUNDLE_FILES = ("run.json", "split.json", "scene_ref.json", "resume.json")
@@ -37,6 +37,7 @@ def write_bundle(
     workdir: Workdir,
     scene_dataset: Optional[str],
     resume_kernels: Sequence[str] = (),
+    rerun: Sequence[str] = (),
 ) -> dict[str, dict]:
     """Dựng gói job của một run.
 
@@ -47,6 +48,8 @@ def write_bundle(
             Colab (cảnh được upload thẳng lên VM, CONTRACTS mục 9.3).
         resume_kernels: Các notebook của những lần đẩy trước (mới nhất trước), để chạy tiếp từ
             output của lần mới nhất có kết quả của run.
+        rerun: Stage chạy lại dù lần trước đã xong (ví dụ ``eval.standard`` để đo lại bằng
+            code mới); chỉ có tác dụng khi chạy tiếp từ output của lần trước.
 
     Returns:
         ``{tên file: nội dung JSON}``.
@@ -62,7 +65,7 @@ def write_bundle(
             "converter_version": scene.manifest.source.converter_version,
             "kaggle_dataset": scene_dataset,
         },
-        "resume.json": {"kernels": list(resume_kernels)},
+        "resume.json": {"kernels": list(resume_kernels), "rerun": list(rerun)},
     }
 
 
@@ -170,6 +173,10 @@ def materialize(bundle: dict[str, dict], workdir: Workdir, input_root: Path) -> 
             shutil.copytree(
                 previous_cache, workdir.cache_dir / record.scene_id, dirs_exist_ok=True
             )
+        # Chỉ đặt lại ngay sau khi chép, để lần gọi thứ hai (--prepare-only rồi chạy) không
+        # đặt lại stage vừa chạy xong.
+        for stage_id in bundle["resume.json"].get("rerun", []):
+            reset_stage(run_dir, stage_id)
     _copy_mounted_cache(input_root, workdir, record.scene_id)
     if not (run_dir / D2S_DIR / RUN_FILE).is_file():
         (run_dir / D2S_DIR).mkdir(parents=True, exist_ok=True)

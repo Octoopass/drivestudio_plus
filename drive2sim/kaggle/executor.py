@@ -454,7 +454,13 @@ class _Prepared:
     kernels: list[str]
 
 
-def _prepare(client: KaggleClient, workdir: Workdir, run_id: str, username: str) -> _Prepared:
+def _prepare(
+    client: KaggleClient,
+    workdir: Workdir,
+    run_id: str,
+    username: str,
+    rerun: Sequence[str] = (),
+) -> _Prepared:
     """Kiểm tra run đẩy được, upload cảnh (và cache cho tài khoản mới) nếu cần, dựng gói job."""
     run_dir = workdir.find_run(run_id)
     record = files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
@@ -511,7 +517,15 @@ def _prepare(client: KaggleClient, workdir: Workdir, run_id: str, username: str)
     # lỗi trước khi ghi được gì (ví dụ lúc cài môi trường), khi đó notebook chạy tiếp từ lần cũ hơn
     # còn kết quả thay vì train lại từ đầu.
     resume = list(reversed(history))[:MAX_RESUME_SOURCES]
-    bundle = write_bundle(run_dir, workdir, dataset, resume)
+    if rerun:
+        unknown = sorted(set(rerun) - {stage.stage_id for stage in record.stages})
+        if unknown:
+            raise KaggleError(f"run {run_id} không có stage {', '.join(unknown)}")
+        if not resume:
+            raise KaggleError(
+                f"run {run_id} chưa đẩy lần nào; --rerun chỉ dùng khi chạy tiếp từ lần trước"
+            )
+    bundle = write_bundle(run_dir, workdir, dataset, resume, rerun)
     # Gắn thêm output của run khác đã có mask, SMPL mà run này cần, để khỏi tính lại.
     kernels, missing = _cache_sources(client, workdir, record, username)
     # Tài khoản chưa có notebook nào có cache đó (ví dụ tài khoản mới): upload cache trên máy.
@@ -554,6 +568,7 @@ def push_runs(
     client: Optional[KaggleClient] = None,
     branch: str = DEFAULT_BRANCH,
     accelerator: str = DEFAULT_ACCELERATOR,
+    rerun: Sequence[str] = (),
 ) -> list[KaggleState]:
     """Đẩy một run, hoặc hai run chung một notebook, lên Kaggle và cho chạy.
 
@@ -569,6 +584,8 @@ def push_runs(
         client: Kaggle; mặc định gọi lệnh ``kaggle``.
         branch: Branch để clone.
         accelerator: ``machine_shape`` của notebook, ví dụ ``NvidiaTeslaT4``, ``NvidiaL4``.
+        rerun: Stage chạy lại dù lần trước đã xong, ví dụ ``eval.standard`` để đo lại bằng
+            code mới mà không train lại.
 
     Returns:
         Trạng thái đã ghi vào ``d2s/kaggle.json`` của từng run, cùng thứ tự ``run_ids``.
@@ -588,7 +605,7 @@ def push_runs(
     client = client or KaggleClient()
     username = client.username()
     commit, repo_url = code_source(branch)
-    prepared = [_prepare(client, workdir, run_id, username) for run_id in run_ids]
+    prepared = [_prepare(client, workdir, run_id, username, rerun) for run_id in run_ids]
     if len(prepared) == 1:
         one = prepared[0]
         defaults = {

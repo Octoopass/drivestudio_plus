@@ -64,6 +64,13 @@ def register(
                 default=executor.DEFAULT_ACCELERATOR,
                 help="GPU của Kaggle, ví dụ NvidiaTeslaT4 (mặc định), NvidiaL4",
             )
+            parser.add_argument(
+                "--rerun",
+                action="append",
+                default=[],
+                metavar="STAGE",
+                help="chạy lại stage dù lần trước đã xong, ví dụ eval.standard (lặp được)",
+            )
         parser.set_defaults(handler=handler)
     ingest_parser = actions.add_parser(
         "ingest", parents=[common], help="ingest một cảnh trên Kaggle từ dữ liệu gốc trên Kaggle"
@@ -94,14 +101,18 @@ def push(args: argparse.Namespace) -> int:
     """Đẩy một run, hoặc hai run chung một notebook, lên Kaggle.
 
     Args:
-        args: Tham số dòng lệnh, có ``run_ids``, ``branch``, ``accelerator``.
+        args: Tham số dòng lệnh, có ``run_ids``, ``branch``, ``accelerator``, ``rerun``.
 
     Returns:
         Mã thoát ``0``.
     """
     workdir = Workdir.from_env(args.workdir)
     states = executor.push_runs(
-        workdir, args.run_ids, branch=args.branch, accelerator=args.accelerator
+        workdir,
+        args.run_ids,
+        branch=args.branch,
+        accelerator=args.accelerator,
+        rerun=args.rerun,
     )
     for run_id, state in zip(args.run_ids, states):
         emit(

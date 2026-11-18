@@ -702,3 +702,53 @@ def test_push_two_runs_share_one_notebook_and_one_pull(
     other = files.load(workdir.find_run(second) / D2S_DIR / RUN_FILE, RunRecord)
     assert other.status == "succeeded"
     assert executor.load_state(workdir.find_run(second)).pulled_utc is not None
+
+
+def test_rerun_resets_stage_only_after_copying_previous_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--rerun eval.standard: stage được đặt lại một lần, ngay sau khi chép run của lần trước."""
+    from drive2sim.kaggle import bundle as bundle_module
+
+    scene = tmp_path / "input" / "scene"
+    scene.mkdir(parents=True)
+    previous = tmp_path / "input" / "d2s-x-1" / "runs" / SCENE / "omnire" / RUN_ID
+    (previous / D2S_DIR).mkdir(parents=True)
+    record = {"run_id": RUN_ID, "scene_id": SCENE, "split_id": "s", "approach": {}}
+    reset: list[str] = []
+    monkeypatch.setattr(bundle_module, "_find_scene", lambda root, scene_id: scene)
+    monkeypatch.setattr(bundle_module, "_find_previous_run", lambda *a: previous)
+    monkeypatch.setattr(
+        bundle_module.RunRecord,
+        "model_validate",
+        lambda data: __import__("types").SimpleNamespace(
+            run_id=RUN_ID,
+            scene_id=SCENE,
+            split_id="s",
+            approach=__import__("types").SimpleNamespace(approach_id="omnire"),
+        ),
+    )
+    monkeypatch.setattr(bundle_module, "reset_stage", lambda run_dir, stage: reset.append(stage))
+    (previous / D2S_DIR / RUN_FILE).write_text("{}")
+    job = {
+        "run.json": record,
+        "split.json": {},
+        "resume.json": {"kernels": ["alice/d2s-x-1"], "rerun": ["eval.standard"]},
+    }
+    workdir = Workdir(tmp_path / "working")
+    materialize(job, workdir, tmp_path / "input")
+    assert reset == ["eval.standard"]
+    materialize(job, workdir, tmp_path / "input")  # lần gọi sau (--prepare-only rồi chạy)
+    assert reset == ["eval.standard"]
+
+
+def test_rerun_needs_known_stage_and_previous_push(
+    setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("D2S_KAGGLE_SMPL_DATASET", "alice/smpl-model")
+    workdir, fake = setup
+    record = files.load(workdir.find_run(RUN_ID) / D2S_DIR / RUN_FILE, RunRecord)
+    with pytest.raises(KaggleError, match="chưa đẩy lần nào"):
+        executor.push_runs(workdir, [RUN_ID], client=fake, rerun=[record.stages[-1].stage_id])
+    with pytest.raises(KaggleError, match="không có stage"):
+        executor.push_runs(workdir, [RUN_ID], client=fake, rerun=["nope.stage"])
