@@ -262,7 +262,7 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
             )}
           </div>
           <div className="table-wrap">
-            <table>
+            <table className="centered">
               <thead>
                 <tr>
                   <th className="num">#</th>

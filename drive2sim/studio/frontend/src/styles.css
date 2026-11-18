@@ -722,3 +722,8 @@ th, .facts dt, .stat .label {
 code, kbd, samp, time, .facts dd, .id, .num, td.num, .stat .value, .count, .tabs .badge {
   font-family: var(--font-code); font-variant-numeric: tabular-nums;
 }
+
+/* Bảng so sánh: căn giữa tiêu đề và nội dung mọi cột. */
+table.centered th, table.centered td, table.centered th.num, table.centered td.num { text-align: center; }
+table.centered th .th-metric, table.centered th.num .th-metric { justify-content: center; }
+table.centered td .row { justify-content: center; }
