@@ -38,12 +38,16 @@ export function ConfigText({
   options,
   preset,
   params,
+  compact = false,
 }: {
   approachId: string;
   options: Record<string, OptionValue>;
   preset?: string | null;
   /** Tham số stage train khác mặc định: hai run cùng cấu hình approach vẫn phân biệt được. */
   params?: Record<string, unknown>;
+  /** Dạng ngắn cho ô bảng hẹp: bỏ tên mục ("3DGUT" thay cho "Renderer: 3DGUT"), mục bật/tắt chỉ
+   * ghi tên khi bật, bỏ phần trong ngoặc; câu đầy đủ nằm ở tooltip. */
+  compact?: boolean;
 }) {
   const { t } = useI18n();
   const approaches = useApproaches();
@@ -65,8 +69,15 @@ export function ConfigText({
       const spec = approach.options?.[key];
       const index = spec ? spec.choices.findIndex((choice) => same(choice, value)) : -1;
       const label = spec?.labels?.[index] ?? String(value);
-      return `${spec?.label ?? key}: ${label}`;
+      const full = `${spec?.label ?? key}: ${label}`;
+      if (!compact) return { full, short: full };
+      const title = (spec?.label ?? key).replace(/\s*\(.*?\)/g, "");
+      const short = typeof value === "boolean" ? (value ? title : t("config.off", { name: title })) : label.replace(/\s*\(.*?\)/g, "");
+      return { full, short };
     });
-  const parts = [name ?? (changed.length ? null : t("config.default")), ...changed, ...extra].filter(Boolean);
-  return <>{parts.join(" · ")}</>;
+  const head = name ?? (changed.length ? null : t("config.default"));
+  const fullText = [head, ...changed.map((c) => c.full), ...extra].filter(Boolean).join(" · ");
+  if (!compact) return <>{fullText}</>;
+  const shortText = [head, ...changed.map((c) => c.short), ...extra].filter(Boolean).join(" · ");
+  return <span title={fullText}>{shortText}</span>;
 }

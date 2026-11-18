@@ -540,6 +540,7 @@
   "common.status.new_script": "mới tạo",
   "new.env.check.smpl_model": "Mô hình SMPL (dựng người)",
   "config.default": "Mặc định",
+  "config.off": "{name} tắt",
   "artifacts.reexport": "Xuất lại",
   "common.camera": "Camera",
   "scene.action.create_split": "Tạo split",

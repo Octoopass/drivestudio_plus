@@ -331,7 +331,7 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
                     </td>
                     {!currentSplit && !grouped && <td className="small nowrap">{row.split_id}</td>}
                     <td className="small muted" style={{ maxWidth: 260 }}>
-                      <ConfigText approachId={row.approach_id} options={row.options} preset={row.preset} params={row.train_params} />
+                      <ConfigText approachId={row.approach_id} options={row.options} preset={row.preset} params={row.train_params} compact />
                     </td>
                     {group.metrics.map((metric) => (
                       <td key={metric.key} className={metric.text ? "small nowrap" : sort.key === metric.key ? "num sorted-col" : "num"}>

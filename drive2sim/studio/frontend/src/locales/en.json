@@ -540,6 +540,7 @@
   "common.status.new_script": "new",
   "new.env.check.smpl_model": "SMPL model (people)",
   "config.default": "Default",
+  "config.off": "{name} off",
   "artifacts.reexport": "Re-export",
   "common.camera": "Camera",
   "scene.action.create_split": "Create split",
