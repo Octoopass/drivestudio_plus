@@ -9,7 +9,7 @@ import { useI18n } from "../i18n";
 let cache: Promise<Record<string, Approach>> | null = null;
 
 /** Mọi file approach, đọc một lần cho cả trang (nhiều dòng bảng dùng chung). */
-function useApproaches(): Record<string, Approach> | null {
+export function useApproaches(): Record<string, Approach> | null {
   const [data, setData] = useState<Record<string, Approach> | null>(null);
   useEffect(() => {
     cache ??= api<List<Approach>>("/api/approaches").then((list) =>
@@ -28,9 +28,25 @@ function same(a: unknown, b: unknown): boolean {
   return typeof a === typeof b && a === b;
 }
 
+/** Một tham số viết bằng nhãn của file approach khi có ("FastGS: Bật"), không thì ``tên=giá trị``.
+ * Dùng chung cho mọi chỗ hiện tham số, để cùng một mục không lúc ``fastgs`` lúc ``FastGS``. */
+export function paramLabel(approach: Approach | undefined, name: string, value: unknown): string {
+  const spec = approach?.options?.[name];
+  if (spec) {
+    const index = spec.choices.findIndex((choice) => same(choice, value));
+    return `${spec.label ?? name}: ${spec.labels?.[index] ?? String(value)}`;
+  }
+  return `${name}=${typeof value === "object" && value !== null ? JSON.stringify(value) : String(value)}`;
+}
+
+/** Danh sách tham số viết bằng ``paramLabel``, nối bằng dấu phẩy. */
+export function paramsLabel(approach: Approach | undefined, params: Record<string, unknown> | undefined): string {
+  return Object.entries(params ?? {}).map(([name, value]) => paramLabel(approach, name, value)).join(", ");
+}
+
 /** Tham số stage train khác mặc định (``train_params`` của API), ví dụ ``refine_interval=50``. */
-function paramsText(params: Record<string, unknown> | undefined): string[] {
-  return Object.entries(params ?? {}).map(([name, value]) => `${name}=${typeof value === "object" ? JSON.stringify(value) : String(value)}`);
+function paramsText(approach: Approach | undefined, params: Record<string, unknown> | undefined): string[] {
+  return Object.entries(params ?? {}).map(([name, value]) => paramLabel(approach, name, value));
 }
 
 export function ConfigText({
@@ -52,9 +68,11 @@ export function ConfigText({
   const { t } = useI18n();
   const approaches = useApproaches();
   const approach = approaches?.[approachId];
-  const extra = paramsText(params);
+  const extra = paramsText(approach, params);
   if (!approach) {
-    const raw = [...Object.entries(options).map(([name, value]) => `${name}=${String(value)}`), ...extra].join(", ");
+    // Chưa đọc xong file approach: chưa có nhãn, tạm để trống thay vì hiện tên thô.
+    if (approaches === null) return <>…</>;
+    const raw = [...Object.entries(options).map(([name, value]) => paramLabel(undefined, name, value)), ...extra].join(", ");
     return <>{raw || "–"}</>;
   }
   const defaults = Object.fromEntries(Object.entries(approach.options ?? {}).map(([name, spec]) => [name, spec.default]));

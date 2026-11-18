@@ -8,8 +8,8 @@ import type { ColabStatus, EnvRecord, KaggleStatus, List, ReportRow, RunDetail, 
 import { LineChart, type Point } from "../components/charts";
 import { RunArtifacts } from "../components/RunArtifacts";
 import { StageRoad } from "../components/StageRoad";
-import { ago, Confirm, count, duration, Empty, ErrorBox, fixed, InfoTip, Loading, Note, optionsText, PageHead, Status, Tabs, useToast } from "../components/ui";
-import { ConfigText } from "../components/ConfigText";
+import { ago, Confirm, count, duration, Empty, ErrorBox, fixed, InfoTip, Loading, Note, PageHead, Status, Tabs, useToast } from "../components/ui";
+import { ConfigText, paramsLabel, useApproaches } from "../components/ConfigText";
 import { SpeedupText } from "../components/SpeedupText";
 import { useI18n } from "../i18n";
 import { useLive } from "../live";
@@ -63,6 +63,7 @@ function useRunEvents(runId: string, onDone: () => void) {
 export function RunPage({ runId }: { runId: string }) {
   const { t, locale } = useI18n();
   const toast = useToast();
+  const approaches = useApproaches();
   const liveAll = useLive();
   const base = `/api/runs/${seg(runId)}`;
   const run = useApi<RunDetail>(base);
@@ -443,7 +444,7 @@ export function RunPage({ runId }: { runId: string }) {
                           </span>
                         )}
                       </td>
-                      <td className="small muted">{optionsText((s.params ?? {}) as Record<string, unknown>) || "–"}</td>
+                      <td className="small muted">{paramsLabel(approaches?.[data.approach.approach_id], (s.params ?? {}) as Record<string, unknown>) || "–"}</td>
                     </tr>
                   ))}
                 </tbody>
