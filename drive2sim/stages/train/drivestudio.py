@@ -246,6 +246,44 @@ def dataset_config_for(dataset: str, num_cameras: int) -> str:
     return name
 
 
+def view_extras(inputs: dict[str, Path]) -> dict[str, Path]:
+    """Mask và SMPL (từ cache) cần ghép vào cảnh ảo, theo đầu vào ``masks``, ``smpl`` của stage."""
+    extra: dict[str, Path] = {}
+    if "masks" in inputs:
+        extra.update(
+            {
+                name: inputs["masks"] / name
+                for name in MASK_ENTRIES
+                if (inputs["masks"] / name).exists()
+            }
+        )
+    # prep.smpl trả thư mục rỗng khi cảnh không có người (dataset chưa có bước dựng người).
+    if "smpl" in inputs and (inputs["smpl"] / SMPL_ENTRY / "smpl.pkl").is_file():
+        extra[SMPL_ENTRY] = inputs["smpl"] / SMPL_ENTRY
+    return extra
+
+
+def smpl_model_for(output_dir: Path) -> Path:
+    """File mô hình SMPL cho trainer khi cảnh có người.
+
+    Tìm trước khi chạy, để báo rõ ngay thay vì lỗi sau vài phút nạp dữ liệu. ``output_dir`` là
+    ``<workdir>/runs/<cảnh>/<approach>/<run>/d2s/stages/<stage>``.
+
+    Raises:
+        RuntimeError: Nếu không thấy file.
+    """
+    workdir_root = output_dir.parents[6] if len(output_dir.parents) > 6 else None
+    smpl_model = find_smpl_model(workdir_root)
+    if smpl_model is None:
+        raise RuntimeError(
+            f"cảnh có người (SMPL) nhưng không thấy file mô hình {SMPL_MODEL_NAME}: "
+            f"đặt ở <thư mục làm việc>/smpl_models/ hoặc trỏ biến {SMPL_MODEL_ENV} tới nó "
+            "(tải ở https://smpl.is.tue.mpg.de); trên Kaggle gắn dataset chứa file "
+            "(biến D2S_KAGGLE_SMPL_DATASET khi đẩy)"
+        )
+    return smpl_model
+
+
 def build_command(
     params: TrainDrivestudioParams,
     split: Split,
@@ -413,18 +451,7 @@ class TrainDrivestudioStage(Stage):
                 thông báo kèm vài dòng cuối của log.
         """
         assert isinstance(params, TrainDrivestudioParams)
-        extra = {}
-        if "masks" in inputs:
-            extra.update(
-                {
-                    name: inputs["masks"] / name
-                    for name in MASK_ENTRIES
-                    if (inputs["masks"] / name).exists()
-                }
-            )
-        # prep.smpl trả thư mục rỗng khi cảnh không có người (dataset chưa có bước dựng người).
-        if "smpl" in inputs and (inputs["smpl"] / SMPL_ENTRY / "smpl.pkl").is_file():
-            extra[SMPL_ENTRY] = inputs["smpl"] / SMPL_ENTRY
+        extra = view_extras(inputs)
         view_root = ctx.output_dir / VIEW_DIR
         build_view(ctx.scene.root, view_root, exclude=(*MASK_ENTRIES, SMPL_ENTRY), extra=extra)
         command = build_command(
@@ -445,19 +472,7 @@ class TrainDrivestudioStage(Stage):
             )
         }
         if SMPL_ENTRY in extra:
-            # Có người (SMPL) thì trainer cần file mô hình SMPL. Tìm trước khi chạy, để báo rõ
-            # ngay thay vì lỗi sau vài phút nạp dữ liệu. output_dir là
-            # <workdir>/runs/<cảnh>/<approach>/<run>/d2s/stages/<stage>.
-            workdir_root = ctx.output_dir.parents[6] if len(ctx.output_dir.parents) > 6 else None
-            smpl_model = find_smpl_model(workdir_root)
-            if smpl_model is None:
-                raise RuntimeError(
-                    f"cảnh có người (SMPL) nhưng không thấy file mô hình {SMPL_MODEL_NAME}: "
-                    f"đặt ở <thư mục làm việc>/smpl_models/ hoặc trỏ biến {SMPL_MODEL_ENV} tới nó "
-                    "(tải ở https://smpl.is.tue.mpg.de); trên Kaggle gắn dataset chứa file "
-                    "(biến D2S_KAGGLE_SMPL_DATASET khi đẩy)"
-                )
-            env[SMPL_MODEL_ENV] = str(smpl_model)
+            env[SMPL_MODEL_ENV] = str(smpl_model_for(ctx.output_dir))
         ctx.progress(0.0, f"train {params.method} bằng {params.config_file.name}")
         run_logged(command, ctx.output_dir / LOG_FILE, should_stop=ctx.should_stop, env=env)
         if not (ctx.output_dir / FINAL_CHECKPOINT).is_file():

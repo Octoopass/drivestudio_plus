@@ -467,3 +467,54 @@ def test_omnire_renderer_configs_resolve() -> None:
                     method="omnire", renderer=renderer, fastgs=fastgs, fastergs=fastergs
                 )
                 assert params.config_key in drivestudio.CONFIG_FILES
+
+
+def test_eval_remeasures_old_metrics_from_checkpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Metric từ code đo cũ (không có per_camera) và có checkpoint: render lại tập test."""
+    from drive2sim.stages.eval import standard
+
+    model = tmp_path / "model"
+    write_metrics(
+        model, "images_test_2026-11-12_090000.json", {"psnr": 20.0, "ssim": 0.9, "lpips": 0.1}
+    )
+    (model / "checkpoint_final.pth").write_bytes(b"x")
+    scene = tmp_path / "scene"
+    scene.mkdir()
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    commands_run: list[list[str]] = []
+
+    def fake_run(command: list[str], log_path: Path, **kwargs: object) -> None:
+        commands_run.append(command)
+        new = {
+            "image_metrics/test/psnr": 21.0,
+            "image_metrics/test/ssim": 0.7,
+            "image_metrics/test/lpips": 0.2,
+            "image_metrics/test/per_camera/0/psnr": 21.5,
+            "image_metrics/test/per_camera/0/ssim": 0.7,
+            "image_metrics/test/per_camera/0/lpips": 0.2,
+        }
+        folder = output_dir / standard.REEVAL_DIR / "metrics_eval"
+        folder.mkdir(parents=True)
+        (folder / "images_test_2026-11-18_000000.json").write_text(json.dumps(new))
+
+    monkeypatch.setattr(standard, "run_logged", fake_run)
+    ctx = FakeContext(output_dir)
+    ctx.scene = Scene("nuscenes_scene-0061", scene, Manifest.model_validate(MANIFEST))
+    standard.EvalStandardStage().run(ctx, {"model": model}, standard.NoParams())
+    command = commands_run[0]
+    assert "drive2sim.recon.tools.eval" in command
+    assert command[command.index("--resume_from") + 1] == str(model / "checkpoint_final.pth")
+    summary = files.load(output_dir / "summary.json", Summary)
+    assert summary.overall.psnr == 21.0 and summary.per_camera
+
+    # Metric đã có per_camera: không đo lại.
+    write_metrics(
+        model,
+        "images_test_2026-11-13_090000.json",
+        {"psnr": 22.0, "ssim": 0.8, "lpips": 0.1, "per_camera/0/psnr": 22.0},
+    )
+    standard.EvalStandardStage().run(ctx, {"model": model}, standard.NoParams())
+    assert len(commands_run) == 1

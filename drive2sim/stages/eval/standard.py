@@ -24,10 +24,17 @@ camera cho DriveStudio); stage đổi chỉ số sang ``camera_id`` để điề
 ``camera_id`` (trainer khác ghi) thì giữ nguyên. Model train bằng ``train.py`` cũ không có khoá
 này nên ``per_camera`` để trống.
 
+Đo lại: file metric mới nhất chưa có khoá ``per_camera`` nghĩa là nó được ghi bằng code đo cũ
+(trước protocol 0.3). Khi đó, nếu có ``checkpoint_final.pth``, stage render lại tập test từ
+checkpoint bằng ``drive2sim.recon.tools.eval`` (cảnh ảo dựng lại như lúc train, gồm mask và SMPL
+từ cache) và dùng metric mới đó; không có checkpoint thì giữ metric cũ.
+
 Giới hạn hiện tại: tách đánh giá khỏi ``train.py`` là việc sau (ARCHITECTURE mục 7.2).
 """
 
 import json
+import os
+import sys
 from importlib import metadata
 from pathlib import Path
 from typing import ClassVar, Optional
@@ -39,6 +46,17 @@ from drive2sim.core import files
 from drive2sim.core.schema import SCHEMA_VERSIONS, EvalProtocol, LpipsSetting, Metrics, Summary
 from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import NoParams, Stage, StageContext
+from drive2sim.paths import SMPL_MODEL_ENV
+from drive2sim.stages.commands import LOG_FILE, run_logged
+from drive2sim.stages.scene_view import build_view
+from drive2sim.stages.train.drivestudio import (
+    FINAL_CHECKPOINT,
+    MASK_ENTRIES,
+    SMPL_ENTRY,
+    VIEW_DIR,
+    smpl_model_for,
+    view_extras,
+)
 
 # 0.3: khi loader đánh dấu điểm ảnh không hợp lệ (``valid_masks``: camera mắt cá ngoài vùng nhìn
 # dùng được, thân xe), SSIM và LPIPS cũng chỉ tính trên điểm ảnh hợp lệ như PSNR; ảnh không có điểm
@@ -51,9 +69,10 @@ SUMMARY_FILE = "summary.json"
 TRAIN_STATS_FILE = "train_stats.json"
 REPORT_FILE = "drivestudio_metrics.json"
 PER_CAMERA_PREFIX = "per_camera"
+REEVAL_DIR = "reeval"
 
 
-def read_drivestudio_metrics(model_dir: Path) -> dict[str, float]:
+def read_drivestudio_metrics(model_dir: Path, folder: str = "metrics") -> dict[str, float]:
     """Đọc file metric test mới nhất mà DriveStudio ghi trong thư mục train.
 
     Tên file có dạng ``metrics/images_test_<YYYY-MM-DD_HHMMSS>.json`` nên file mới nhất là file
@@ -61,6 +80,7 @@ def read_drivestudio_metrics(model_dir: Path) -> dict[str, float]:
 
     Args:
         model_dir: Thư mục kết quả của ``train.drivestudio``.
+        folder: Thư mục con chứa file metric; ``metrics_eval`` với kết quả đo lại.
 
     Returns:
         Tên metric → giá trị, ví dụ ``{"psnr": 27.6, "ssim": 0.85, "lpips": 0.2}``.
@@ -68,7 +88,7 @@ def read_drivestudio_metrics(model_dir: Path) -> dict[str, float]:
     Raises:
         FileNotFoundError: Nếu chưa có file metric test nào; thường do split không có ảnh test.
     """
-    candidates = sorted((model_dir / "metrics").glob("images_test_*.json"))
+    candidates = sorted((model_dir / folder).glob("images_test_*.json"))
     if not candidates:
         raise FileNotFoundError(
             f"không có metrics/images_test_*.json trong {model_dir}; "
@@ -80,6 +100,30 @@ def read_drivestudio_metrics(model_dir: Path) -> dict[str, float]:
         for key, value in raw.items()
         if key.startswith(METRIC_PREFIX)
     }
+
+
+def has_per_camera(metrics: dict[str, float]) -> bool:
+    """File metric có khoá theo camera không (ghi bằng code đo từ protocol 0.3)."""
+    return any(key.startswith(PER_CAMERA_PREFIX + "/") for key in metrics)
+
+
+def reeval_command(checkpoint: Path, view_root: Path, log_dir: Path) -> list[str]:
+    """Câu lệnh render lại tập test từ checkpoint bằng code đo hiện tại.
+
+    Config lấy từ ``config.yaml`` cạnh checkpoint (ghi lúc train), chỉ đổi đường dẫn cảnh ảo và
+    thư mục ghi; không render cả chuỗi và quỹ đạo mới (chỉ cần metric tập test).
+    """
+    return [
+        sys.executable,
+        "-m",
+        "drive2sim.recon.tools.eval",
+        "--resume_from",
+        str(checkpoint),
+        f"data.data_root={view_root}",
+        f"log_dir={log_dir}",
+        "render.render_full=false",
+        "render.render_novel=null",
+    ]
 
 
 def read_train_stats(model_dir: Path) -> dict[str, object]:
@@ -238,10 +282,16 @@ def make_summary(
 class EvalStandardStage(Stage):
     """Đổi metric DriveStudio ghi khi train sang ``summary.json`` theo protocol chung."""
 
-    version: ClassVar[str] = "0.2.0"
+    version: ClassVar[str] = "0.3.0"
     cacheable: ClassVar[bool] = False
     uses_lidar: ClassVar[bool] = False
-    inputs: ClassVar[dict[str, str]] = {"model": "model", "split": "split"}
+    inputs: ClassVar[dict[str, str]] = {
+        "model": "model",
+        "split": "split",
+        "masks": "masks",
+        "smpl": "smpl",
+    }
+    optional_inputs: ClassVar[frozenset[str]] = frozenset({"masks", "smpl"})
     outputs: ClassVar[dict[str, str]] = {"report": "eval_report"}
     Params: ClassVar[type[BaseModel]] = NoParams
 
@@ -259,6 +309,9 @@ class EvalStandardStage(Stage):
             ``{"report": <thư mục stage>}``, chứa ``summary.json`` và ``drivestudio_metrics.json``.
         """
         metrics = read_drivestudio_metrics(inputs["model"])
+        checkpoint = inputs["model"] / FINAL_CHECKPOINT
+        if not has_per_camera(metrics) and checkpoint.is_file():
+            metrics = self.reevaluate(ctx, inputs, checkpoint)
         (ctx.output_dir / REPORT_FILE).write_text(json.dumps(metrics, indent=2) + "\n")
         files.dump(
             make_summary(
@@ -271,3 +324,29 @@ class EvalStandardStage(Stage):
             ctx.output_dir / SUMMARY_FILE,
         )
         return {"report": ctx.output_dir}
+
+    def reevaluate(
+        self, ctx: StageContext, inputs: dict[str, Path], checkpoint: Path
+    ) -> dict[str, float]:
+        """Render lại tập test từ checkpoint bằng code đo hiện tại; trả metric mới."""
+        extra = view_extras(inputs)
+        view_root = ctx.output_dir / VIEW_DIR
+        build_view(ctx.scene.root, view_root, exclude=(*MASK_ENTRIES, SMPL_ENTRY), extra=extra)
+        log_dir = ctx.output_dir / REEVAL_DIR
+        # eval.py chỉ tạo hai thư mục này cạnh checkpoint, không trong log_dir được chỉ định.
+        for folder in ("videos_eval", "metrics_eval"):
+            (log_dir / folder).mkdir(parents=True, exist_ok=True)
+        env = {}
+        if SMPL_ENTRY in extra:
+            env[SMPL_MODEL_ENV] = str(smpl_model_for(ctx.output_dir))
+        env["PYTORCH_CUDA_ALLOC_CONF"] = os.environ.get(
+            "PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True"
+        )
+        ctx.progress(0.0, "đo lại tập test từ checkpoint bằng code đo hiện tại")
+        run_logged(
+            reeval_command(checkpoint, view_root, log_dir),
+            ctx.output_dir / LOG_FILE,
+            should_stop=ctx.should_stop,
+            env=env,
+        )
+        return read_drivestudio_metrics(log_dir, "metrics_eval")
