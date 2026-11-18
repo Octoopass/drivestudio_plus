@@ -78,7 +78,7 @@ class ReportRow:
         num_gaussians: Số Gaussian của cả model.
         ply_gaussians: Số Gaussian trong ``scene.ply`` (nền, và xe nếu có; không có người).
         ply_size_mb: Dung lượng ``scene.ply``, megabyte.
-        preview_gaussians: Tổng số Gaussian trong gói xem trước (nền và mọi xe), nếu đã xuất.
+        preview_gaussians: Tổng số Gaussian trong gói xem trước (nền, mọi xe và người; file .ply và .spz), nếu đã xuất.
         preview_size_mb: Tổng dung lượng mọi file trong gói xem trước, megabyte.
         stage_times: ``stage_id`` → ``{"seconds", "reused"}``: thời gian từng stage; stage dùng
             lại cache ghi thời gian lần chạy gốc và ``reused`` là ``True``. Không xuất ra CSV.
