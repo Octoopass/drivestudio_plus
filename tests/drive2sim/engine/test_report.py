@@ -91,6 +91,20 @@ def test_preview_stats_and_csv(tmp_path: Path) -> None:
     assert "stage_times" not in header and "preview_gaussians" in header
 
 
+def test_preview_stats_counts_spz(tmp_path: Path) -> None:
+    import gzip
+    import struct
+
+    folder = tmp_path / "export.preview"
+    (folder / "humans").mkdir(parents=True)
+    for path, count in ((folder / "background.spz", 3000), (folder / "humans" / "smpl_0000.spz", 70)):
+        path.write_bytes(gzip.compress(struct.pack("<IIIBBBB", 0x5053474E, 3, count, 3, 12, 0, 0) + b"\0" * 8))
+    (folder / "humans" / "broken.spz").write_bytes(b"not gzip")  # file hỏng không tính, không lỗi
+    (folder / "preview.json").write_text("{}")
+    count, _ = preview_stats(folder)
+    assert count == 3070
+
+
 def test_avg_error_matches_mip_nerf() -> None:
     # Mip-NeRF trên Blender: PSNR 33.09, SSIM 0.961, LPIPS 0.043, Avg báo cáo 0.016
     assert round(avg_error(33.09, 0.961, 0.043), 3) == 0.016

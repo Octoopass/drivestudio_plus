@@ -19,8 +19,10 @@ Hai loại thời gian (CONTRACTS mục 6.3):
 """
 
 import csv
+import gzip
 import io
 import math
+import struct
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -168,7 +170,9 @@ def recon_time(record: RunRecord) -> Optional[float]:
 
 
 def preview_stats(folder: Path) -> tuple[Optional[int], Optional[float]]:
-    """Tổng số Gaussian (mọi file ``.ply``) và tổng dung lượng của gói xem trước.
+    """Tổng số Gaussian (mọi file ``.ply`` và ``.spz``) và tổng dung lượng của gói xem trước.
+
+    Gói 0.1 lưu splat bằng PLY; gói 0.2 trở lên bằng SPZ (nền, xe, người), không còn file PLY.
 
     Returns:
         ``(số Gaussian, megabyte)``; ``(None, None)`` nếu chưa xuất gói.
@@ -179,8 +183,31 @@ def preview_stats(folder: Path) -> tuple[Optional[int], Optional[float]]:
     for ply in folder.rglob("*.ply"):
         number, _ = ply_stats(ply)
         count += number or 0
+    for spz in folder.rglob("*.spz"):
+        count += spz_points(spz) or 0
     size = sum(path.stat().st_size for path in folder.rglob("*") if path.is_file())
     return count, round(size / (1024 * 1024), 2)
+
+
+SPZ_MAGIC = 0x5053474E  # "NGSP", phần đầu file SPZ của Niantic
+
+
+def spz_points(spz: Path) -> Optional[int]:
+    """Số Gaussian của file SPZ, đọc ở phần đầu 16 byte sau khi giải nén gzip.
+
+    Phần đầu: magic, version, numPoints (uint32 little-endian), rồi shDegree, fractionalBits,
+    flags, reserved (mỗi cái 1 byte); xem ``load-spz.cc`` của SPZ.
+
+    Returns:
+        Số Gaussian; ``None`` nếu không đọc được hoặc không phải SPZ.
+    """
+    try:
+        with gzip.open(spz, "rb") as handle:
+            head = handle.read(16)
+        magic, _version, points = struct.unpack("<III", head[:12])
+    except (OSError, EOFError, struct.error):
+        return None
+    return points if magic == SPZ_MAGIC else None
 
 
 def ply_stats(ply: Path) -> tuple[Optional[int], Optional[float]]:
