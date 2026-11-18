@@ -340,6 +340,22 @@ Route, thân, lỗi và sự kiện SSE quy định ở CONTRACTS mục 11; API 
 
 **Train trên máy và tiến trình GPU của trang Xem 3D** (từ 16/11/2026). Viewer GPU và frame server giữ model trong VRAM (khoảng 1 GB). Studio ghi tiến trình đang bật (pid, module, run) vào `<thư mục làm việc>/.d2s/gpu_process.json` (`engine/gpu_process.py`); khi chạy một run còn stage chưa xong, engine (hàng đợi của Studio hay lệnh `d2s run start` ở tiến trình khác) tắt tiến trình đó trước và phát sự kiện log "đã tắt ... để giải phóng VRAM". Chỉ tắt khi dòng lệnh của pid đúng module đã ghi (pid có thể đã cấp cho tiến trình khác), chỉ trên Linux (`/proc`). Lý do: run OmniRe 500 bước trên Quadro T2000 hết VRAM vì frame server còn giữ 984 MB; chạy lại khi GPU trống thì xong (đỉnh 2,9 GB). Trang Xem 3D vẫn bật lại được tiến trình trong lúc train; khi đó hai bên lại dùng chung GPU.
 
+**Vì sao gói xem trước vẽ khác Render GPU dù cùng checkpoint.** Checkpoint chỉ là dữ liệu: danh sách Gaussian, mỗi Gaussian có vị trí, kích thước, hướng xoay, độ đục và hệ số màu (spherical harmonics), không chứa ảnh nào. Renderer là thuật toán biến danh sách đó thành điểm ảnh, và tự quyết nhiều chi tiết: chiếu Gaussian 3D thành elip ra sao (với fisheye, 3DGUT và 3DGEER mỗi cái một kiểu), cắt elip ở bán kính nào, bỏ Gaussian nào vì quá mờ, sắp xếp và trộn độ đục theo thứ tự nào, làm mượt răng cưa ra sao. gsplat và Spark làm các bước này khác nhau một chút, nên cùng dữ liệu cho ảnh khác. Lúc train, Gaussian được tối ưu để ảnh *của gsplat* giống ảnh thật, tức model đã khớp theo đúng những đặc điểm của gsplat; renderer khác không có các đặc điểm đó nên ảnh lệch. Ngoài cách vẽ, nội dung cũng khác:
+
+| | Render GPU (viewer GPU, frame server) | Gói xem trước (Spark) |
+|---|---|---|
+| Chương trình vẽ | Renderer của approach (gsplat 3DGS, 3DGUT, 3DGEER), giống lúc train và lúc đo PSNR | Spark trên WebGL2 của trình duyệt |
+| Nội dung | Mọi node: nền, xe, người SMPL, vật biến dạng, trời | Nền, xe, người SMPL, trời (gói 0.2 trở lên); chưa có vật biến dạng; bỏ Gaussian gần như trong suốt; SPZ làm tròn vị trí và màu |
+| Chuyển động | Đúng như model: mọi node theo khung | Xe dịch, xoay như vật cứng; người uốn theo 24 xương SMPL (`SplatSkinning`) |
+| Camera | Pinhole và fisheye | Chỉ pinhole: camera fisheye của KITTI-360 khác rõ |
+| Chỉnh màu | Ma trận Affine từng ảnh, trong renderer | Ma trận Affine áp bằng shader lên ảnh đã ghép |
+
+Đo ở run `f8a6`: gói xem trước so với ảnh renderer gốc khoảng 28,8 dB; ảnh frame server so với khung video cùng camera 34,1 dB (phần chênh do nén MP4). Chỉnh bán kính cắt, ngưỡng độ đục hay cách làm mờ của Spark không tăng con số 28,8 dB.
+
+**Spark đọc gì.** Stage `export.preview` đọc checkpoint, lấy tensor Gaussian của từng node rồi ghi thành file splat theo định dạng 3DGS (nền, mỗi xe một file, người), cùng pose xe từng khung, xương SMPL và cubemap trời (CONTRACTS mục 7). Trình duyệt tải các file này về và Spark vẽ trên card đồ hoạ của máy đang mở trang.
+
+**Vì sao không vẽ thẳng bằng renderer của approach trong trình duyệt.** Renderer của approach là code CUDA chạy trong tiến trình Python trên GPU NVIDIA; trình duyệt không chạy được CUDA. Vì vậy chỉ có hai đường: vẽ ở máy chủ rồi gửi ảnh (mode Render GPU, ảnh chính xác khi dừng camera; đúng hoàn toàn nhưng máy chạy Studio cần GPU NVIDIA, giữ model khoảng 1 GB VRAM, mỗi ảnh 66–150 ms trên Quadro T2000 nên kéo không mượt), hoặc vẽ trong trình duyệt bằng WebGL (gói xem trước; gần đúng nhưng mượt, không cần GPU CUDA, mở được trên máy bất kỳ). Tool dùng cả hai: kéo xoay thì Spark vẽ, dừng 0,3 giây thì đè ảnh frame server lên. Viết lại gsplat bằng WebGL hay WebGPU cho giống hệt thì tốn nhiều công, nhất là phép chiếu fisheye của 3DGUT và 3DGEER.
+
 **Lý do.** Mở được kết quả trên máy không có GPU CUDA, ví dụ laptop khi bàn giao.
 
 **Ưu điểm.** Không cần worker; xoay mượt; giữ màu theo góc nhìn; xe đổi pose và người đổi dáng theo khung (người uốn theo 24 xương SMPL bằng `SplatSkinning` của Spark) nên phát lại được quỹ đạo; có trời (cubemap của model). Vật biến dạng chưa có.
