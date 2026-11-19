@@ -17,10 +17,10 @@ trình chuẩn, khử Gauss), không lặp. ``fx = a0``, ``k_i = a_i / a0``; t�
 nguyên nên ``fy = fx·γ2/γ1``; tâm ảnh giữ ``u0``, ``v0``. Méo tiếp tuyến bị bỏ vì OpenCV fisheye
 không có (KITTI-360: ``p1``, ``p2`` cỡ 4e-4).
 
-Camera mắt cá KITTI-360 nhìn khoảng 191° theo chiều ngang, còn renderer UT không vẽ được tia từ π/2
-trở ra, nên chỉ khớp tới ``MEI_FIT_MAX_ANGLE`` (1,45 rad, khoảng 83°) và loader che pixel có tia lệch
-trục hơn góc này khi train và đánh giá. Phép khớp tự nó giữ nguyên góc nhìn: ngoài miền khớp, đa thức
-vẫn lệch Mei dưới 0,5 px tới mép trái, phải của ảnh (khoảng 96°).
+Camera mắt cá KITTI-360 nhìn khoảng 191° theo chiều ngang, còn renderer UT không vẽ được
+tia từ π/2 trở ra, nên chỉ khớp tới ``MEI_FIT_MAX_ANGLE`` (1,45 rad, khoảng 83°) và loader che
+pixel có tia lệch trục hơn góc này khi train và đánh giá. Phép khớp tự nó giữ nguyên góc nhìn:
+ngoài miền khớp, đa thức vẫn lệch Mei dưới 0,5 px tới mép trái, phải của ảnh (khoảng 96°).
 
 Viết bằng Python thuần (không numpy) để chạy trong môi trường nhẹ của CLI.
 
