@@ -1,5 +1,5 @@
 // Fisheye Fusion Lab: shared UI runtime + KITTI-360 / NCore / Instant NuRec / Google Drive sync.
-import { progressBoard, fmtDur } from './progress.js?v=20261119m';
+import { progressBoard, fmtDur } from './progress.js?v=20261119n';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -156,8 +156,8 @@ function renderPipelineSetup(data) {
   const n = data.nurec || {};
   const ckpts = Object.keys(n.checkpoints || {});
   $('#status').innerHTML = [
-    n.ok ? `<span class="good">NuRec (${ckpts.length})</span>` : '<span class="bad">Chưa cài NuRec</span>',
-    data.gsplat?.ok ? '<span class="good">gsplat</span>' : '<span class="bad">chưa cài gsplat</span>',
+    n.ok ? `<span class="good">NuRec (${ckpts.length})</span>` : '<button type="button" class="link bad" data-dep-goto="nurec">Chưa cài NuRec</button>',
+    data.gsplat?.ok ? '<span class="good">gsplat</span>' : '<button type="button" class="link bad" data-dep-goto="gsplat-eval">chưa cài gsplat</button>',
     `${(data.gpus || []).length} GPU`,
   ].join(' · ');
 

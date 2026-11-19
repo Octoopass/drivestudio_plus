@@ -37,12 +37,14 @@ function render() {
       <code>${esc(r.path)}/</code>
       <small>${r.entries} mục: ${esc(r.preview.join(', '))}${r.entries > r.preview.length ? '…' : ''}${r.partial ? ` · <span class="bad">${r.partial} file tải dở</span>` : ''}</small>
       ${r.detected ? '' : `<small>Cần có: ${esc(prof?.hint || '')}</small>`}
+      <div class="deps-need" data-dep-need="ds-env${prof?.sdk ? `,${esc(prof.sdk)}` : ''},segformer" hidden></div>
       <div class="actions"><button type="button" class="primary small" data-pre="${esc(r.dataset)}">Tiền xử lý…</button>
         <small>Hướng dẫn: <code>${esc(prof?.doc || '')}</code></small></div>
       <div class="pre-form" hidden></div>
     </div>`;
   }).join('');
   $$('[data-pre]').forEach((b) => b.onclick = () => openPreprocess(b.closest('.raw-card')));
+  window.__fflab.deps?.decorate($('#rawCards'));
   $('#processedCards').innerHTML = processed.map((p) => `
     <div class="seq-card static">
       <span class="seq-name">${esc(p.label)} · scene ${esc(p.scene)}</span>

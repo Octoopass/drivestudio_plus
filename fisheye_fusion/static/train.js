@@ -29,6 +29,11 @@ function setTarget(target) {
     $(`#${pane}`).hidden = !on;
   }
   $('#tfSubmit span').textContent = target === 'colab' ? 'Bắt đầu train trên Colab GPU' : 'Bắt đầu train trên máy ảo';
+  const warn = $('#trainDepsLocal');
+  if (warn) {
+    warn.dataset.depNeed = target === 'colab' ? '' : 'ds-env,ds-cuda';
+    window.__fflab.deps?.decorate(warn.parentElement);
+  }
   if (target === 'colab' && !st.loaded) loadColab();
   summary();
 }

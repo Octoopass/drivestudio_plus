@@ -108,7 +108,12 @@ def safe_relative(path: str, max_depth: int = 12) -> str:
     return str(PurePosixPath(*bits))
 
 
+# dependency (fisheye_fusion/deps.py) each dataset's preprocessing needs
+SDK = {"nuscenes": "sdk-nuscenes", "waymo": "sdk-waymo", "pandaset": "sdk-pandaset", "argoverse": "sdk-argoverse",
+       "kitti": "sdk-kitti", "nuplan": "sdk-nuplan", "physicalai": "sdk-physicalai", "kitti360": "ds-ncore"}
+
+
 def public() -> list[dict]:
     """Profile list for the UI."""
     return [{"id": k, "label": v["label"], "raw": v["raw"], "hint": v["hint"], "doc": v["doc"],
-             "preprocess": v.get("preprocess")} for k, v in PROFILES.items()]
+             "preprocess": v.get("preprocess"), "sdk": SDK.get(k)} for k, v in PROFILES.items()]

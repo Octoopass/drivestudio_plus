@@ -203,6 +203,8 @@ def create_app():
     colab = ColabHelper(lambda: pipeline.discovery.colab_bin)
     from .colab_train import ColabTrainer
     colab_train = ColabTrainer(WORKSPACE, colab, drivestudio)
+    from .deps import Deps
+    deps = Deps(WORKSPACE, pipeline, drivestudio.venv)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -416,6 +418,14 @@ def create_app():
     @app.post("/api/upload/cancel")
     def upload_cancel(job: UploadTarget):
         return uploads.cancel(job.target)
+
+    @app.get("/api/deps")
+    def deps_status():
+        return deps.status()
+
+    @app.post("/api/deps/{dep_id}/install")
+    def deps_install(dep_id: str):
+        return deps.install(dep_id)
 
     @app.get("/api/setup")
     def setup():

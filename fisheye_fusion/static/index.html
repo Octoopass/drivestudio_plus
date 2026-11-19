@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Fisheye Fusion Lab - Studio</title>
-  <link rel="stylesheet" href="/static/pipeline.css?v=20261119m">
+  <link rel="stylesheet" href="/static/pipeline.css?v=20261119n">
 </head>
 <body data-view="focus">
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -72,6 +72,15 @@
             <h3>Bộ dữ liệu KITTI-360</h3>
             <div id="datasets" class="list"><p class="muted">Đang tải…</p></div>
           </div>
+        </div>
+        <div class="panel deps-panel" id="depsPanel">
+          <div class="row-between deps-head">
+            <div><h3>Thư viện &amp; môi trường</h3>
+              <p class="hint">Mọi thứ app cần, kèm link nguồn. Bấm <b>Cài đặt</b> để cài trên máy ảo; tiến trình và thời gian chờ hiện ngay tại mục đó.</p></div>
+            <div class="toolbar-right"><span class="hint" id="depsSummary">Đang kiểm tra…</span>
+              <button type="button" class="small" id="depsRefresh"><svg class="ic sm"><use href="#i-refresh"/></svg> Kiểm tra lại</button></div>
+          </div>
+          <div id="depsList" class="deps-list"><p class="muted">Đang kiểm tra…</p></div>
         </div>
       </section>
 
@@ -260,6 +269,7 @@
 
         <div class="panel" role="tabpanel" id="p-data-ds" aria-labelledby="t-data-ds">
           <p class="hint">3 camera (trước + 2 fisheye F-theta), LiDAR và box 3D xe/người. NCore → preprocess → SegFormer sky mask → <code>data/kitti360/processed_&lt;tên&gt;</code>.</p>
+          <div class="deps-need" data-dep-need="ds-env,ds-ncore,segformer" hidden></div>
           <form id="dsPrepareForm" class="form">
             <label hidden>Bộ dữ liệu <select name="dataset"></select></label>
             <label hidden>Sequence <select name="sequence"></select></label>
@@ -275,6 +285,7 @@
 
         <div class="panel" role="tabpanel" id="p-data-nurec" aria-labelledby="t-data-nurec" hidden>
           <p class="hint">4 camera, LiDAR và poses thành clip NCore V4 trong <code>outputs/ncore/</code> kèm ảnh kiểm tra chiếu LiDAR.</p>
+          <div class="deps-need" data-dep-need="nurec" hidden></div>
           <form id="convertForm" class="form">
             <label hidden>Bộ dữ liệu <select name="ds"></select></label>
             <label hidden>Sequence <select name="sequence"></select></label>
@@ -393,6 +404,7 @@
                   <span class="row-inline nowrap"><input name="name" required pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,79}" placeholder="vd. streetgs_geer_30k" spellcheck="false" class="grow">
                   <button type="button" class="small" id="tfAutoName" title="Đặt tên tự động">Tự đặt</button></span></label>
                 <div class="tf-summary" id="tfSummary"></div>
+                <div class="deps-need span2" id="trainDepsLocal" data-dep-need="ds-env,ds-cuda" hidden></div>
                 <div class="actions span2">
                   <button class="primary" type="submit" id="tfSubmit"><svg class="ic"><use href="#i-play"/></svg> <span>Bắt đầu train trên máy ảo</span></button>
                 </div>
@@ -533,11 +545,12 @@
   </div>
 
   <div id="toast" class="toast" role="alert" hidden></div>
-  <script type="module" src="/static/pipeline.js?v=20261119m"></script>
-  <script type="module" src="/static/drivestudio.js?v=20261119m"></script>
-  <script type="module" src="/static/train.js?v=20261119m"></script>
-  <script type="module" src="/static/datasets.js?v=20261119m"></script>
-  <script type="module" src="/static/import.js?v=20261119m"></script>
-  <script type="module" src="/static/colab.js?v=20261119m"></script>
+  <script type="module" src="/static/pipeline.js?v=20261119n"></script>
+  <script type="module" src="/static/drivestudio.js?v=20261119n"></script>
+  <script type="module" src="/static/train.js?v=20261119n"></script>
+  <script type="module" src="/static/datasets.js?v=20261119n"></script>
+  <script type="module" src="/static/import.js?v=20261119n"></script>
+  <script type="module" src="/static/colab.js?v=20261119n"></script>
+  <script type="module" src="/static/deps.js?v=20261119n"></script>
 </body>
 </html>
