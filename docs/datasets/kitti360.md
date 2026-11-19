@@ -102,7 +102,7 @@ Góc θ đo từ trục nhìn sang **một bên**; góc nhìn tổng là hai bê
 1,45 rad được chọn vì nằm dưới 90 độ (3DGUT vẽ được) và trong miền phép khớp còn chính xác. Đa thức OpenCV fisheye với hệ số khớp được chỉ còn tăng tới khoảng 2 rad (115 độ), xa hơn thì đổi chiều.
 
 Hệ quả:
-- **Cả 3DGUT lẫn 3DGEER chỉ train trên 166 độ.** Giới hạn nằm ở dữ liệu, không nằm ở renderer: loader che mọi pixel ngoài 1,45 rad trước khi train, với mọi renderer (run `146b`, `e627` dùng 3DGUT; `e3e3`, `0b27` dùng 3DGEER).
+- **Cả 3DGUT lẫn 3DGEER chỉ train trên 166 độ.** Dữ liệu gốc (ảnh, calib Mei) có đủ hơn 180 độ; giới hạn đến từ cách xử lý: phải đổi Mei sang OpenCV fisheye để renderer của gsplat dùng được, phép đổi chỉ chính xác tới 83 độ mỗi bên (con số này còn được chọn dưới giới hạn 90 độ của 3DGUT), rồi loader che mọi pixel ngoài 1,45 rad trước khi train, với mọi renderer (run `146b`, `e627` dùng 3DGUT; `e3e3`, `0b27` dùng 3DGEER). Với 3DGEER, renderer không phải là chỗ giới hạn.
 - **Trong 166 độ, ảnh vẽ ra không lệch góc** so với camera thật: sai số chiếu dưới nửa pixel (các số đo ở trên).
 - **Vành ảnh từ 166 độ tới hơn 180 độ không có trong cảnh dựng lại**: camera thật thấy nhưng ảnh mô phỏng để trống. Một phần vành này vốn bị thân xe che (`ego_masks/kitti360`).
 - Thử thuật toán lái xe, perception trên ảnh mô phỏng: dùng được với thuật toán chỉ cần vùng giữa ảnh mắt cá, hoặc khử méo rồi cắt vùng trung tâm; khi so với ảnh thật thì che cùng vành ngoài trên ảnh thật để hai bên cùng điều kiện. Thuật toán cần nguyên ảnh mắt cá (vật sát hai bên xe) sẽ thấy vành ngoài trống, khác camera thật.
