@@ -49,8 +49,9 @@ Ghi chú:
 - Profile `60e5` (30 bước ở bước 2 000 và 20 000, GPU T4): 243 rồi 181 ms mỗi bước; rasterizer 3DGUT chiếm 24% rồi 14% (bước 20 000: backward 17 ms, forward 4 ms), Adam 13%, phần còn lại 62–73% là các phép PyTorch của model (chép bộ nhớ trên GPU 24 ms, phép tính từng phần tử khoảng 45 ms). Kỹ thuật kernel của Faster-GS (sort hai bước, backward theo từng Gaussian) chỉ tác động lên phần rasterizer: giảm một nửa backward cũng chỉ nhanh khoảng 5% mỗi bước. **Kết luận: không port kernel Faster-GS sang 3DGUT**; nếu cần nhanh hơn thì tối ưu phần model dùng chung mọi renderer (chép bộ nhớ, gom Gaussian theo node); việc cần làm với 3DGUT là chất lượng (densify).
 
 - MCMC (`a022` so với mốc sạch `8d9c`, cùng 3DGS + Faster-GS, không FastGS): PSNR 23,56 so với 25,20 (−1,6 dB), SSIM 0,716 so với 0,785, LPIPS 0,403 so với 0,251; train nhanh hơn (2 giờ 31 phút so với 3 giờ 18 phút), VRAM ít hơn (3,8 so với 6,9 GB). Mỗi node chạm đúng mức trần (nền 1 000 000, xe 50 000, vật biến dạng 10 000; SMPL 124 020 không densify), tổng 1,18 triệu so với 1,52 triệu của `8d9c`.
-- Mức trần không phải nguyên nhân chính: `f8a6` chỉ có 0,39 triệu Gaussian nền và 29 nghìn Gaussian xe mà đạt 25,01 dB, PSNR xe 24,75. Phần kém nhất của MCMC là xe (20,82 so với 25,04 ở `8d9c`) và vùng động (21,76 so với 24,81); nền kém ít hơn (PSNR vùng không phải trời 23,48 so với 25,21). Giả thuyết chưa kiểm: nhiễu MCMC và phép dời Gaussian áp trong hệ toạ độ riêng của từng xe với cùng hệ số như nền, hoặc dời Gaussian giữa các xe khác nhau (lấy mẫu chung cho mọi xe). Kiểm bằng một run MCMC chỉ cho nền (`Background`), xe và vật biến dạng giữ quy tắc gốc.
+- Mức trần không phải nguyên nhân chính: `f8a6` chỉ có 0,39 triệu Gaussian nền và 29 nghìn Gaussian xe mà đạt 25,01 dB, PSNR xe 24,75. Phần kém nhất của MCMC là xe (20,82 so với 25,04 ở `8d9c`) và vùng động (21,76 so với 24,81); nền kém ít hơn (PSNR vùng không phải trời 23,48 so với 25,21). Giả thuyết chưa kiểm: nhiễu MCMC và phép dời Gaussian áp trong hệ toạ độ riêng của từng xe với cùng hệ số như nền, hoặc dời Gaussian giữa các xe khác nhau (lấy mẫu chung cho mọi xe). Run MCMC chỉ cho nền không chạy: xem ảnh thì nền cũng mất chi tiết rõ, nên giả thuyết "nền ổn, chỉ xe hỏng" không đứng.
 - `44d8` (3DGUT + MCMC) so với `60e5` (3DGUT + FastGS) không sạch vì khác cả FastGS; xe cũng tụt mạnh nhất (20,21 so với 24,10).
+- **19/11/2026: gỡ MCMC khỏi lựa chọn của OmniRe** (không còn `densify` trong `omnire.yaml`; code, test giữ cho run cũ, thử lại bằng `--set train.drivestudio.densify=mcmc`). 3DGEER + MCMC không chạy: với FastGS, 3DGEER giữ số Gaussian nền bằng 3DGS (0,39 triệu ở cuối `a8a9` và `f8a6`) mà vẫn thấp hơn 3,2 dB, nên số và vị trí Gaussian (thứ duy nhất MCMC đổi) không phải chỗ nghẽn; Bosch khuyên dùng quy tắc gốc cho 3DGEER, và script MCMC trong `gsplat-geer` là của 3DGUT từ gsplat gốc (`docs/methods/densify_mcmc.md`).
 
 ### Tổ hợp renderer và cách densify trên nuScenes `scene-0061`
 
@@ -58,10 +59,24 @@ Ghi chú:
 |---|---|---|---|---|
 | 3DGS | `8d9c` 25,20 (có Faster-GS), `2d33` 25,15 (không) | `f8a6` 25,01 (có Faster-GS), `453a` 25,02 (không) | `a022` 23,56 | Không chạy được: MCMC thay đúng quy tắc densify mà FastGS sửa, tool cấm ghép |
 | 3DGUT | **Chưa chạy** (mốc 3DGUT sạch còn thiếu) | `60e5` 23,99 | `44d8` 23,19 | Không chạy được, như trên |
-| 3DGEER | Chưa chạy | `a8a9` 21,77 (densify mỗi 50 bước), `6b85` 21,66 (mỗi 300 bước) | Chưa chạy | Không chạy được, như trên |
+| 3DGEER | Chưa chạy | `a8a9` 21,77 (densify mỗi 50 bước), `6b85` 21,66 (mỗi 300 bước) | Không chạy (MCMC đã gỡ, lý do ở trên) | Không chạy được, như trên |
 
 - Faster-GS với 3DGUT, 3DGEER chỉ có phần Python (fused Adam, fused SSIM, ít chờ GPU); ba kỹ thuật kernel chỉ có cho 3DGS (`docs/methods/fastergs.md`). Không port sang 3DGUT vì rasterizer chỉ chiếm khoảng 14% mỗi bước ở bước 20 000 (profile `60e5`).
-- Run nên chạy tiếp: 3DGUT densify gốc + Faster-GS (mốc sạch cho `60e5` và `44d8`); MCMC chỉ cho nền (kiểm giả thuyết ở trên).
+- Run nên chạy tiếp: 3DGUT densify gốc + Faster-GS (mốc sạch cho `60e5` và `44d8`); 3DGUT `ut_densify=screen` + Faster-GS 30 000 bước; 3DGEER densify gốc + Faster-GS (mốc sạch cho `a8a9`). Cả ba tắt FastGS, `front3`.
+
+### Lịch densify theo renderer
+
+Đọc từ `config.yaml` của stage train (config DriveStudio đã gộp override). Studio hiện dòng "Densify" ở trang run cùng nguồn này (`drive2sim/engine/densify_info.py`). `method_config.yaml` được ghi **trước** khi áp override dòng lệnh nên có thể sai: `a8a9` đặt `refine_interval=50` mà file đó vẫn ghi 300.
+
+| | 3DGS | 3DGUT | 3DGEER |
+|---|---|---|---|
+| Bắt đầu densify (`warmup_steps`) | bước 500 | 500 | 500 |
+| Densify, cắt mỗi (`refine_interval`) | 100 bước | 100 | 50 từ 16/11/2026 (`6b85` 300) |
+| Ngưỡng (`densify_grad_thresh`) | 0,0005 trên gradient 2D (absgrad) | 0,0005 trên gradient 3D (`native`) hoặc gradient đổi sang pixel (`screen`) | 0,01 trên `geer_gradient` |
+| Ngừng nhân, tách (`stop_split_at`) | nền 15 000; xe, vật biến dạng 20 000 | như 3DGS | như 3DGS |
+| Đặt lại độ đục | mỗi 3 000 bước | như 3DGS | như 3DGS |
+
+FastGS giữ lịch này, chỉ đổi Gaussian nào được tách, nhân và thêm bước cắt từ bước 15 000 (`prune_from`). Người (SMPL) không densify.
 
 ### Số Gaussian ở bước 15.000 và bước cuối (30.000)
 
