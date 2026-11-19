@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Fisheye Fusion Lab - Studio</title>
-  <link rel="stylesheet" href="/static/pipeline.css?v=20261119i">
+  <link rel="stylesheet" href="/static/pipeline.css?v=20261119m">
 </head>
 <body data-view="focus">
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -300,7 +300,7 @@
       <section class="sec" id="step-train" aria-labelledby="h-train">
         <header class="sec-head">
           <h2 id="h-train"><b>2</b> Huấn luyện &amp; Dựng cảnh</h2>
-          <p class="lead">Chọn DriveStudio+ (StreetGS, OmniRe, PVG, DeformableGS với 3DGUT / 3DGEER / FastGS) hoặc Instant NuRec feed-forward.</p>
+          <p class="lead">Chọn dữ liệu và phương pháp, rồi chạy trên GPU của máy ảo hoặc trên GPU Colab (T4/L4/A100) bằng tài khoản Google đã kết nối ở bước 1.</p>
         </header>
         <div class="tabs" role="tablist" aria-label="Phương pháp dựng cảnh">
           <button role="tab" id="t-train-ds" aria-controls="p-train-ds" aria-selected="true">DriveStudio+ (Per-scene)</button>
@@ -308,35 +308,107 @@
         </div>
 
         <div class="panel" role="tabpanel" id="p-train-ds" aria-labelledby="t-train-ds">
-          <form id="dsTrainForm" class="form">
-            <label>Tên lần chạy <input name="name" required pattern="[A-Za-z0-9][A-Za-z0-9_.\\-]{0,79}" placeholder="vd. streetgs_geer_30k"></label>
-            <label>Method Config <select name="method" required></select>
-              <small><code>streetgs</code>: nền+xe · <code>omnire</code>: +người · <code>pvg</code>/<code>deformablegs</code>: không cần box.</small></label>
-            <label>Dataset Config <select name="dataset" required></select></label>
-            <label>Dữ liệu đã chuẩn bị <select name="data_root"><option value="">theo dataset config</option></select></label>
-            <label>Fisheye / Camera Renderer
-              <select name="render_mode">
-                <option value="">theo config</option>
-                <option value="ut">3DGUT (ut)</option>
-                <option value="geer">3DGEER (geer - exact wide-FoV)</option>
-                <option value="default">3DGS (default - chỉ pinhole)</option>
-              </select></label>
-            <label>FastGS Densification
-              <select name="fastgs">
-                <option value="">theo config</option>
-                <option value="true">Bật</option>
-                <option value="false">Tắt</option>
-              </select></label>
-            <label>Số bước (iters) <input name="steps" type="number" min="100" max="100000" step="100" value="30000" inputmode="numeric"></label>
-            <label>GPU <select name="gpu"></select></label>
-            <div class="actions">
-              <button class="primary" type="submit"><svg class="ic"><use href="#i-play"/></svg> Bắt đầu Train</button>
-              <span class="hint" id="dsTrainHint"></span>
-            </div>
+          <form id="dsTrainForm" class="train-form">
+            <section class="tf-group">
+              <h3 class="tf-h"><span class="wz-no">1</span> Dữ liệu</h3>
+              <div class="tf-body">
+                <label>Cấu hình dataset <select name="dataset" required></select></label>
+                <label>Dữ liệu đã chuẩn bị <select name="data_root"><option value="">theo cấu hình dataset</option></select>
+                  <small id="tfDataHint">Chưa có dữ liệu? Làm ở bước 1.</small></label>
+              </div>
+            </section>
+
+            <section class="tf-group">
+              <h3 class="tf-h"><span class="wz-no">2</span> Phương pháp</h3>
+              <div class="tf-body">
+                <label class="span2">Method config <select name="method" required></select>
+                  <small><code>streetgs</code>: nền + xe · <code>omnire</code>: thêm người · <code>pvg</code>/<code>deformablegs</code>: không cần box.</small></label>
+                <div class="span2">
+                  <span class="tf-label">Renderer (camera fisheye)</span>
+                  <div class="seg" role="radiogroup" aria-label="Renderer">
+                    <label><input type="radio" name="render_mode" value="" checked><span>Theo config</span></label>
+                    <label><input type="radio" name="render_mode" value="ut"><span>3DGUT</span></label>
+                    <label><input type="radio" name="render_mode" value="geer"><span>3DGEER <small>wide-FoV chính xác</small></span></label>
+                    <label><input type="radio" name="render_mode" value="default"><span>3DGS <small>chỉ pinhole</small></span></label>
+                  </div>
+                </div>
+                <div>
+                  <span class="tf-label">FastGS densification</span>
+                  <div class="seg" role="radiogroup" aria-label="FastGS">
+                    <label><input type="radio" name="fastgs" value="" checked><span>Theo config</span></label>
+                    <label><input type="radio" name="fastgs" value="true"><span>Bật</span></label>
+                    <label><input type="radio" name="fastgs" value="false"><span>Tắt</span></label>
+                  </div>
+                </div>
+                <div>
+                  <span class="tf-label">Số bước (iters)</span>
+                  <div class="row-inline">
+                    <input name="steps" type="number" min="100" max="100000" step="100" value="30000" inputmode="numeric" aria-label="Số bước" class="steps-in">
+                    <span class="chips"><button type="button" class="chip" data-steps="3000">3k thử</button><button type="button" class="chip" data-steps="7000">7k</button><button type="button" class="chip" data-steps="30000">30k</button></span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="tf-group">
+              <h3 class="tf-h"><span class="wz-no">3</span> Chạy ở đâu</h3>
+              <div class="src-cards two" role="tablist" aria-label="Nơi chạy">
+                <button type="button" role="tab" class="src-card" id="tgt-local" aria-controls="tgtPaneLocal" aria-selected="true">
+                  <svg class="ic"><use href="#i-server"/></svg><span><b>GPU máy ảo</b><small id="tgtLocalInfo">Đang đọc GPU…</small></span></button>
+                <button type="button" role="tab" class="src-card" id="tgt-colab" aria-controls="tgtPaneColab" aria-selected="false" tabindex="-1">
+                  <svg class="ic"><use href="#i-cloud"/></svg><span><b>Colab GPU</b><small id="tgtColabInfo">T4 / L4 / A100 qua tài khoản Google</small></span></button>
+              </div>
+              <div class="tf-body" id="tgtPaneLocal" role="tabpanel" aria-labelledby="tgt-local">
+                <label class="span2">GPU <select name="gpu"></select><small id="dsTrainHint"></small></label>
+              </div>
+              <div class="tf-body" id="tgtPaneColab" role="tabpanel" aria-labelledby="tgt-colab" hidden>
+                <div class="span2 colab-acct">
+                  <span id="tcAccount" class="hint">Tài khoản Google: đang đọc…</span>
+                  <span id="tcUsage" class="hint"></span>
+                  <button type="button" class="link" id="tcAccountChange">Đổi tài khoản</button>
+                </div>
+                <label>Phiên Colab <select id="tcSession"><option value="">Đang tải…</option></select></label>
+                <label id="tcNewWrap">GPU cho phiên mới
+                  <select id="tcGpu">
+                    <option value="T4" selected>T4 · 16 GB (miễn phí)</option>
+                    <option value="L4">L4 · 24 GB (Pro)</option>
+                    <option value="A100">A100 · 40/80 GB (Pro)</option>
+                    <option value="H100">H100 · 80 GB (Pro)</option>
+                  </select></label>
+                <label id="tcNameWrap">Tên phiên mới <input id="tcName" value="fflab-gpu" pattern="[A-Za-z0-9_.\-]{1,64}" spellcheck="false"></label>
+                <div class="span2 row-inline">
+                  <a class="btn small" id="tcOpen" target="_blank" rel="noopener" hidden>Mở phiên trong Colab <svg class="ic sm"><use href="#i-ext"/></svg></a>
+                  <button type="button" class="small" id="tcStop" hidden>Dừng phiên (trả GPU)</button>
+                  <button type="button" class="small" id="tcReload"><svg class="ic sm"><use href="#i-refresh"/></svg> Tải lại</button>
+                  <label class="check"><input type="checkbox" id="tcCkpt" checked> Tải checkpoint về (để mở 3D viewer)</label>
+                </div>
+                <p class="hint span2" id="tcNote">Lần đầu trên một phiên mới, Colab cần build <code>gsplat-geer</code>, <code>pytorch3d</code> và <code>nvdiffrast</code>, mất khoảng 30–60 phút. Nếu đã kết nối Drive (bước 1 → Google Drive), bản build được lưu vào <code>MyDrive/fflab_cache</code> để các phiên sau cài trong vài phút.</p>
+              </div>
+            </section>
+
+            <section class="tf-group">
+              <h3 class="tf-h"><span class="wz-no">4</span> Bắt đầu</h3>
+              <div class="tf-body">
+                <label>Tên lần chạy
+                  <span class="row-inline nowrap"><input name="name" required pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,79}" placeholder="vd. streetgs_geer_30k" spellcheck="false" class="grow">
+                  <button type="button" class="small" id="tfAutoName" title="Đặt tên tự động">Tự đặt</button></span></label>
+                <div class="tf-summary" id="tfSummary"></div>
+                <div class="actions span2">
+                  <button class="primary" type="submit" id="tfSubmit"><svg class="ic"><use href="#i-play"/></svg> <span>Bắt đầu train trên máy ảo</span></button>
+                </div>
+              </div>
+            </section>
           </form>
+
+          <div id="colabJobsWrap" hidden>
+            <h3 class="sub-h">Job trên Colab</h3>
+            <div id="colabJobs" class="cjobs"></div>
+          </div>
         </div>
 
         <div class="panel" role="tabpanel" id="step-nurec" aria-labelledby="t-train-nurec" hidden>
+          <div id="nurecSetup" class="nurec-setup"></div>
+          <div id="nurecSetupJob" class="job" hidden></div>
           <form id="nurecForm" class="form">
             <label>Clip NCore <select name="clip" required></select></label>
             <label>Model
@@ -461,10 +533,11 @@
   </div>
 
   <div id="toast" class="toast" role="alert" hidden></div>
-  <script type="module" src="/static/pipeline.js?v=20261119i"></script>
-  <script type="module" src="/static/drivestudio.js?v=20261119i"></script>
-  <script type="module" src="/static/datasets.js?v=20261119i"></script>
-  <script type="module" src="/static/import.js?v=20261119i"></script>
-  <script type="module" src="/static/colab.js?v=20261119i"></script>
+  <script type="module" src="/static/pipeline.js?v=20261119m"></script>
+  <script type="module" src="/static/drivestudio.js?v=20261119m"></script>
+  <script type="module" src="/static/train.js?v=20261119m"></script>
+  <script type="module" src="/static/datasets.js?v=20261119m"></script>
+  <script type="module" src="/static/import.js?v=20261119m"></script>
+  <script type="module" src="/static/colab.js?v=20261119m"></script>
 </body>
 </html>

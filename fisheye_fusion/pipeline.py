@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import shutil
 import sys
 import subprocess
@@ -21,6 +22,8 @@ from .dataset_profiles import PROFILES, detect, detect_folder
 from .reconstruction import _stop, _tail
 
 TOOLS = Path(__file__).resolve().parent.parent / "tools"
+PROGRESS = re.compile(r"^@@PROGRESS (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)\s*$", re.M)
+NUREC_WEIGHTS = {"pa-multiview": 730202407, "pa-front": 730200087, "pq-front": 1141125047}
 KITTI_CAMERAS = {
     "image_00": "camera_front_left_00",
     "image_01": "camera_front_right_01",
@@ -200,6 +203,8 @@ class Discovery:
         return {
             "workspace": str(self.workspace),
             "nurec": {"ok": nurec_ok, "repo": self.rel(self.nurec_repo) if self.nurec_repo.exists() else None,
+                      "source": (self.nurec_repo / "run_inference.py").is_file(), "venv": self.nurec_python.is_file(),
+                      "available": self.checkpoints(), "weights_bytes": NUREC_WEIGHTS,
                       "python": self.rel(self.nurec_python) if self.nurec_python.is_file() else None,
                       "checkpoints": self.checkpoints() if nurec_ok else {}},
             "gsplat": {"ok": self.gsplat_python is not None, "cuda_home": _cuda_home()},
@@ -298,6 +303,31 @@ class PipelineManager:
                                                str(out / f"{name}.json"), "--out", str(out / "check"), "--frame", "0"]))
         return self._start("convert", out, steps, self._env(None),
                            {"clip": self.discovery.rel(out / f"{name}.json"), "fisheye_model": fisheye_model})
+
+    def nurec_setup(self, models: list[str]) -> dict:
+        """Clone + uv sync + checkpoints for Instant NuRec (tools/nurec_setup.py), skipping parts already done."""
+        models = [m for m in dict.fromkeys(models or []) if m]
+        if not models or set(models) - set(NUREC_WEIGHTS):
+            raise ValueError(f"models must be a non-empty subset of {sorted(NUREC_WEIGHTS)}")
+        repo = self.discovery.nurec_repo
+        py, script = sys.executable, str(TOOLS / "nurec_setup.py")
+        steps = []
+        if not (repo / "run_inference.py").is_file():
+            steps.append(("Tải mã nguồn Instant NuRec", [py, "-u", script, "source", "--repo", str(repo)], 45))
+        if not self.discovery.nurec_python.is_file():
+            steps.append(("Cài môi trường Python (uv sync)", [py, "-u", script, "env", "--repo", str(repo)], 600))
+        have = self.discovery.checkpoints()
+        need = [m for m in models if m not in have]
+        if need:
+            size = sum(NUREC_WEIGHTS[m] for m in need)
+            steps.append((f"Tải checkpoint {', '.join(need)} ({size / 2**30:.1f} GB)",
+                          [py, "-u", script, "weights", "--repo", str(repo), "--models", ",".join(need)],
+                          max(60, int(size / (25 * 2**20)))))
+        if not steps:
+            raise ValueError("Instant NuRec đã cài đủ")
+        out = self.workspace / "outputs" / "setup" / f"nurec_{time.strftime('%Y%m%d_%H%M%S')}"
+        out.mkdir(parents=True, exist_ok=True)
+        return self._start("nurec-setup", out, steps, dict(os.environ), {"models": models})
 
     def prepare_drivestudio(self, cfg: dict, venv: Path) -> dict:
         """KITTI-360 -> NCore (--target drivestudio) -> DriveStudio+ preprocessing -> sky masks, in the DriveStudio+
@@ -489,8 +519,12 @@ class PipelineManager:
                 shutil.rmtree(out, ignore_errors=True)
                 raise ValueError(f"a {kind} job is already running")
             job_id = uuid.uuid4().hex
+            steps = [tuple(s) if len(s) == 3 else (s[0], s[1], None) for s in steps]
             job = {"job_id": job_id, "kind": kind, "state": "running", "step": None, "error": None,
-                   "tail": bytearray(), "process": None, "output": out, "info": info, "cancel": False}
+                   "tail": bytearray(), "process": None, "output": out, "info": info, "cancel": False,
+                   "started": time.time(), "ended": None,
+                   "plan": [{"label": label, "est": est, "state": "todo", "started": None, "ended": None, "mark": 0}
+                            for label, _, est in steps]}
             self._jobs[job_id] = job
             job["thread"] = threading.Thread(target=self._run, args=(job, steps, env), daemon=True)
             job["thread"].start()
@@ -498,17 +532,20 @@ class PipelineManager:
 
     def _run(self, job, steps, env):
         try:
-            for label, argv in steps:
+            for i, (label, argv, _est) in enumerate(steps):
                 with self._lock:
                     if job["cancel"]:
                         break
                     job["step"] = label
                     job["tail"].extend(f"\n=== {label} ===\n".encode())
+                    job["plan"][i].update(state="busy", started=time.time(), mark=len(job["tail"]))
                     job["process"] = subprocess.Popen(
                         argv, cwd=str(self.workspace), env=env, shell=False, stdin=subprocess.DEVNULL,
                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
                 _tail(job["process"].stdout, job["tail"])
                 code = job["process"].wait()
+                with self._lock:
+                    job["plan"][i].update(state="error" if code else "done", ended=time.time())
                 if code:
                     raise RuntimeError(f"{label} exited {code}")
             with self._lock:
@@ -517,6 +554,9 @@ class PipelineManager:
             with self._lock:
                 job["state"] = "cancelled" if job["cancel"] else "failed"
                 job["error"] = str(error)
+        finally:
+            with self._lock:
+                job["ended"] = time.time()
 
     def _job(self, job_id):
         if not isinstance(job_id, str) or not re.fullmatch(r"[0-9a-f]{32}", job_id) or job_id not in self._jobs:
@@ -533,14 +573,31 @@ class PipelineManager:
     def status(self, job_id) -> dict:
         with self._lock:
             job = self._job(job_id)
-            result = {k: job[k] for k in ("job_id", "kind", "state", "step", "error", "info")}
-            result["log"] = bytes(job["tail"]).decode("utf-8", errors="replace")
+            result = {k: job[k] for k in ("job_id", "kind", "state", "step", "error", "info", "started", "ended")}
+            text = bytes(job["tail"]).decode("utf-8", errors="replace")
+            result["plan"] = []
+            for step in job["plan"]:
+                view = {k: step[k] for k in ("label", "est", "state", "started", "ended")}
+                if step["state"] == "busy":
+                    # the busy step is the last one; its header may already be trimmed out of the tail
+                    marks = PROGRESS.findall(text[max(0, text.rfind(f"=== {step['label']} ===")):])
+                    if marks:
+                        done, total = map(float, marks[-1])
+                        view["frac"] = min(1.0, done / total) if total > 0 else None
+                result["plan"].append(view)
+            result["now"] = time.time()
+            result["log"] = "\n".join(line for line in text.split("\n") if not line.startswith("@@PROGRESS"))
             result["output"] = self.discovery.rel(job["output"])
             result["artifacts"] = self._artifacts(job)
             metrics = job["output"] / "metrics.json"
             if job["kind"] == "evaluate" and metrics.is_file():
                 result["metrics"] = json.loads(metrics.read_text())
             return result
+
+    def active(self, kind: str) -> str | None:
+        """Id of the running job of this kind, if any (so a fresh page can re-attach to it)."""
+        with self._lock:
+            return next((j["job_id"] for j in self._jobs.values() if j["kind"] == kind and j["state"] == "running"), None)
 
     def cancel(self, job_id) -> dict:
         with self._lock:

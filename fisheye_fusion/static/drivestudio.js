@@ -181,6 +181,7 @@ async function loadRuns() {
   fill(t.elements.method, [['', 'Chọn phương pháp'], ...(o.methods || []).map((m) => [m, m.replace(/^configs\//, '')])]);
   fill(t.elements.dataset, [['', 'Chọn cấu hình dữ liệu'], ...(o.datasets || []).map((d) => [d, d])]);
   fill(t.elements.data_root, [['', 'theo dataset config'], ...(o.data_roots || []).map((d) => [d, d])]);
+  window.__fflab.trainColab?.summary();
   $('#dsTrainHint').innerHTML = o.venv_ok ? `Môi trường <code>${esc(o.venv)}</code>` : `<span class="tag bad">thiếu môi trường DriveStudio+</span> <code>${esc(o.venv)}</code>`;
   $('#dsEnv').innerHTML = `
     <dt>DriveStudio+</dt><dd>${o.venv_ok ? '<span class="tag ok">có</span>' : '<span class="tag bad">chưa có</span>'} <code>${esc(o.venv)}</code></dd>
@@ -434,6 +435,10 @@ function initForms() {
         render_mode: f.elements.render_mode.value, steps: +f.elements.steps.value, gpu: f.elements.gpu.value === '' ? null : +f.elements.gpu.value,
       };
       if (f.elements.fastgs.value) body.fastgs = f.elements.fastgs.value === 'true';
+      if (!body.name) throw new Error('Đặt tên lần chạy (hoặc bấm "Tự đặt")');
+      if (!body.method || !body.dataset) throw new Error('Chọn cấu hình dataset và method');
+      const colab = window.__fflab.trainColab;
+      if (colab?.active()) { await colab.start(body); return; }
       await api('/api/drivestudio/train', body);
       toast(`Đã bắt đầu ${body.name}. Theo dõi ở bước 3.`);
       selected = body.name;

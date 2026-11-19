@@ -192,6 +192,43 @@ class ColabHelper:
             raise ValueError("Không lấy được link mở phiên Colab")
         return {"url": match.group(0)}
 
+    def stop(self, name) -> dict:
+        self._run(["stop", "-s", self._session(name)], timeout=120)
+        return self.sessions()
+
+    def usage(self) -> dict:
+        out = self._run(["usage"], timeout=45)
+        num = lambda pat: (lambda m: float(m.group(1)) if m else None)(re.search(pat, out))
+        return {"balance": num(r"balance:\s*([\d.]+)"), "rate": num(r"rate:\s*([\d.]+)"),
+                "assignments": int(num(r"assignments:\s*(\d+)") or 0), "raw": out.strip()[-300:]}
+
+    # ---- remote execution + file transfer (used by colab_train)
+    def exec_py(self, name, code, timeout=120, attempts=3) -> str:
+        name, last = self._session(name), ""
+        for i in range(attempts):
+            try:
+                out = self._run(["exec", "-s", name, "--timeout", str(int(timeout))], stdin=code, timeout=timeout + 60)
+            except ValueError as exc:
+                last = str(exc)
+            else:
+                if "Connection was lost" not in out:
+                    return out
+                last = out.strip()[-300:]
+            if i + 1 < attempts:
+                time.sleep(3 * (i + 1))
+        raise ValueError(last)
+
+    def upload(self, name, local, remote, timeout=1800):
+        out = self._run(["upload", "-s", self._session(name), str(local), str(remote)], timeout=timeout)
+        if re.search(r"\bfail", out, re.I):
+            raise ValueError(f"upload lỗi: {out.strip()[-300:]}")
+
+    def download(self, name, remote, local, timeout=1800):
+        Path(local).parent.mkdir(parents=True, exist_ok=True)
+        out = self._run(["download", "-s", self._session(name), str(remote), str(local)], timeout=timeout)
+        if re.search(r"\bfail", out, re.I) or not Path(local).exists():
+            raise ValueError(f"download lỗi: {out.strip()[-300:]}")
+
     # ---- 2. Drive mount
     def drive_status(self, name) -> dict:
         name = self._session(name)

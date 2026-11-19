@@ -1,6 +1,8 @@
 // Fisheye Fusion Lab: shared UI runtime + KITTI-360 / NCore / Instant NuRec / Google Drive sync.
+import { progressBoard, fmtDur } from './progress.js?v=20261119m';
 
 const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const url = (path) => String(path ?? '').split('/').map(encodeURIComponent).join('/');
 
@@ -80,7 +82,7 @@ async function fetchSetup(force = false) {
   return setupInFlight;
 }
 
-window.__fflab = { api, esc, url, toast, openLightbox, fetchSetup, onSetup: (fn) => setupListeners.add(fn), getSetup: () => setup };
+window.__fflab = { api, esc, url, toast, openLightbox, fetchSetup, onSetup: (fn) => setupListeners.add(fn), getSetup: () => setup, progressBoard, fmtDur };
 
 function fillSelect(select, options, keep = true) {
   if (!select) return;
@@ -134,6 +136,7 @@ function watchJob(box, statusUrl, cancelUrl, render, onFinish) {
         ${s.output ? `<code>${esc(s.output)}</code>` : ''}
         ${active && cancelUrl ? '<button type="button" class="small" data-cancel>Huỷ job</button>' : ''}
       </div>
+      ${s.plan?.length ? progressBoard(s.plan, { now: s.now, state: s.state, started: s.started, ended: s.ended }) : ''}
       ${s.error ? `<p class="state failed">${esc(s.error)}</p>` : ''}
       ${render ? render(s) : ''}
       <details ${active || s.state === 'failed' ? 'open' : ''}><summary>Log chi tiết</summary><pre>${esc((s.log || '').slice(-12000))}</pre></details>`;
@@ -190,8 +193,96 @@ function renderPipelineSetup(data) {
     if (!had) sel.value = freestGpu();
   }
   updateSlots();
+  renderNurecSetup(data);
   renderResults();
 }
+
+// ---------------------------------------------------------------- Instant NuRec setup checklist
+const NUREC_MODELS = [['pa-multiview', '3 camera (khuyên dùng)'], ['pa-front', 'camera trước'], ['pq-front', 'camera trước, gọn']];
+let nurecSetupWatching = false;
+function renderNurecSetup(data) {
+  const box = $('#nurecSetup');
+  if (!box) return;
+  const n = data.nurec || {};
+  const have = n.available || n.checkpoints || {};
+  const sizes = n.weights_bytes || {};
+  const clips = data.clips || [];
+  const envOk = n.source && n.venv;
+  const missing = NUREC_MODELS.filter(([m]) => !have[m]);
+  const ckptOk = Object.keys(have).length > 0;
+  const ready = envOk && ckptOk && clips.length;
+  const row = (ok, title, body) => `<li class="${ok ? 'ok' : 'todo'}"><span class="nr-ic" aria-hidden="true">${ok ? '✓' : '○'}</span><div><b>${title}</b>${body}</div></li>`;
+  const gb = (b) => `${(b / 2 ** 30).toFixed(1)} GB`;
+  const models = NUREC_MODELS.map(([m, label]) => have[m]
+    ? `<span class="tag ok">${esc(m)}</span>`
+    : `<label class="check"><input type="checkbox" name="nrModel" value="${esc(m)}" ${m === 'pa-multiview' && !ckptOk ? 'checked' : ''}> ${esc(m)} <small>${esc(label)} · ${gb(sizes[m] || 0)}</small></label>`).join(' ');
+  box.dataset.ready = ready ? 'yes' : 'no';
+  box.innerHTML = `
+    <div class="nr-head"><b>${ready ? 'Instant NuRec sẵn sàng' : 'Cần chuẩn bị trước khi chạy Instant NuRec'}</b>
+      <span class="hint">Mô hình feed-forward của NVIDIA: dựng cảnh 3D Gaussian từ clip NCore trong vài phút, không cần train.</span></div>
+    <ol class="nr-list">
+      ${row(envOk, 'Mã nguồn + môi trường Python', envOk ? ` <code>${esc(n.repo)}</code>` : ' <small>Tải NVIDIA/instant-nurec (commit cố định) và cài môi trường riêng bằng uv (~6 GB, khoảng 10 phút).</small>')}
+      ${row(ckptOk, 'Checkpoint (Hugging Face nvidia/instant-nurec)', `<div class="nr-models">${models}</div>${ckptOk && missing.length ? '<small>Tick để tải thêm model khác (không bắt buộc).</small>' : ''}`)}
+      ${row(clips.length > 0, 'Clip NCore từ KITTI-360', clips.length
+        ? ` <small>${clips.length} clip trong <code>outputs/ncore/</code></small>`
+        : ` <small>${envOk ? 'Chưa có clip.' : 'Làm sau khi cài xong môi trường.'}</small> <button type="button" class="small" id="nrMakeClip" ${envOk ? '' : 'disabled'}>Tạo clip NCore ở bước 1 →</button>`)}
+    </ol>
+    ${!envOk || missing.length ? `<div class="actions"><button type="button" class="${envOk && ckptOk ? 'small' : 'primary'}" id="nrInstall" ${nurecSetupWatching ? 'disabled' : ''}>${envOk && ckptOk ? 'Tải checkpoint đã chọn' : 'Cài Instant NuRec'}</button>
+      <span class="hint" id="nrInstallHint"></span></div>
+      <p class="hint">Bằng việc cài, bạn đồng ý với <a href="https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license" target="_blank" rel="noopener">NVIDIA Open Model License</a> của checkpoint.</p>` : ''}`;
+  const hint = () => {
+    const picked = $$('[name=nrModel]:checked', box).map((x) => x.value);
+    const bytes = picked.reduce((a, m) => a + (sizes[m] || 0), 0) + (envOk ? 0 : 6 * 2 ** 30);
+    const secs = (envOk ? 0 : 645) + bytes / (25 * 2 ** 20);
+    const h = $('#nrInstallHint');
+    if (h) h.textContent = bytes ? `Tải khoảng ${gb(bytes)} · dự kiến ${fmtDur(secs)}` : 'Chưa chọn model nào để tải';
+    const b = $('#nrInstall');
+    if (b && !nurecSetupWatching) b.disabled = !bytes;
+  };
+  box.onchange = hint;
+  hint();
+  const install = $('#nrInstall');
+  if (install) install.onclick = async () => {
+    const models = $$('[name=nrModel]:checked', box).map((x) => x.value);
+    if (envOk && !models.length) return toast('Chọn ít nhất một checkpoint', true);
+    install.disabled = true;
+    try {
+      const job = await api('/api/nurec/setup', { models: models.length ? models : ['pa-multiview'] });
+      try { localStorage.setItem('fflab.nurecSetupJob', job.job_id); } catch { /* private mode */ }
+      watchNurecSetup(job.job_id);
+    } catch (err) { install.disabled = false; toast(err.message, true); }
+  };
+  if (n.setup_job && !nurecSetupWatching) watchNurecSetup(n.setup_job);
+  const make = $('#nrMakeClip');
+  if (make) make.onclick = () => window.__fflab.goto?.('step-convert', 't-data-nurec');
+  const modelSel = $('#nurecForm [name=model]');
+  if (modelSel) {
+    [...modelSel.options].forEach((o) => { o.disabled = !have[o.value]; o.textContent = o.textContent.replace(/ \(chưa tải\)$/, '') + (have[o.value] ? '' : ' (chưa tải)'); });
+    if (!have[modelSel.value] && ckptOk) { modelSel.value = Object.keys(have)[0]; updateSlots(); }
+  }
+  const run = $('#nurecForm button[type=submit]');
+  if (run) {
+    run.disabled = !ready;
+    run.title = ready ? '' : 'Hoàn tất các mục ở khung trên trước';
+  }
+}
+function watchNurecSetup(id) {
+  nurecSetupWatching = true;
+  watchJob($('#nurecSetupJob'), `/api/pipeline/${id}`, `/api/pipeline/${id}/cancel`, null, async (s) => {
+    nurecSetupWatching = false;
+    if (s.state === 'succeeded') toast('Đã cài xong Instant NuRec');
+    await fetchSetup(true).catch(() => {});
+  });
+}
+(async () => {
+  let id = '';
+  try { id = localStorage.getItem('fflab.nurecSetupJob') || ''; } catch { /* private mode */ }
+  if (!/^[0-9a-f]{32}$/.test(id)) return;
+  try {
+    const s = await api(`/api/pipeline/${id}`);
+    if (s.state === 'running') watchNurecSetup(id);
+  } catch { /* job gone after a server restart */ }
+})();
 
 function updateSequences() {
   const form = $('#convertForm');

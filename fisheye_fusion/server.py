@@ -118,6 +118,16 @@ class ColabSession(BaseModel):
 class ColabNew(ColabSession):
     gpu: Literal["", "T4", "L4", "A100", "H100", "G4"] = ""
 
+class ColabTrainJob(DriveStudioJob):
+    session: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,64}$")
+    colab_gpu: Literal["T4", "L4", "A100", "H100", "G4"] = "T4"
+    scene: int = Field(default=0, ge=0, le=999)
+    with_ckpt: bool = True
+
+class NurecSetup(BaseModel):
+    models: list[Literal["pa-multiview", "pa-front", "pq-front"]] = Field(
+        default=["pa-multiview", "pa-front", "pq-front"], min_length=1, max_length=3)
+
 class ColabAccount(BaseModel):
     email: str = Field(min_length=3, max_length=254)
 
@@ -191,11 +201,14 @@ def create_app():
     training = TrainingManager(WORKSPACE)
     pipeline = PipelineManager(WORKSPACE)
     colab = ColabHelper(lambda: pipeline.discovery.colab_bin)
+    from .colab_train import ColabTrainer
+    colab_train = ColabTrainer(WORKSPACE, colab, drivestudio)
 
     @asynccontextmanager
     async def lifespan(app):
         yield
         pipeline.shutdown()
+        colab_train.shutdown()
         colab.shutdown()
         drivestudio.shutdown()
         training.shutdown()
@@ -406,7 +419,9 @@ def create_app():
 
     @app.get("/api/setup")
     def setup():
-        return pipeline.discovery.report()
+        report = pipeline.discovery.report()
+        report["nurec"]["setup_job"] = pipeline.active("nurec-setup")
+        return report
 
     @app.get("/api/outputs/{relative:path}")
     def output_file(relative: str):
@@ -478,6 +493,34 @@ def create_app():
     @app.post("/api/colab/accounts/cancel")
     def colab_login_cancel():
         return colab.login_cancel()
+
+    @app.post("/api/nurec/setup")
+    def nurec_setup(job: NurecSetup):
+        return pipeline.nurec_setup(job.models)
+
+    @app.get("/api/colab/usage")
+    def colab_usage():
+        return colab.usage()
+
+    @app.post("/api/colab/sessions/stop")
+    def colab_stop(job: ColabSession):
+        return colab.stop(job.session)
+
+    @app.get("/api/colab/train")
+    def colab_train_jobs():
+        return colab_train.jobs()
+
+    @app.post("/api/colab/train")
+    def colab_train_start(job: ColabTrainJob):
+        return colab_train.start(job.model_dump())
+
+    @app.get("/api/colab/train/{name}")
+    def colab_train_status(name: str):
+        return colab_train.status(name)
+
+    @app.post("/api/colab/train/{name}/cancel")
+    def colab_train_cancel(name: str):
+        return colab_train.cancel(name)
 
     @app.get("/api/colab/sessions")
     def colab_sessions():
@@ -566,7 +609,7 @@ def create_app():
 
     @app.get("/")
     def index():
-        return FileResponse(STATIC / "index.html")
+        return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
 
     @app.get("/legacy")
     def legacy():

@@ -217,8 +217,18 @@ class DriveStudioRuns:
             state = "stopped"
         images = sorted(p.relative_to(root).as_posix() for p in (out / "images").glob("*.png")) if out and (out / "images").exists() else []
         videos = sorted(p.relative_to(root).as_posix() for p in out.rglob("*.mp4")) if out else []
+        colab = None
+        try:
+            cj = json.loads((root / "colab.json").read_text(encoding="utf-8"))
+            colab = {k: cj.get(k) for k in ("session", "gpu", "state", "stage")}
+            if cj.get("state") == "running" and state == "stopped":
+                state = "running"
+            elif cj.get("state") in ("failed", "cancelled") and state == "running":
+                state = "failed" if cj["state"] == "failed" else "stopped"
+        except (OSError, ValueError):
+            pass
         return {
-            "name": name, "backend": "drivestudio", "state": state, **info, **cfg,
+            "name": name, "backend": "drivestudio", "state": state, **info, **cfg, "colab": colab,
             "updated": log.stat().st_mtime if log.exists() else (out.stat().st_mtime if out else None),
             "images": images, "videos": videos,
             "checkpoint": (out / "checkpoint_final.pth").exists() if out else False,
@@ -333,12 +343,10 @@ class DriveStudioRuns:
         return {"url": f"/api/outputs/{out_rel}", "label_a": la, "label_b": lb, "layout": layout}
 
     # ---------------------------------------------------------------- launching
-    def train(self, cfg: dict) -> dict:
+    def validate(self, cfg: dict, local: bool = True) -> dict:
+        """Checks a train request; `local=False` skips the checks for this machine's environment (Colab runs)."""
         opts = self.options()
-        name = cfg["name"]
-        root = self._run_dir(name)
-        if root.exists():
-            raise ValueError(f"run {name} already exists")
+        self._run_dir(cfg["name"])
         if cfg["method"] not in opts["methods"]:
             raise ValueError("unknown method config")
         if cfg["dataset"] not in opts["datasets"]:
@@ -348,10 +356,19 @@ class DriveStudioRuns:
         data_root = cfg.get("data_root") or ""
         if data_root and data_root not in opts["data_roots"]:
             raise ValueError("unknown data_root")
-        if not opts["venv_ok"]:
+        if local and not opts["venv_ok"]:
             raise ValueError(f"DriveStudio+ environment not found at {self.venv}")
-        if not opts["node_ok"]:
+        if local and not opts["node_ok"]:
             raise ValueError("node is not installed")
+        return opts
+
+    def train(self, cfg: dict) -> dict:
+        name = cfg["name"]
+        root = self._run_dir(name)
+        if root.exists():
+            raise ValueError(f"run {name} already exists")
+        self.validate(cfg)
+        data_root = cfg.get("data_root") or ""
         argv = ["node", str(self.workspace / "fflab" / "bin" / "fflab.js"), "train", "--backend", "drivestudio",
                 "--venv", str(self.venv), "--method", cfg["method"], "--dataset", cfg["dataset"],
                 "--run-name", name, "--out", f"./fflab-runs/{name}", "--steps", str(int(cfg["steps"]))]

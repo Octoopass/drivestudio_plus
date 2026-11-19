@@ -129,6 +129,7 @@ function useForTraining(dataRoot, ds) {
   const cfg = form.elements.dataset;
   const match = [...cfg.options].find((o) => o.value.startsWith(`${ds}/`));
   if (match && !cfg.value.startsWith(`${ds}/`)) cfg.value = match.value;
+  form.dispatchEvent(new Event('change'));
   toast(`Đã chọn ${dataRoot} cho bước huấn luyện`);
 }
 
