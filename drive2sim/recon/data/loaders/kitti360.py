@@ -34,6 +34,8 @@ intrinsics được dùng nguyên (không cộng 0,5); tâm pixel ``i`` nằm �
 import os
 from pathlib import Path
 
+from typing import Optional
+
 import numpy as np
 import torch
 from PIL import Image
@@ -66,10 +68,12 @@ class KITTI360CameraData(KITTICameraData):
             thu nhỏ ảnh), dạng tensor ``(4,)``; ``None`` với camera pinhole.
     """
 
-    def __init__(self, **kwargs: object) -> None:
+    def __init__(self, fisheye_max_angle: Optional[float] = None, **kwargs: object) -> None:
         """Đọc mô hình và độ phân giải của camera từ manifest rồi nạp dữ liệu như KITTI.
 
         Args:
+            fisheye_max_angle: Góc lệch trục lớn nhất (rad) của pixel được dùng, đè lên giá trị
+                của manifest (``data.pixel_source.fisheye_max_angle``, để thử ngưỡng khác).
             **kwargs: Tham số của ``CameraData`` (``data_path``, ``cam_id``, ...); ``cam_id`` là
                 chỉ số camera trong cảnh, cũng là vị trí của camera trong ``manifest.cameras``.
 
@@ -86,6 +90,15 @@ class KITTI360CameraData(KITTICameraData):
             raise ValueError(f"{camera.camera_id}: loader KITTI-360 không đọc được {camera.model}")
         self.camera_model = TRAINER_CAMERA_MODELS[camera.model]
         self.radial_coeffs = None
+        # Ngưỡng che theo góc: config của run, rồi max_angle converter khai báo trong manifest,
+        # rồi giới hạn khớp Mei của KITTI-360 (cảnh ingest trước khi manifest có trường này).
+        self.max_angle = float(
+            fisheye_max_angle
+            if fisheye_max_angle is not None
+            else camera.max_angle
+            if camera.max_angle is not None
+            else MEI_FIT_MAX_ANGLE
+        )
         self._ray_cache = {}
         width, height = camera.resolution
         # CameraData đọc camera_metadata thay cho DATASETS_CONFIG; original_size là (cao, rộng).
@@ -193,7 +206,7 @@ class KITTI360CameraData(KITTICameraData):
             rays, valid = camera_model_rays(
                 height, width, intrinsics, "fisheye", self.radial_coeffs
             )
-            valid &= rays[..., 2] >= float(np.cos(MEI_FIT_MAX_ANGLE))
+            valid &= rays[..., 2] >= float(np.cos(self.max_angle))
             self._ray_cache[key] = rays, valid
         return self._ray_cache[key]
 
@@ -274,4 +287,8 @@ class KITTI360PixelSource(KITTIPixelSource):
     """
 
     CAMERA_DATA_CLASS = KITTI360CameraData
+
+    def extra_camera_kwargs(self) -> dict:
+        """Ngưỡng góc của camera mắt cá đặt trong config (``fisheye_max_angle``), nếu có."""
+        return {"fisheye_max_angle": self.data_cfg.get("fisheye_max_angle", None)}
     SMPL_CAMERA_LIST = AVAILABLE_CAM_LIST

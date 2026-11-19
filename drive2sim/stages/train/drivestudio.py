@@ -30,6 +30,7 @@ Chưa chạy thật trên GPU: phần dựng lệnh có test, phần gọi Drive
 import json
 import os
 import sys
+import math
 from pathlib import Path
 from typing import ClassVar, Literal, Optional
 
@@ -123,6 +124,10 @@ class TrainDrivestudioParams(BaseModel):
         refine_interval: Densify, prune mỗi bao nhiêu bước
             (``trainer.gaussian_ctrl_general_cfg.refine_interval``); bỏ trống thì theo config
             (3DGS, 3DGUT 100; 3DGEER 50, Bosch để 300). Dùng để so renderer với cùng nhịp densify.
+        fisheye_max_angle: Góc lệch trục lớn nhất (rad) của pixel camera mắt cá được dùng khi
+            train, đánh giá (``data.pixel_source.fisheye_max_angle``); bỏ trống thì theo
+            ``cameras[].max_angle`` của manifest (KITTI-360: 1,45 rad, chọn dưới giới hạn 90 độ
+            của 3DGUT). Hiện chỉ loader KITTI-360 đọc; dùng để thử ngưỡng khác.
         densify: ``default`` là quy tắc của DriveStudio (theo gradient, có ngưỡng); ``mcmc`` là
             densify bằng MCMC cho nền, xe, vật biến dạng (``drive2sim/recon/densify/mcmc.py``,
             ``docs/methods/densify_mcmc.md``), không dùng cùng FastGS. Approach không còn cho
@@ -153,6 +158,7 @@ class TrainDrivestudioParams(BaseModel):
     profile_steps: int = Field(default=30, ge=1)
     ut_densify: Literal["native", "screen"] = "native"
     refine_interval: Optional[int] = Field(default=None, ge=1)
+    fisheye_max_angle: Optional[float] = Field(default=None, gt=0, le=math.pi)
     densify: Literal["default", "mcmc"] = "default"
     densify_stats: bool = False
     preload_device: Literal["cpu", "cuda"] = "cpu"
@@ -382,6 +388,8 @@ def build_command(
         options["trainer.type"] = SCREEN_GRAD_TRAINER
     if params.refine_interval is not None:
         options["trainer.gaussian_ctrl_general_cfg.refine_interval"] = params.refine_interval
+    if params.fisheye_max_angle is not None:
+        options["data.pixel_source.fisheye_max_angle"] = params.fisheye_max_angle
     if params.densify == "mcmc":
         # Densify bằng MCMC cho nền, xe, vật biến dạng (recon/densify/mcmc.py); ngân sách và hệ số
         # theo mặc định của module, đổi bằng overrides "trainer.mcmc.<khoá>".

@@ -157,6 +157,10 @@ class KITTIPixelSource(ScenePixelSource):
     CAMERA_DATA_CLASS = KITTICameraData
     SMPL_CAMERA_LIST = AVAILABLE_CAM_LIST
 
+    def extra_camera_kwargs(self) -> dict:
+        """drive2sim: tham số thêm cho ``CAMERA_DATA_CLASS`` (lớp con KITTI-360 dùng); KITTI: rỗng."""
+        return {}
+
     def __init__(
         self,
         dataset_name: str,
@@ -191,6 +195,7 @@ class KITTIPixelSource(ScenePixelSource):
                 undistort=self.data_cfg.undistort,
                 buffer_downscale=self.buffer_downscale,
                 device=self.device,
+                **self.extra_camera_kwargs(),
             )
             camera.load_time(self.normalized_time)
             unique_img_idx = torch.arange(len(camera), device=self.device) * len(self.camera_list) + idx

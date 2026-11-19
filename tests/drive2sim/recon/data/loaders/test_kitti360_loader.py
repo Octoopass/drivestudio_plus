@@ -16,8 +16,10 @@ nhẹ ``.venv`` không có nên test bị bỏ qua ở đó.
 
 import math
 from pathlib import Path
+from typing import Optional
 
 import pytest
+import yaml
 
 torch = pytest.importorskip("torch")
 pytest.importorskip("pytorch3d")
@@ -82,10 +84,13 @@ def make_scene(root: Path) -> Path:
     return scene
 
 
-def make_source(scene: Path, undistort: bool = False) -> KITTI360PixelSource:
+def make_source(
+    scene: Path, undistort: bool = False, fisheye_max_angle: Optional[float] = None
+) -> KITTI360PixelSource:
     """Nạp nguồn ảnh của cảnh giả trên CPU: camera pinhole nạp nguyên, fisheye nạp một nửa."""
     config = OmegaConf.create(
         {
+            "fisheye_max_angle": fisheye_max_angle,
             "cameras": [0, 1],
             "downscale_when_loading": [1, 2],
             "downscale": 1,
@@ -148,6 +153,26 @@ def test_pixels_beyond_fit_angle_are_excluded_from_loss(source: KITTI360PixelSou
     assert valid[10, 10] and not valid[0, 0]
     assert bool((angle[valid] <= MEI_FIT_MAX_ANGLE + 1e-6).all())
     assert torch.equal(image["egocar_masks"], (~valid).float())
+
+
+def test_fisheye_max_angle_from_config_overrides_default(tmp_path: Path) -> None:
+    # Run thử nới vùng che (data.pixel_source.fisheye_max_angle) dùng được nhiều pixel hơn.
+    scene = make_scene(tmp_path)
+    narrow = make_source(scene).camera_data[1].get_image(0)[0]["valid_masks"]
+    wide = make_source(scene, fisheye_max_angle=1.55).camera_data[1].get_image(0)[0]
+    angle = torch.acos(wide["viewdirs"][..., 2].clamp(-1, 1))
+    assert int(wide["valid_masks"].sum()) > int(narrow.sum())
+    assert bool((angle[wide["valid_masks"]] <= 1.55 + 1e-6).all())
+
+
+def test_fisheye_max_angle_from_manifest(tmp_path: Path) -> None:
+    scene = make_scene(tmp_path)
+    manifest = yaml.safe_load((scene / "manifest.yaml").read_text())
+    manifest["cameras"][1]["max_angle"] = 1.2
+    (scene / "manifest.yaml").write_text(yaml.safe_dump(manifest))
+    image = make_source(scene).camera_data[1].get_image(0)[0]
+    angle = torch.acos(image["viewdirs"][..., 2].clamp(-1, 1))
+    assert bool((angle[image["valid_masks"]] <= 1.2 + 1e-6).all())
 
 
 def test_fisheye_project_points(source: KITTI360PixelSource) -> None:

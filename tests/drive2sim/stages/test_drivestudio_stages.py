@@ -137,6 +137,12 @@ def test_build_command_translates_split(tmp_path: Path) -> None:
     every = TrainDrivestudioParams(method="omnire", renderer="3dgeer", refine_interval=100)
     every_command = build_command(every, split, manifest, view_root, output_dir)
     assert option(every_command, "trainer.gaussian_ctrl_general_cfg.refine_interval") == "100"
+    assert not any("fisheye_max_angle" in part for part in command)  # theo manifest
+    wide = TrainDrivestudioParams(method="omnire", renderer="3dgut", fisheye_max_angle=1.536)
+    wide_command = build_command(wide, split, manifest, view_root, output_dir)
+    assert option(wide_command, "data.pixel_source.fisheye_max_angle") == "1.536"
+    with pytest.raises(ValueError):
+        TrainDrivestudioParams(method="omnire", fisheye_max_angle=3.5)  # quá π
     # --set train.drivestudio.profile_at=2000,20000 cho ra chuỗi; tham số tự đổi sang số
     assert TrainDrivestudioParams(method="omnire", profile_at=["2000", "20000"]).profile_at == [
         2000,
