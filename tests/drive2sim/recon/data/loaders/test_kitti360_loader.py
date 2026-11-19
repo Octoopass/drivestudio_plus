@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Optional
 
 import pytest
-import yaml
 
 torch = pytest.importorskip("torch")
 pytest.importorskip("pytorch3d")
