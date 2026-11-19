@@ -272,8 +272,6 @@ export function ViewerPage({ runId }: { runId?: string }) {
     if (!camera) return DEFAULT_FOV;
     return Math.round((2 * Math.atan(camera.height / (2 * camera.K[0][4])) * 180) / Math.PI);
   })();
-  // Góc nhìn dọc thật của camera gốc theo mô hình ống kính (API, từ intrinsics của cảnh).
-  const lens = cameras?.[cameraIndex] ? splats.data?.lenses?.[cameras[cameraIndex].name] : undefined;
   // Tiêu cự (pixel) ứng với góc nhìn dọc, theo chiều cao ảnh lúc train của camera đang chọn: cùng đơn
   // vị với K trong cameras.json (image_02 KITTI-360: 700 px, fy 208). f = (H / 2) / tan(góc / 2).
   const focalText = (deg: number) => {
@@ -719,11 +717,6 @@ export function ViewerPage({ runId }: { runId?: string }) {
                     />
                     {t("viewer.fov.native")}
                   </label>
-                  {lens && (
-                    <span className="small muted">
-                      {t("viewer.fov.lens", { fov: Math.round(lens.fov_y_deg), model: lens.model === "opencv_fisheye" ? "fisheye" : "pinhole" })}
-                    </span>
-                  )}
                 </div>
                 <div className="field">
                   <span>

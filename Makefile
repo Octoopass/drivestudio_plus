@@ -141,6 +141,8 @@ test-gpu:
 
 lint:
 	@uvx ruff check $(LINT_PATHS)
+	@# drive2sim/recon (mã DriveStudio) ngoài lint chung; vẫn bắt tên chưa định nghĩa (F821)
+	@uvx ruff check --no-cache --isolated --select F821 drive2sim/recon
 
 format:
 	@uvx ruff format $(LINT_PATHS)

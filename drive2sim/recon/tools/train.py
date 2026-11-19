@@ -207,7 +207,7 @@ def main(args):
     )
     # drive2sim: ghi khung bao cảnh trainer nhận, để viewer dựng trainer giống hệt (không có trong
     # checkpoint mà DeformableNodes dùng khi vẽ; recon/utils/scene_aabb.py)
-    save_scene_aabb(log_dir, scene_aabb.flatten().tolist())
+    save_scene_aabb(cfg.log_dir, scene_aabb.flatten().tolist())
     # training views for FastGS multi-view scoring (only used when trainer.fastgs.enabled)
     trainer.fastgs.view_source = dataset.train_image_set
     
