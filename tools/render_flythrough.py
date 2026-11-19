@@ -12,6 +12,7 @@ import importlib.util
 import json
 import os
 import pickle
+import pickle_compat  # reads NumPy-2 pickles on NumPy 1.x (tools/pickle_compat.py)
 import shutil
 import subprocess
 import time
@@ -62,7 +63,7 @@ def front_c2w_path():
     items = []
     for split in ("val", "train"):
         p = trainer.ensure_file(f"ImageSets-rosa-6class/kitti360_rosa_infos_{split}.pkl")
-        items += pickle.load(p.open("rb"))["data_list"]
+        items += pickle_compat.load(p.open("rb"))["data_list"]
     official = trainer.read_official_poses()
     cfg = Path(PLY).with_name("config.json")
     used = json.loads(cfg.read_text()).get("frame_ids") if cfg.exists() else None

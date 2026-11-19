@@ -1,5 +1,5 @@
 // Fisheye Fusion Lab: shared UI runtime + KITTI-360 / NCore / Instant NuRec / Google Drive sync.
-import { progressBoard, fmtDur } from './progress.js?v=20261119q';
+import { progressBoard, fmtDur } from './progress.js?v=20261119s';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];

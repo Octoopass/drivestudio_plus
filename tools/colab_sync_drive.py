@@ -14,9 +14,15 @@ SEQUENCE = re.compile(r"^2013_05_28_drive_\d{4}_sync$")
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 
 
-def run_colab(colab: str, args: list[str], stdin_text: str | None = None, check: bool = True) -> str:
+def run_colab(colab: str, args: list[str], stdin_text: str | None = None, check: bool = True, timeout: float = 900) -> str:
     env = dict(os.environ, PYTHON_KEYRING_BACKEND=os.environ.get("PYTHON_KEYRING_BACKEND", "keyrings.alt.file.PlaintextKeyring"))
-    r = subprocess.run([colab, *args], input=stdin_text, text=True, capture_output=True, env=env)
+    try:
+        # hard limit: `colab exec --timeout` only counts silence, and a stalled connection can hang forever
+        r = subprocess.run([colab, *args], input=stdin_text, text=True, capture_output=True, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if not check:
+            return ""
+        raise SystemExit(f"colab {' '.join(args[:3])} quá {timeout:.0f}s, đã ngắt")
     out = (r.stdout or "") + (r.stderr or "")
     if check and r.returncode != 0:
         raise SystemExit(f"colab {' '.join(args)} failed ({r.returncode}):\n{out.strip()}")
@@ -29,6 +35,101 @@ def remote_json(colab: str, session: str, code: str) -> dict:
         if line.startswith("FFLAB_JSON:"):
             return json.loads(line[len("FFLAB_JSON:"):])
     raise SystemExit(f"Unexpected remote output:\n{out}")
+
+
+# `colab download` goes through the runtime's Jupyter contents API behind Google's proxy. It reads a whole file
+# into memory and base64-encodes it, so files of ~1 GB fail with HTTP 500, and on some runtimes the API fails for
+# every file while code execution still works. So: small files try `colab download` first; big files, and every
+# file once a download has failed, are streamed through `colab exec` in CHUNK-sized, MD5-checked pieces that are
+# appended to <target>.part (an interrupted transfer resumes from the last complete piece).
+CHUNK = 32 * 2**20
+DIRECT_MAX = 200 * 2**20
+_STREAM_ONLY = False        # set after the first failed `colab download` in this run
+
+
+def remote_size(colab: str, session: str, path: str) -> int:
+    info = remote_json(colab, session, f"import json, os\np={path!r}\n"
+                       "print('FFLAB_JSON:' + json.dumps({'size': os.path.getsize(p) if os.path.isfile(p) else -1}))\n")
+    if info["size"] < 0:
+        raise SystemExit(f"Không thấy file trên Drive: {path}")
+    return int(info["size"])
+
+
+def _retry(fn, what: str, attempts: int = 3):
+    import time
+    for i in range(attempts):
+        try:
+            return fn()
+        except SystemExit as exc:
+            if i + 1 == attempts:
+                raise
+            print(f"[retry {i + 1}/{attempts - 1}] {what}: {str(exc).splitlines()[0][:160]}", flush=True)
+            time.sleep(5 * (i + 1))
+
+
+def _read_chunk(colab: str, session: str, remote: str, offset: int, length: int) -> bytes:
+    import base64
+    import hashlib
+    code = (f"import base64, hashlib\nwith open({remote!r}, 'rb') as f:\n    f.seek({offset})\n    d = f.read({length})\n"
+            "print('FFLAB_MD5 ' + hashlib.md5(d).hexdigest())\nprint('FFLAB_B64 ' + base64.b64encode(d).decode())\n")
+    out = run_colab(colab, ["exec", "-s", session, "--timeout", "600"], stdin_text=code)
+    md5 = b64 = None
+    for line in out.splitlines():
+        if line.startswith("FFLAB_MD5 "):
+            md5 = line[10:].strip()
+        elif line.startswith("FFLAB_B64 "):
+            b64 = line[10:].strip()
+    if md5 is None or b64 is None:
+        raise SystemExit(f"Colab không trả dữ liệu: {out.strip()[-200:]}")
+    data = base64.b64decode(b64)
+    if len(data) != length or hashlib.md5(data).hexdigest() != md5:
+        raise SystemExit(f"khối tại {offset} hỏng ({len(data)}/{length} byte)")
+    return data
+
+
+def _stream(colab: str, session: str, remote: str, target: Path, size: int, label: str):
+    part_file = target.with_name(target.name + ".part")
+    have = part_file.stat().st_size if part_file.exists() else 0
+    if have % CHUNK or have > size:          # not on a chunk boundary: start over
+        part_file.unlink()
+        have = 0
+    chunks = max(1, -(-size // CHUNK))
+    print(f"[stream] {label} ({size / 2**20:.1f} MiB, {chunks} khối){' tiếp từ khối ' + str(have // CHUNK + 1) if have else ''}", flush=True)
+    for i in range(have // CHUNK, chunks):
+        off = i * CHUNK
+        data = _retry(lambda: _read_chunk(colab, session, remote, off, min(CHUNK, size - off)), f"{label} khối {i + 1}/{chunks}")
+        with part_file.open("ab") as out:
+            out.write(data)
+        print(f"[progress] {label} {min(size, off + CHUNK) / 2**20:.0f}/{size / 2**20:.0f} MiB", flush=True)
+    if part_file.stat().st_size != size:
+        raise SystemExit(f"Ghép file thiếu {label}: {part_file.stat().st_size}/{size} byte")
+    part_file.replace(target)
+
+
+def download_file(colab: str, session: str, remote: str, target: Path, size: int | None = None, label: str = "") -> bool:
+    """Download remote -> target unless it is already complete; returns True if something was transferred."""
+    global _STREAM_ONLY
+    label = label or remote
+    size = remote_size(colab, session, remote) if size is None else size
+    if target.is_file() and target.stat().st_size == size:
+        print(f"[skip] {label} ({size / 2**20:.1f} MiB)", flush=True)
+        return False
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        target.unlink()                      # incomplete leftover from an older run
+    if size <= DIRECT_MAX and not _STREAM_ONLY:
+        print(f"[download] {label} ({size / 2**20:.1f} MiB)", flush=True)
+        try:
+            _retry(lambda: run_colab(colab, ["download", "-s", session, remote, str(target)]), label, attempts=2)
+            if target.is_file() and target.stat().st_size == size:
+                return True
+        except SystemExit as exc:
+            print(f"[fallback] colab download lỗi ({str(exc).splitlines()[-1][:120]}); chuyển sang truyền qua exec", flush=True)
+        _STREAM_ONLY = True
+        if target.exists():
+            target.unlink()
+    _stream(colab, session, remote, target, size, label)
+    return True
 
 
 def ensure_session_and_drive(colab: str, session: str, drive_path: str):
@@ -87,13 +188,7 @@ def sync_dataset(colab: str, session: str, drive_root: str, seq: str, dest: Path
         target = (dest / rel).resolve()
         if not target.is_relative_to(dest.resolve()):
             raise SystemExit(f"Refusing unsafe path: {rel}")
-        if target.is_file() and target.stat().st_size > 0:
-            print(f"[skip] {rel} ({target.stat().st_size / 2**20:.1f} MiB)", flush=True)
-            continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        remote_path = posixpath.join(drive_root, rel)
-        print(f"[download] {remote_path} -> {target}", flush=True)
-        run_colab(colab, ["download", "-s", session, remote_path, str(target)])
+        download_file(colab, session, posixpath.join(drive_root, rel), target, label=rel)
     cal_zip = dest / "calibration.zip"
     if cal_zip.is_file() and not (dest / "calibration").is_dir():
         with zipfile.ZipFile(cal_zip) as zf:
@@ -130,11 +225,7 @@ def sync_runs(colab: str, session: str, drive_runs: str, dest: Path):
         target = (dest / rel).resolve()
         if not target.is_relative_to(dest.resolve()):
             continue
-        if target.is_file() and target.stat().st_size > 0:
-            continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        print(f"[download] {rel}", flush=True)
-        run_colab(colab, ["download", "-s", session, posixpath.join(drive_runs, rel), str(target)])
+        download_file(colab, session, posixpath.join(drive_runs, rel), target, label=rel)
     print(f"[done] synced {len(files)} run artifact(s) into {dest}", flush=True)
 
 
@@ -186,9 +277,8 @@ def sync_folder(colab: str, session: str, drive_root: str, items: list[str], des
             print(f"[skip {i}/{len(files)}] {rel}", flush=True)
             done += size
             continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        print(f"[download {i}/{len(files)}] {rel} ({size / 2**20:.1f} MiB)", flush=True)
-        run_colab(colab, ["download", "-s", session, posixpath.join(drive_root, rel), str(target)])
+        print(f"[file {i}/{len(files)}]", flush=True)
+        download_file(colab, session, posixpath.join(drive_root, rel), target, size=size, label=rel)
         done += size
         print(f"[progress] {done / max(total, 1) * 100:.1f}%", flush=True)
     print(f"[done] {len(files)} file vào {dest}", flush=True)

@@ -31,6 +31,7 @@ import argparse
 import io
 import json
 import pickle
+import pickle_compat  # reads NumPy-2 pickles on NumPy 1.x (tools/pickle_compat.py)
 import sys
 import tarfile
 from pathlib import Path
@@ -94,7 +95,7 @@ def load_items(data: Path, seq: str) -> list[dict]:
         if not path.exists():
             sys.exit(f"missing {path}")
         with path.open("rb") as f:
-            items += [x for x in pickle.load(f)["data_list"] if seq in x["lidar_path"]]
+            items += [x for x in pickle_compat.load(f)["data_list"] if seq in x["lidar_path"]]
     return items
 
 

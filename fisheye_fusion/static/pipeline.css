@@ -732,3 +732,7 @@ body[data-view="scroll"] .step-foot { display: none; }
   main { padding: 20px 16px 64px; }
   .step-foot button { min-width: 0; flex: 1; }
 }
+
+/* deep-linked job (ui.js ?job=) */
+.linked-job { margin-bottom: 18px; border-color: rgba(59, 130, 246, .45); }
+.linked-job .job { margin-top: 0; border-top: 0; padding-top: 0; }

@@ -52,10 +52,19 @@ export function progressBoard(steps, opts = {}) {
   let head;
   let pct;
   if (running) {
-    pct = left > 0 ? Math.min(99, Math.round((100 * elapsed) / (elapsed + left))) : 99;
     const done = steps.filter((s) => s.state === 'done').length;
-    head = `<b>Còn khoảng ${unknown ? 'ít nhất ' : ''}${fmtDur(left)}</b>
-      <small>đã chạy ${fmtDur(elapsed)} · bước ${Math.min(done + 1, steps.length)}/${steps.length}${left > 0 ? ` · dự kiến xong lúc ${clock((now + left + skew) * 1000)}` : ''}</small>`;
+    const where = `bước ${Math.min(done + 1, steps.length)}/${steps.length}`;
+    if (unknown && left < 60) {
+      // no estimate for what is left: say so instead of "a few seconds"; progress by finished steps
+      const busy = steps.find((s) => s.state === 'busy');
+      pct = Math.round((100 * (done + (busy?.frac || 0))) / steps.length);
+      head = `<b>Đang chạy ${where}${busy ? `: ${esc(busy.label)}` : ''}</b>
+        <small>đã chạy ${fmtDur(elapsed)} · chưa đủ dữ liệu để ước tính thời gian còn lại</small>`;
+    } else {
+      pct = left > 0 ? Math.min(99, Math.round((100 * elapsed) / (elapsed + left))) : 99;
+      head = `<b>Còn khoảng ${unknown ? 'ít nhất ' : ''}${fmtDur(left)}</b>
+        <small>đã chạy ${fmtDur(elapsed)} · ${where}${left > 0 ? ` · dự kiến xong lúc ${clock((now + left + skew) * 1000)}` : ''}</small>`;
+    }
   } else if (opts.state === 'succeeded') {
     pct = 100;
     head = `<b>Hoàn tất</b><small>tổng thời gian ${fmtDur(elapsed)}</small>`;

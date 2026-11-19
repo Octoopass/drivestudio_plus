@@ -21,6 +21,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(deps_mod, "nvcc_version", lambda: "12.4")
     monkeypatch.setattr(deps_mod, "_cuda_home", lambda: "/usr/local/cuda-12.4")
     pm = PipelineManager(ws)
+    pm.discovery.eval_venv = tmp_path / "no-eval-venv"            # independent of this machine's ~/.fflab
     started = {}
     monkeypatch.setattr(pm, "_start", lambda kind, out, steps, env, info: started.update(kind=kind, steps=steps) or {"job_id": "x"})
     return Deps(ws, pm, venv), started

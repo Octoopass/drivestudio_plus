@@ -23,6 +23,7 @@ Env:
 import json
 import os
 import pickle
+import pickle_compat  # reads NumPy-2 pickles on NumPy 1.x (tools/pickle_compat.py)
 import re
 import tarfile
 import urllib.request
@@ -266,7 +267,7 @@ def main():
     official_cal, rect0_from_velo = read_official_calibration(ARCHIVE / "calibration")
 
     with (ARCHIVE / "ImageSets-rosa-6class/kitti360_rosa_infos_val.pkl").open("rb") as f:
-        items = {x["frame_id"]: x for x in pickle.load(f)["data_list"] if SEQ in x["lidar_path"]}
+        items = {x["frame_id"]: x for x in pickle_compat.load(f)["data_list"] if SEQ in x["lidar_path"]}
     poses = read_cam0_to_world()
     common = sorted(set(items) & set(poses))
     frame = int(os.environ.get("KITTI360_FRAME", common[0]))

@@ -352,10 +352,27 @@ class PipelineManager:
         name = cfg.get("name") or f"k360_{seq.split('_drive_')[1][:4]}_{start:06d}_{frames}f"
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", name):
             raise ValueError("name: letters, digits, _ . - only")
+        # every input this job reads, checked up front so a half-downloaded archive fails here, not mid-run
+        need = [data / "data_poses.zip", *(data / "data_2d_raw" / f"{seq}_image_0{c}.tar" for c in (0, 2, 3)),
+                data / "data_3d_raw" / f"{seq}.tar",
+                *(data / "ImageSets-rosa-6class" / f"kitti360_rosa_infos_{s}.pkl" for s in ("train", "val"))]
+        missing = [self.discovery.rel(f) for f in need if not f.is_file()]
+        if not (data / "calibration").is_dir() and not (data / "calibration.zip").is_file():
+            missing.append(self.discovery.rel(data / "calibration"))
+        if missing:
+            partial = [m for m in missing if (self.workspace / (m + ".part")).exists()]
+            hint = " (đang tải dở: " + ", ".join(partial) + ")" if partial else ""
+            raise ValueError("Chưa đủ dữ liệu, thiếu: " + ", ".join(missing) + hint)
         root = self.workspace / "data" / "kitti360"
         raw, processed = root / f"raw_{name}", root / f"processed_{name}"
-        if raw.exists() or processed.exists():
-            raise ValueError(f"data/kitti360/raw_{name} or processed_{name} already exists")
+        if processed.exists():
+            raise ValueError(f"data/kitti360/processed_{name} đã có; đặt tên khác hoặc xoá thư mục đó")
+        if raw.exists():
+            with self._lock:
+                busy = any(j["kind"] == "prepare" and j["state"] == "running" for j in self._jobs.values())
+            if busy:
+                raise ValueError("Đang có một lần chuẩn bị dữ liệu chạy")
+            shutil.rmtree(raw)               # leftover of a failed run (no processed_ output): rebuild it
         raw.mkdir(parents=True)
         convert = [str(py), "-u", str(TOOLS / "kitti360_to_ncore.py"), "--data", str(data), "--out", str(raw / name),
                    "--sequence", seq, "--start", str(start), "--frames", str(frames), "--target", "drivestudio",
