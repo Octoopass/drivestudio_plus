@@ -24,6 +24,7 @@ SESSION = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 SESSION_LINE = re.compile(r"^\[([A-Za-z0-9_.-]{1,64})\]\s+(\S+)(.*)$")
 URL = re.compile(r"https://\S+")
 GPUS = ("T4", "L4", "A100", "H100", "G4")
+TOOLS = Path(__file__).resolve().parent.parent / "tools"
 
 # Runs on the Colab VM. Lists one Drive folder and says whether it is (or holds) a KITTI-360 root.
 KITTI_FN = r'''
@@ -112,6 +113,7 @@ class ColabHelper:
         self._bin = colab_bin            # callable -> path or None (PATH may change after install)
         self._lock = threading.Lock()
         self._mounts: dict[str, dict] = {}
+        self._login: dict | None = None
 
     # ---- plumbing
     @property
@@ -251,8 +253,143 @@ class ColabHelper:
                 state = "needs_consent"
             return {"state": state, "consent_url": job["consent_url"], "log": job["log"][-1500:]}
 
+    # ---- CLI version + Google account
+    def _cli_python(self) -> str:
+        try:
+            first = Path(self.bin).read_text(errors="replace").splitlines()[0]
+        except (OSError, IndexError):
+            first = ""
+        py = first[2:].strip() if first.startswith("#!") else ""
+        if not py or not Path(py).is_file():
+            raise ValueError("Không tìm thấy python của Colab CLI")
+        return py
+
+    def _account(self, *args, timeout=60) -> dict:
+        try:
+            r = subprocess.run([self._cli_python(), str(TOOLS / "colab_account.py"), *args], capture_output=True,
+                               text=True, timeout=timeout, env=self._env(), stdin=subprocess.DEVNULL)
+        except subprocess.TimeoutExpired as exc:
+            raise ValueError("Hết thời gian chờ tài khoản Google") from exc
+        for line in reversed((r.stdout or "").splitlines()):
+            if line.startswith("FFLAB_JSON:"):
+                return json.loads(line[len("FFLAB_JSON:"):])
+        raise ValueError(((r.stderr or "") + (r.stdout or "")).strip()[-500:] or "colab_account lỗi")
+
+    def cli_info(self) -> dict:
+        version = self._run(["version"], timeout=30)
+        try:
+            update = self._run(["update"], timeout=45)
+        except ValueError as exc:
+            update = str(exc)
+        cur = re.search(r"Version:\s*(\S+)", version)
+        latest = re.search(r"latest:\s*([0-9][^)\s,]*)", update)
+        return {"version": cur.group(1) if cur else version.strip()[-40:], "latest": latest.group(1) if latest else None,
+                "up_to_date": "up to date" in update.lower(), "message": update.strip()[-300:]}
+
+    def cli_update(self) -> dict:
+        uv = shutil.which("uv") or str(Path.home() / ".local" / "bin" / "uv")
+        argv = [uv, "tool", "upgrade", "google-colab-cli"] if Path(uv).is_file() else [self.bin, "update", "--install"]
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=600, env=self._env(), stdin=subprocess.DEVNULL)
+        except subprocess.TimeoutExpired as exc:
+            raise ValueError("Cập nhật Colab CLI quá thời gian") from exc
+        if r.returncode:
+            raise ValueError(((r.stderr or "") + (r.stdout or "")).strip()[-500:])
+        return {**self.cli_info(), "log": ((r.stdout or "") + (r.stderr or "")).strip()[-800:]}
+
+    def accounts(self) -> dict:
+        data = self._account("list")
+        with self._lock:
+            job = self._login
+        data["login"] = self._login_view(job)
+        return data
+
+    def use_account(self, email) -> dict:
+        self._account("use", self._email(email))
+        return self.accounts()
+
+    def forget_account(self, email) -> dict:
+        self._account("forget", self._email(email))
+        return self.accounts()
+
+    @staticmethod
+    def _email(email) -> str:
+        email = str(email or "").strip()
+        if not re.fullmatch(r"[^@\s]{1,64}@[^@\s]{1,190}", email):
+            raise ValueError("Email không hợp lệ")
+        return email
+
+    def login_start(self) -> dict:
+        with self._lock:
+            job = self._login
+            if job and job["process"].poll() is None:
+                return self._login_view(job)
+            process = subprocess.Popen([self._cli_python(), "-u", str(TOOLS / "colab_account.py"), "login"],
+                                       stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                       text=True, env=self._env(), start_new_session=True)
+            job = {"process": process, "log": "", "url": None, "email": None, "sent": False}
+            self._login = job
+        threading.Thread(target=self._read_login, args=(job,), daemon=True).start()
+        for _ in range(60):
+            time.sleep(0.25)
+            if job["url"] or process.poll() is not None:
+                break
+        return self._login_view(job)
+
+    def _read_login(self, job):
+        for line in job["process"].stdout:
+            with self._lock:
+                job["log"] = (job["log"] + line)[-4000:]
+                if not job["url"]:
+                    m = re.search(r"https://accounts\.google\.com/\S+", line)
+                    if m:
+                        job["url"] = m.group(0)
+                if line.startswith("FFLAB_JSON:"):
+                    try:
+                        job["email"] = json.loads(line[len("FFLAB_JSON:"):]).get("email")
+                    except ValueError:
+                        pass
+
+    def login_code(self, code) -> dict:
+        code = str(code or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9/_.~-]{10,300}", code):
+            raise ValueError("Mã xác thực không hợp lệ (dán đúng mã Google hiển thị)")
+        with self._lock:
+            job = self._login
+            if not job or job["process"].poll() is not None or job["sent"]:
+                raise ValueError("Không có lần đăng nhập nào đang chờ mã; bấm Thêm tài khoản lại")
+            job["process"].stdin.write(code + "\n")
+            job["process"].stdin.flush()
+            job["sent"] = True
+        try:
+            job["process"].wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            pass
+        time.sleep(0.2)
+        return self.accounts()
+
+    def login_cancel(self) -> dict:
+        with self._lock:
+            job = self._login
+            if job and job["process"].poll() is None:
+                job["process"].kill()
+        return self.accounts()
+
+    def _login_view(self, job) -> dict | None:
+        if not job:
+            return None
+        code = job["process"].poll()
+        if code is None:
+            state = "running" if job["sent"] else "waiting_code"
+        else:
+            state = "succeeded" if code == 0 and job["email"] else "failed"
+        return {"state": state, "url": job["url"], "email": job["email"],
+                "log": "" if state in ("waiting_code", "succeeded") else job["log"][-800:]}
+
     def shutdown(self):
         with self._lock:
+            if self._login and self._login["process"].poll() is None:
+                self._login["process"].kill()
             for job in self._mounts.values():
                 if job["process"].poll() is None:
                     job["process"].kill()

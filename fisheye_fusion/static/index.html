@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Fisheye Fusion Lab - Studio</title>
-  <link rel="stylesheet" href="/static/pipeline.css?v=20261119h">
+  <link rel="stylesheet" href="/static/pipeline.css?v=20261119i">
 </head>
 <body data-view="focus">
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -147,10 +147,36 @@
           </div>
 
           <div class="src-pane" role="tabpanel" id="p-data-drive" aria-labelledby="src-drive" hidden>
-            <p class="hint">Máy ảo đọc Google Drive của bạn qua một phiên Colab. Làm lần lượt 4 bước, không cần gõ đường dẫn. Hỗ trợ KITTI-360, Waymo, nuScenes, PandaSet, Argoverse 2, KITTI, nuPlan, PhysicalAI.</p>
+            <p class="hint">Máy ảo đọc Google Drive của bạn qua một phiên Colab. Làm lần lượt từng bước, không cần gõ đường dẫn. Hỗ trợ KITTI-360, Waymo, nuScenes, PandaSet, Argoverse 2, KITTI, nuPlan, PhysicalAI.</p>
             <ol class="wizard">
+              <li class="wz" id="wzAccount" data-state="active">
+                <div class="wz-head"><span class="wz-no">1</span><b>Tài khoản Google &amp; Colab CLI</b><span class="wz-state" id="wzAccountState">Đang kiểm tra…</span></div>
+                <div class="wz-body">
+                  <div class="row-inline">
+                    <label class="grow">Tài khoản đang dùng <select id="acctSelect"><option value="">Đang tải…</option></select></label>
+                    <button type="button" class="small" id="acctUse" hidden>Chuyển sang tài khoản này</button>
+                    <button type="button" class="small" id="acctAdd">+ Thêm tài khoản Google</button>
+                    <button type="button" class="link" id="acctForget" hidden>Bỏ khỏi danh sách</button>
+                  </div>
+                  <p class="hint">Drive được kết nối ở các bước sau là Drive của tài khoản này. Đổi tài khoản thì danh sách phiên Colab cũng đổi theo.</p>
+                  <div class="consent" id="acctLogin" hidden>
+                    <p><b>Đăng nhập tài khoản Google mới.</b> Mở trang dưới, chọn tài khoản, bấm <i>Cho phép</i>. Google sẽ hiện một <b>mã xác thực</b>: copy mã đó và dán vào ô bên dưới.</p>
+                    <div class="row-inline">
+                      <a class="btn primary" id="acctLoginLink" target="_blank" rel="noopener">1. Mở trang đăng nhập Google <svg class="ic sm"><use href="#i-ext"/></svg></a>
+                      <label class="grow">2. Dán mã xác thực <input id="acctCode" autocomplete="off" spellcheck="false" placeholder="4/0A…"></label>
+                      <button type="button" class="play" id="acctCodeSubmit">Xác nhận</button>
+                      <button type="button" class="link" id="acctCancel">Huỷ</button>
+                    </div>
+                  </div>
+                  <div class="row-inline cli-row">
+                    <span class="hint" id="cliInfo">Colab CLI: đang kiểm tra…</span>
+                    <button type="button" class="small" id="cliCheck">Kiểm tra cập nhật</button>
+                    <button type="button" class="small primary" id="cliUpdate" hidden>Cập nhật Colab CLI</button>
+                  </div>
+                </div>
+              </li>
               <li class="wz" id="wzSession" data-state="active">
-                <div class="wz-head"><span class="wz-no">1</span><b>Phiên Colab</b><span class="wz-state" id="wzSessionState">Đang kiểm tra…</span></div>
+                <div class="wz-head"><span class="wz-no">2</span><b>Phiên Colab</b><span class="wz-state" id="wzSessionState">Đang kiểm tra…</span></div>
                 <div class="wz-body">
                   <div class="row-inline">
                     <label class="grow">Phiên đang chạy <select id="colabSession"><option value="">Đang tải…</option></select></label>
@@ -168,7 +194,7 @@
                 </div>
               </li>
               <li class="wz" id="wzDrive" data-state="todo">
-                <div class="wz-head"><span class="wz-no">2</span><b>Kết nối Google Drive</b><span class="wz-state" id="wzDriveState"></span></div>
+                <div class="wz-head"><span class="wz-no">3</span><b>Kết nối Google Drive</b><span class="wz-state" id="wzDriveState"></span></div>
                 <div class="wz-body">
                   <div class="row-inline">
                     <button type="button" class="primary" id="driveMount">Kết nối Google Drive</button>
@@ -185,7 +211,7 @@
                 </div>
               </li>
               <li class="wz" id="wzFolder" data-state="todo">
-                <div class="wz-head"><span class="wz-no">3</span><b>Chọn thư mục dữ liệu trên Drive</b><span class="wz-state" id="wzFolderState"></span></div>
+                <div class="wz-head"><span class="wz-no">4</span><b>Chọn thư mục dữ liệu trên Drive</b><span class="wz-state" id="wzFolderState"></span></div>
                 <div class="wz-body">
                   <div class="row-inline">
                     <button type="button" class="primary small" id="driveFind">Tự tìm dataset trên Drive</button>
@@ -199,7 +225,7 @@
                 </div>
               </li>
               <li class="wz" id="wzSeq" data-state="todo">
-                <div class="wz-head"><span class="wz-no">4</span><b>Chọn phần cần tải về máy ảo</b><span class="wz-state" id="wzSeqState"></span></div>
+                <div class="wz-head"><span class="wz-no">5</span><b>Chọn phần cần tải về máy ảo</b><span class="wz-state" id="wzSeqState"></span></div>
                 <div class="wz-body">
                   <p class="hint">Thư mục: <code id="driveChosen">—</code></p>
                   <div class="row-inline">
@@ -435,10 +461,10 @@
   </div>
 
   <div id="toast" class="toast" role="alert" hidden></div>
-  <script type="module" src="/static/pipeline.js?v=20261119h"></script>
-  <script type="module" src="/static/drivestudio.js?v=20261119h"></script>
-  <script type="module" src="/static/datasets.js?v=20261119h"></script>
-  <script type="module" src="/static/import.js?v=20261119h"></script>
-  <script type="module" src="/static/colab.js?v=20261119h"></script>
+  <script type="module" src="/static/pipeline.js?v=20261119i"></script>
+  <script type="module" src="/static/drivestudio.js?v=20261119i"></script>
+  <script type="module" src="/static/datasets.js?v=20261119i"></script>
+  <script type="module" src="/static/import.js?v=20261119i"></script>
+  <script type="module" src="/static/colab.js?v=20261119i"></script>
 </body>
 </html>

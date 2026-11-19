@@ -205,7 +205,7 @@ function renderSeqs() {
   items.hidden = true;
   const btn = $('#driveDownload');
   if (!st.path || st.path === MY) {
-    box.innerHTML = '<p class="hint">Chọn thư mục dataset ở bước 3.</p>';
+    box.innerHTML = '<p class="hint">Chọn thư mục dataset ở bước 4.</p>';
     btn.disabled = true;
     step('wzSeq', 'todo', '');
     return;
@@ -298,7 +298,7 @@ $('#colabCreate').onclick = (e) => busy(e.currentTarget, async () => {
   await loadSessions(name);
 });
 $('#driveMount').onclick = (e) => busy(e.currentTarget, async () => {
-  if (!st.session) throw new Error('Chọn hoặc tạo phiên Colab ở bước 1 trước');
+  if (!st.session) throw new Error('Chọn hoặc tạo phiên Colab ở bước 2 trước');
   step('wzDrive', 'busy', 'Đang kết nối…');
   showMount(await api('/api/colab/drive/mount', { session: st.session }));
 });
@@ -320,9 +320,83 @@ $('#driveDownload').onclick = (e) => startSync('dataset', e.currentTarget);
 $('#driveDataset').onchange = () => renderSeqs();
 $('#driveRuns').onclick = (e) => startSync('runs', e.currentTarget);
 
+// ---- 0. Google account + CLI version
+let acct = { accounts: [], active: null, login: null };
+function renderAccounts() {
+  const sel = $('#acctSelect');
+  sel.innerHTML = acct.accounts.length
+    ? acct.accounts.map((e) => `<option value="${esc(e)}">${esc(e)}${e === acct.active ? ' (đang dùng)' : ''}</option>`).join('')
+    : '<option value="">Chưa đăng nhập tài khoản nào</option>';
+  if (acct.active) sel.value = acct.active;
+  const other = sel.value && sel.value !== acct.active;
+  $('#acctUse').hidden = !other;
+  $('#acctForget').hidden = !other;
+  const login = acct.login;
+  const waiting = login && login.state === 'waiting_code' && /^https:\/\/accounts\.google\.com\//.test(login.url || '');
+  $('#acctLogin').hidden = !waiting;
+  if (waiting) $('#acctLoginLink').href = login.url;
+  step('wzAccount', acct.active ? 'done' : 'active', acct.active ? acct.active : 'Cần đăng nhập Google');
+}
+async function loadAccounts() {
+  try { acct = await api('/api/colab/accounts'); }
+  catch (err) { step('wzAccount', 'error', 'Không đọc được tài khoản'); toast(err.message, true); return; }
+  renderAccounts();
+}
+async function afterAccountChange(msg) {
+  renderAccounts();
+  toast(msg);
+  st.started = true;
+  await loadSessions();
+}
+async function loadCli(btn) {
+  const run = async () => {
+    const info = await api('/api/colab/cli');
+    $('#cliInfo').textContent = `Colab CLI ${info.version}${info.latest ? (info.up_to_date ? ' · đang là bản mới nhất' : ` · có bản mới ${info.latest}`) : ''}`;
+    $('#cliUpdate').hidden = info.up_to_date || !info.latest;
+  };
+  if (btn) await busy(btn, run); else await run().catch((err) => { $('#cliInfo').textContent = `Colab CLI: ${err.message}`; });
+}
+$('#acctSelect').onchange = () => renderAccounts();
+$('#acctUse').onclick = (e) => busy(e.currentTarget, async () => {
+  acct = await api('/api/colab/accounts/use', { email: $('#acctSelect').value });
+  await afterAccountChange(`Đã chuyển sang ${acct.active}`);
+});
+$('#acctForget').onclick = (e) => busy(e.currentTarget, async () => {
+  acct = await api('/api/colab/accounts/forget', { email: $('#acctSelect').value });
+  renderAccounts();
+});
+$('#acctAdd').onclick = (e) => busy(e.currentTarget, async () => {
+  const view = await api('/api/colab/accounts/login', {});
+  acct.login = view;
+  if (view.state !== 'waiting_code') throw new Error(`Không mở được đăng nhập Google: ${view.log || view.state}`);
+  renderAccounts();
+  $('#acctCode').value = '';
+  $('#acctCode').focus();
+});
+$('#acctCodeSubmit').onclick = (e) => busy(e.currentTarget, async () => {
+  step('wzAccount', 'busy', 'Đang xác nhận mã…');
+  acct = await api('/api/colab/accounts/code', { code: $('#acctCode').value.trim() });
+  if (acct.login?.state !== 'succeeded') {
+    renderAccounts();
+    throw new Error('Mã không đúng hoặc đã hết hạn. Bấm "+ Thêm tài khoản Google" để thử lại.');
+  }
+  $('#acctLogin').hidden = true;
+  await afterAccountChange(`Đã đăng nhập ${acct.active}`);
+});
+$('#acctCancel').onclick = async () => { acct = await api('/api/colab/accounts/cancel', {}).catch(() => acct); acct.login = null; renderAccounts(); };
+$('#cliCheck').onclick = (e) => loadCli(e.currentTarget);
+$('#cliUpdate').onclick = (e) => busy(e.currentTarget, async () => {
+  $('#cliInfo').textContent = 'Đang cập nhật Colab CLI…';
+  await api('/api/colab/cli/update', {});
+  toast('Đã cập nhật Colab CLI');
+  await loadCli();
+});
+
 function start() {
   if (st.started) return;
   st.started = true;
+  loadAccounts();
+  loadCli();
   loadSessions();
 }
 // lazy: only talk to Colab once the Drive source is shown (click, keyboard or a shortcut button)

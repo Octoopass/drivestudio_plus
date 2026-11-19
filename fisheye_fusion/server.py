@@ -118,6 +118,12 @@ class ColabSession(BaseModel):
 class ColabNew(ColabSession):
     gpu: Literal["", "T4", "L4", "A100", "H100", "G4"] = ""
 
+class ColabAccount(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+
+class ColabCode(BaseModel):
+    code: str = Field(min_length=10, max_length=300)
+
 class UploadItem(BaseModel):
     name: str = Field(min_length=1, max_length=512)
     path: str = Field(default="", max_length=1024)
@@ -440,6 +446,38 @@ def create_app():
     @app.post("/api/videos/compare")
     def compare_videos(job: VideoCompareJob):
         return drivestudio.compare_videos(job.video_a, job.video_b, job.layout)
+
+    @app.get("/api/colab/cli")
+    def colab_cli():
+        return colab.cli_info()
+
+    @app.post("/api/colab/cli/update")
+    def colab_cli_update():
+        return colab.cli_update()
+
+    @app.get("/api/colab/accounts")
+    def colab_accounts():
+        return colab.accounts()
+
+    @app.post("/api/colab/accounts/use")
+    def colab_account_use(job: ColabAccount):
+        return colab.use_account(job.email)
+
+    @app.post("/api/colab/accounts/forget")
+    def colab_account_forget(job: ColabAccount):
+        return colab.forget_account(job.email)
+
+    @app.post("/api/colab/accounts/login")
+    def colab_login():
+        return colab.login_start()
+
+    @app.post("/api/colab/accounts/code")
+    def colab_login_code(job: ColabCode):
+        return colab.login_code(job.code)
+
+    @app.post("/api/colab/accounts/cancel")
+    def colab_login_cancel():
+        return colab.login_cancel()
 
     @app.get("/api/colab/sessions")
     def colab_sessions():
