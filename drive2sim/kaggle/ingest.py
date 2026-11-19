@@ -24,7 +24,6 @@ File này chứa ``KaggleSceneRef``, ``IngestRequest``, ``load_scene_refs``, ``l
 import base64
 import json
 import re
-import shutil
 import tempfile
 import time
 from collections.abc import Callable, Sequence
@@ -43,12 +42,17 @@ from drive2sim.ingest.manifest import outdated_output_version
 from drive2sim.kaggle import names
 from drive2sim.kaggle.client import KaggleClient, KaggleError
 from drive2sim.kaggle.executor import code_source
+from drive2sim.kaggle.scene_files import missing_view_files, write_scene_files
 
 TEMPLATE = paths.PACKAGE_DIR / "kaggle" / "templates" / "ingest.ipynb"
+SCENE_FILES_TEMPLATE = paths.PACKAGE_DIR / "kaggle" / "templates" / "scene_files.ipynb"
 RESULT_FILE = "ingest_result.json"  # notebook ghi scene_id vào output
-# Notebook in file nhỏ của cảnh (kết quả, manifest.yaml, reports/*.json) vào log, sau chữ này,
-# dạng base64 của JSON; ảnh, LiDAR, mặt nạ ở lại Kaggle.
+# Notebook in file nhỏ của cảnh (kết quả, manifest.yaml, reports/*.json, pose, calib:
+# kaggle/scene_files.py) vào log, sau chữ này, dạng base64 của JSON; ảnh, LiDAR, mặt nạ ở lại
+# Kaggle.
 LIGHT_MARKER = "D2S_INGEST_LIGHT"
+# Notebook lấy bù file nhỏ (fetch_scene_files) in ``{"scene_id", "files"}`` sau chữ này.
+SCENE_FILES_MARKER = "D2S_SCENE_FILES"
 POLL_S = 60
 WAIT_S = 6 * 3600  # notebook ingest lâu nhất 6 giờ thì thôi chờ (chạy lại lệnh để chờ tiếp)
 _RUNNING = ("queued", "running", "new", "new_script", "cancel_requested")
@@ -404,9 +408,9 @@ def ingest_on_kaggle(
                 )
         else:
             scene_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(remote_dir / "manifest.yaml", scene_dir / "manifest.yaml")
-            if (remote_dir / "reports").is_dir():
-                shutil.copytree(remote_dir / "reports", scene_dir / "reports", dirs_exist_ok=True)
+    # Cảnh mới: ghi mọi file nhỏ. Cảnh đã có (tài khoản thứ hai): chỉ thêm file còn thiếu (pose,
+    # calib của cảnh ingest trước khi notebook in chúng), giữ nguyên manifest, split trên máy.
+    write_scene_files(scene_dir, light["files"])
     ref = KaggleSceneRef(
         username=kernel.split("/")[0],
         kernel=kernel,
@@ -418,3 +422,140 @@ def ingest_on_kaggle(
     content = {"kernels": [asdict(entry) for entry in refs]}
     (scene_dir / KAGGLE_SCENE_FILE).write_text(json.dumps(content, indent=2), "utf-8")
     return scene_dir
+
+
+def files_kernel(ingest_kernel: str) -> str:
+    """Tên notebook lấy bù file nhỏ: ``<user>/d2s-ingest-x`` thành ``<user>/d2s-files-x``.
+
+    Ngắn hơn tên notebook ingest nên không vượt giới hạn 50 ký tự của Kaggle.
+    """
+    user, name = ingest_kernel.split("/", 1)
+    return f"{user}/{name.replace('d2s-ingest', 'd2s-files', 1)}"
+
+
+def build_scene_files_notebook(
+    scene_id: str, ingest_kernel: str, commit: str, repo_url: str, branch: str
+) -> str:
+    """Điền template notebook lấy bù file nhỏ của cảnh.
+
+    Returns:
+        Nội dung file ``.ipynb``.
+    """
+    values = {
+        "scene_id": scene_id,
+        "ingest_kernel": ingest_kernel,
+        "commit": commit,
+        "repo_url": repo_url,
+        "branch": branch,
+    }
+    notebook = json.loads(SCENE_FILES_TEMPLATE.read_text("utf-8"))
+    for cell in notebook["cells"]:
+        cell["source"] = [Template(line).safe_substitute(values) for line in cell["source"]]
+    return json.dumps(notebook, indent=1, ensure_ascii=False)
+
+
+def _read_scene_files(client: KaggleClient, kernel: str) -> Optional[dict]:
+    """``{"scene_id", "files"}`` mà notebook lấy bù in vào log; ``None`` nếu log chưa có."""
+    match = re.search(SCENE_FILES_MARKER + r" ([A-Za-z0-9+/=]+)", client.kernel_logs(kernel))
+    if match is None:
+        return None
+    return json.loads(base64.b64decode(match.group(1)).decode("utf-8"))
+
+
+def fetch_scene_files(
+    workdir: Workdir,
+    scene_id: str,
+    client: Optional[KaggleClient] = None,
+    branch: str = "drive2sim",
+    timeout_s: float = WAIT_S,
+    sleep: Callable[[float], None] = time.sleep,
+    notify: Callable[[str], None] = lambda message: None,
+) -> list[str]:
+    """Tải pose, calib của một cảnh ingest trên Kaggle về máy, không ingest lại.
+
+    Cảnh ingest trước khi notebook ingest in pose, calib vào log chỉ có ``manifest.yaml``,
+    ``reports/`` trên máy, nên không xem được model bằng renderer gốc trên máy. Hàm đẩy notebook
+    CPU ``<user>/d2s-files-...`` gắn output notebook ingest của tài khoản đang đăng nhập; notebook
+    in file nhỏ của cảnh vào log (``kaggle/scene_files.py``), máy đọc log rồi ghi file còn thiếu.
+    Dùng lại notebook đã chạy xong.
+
+    Args:
+        workdir: Thư mục làm việc trên máy.
+        scene_id: Cảnh cần lấy bù.
+        client: Kaggle; mặc định gọi lệnh ``kaggle``.
+        branch: Branch notebook clone.
+        timeout_s: Chờ notebook tối đa bao lâu.
+        sleep: Hàm chờ giữa hai lần hỏi trạng thái (test thay).
+        notify: Nhận từng thay đổi trạng thái để in ra.
+
+    Returns:
+        Đường dẫn các file vừa ghi trong cảnh; rỗng nếu cảnh đã đủ.
+
+    Raises:
+        KaggleError: Nếu cảnh không phải cảnh ingest trên Kaggle, tài khoản đang đăng nhập không có
+            notebook ingest của cảnh, notebook lỗi, hoặc sau khi ghi cảnh vẫn thiếu pose, calib.
+    """
+    scene_dir = workdir.scene_dir(scene_id)
+    refs = load_scene_refs(scene_dir)
+    if not refs:
+        raise KaggleError(
+            f"cảnh {scene_id} không phải cảnh ingest trên Kaggle (không có {KAGGLE_SCENE_FILE})"
+        )
+    if not missing_view_files(scene_dir):
+        return []
+    client = client or KaggleClient()
+    username = client.username()
+    ref = load_scene_ref(scene_dir, username)
+    if ref is None:
+        owners = ", ".join(entry.username for entry in refs)
+        raise KaggleError(
+            f"tài khoản {username} không có notebook ingest của cảnh {scene_id}; đăng nhập một "
+            f"trong các tài khoản: {owners}"
+        )
+    kernel = files_kernel(ref.kernel)
+    try:
+        status = client.kernel_status(kernel)
+    except KaggleError:
+        status = ""  # notebook chưa có
+    light = _read_scene_files(client, kernel) if status == "complete" else None
+    if light is None and status not in _RUNNING:
+        commit, repo_url = code_source(branch)
+        with tempfile.TemporaryDirectory() as folder:
+            folder_path = Path(folder)
+            (folder_path / "scene_files.ipynb").write_text(
+                build_scene_files_notebook(scene_id, ref.kernel, commit, repo_url, branch),
+                "utf-8",
+            )
+            metadata = {
+                "id": kernel,
+                "title": kernel.split("/")[1],
+                "code_file": "scene_files.ipynb",
+                "language": "python",
+                "kernel_type": "notebook",
+                "is_private": True,
+                "enable_gpu": False,
+                "enable_internet": True,
+                "dataset_sources": [],
+                "kernel_sources": [ref.kernel],
+                "competition_sources": [],
+            }
+            (folder_path / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2))
+            client.push_kernel(folder_path)
+        notify(f"đã đẩy notebook {kernel}")
+    if light is None:
+        status = _wait(client, kernel, timeout_s, sleep, notify)
+        if status != "complete":
+            raise KaggleError(
+                f"notebook {kernel} kết thúc với trạng thái {status}; xem log trên Kaggle"
+            )
+        light = _read_scene_files(client, kernel)
+    if light is None or light.get("scene_id") != scene_id:
+        raise KaggleError(f"log của {kernel} không có file nhỏ của cảnh {scene_id}")
+    try:
+        written = write_scene_files(scene_dir, light["files"])
+    except ValueError as error:
+        raise KaggleError(f"{kernel}: {error}") from None
+    still = missing_view_files(scene_dir)
+    if still:
+        raise KaggleError(f"cảnh {scene_id} trong {kernel} vẫn thiếu: {', '.join(still)}")
+    return written

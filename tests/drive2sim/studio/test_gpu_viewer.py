@@ -3,6 +3,7 @@
 Viewer thật cần PyTorch và GPU, nên test thay trình thông dịch bằng một chương trình giả: nó
 đọc ``--port`` rồi nghe ở cổng đó, giống viewer đã nạp xong. Test kiểm tra:
 - dựng lại cảnh ảo và config trỏ vào thư mục viewer, kèm mask và SMPL từ cache;
+- cảnh thiếu pose, calib (cảnh ingest trên Kaggle chưa tải file nhỏ) thì báo lệnh cần chạy;
 - từ chối khi máy chưa đủ điều kiện hoặc run chưa có checkpoint;
 - bật, báo ``running`` kèm địa chỉ trên 127.0.0.1, rồi tắt.
 """
@@ -16,7 +17,7 @@ import yaml
 
 from drive2sim.core import files
 from drive2sim.core.schema import RunRecord
-from drive2sim.engine.workdir import Workdir
+from drive2sim.engine.workdir import KAGGLE_SCENE_FILE, Workdir
 from drive2sim.scripts import make_demo
 from drive2sim.studio.api import gpu_viewer
 
@@ -46,6 +47,10 @@ def demo(tmp_path_factory: pytest.TempPathFactory) -> Workdir:
         name = {"prep.masks_segformer": "sky_masks", "prep.smpl": "humanpose"}.get(stage.stage_id)
         if name and stage.cache_key:
             (work.cache_dir / stage.cache_key / name).mkdir()
+    # Cảnh mẫu không có pose, calib (dữ liệu giả); viewer cần chúng.
+    scene_dir = work.scene_dir(files.load(run_dir / "d2s" / "run.json", RunRecord).scene_id)
+    for name in ("intrinsics", "extrinsics", "lidar_pose"):
+        (scene_dir / name).mkdir(exist_ok=True)
     train = run_dir / "d2s" / "stages" / "train.drivestudio"
     (train / "checkpoint_final.pth").write_bytes(b"x")
     config = {"data": {"data_root": "/kaggle/working/view", "scene_idx": 0}, "trainer": {}}
@@ -66,6 +71,22 @@ def test_prepare_rebuilds_view_and_config(demo: Workdir) -> None:
     view = out / "scene_view" / "000"
     assert (view / "images").is_dir()
     assert (view / "sky_masks").is_symlink() and (view / "humanpose").is_symlink()
+
+
+def test_prepare_explains_missing_pose_of_kaggle_scene(demo: Workdir) -> None:
+    run_dir = demo.find_run(RUN_ID)
+    scene_id = files.load(run_dir / "d2s" / "run.json", RunRecord).scene_id
+    scene_dir = demo.scene_dir(scene_id)
+    (scene_dir / "lidar_pose").rename(scene_dir / "lidar_pose.bak")
+    try:
+        with pytest.raises(gpu_viewer.GpuViewerError, match="ego_pose/ hoặc lidar_pose/"):
+            gpu_viewer.prepare(demo, run_dir)
+        (scene_dir / KAGGLE_SCENE_FILE).write_text('{"kernels": []}')
+        with pytest.raises(gpu_viewer.GpuViewerError, match=f"d2s kaggle scene-files {scene_id}"):
+            gpu_viewer.prepare(demo, run_dir)
+    finally:
+        (scene_dir / "lidar_pose.bak").rename(scene_dir / "lidar_pose")
+        (scene_dir / KAGGLE_SCENE_FILE).unlink(missing_ok=True)
 
 
 def test_start_refuses_when_not_ready(demo: Workdir, monkeypatch: pytest.MonkeyPatch) -> None:

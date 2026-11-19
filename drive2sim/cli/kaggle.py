@@ -1,11 +1,13 @@
 """Nhóm lệnh ``d2s kaggle``: chạy run trên Kaggle (ARCHITECTURE mục 2.8, CONTRACTS mục 9.2).
 
 File này chứa:
-- ``register``: thêm các lệnh ``kaggle push``, ``status``, ``pull``, ``ingest``, ``run``.
+- ``register``: thêm các lệnh ``kaggle push``, ``status``, ``pull``, ``ingest``, ``scene-files``,
+  ``run``.
 - ``push``: đẩy một run lên Kaggle (lần sau chạy tiếp từ output lần trước).
 - ``status``: trạng thái notebook của run.
 - ``pull``: tải kết quả về, ghép vào thư mục làm việc.
 - ``ingest``: ingest một cảnh trên Kaggle từ dữ liệu gốc đã có trên Kaggle (CONTRACTS mục 9.4).
+- ``scene_files``: tải pose, calib của cảnh ingest trên Kaggle về máy, để xem model trên máy.
 - ``run_bundle``: chạy trên Kaggle (notebook gọi): dựng thư mục làm việc từ gói job rồi chạy run.
 
 ``d2s run start --executor kaggle`` tạo run rồi gọi ``push``.
@@ -21,7 +23,7 @@ from drive2sim.engine.run import execute_run
 from drive2sim.engine.workdir import Workdir
 from drive2sim.kaggle import executor
 from drive2sim.kaggle.bundle import materialize, read_bundle
-from drive2sim.kaggle.ingest import IngestRequest, ingest_on_kaggle
+from drive2sim.kaggle.ingest import IngestRequest, fetch_scene_files, ingest_on_kaggle
 
 
 def register(
@@ -84,6 +86,14 @@ def register(
     ingest_parser.add_argument("--branch", default=executor.DEFAULT_BRANCH)
     add_ingest_options(ingest_parser)
     ingest_parser.set_defaults(handler=ingest)
+    files_parser = actions.add_parser(
+        "scene-files",
+        parents=[common],
+        help="tải pose, calib của cảnh ingest trên Kaggle về máy (để xem model bằng Render GPU)",
+    )
+    files_parser.add_argument("scene_id")
+    files_parser.add_argument("--branch", default=executor.DEFAULT_BRANCH)
+    files_parser.set_defaults(handler=scene_files)
     run_parser = actions.add_parser(
         "run", parents=[common], help="(trong notebook Kaggle) chạy run từ gói job"
     )
@@ -181,6 +191,29 @@ def ingest(args: argparse.Namespace) -> int:
         f"{summary['warnings']} cảnh báo",
     )
     return 0 if summary["errors"] == 0 else 1
+
+
+def scene_files(args: argparse.Namespace) -> int:
+    """Tải pose, calib của một cảnh ingest trên Kaggle về máy bằng một notebook CPU.
+
+    Args:
+        args: Tham số dòng lệnh: ``scene_id``, ``branch``.
+
+    Returns:
+        ``0``.
+    """
+    workdir = Workdir.from_env(args.workdir)
+    written = fetch_scene_files(
+        workdir, args.scene_id, branch=args.branch, notify=lambda message: info(args, message)
+    )
+    scene_dir = workdir.scene_dir(args.scene_id)
+    text = (
+        f"đã ghi {len(written)} file vào {workdir.relative(scene_dir)}"
+        if written
+        else f"cảnh {args.scene_id} đã có đủ pose, calib trên máy"
+    )
+    emit(args, {"scene_id": args.scene_id, "written": written}, text)
+    return 0
 
 
 def run_bundle(args: argparse.Namespace) -> int:

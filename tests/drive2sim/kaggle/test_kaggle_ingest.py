@@ -29,6 +29,7 @@ from drive2sim.ingest.validate import validate_scene
 from drive2sim.kaggle import executor, ingest
 from drive2sim.kaggle.bundle import materialize, read_bundle
 from drive2sim.kaggle.client import KaggleError
+from drive2sim.kaggle.scene_files import light_scene_files
 from tests.drive2sim.kaggle.test_kaggle import (
     RUN_ID,
     SCENE,
@@ -53,6 +54,8 @@ class FakeIngestKaggle(FakeKaggle):
         self.logs: dict[str, str] = {}
         self.manifest: dict = MANIFEST  # manifest mà notebook ingest "ghi ra"
         self.pushed: list[str] = []
+        self.with_pose = True  # output ingest có pose, calib
+        self.light_pose = True  # notebook ingest in cả pose, calib vào log (template mới)
 
     def kernel_logs(self, slug: str) -> str:
         """Log của notebook (notebook ingest in file nhỏ của cảnh vào đây)."""
@@ -74,19 +77,32 @@ class FakeIngestKaggle(FakeKaggle):
             (scene / "reports").mkdir(exist_ok=True)
             report = {"summary": {"errors": 0, "warnings": 1}, "checks": []}
             (scene / "reports" / "validation.json").write_text(json.dumps(report))
+            if self.with_pose:  # pose, calib như converter ghi (template cũ không in chúng)
+                for name in ("intrinsics/0.txt", "extrinsics/000_0.txt", "lidar_pose/000.txt"):
+                    (scene / name).parent.mkdir(exist_ok=True)
+                    (scene / name).write_text("1 0 0 0\n")
             text = "".join(notebook["cells"][-1]["source"])
             signature = json.loads(text.split('result.update(json.loads(r"""')[1].split('"""')[0])
             result = {"scene_id": SCENE, "commit": COMMIT, "exit_code": 0, **signature}
             (out / "ingest_result.json").write_text(json.dumps(result))
-            light = {
-                "result": result,
-                "files": {
-                    "manifest.yaml": (scene / "manifest.yaml").read_text(),
-                    "reports/validation.json": json.dumps(report),
-                },
-            }
+            # Notebook ingest in file nhỏ bằng light_scene_files; notebook theo template cũ
+            # (light_pose=False) chỉ in manifest và reports.
+            light_files = light_scene_files(scene)
+            if not self.light_pose:
+                light_files = {
+                    name: text
+                    for name, text in light_files.items()
+                    if name == "manifest.yaml" or name.startswith("reports/")
+                }
+            light = {"result": result, "files": light_files}
             encoded = base64.b64encode(json.dumps(light).encode()).decode()
             self.logs[metadata["id"]] = f"pip ...\n{ingest.LIGHT_MARKER} {encoded}\n"
+        if name == "scene_files.ipynb":  # notebook lấy bù: đọc cảnh trong output ingest đã gắn
+            source = metadata["kernel_sources"][0]
+            scene = self.root / "output" / source.split("/")[1] / "data" / SCENE
+            light = {"scene_id": SCENE, "files": light_scene_files(scene)}
+            encoded = base64.b64encode(json.dumps(light).encode()).decode()
+            self.logs[metadata["id"]] = f"git ...\n{ingest.SCENE_FILES_MARKER} {encoded}\n"
 
     def kernel_status(self, slug: str) -> str:
         """Notebook chưa đẩy thì báo 404 như Kaggle."""
@@ -132,9 +148,12 @@ def test_ingest_writes_light_files_and_reuses_notebook(
     for name in ("source", "source_name", "source_path", "ingest_args", "commit", "repo_url"):
         assert f"${name}" not in text
     assert "scene-0061" in text and f"git checkout --quiet {COMMIT}" in text
-    # Chỉ tải file nhỏ: không có ảnh trên máy.
+    # Chỉ tải file nhỏ: pose, calib để xem model, không có ảnh trên máy.
     assert sorted(p.name for p in scene_dir.iterdir()) == [
+        "extrinsics",
+        "intrinsics",
         KAGGLE_SCENE_FILE,
+        "lidar_pose",
         "manifest.yaml",
         "reports",
     ]
@@ -335,3 +354,51 @@ def test_new_notebook_still_outdated_is_reported(tmp_path: Path, fake: FakeInges
     with pytest.raises(KaggleError, match="vẫn ingest bằng converter cũ"):
         ingest.ingest_on_kaggle(workdir, REQUEST, client=fake, sleep=lambda s: None)
     assert fake.pushed == [f"alice/{REQUEST.kernel_name()}", f"alice/{REQUEST.kernel_name(2)}"]
+
+
+def test_fetch_scene_files_backfills_pose_for_old_ingest(
+    tmp_path: Path, fake: FakeIngestKaggle
+) -> None:
+    # Cảnh ingest bằng template cũ: log chỉ có manifest, reports; máy thiếu pose, calib.
+    fake.light_pose = False
+    workdir = Workdir(tmp_path / "work")
+    workdir.root.mkdir()
+    scene_dir = ingest.ingest_on_kaggle(workdir, REQUEST, client=fake, sleep=lambda s: None)
+    assert not (scene_dir / "lidar_pose").exists()
+    written = ingest.fetch_scene_files(workdir, SCENE, client=fake, sleep=lambda s: None)
+    assert sorted(written) == ["extrinsics/000_0.txt", "intrinsics/0.txt", "lidar_pose/000.txt"]
+    assert (scene_dir / "lidar_pose" / "000.txt").is_file()
+    ingest_kernel = f"alice/{REQUEST.kernel_name()}"
+    files_kernel = ingest_kernel.replace("/d2s-ingest-", "/d2s-files-")
+    pushed = fake.kernels[files_kernel]
+    assert pushed["metadata"]["kernel_sources"] == [ingest_kernel]
+    assert pushed["metadata"]["dataset_sources"] == []
+    assert not pushed["metadata"]["enable_gpu"] and pushed["metadata"]["is_private"]
+    text = json.dumps(pushed["notebook"])
+    assert SCENE in text and f"git checkout --quiet {COMMIT}" in text
+    for name in ("scene_id", "ingest_kernel", "commit", "repo_url", "branch"):
+        assert f"${name}" not in text
+    # Đã đủ: gọi lại không đẩy notebook nào.
+    count = len(fake.pushed)
+    assert ingest.fetch_scene_files(workdir, SCENE, client=fake, sleep=lambda s: None) == []
+    assert len(fake.pushed) == count
+
+
+def test_fetch_scene_files_needs_ingest_of_current_account(
+    tmp_path: Path, fake: FakeIngestKaggle
+) -> None:
+    fake.light_pose = False
+    workdir = Workdir(tmp_path / "work")
+    workdir.root.mkdir()
+    ingest.ingest_on_kaggle(workdir, REQUEST, client=fake, sleep=lambda s: None)
+    fake.user = "bob"
+    with pytest.raises(KaggleError, match="alice"):
+        ingest.fetch_scene_files(workdir, SCENE, client=fake, sleep=lambda s: None)
+
+
+def test_fetch_scene_files_refuses_local_scene(tmp_path: Path, fake: FakeIngestKaggle) -> None:
+    workdir = Workdir(tmp_path / "work")
+    scene_dir = workdir.scene_dir(SCENE)
+    files.dump(Manifest.model_validate(MANIFEST), scene_dir / "manifest.yaml")
+    with pytest.raises(KaggleError, match="không phải cảnh ingest trên Kaggle"):
+        ingest.fetch_scene_files(workdir, SCENE, client=fake, sleep=lambda s: None)

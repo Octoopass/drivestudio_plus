@@ -36,7 +36,8 @@ from drive2sim.engine import gpu_process
 from drive2sim.engine.registry import produces_artifact
 from drive2sim.engine.render_check import CHECKPOINT, render_readiness
 from drive2sim.engine.run import D2S_DIR, RUN_FILE
-from drive2sim.engine.workdir import Workdir
+from drive2sim.engine.workdir import KAGGLE_SCENE_FILE, Workdir
+from drive2sim.kaggle.scene_files import missing_view_files
 from drive2sim.paths import SMPL_MODEL_ENV, find_smpl_model
 from drive2sim.stages.scene_view import build_view
 from drive2sim.stages.train.drivestudio import MASK_ENTRIES, SMPL_ENTRY
@@ -91,7 +92,9 @@ def prepare(workdir: Workdir, run_dir: Path) -> tuple[Path, Path, Path]:
 
     Raises:
         GpuViewerError: Nếu run không có stage train với ``checkpoint_final.pth`` và
-            ``config.yaml``, hoặc thiếu thư mục cảnh hay mask, SMPL trong cache.
+            ``config.yaml``, cảnh trên máy thiếu pose, calib (cảnh ingest trên Kaggle chưa tải
+            file nhỏ: ``d2s kaggle scene-files``), hoặc thiếu thư mục cảnh hay mask, SMPL trong
+            cache.
     """
     record = files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
     stages_dir = run_dir / D2S_DIR / "stages"
@@ -116,6 +119,21 @@ def prepare(workdir: Workdir, run_dir: Path) -> tuple[Path, Path, Path]:
         if produces_artifact([stage.stage_id], "smpl"):
             names = (SMPL_ENTRY,)
         extra.update({name: folder / name for name in names if (folder / name).exists()})
+    # Viewer không đọc ảnh, LiDAR nhưng cần pose, calib của cảnh; cảnh ingest trên Kaggle chỉ có
+    # chúng trên máy sau khi tải file nhỏ (kaggle/scene_files.py).
+    scene_dir = workdir.scene_dir(record.scene_id)
+    missing = missing_view_files(scene_dir)
+    if missing:
+        hint = (
+            "cảnh ingest trên Kaggle nên máy chưa có các file này; tải về bằng: "
+            f"d2s kaggle scene-files {record.scene_id}"
+            if (scene_dir / KAGGLE_SCENE_FILE).is_file()
+            else "ingest lại cảnh"
+        )
+        raise GpuViewerError(
+            f"cảnh {record.scene_id} trên máy thiếu {', '.join(missing)} để vẽ bằng renderer gốc; "
+            + hint
+        )
     out = run_dir / D2S_DIR / VIEWER_DIR
     out.mkdir(parents=True, exist_ok=True)
     try:
