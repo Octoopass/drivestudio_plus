@@ -81,6 +81,10 @@ def do_evaluation(
                     "render_fps",  # drive2sim: speed of the model forward pass
                     "render_width",
                     "render_height",
+                    "depth_rmse",
+                    "depth_absrel",
+                    "depth_delta1",
+                    "peak_vram_gib",
                 ]:
                     eval_dict[f"image_metrics/test/{k}"] = v
             # drive2sim: per-camera metrics as image_metrics/test/per_camera/<cam_index>/<name>;
@@ -92,7 +96,7 @@ def do_evaluation(
                 wandb.log(eval_dict)
             test_metrics_file = f"{cfg.log_dir}/metrics{post_fix}/images_test_{current_time}.json"
             with open(test_metrics_file, "w") as f:
-                json.dump(eval_dict, f)
+                json.dump(eval_dict, f, default=float)  # numpy scalars (float32) are not JSON serialisable
             logger.info(f"Image evaluation metrics saved to {test_metrics_file}")
 
         if args.enable_wandb:
@@ -142,13 +146,18 @@ def do_evaluation(
                     "human_ssim",
                     "vehicle_psnr",
                     "vehicle_ssim",
+                    "depth_rmse",
+                    "depth_absrel",
+                    "depth_delta1",
+                    "render_fps",
+                    "peak_vram_gib",
                 ]:
                     eval_dict[f"image_metrics/full/{k}"] = v
             if args.enable_wandb:
                 wandb.log(eval_dict)
             full_metrics_file = f"{cfg.log_dir}/metrics{post_fix}/images_full_{current_time}.json"
             with open(full_metrics_file, "w") as f:
-                json.dump(eval_dict, f)
+                json.dump(eval_dict, f, default=float)  # numpy scalars (float32) are not JSON serialisable
             logger.info(f"Image evaluation metrics saved to {full_metrics_file}")
 
         if args.enable_wandb:

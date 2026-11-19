@@ -4,6 +4,7 @@ from tqdm import tqdm, trange
 import numpy as np
 import os
 import logging
+import time
 import imageio
 
 import torch
@@ -136,6 +137,11 @@ def render_images(
         logger.info(f"\t  Human-Only SSIM: {render_results['human_ssim']:.4f}")
         logger.info(f"\tVehicle-Only PSNR: {render_results['vehicle_psnr']:.4f}")
         logger.info(f"\tVehicle-Only SSIM: {render_results['vehicle_ssim']:.4f}")
+        logger.info(f"\t       Depth RMSE: {render_results['depth_rmse']:.4f}")
+        logger.info(f"\t     Depth AbsRel: {render_results['depth_absrel']:.4f}")
+        logger.info(f"\t     Depth Delta1: {render_results['depth_delta1']:.4f}")
+        logger.info(f"\t       Render FPS: {render_results['render_fps']:.4f}")
+        logger.info(f"\t    Peak VRAM GiB: {render_results['peak_vram_gib']:.4f}")
 
     return render_results
 
@@ -198,10 +204,12 @@ def render(
         human_psnrs, human_ssims = [], []
         vehicle_psnrs, vehicle_ssims = [], []
         occupied_psnrs, occupied_ssims = [], []
+        depth_rmses, depth_absrels, depth_delta1s = [], [], []
 
     with torch.no_grad():
         indices = vis_indices if vis_indices is not None else range(len(dataset))
         camera_downscale = trainer._get_downscale_factor()
+        t_render_start = time.perf_counter()
         for frame_idx, i in enumerate(tqdm(indices, desc=f"rendering {dataset.split}", dynamic_ncols=True)):
             # get image and camera infos
             image_infos, cam_infos = dataset.get_image(i, camera_downscale)
@@ -420,6 +428,19 @@ def render(
                             )[1][vehicle_mask].mean()
                         )
 
+                if "lidar_depth_map" in image_infos and "depth" in results:
+                    gt_d = image_infos["lidar_depth_map"].squeeze()
+                    pred_d = results["depth"].squeeze()
+                    d_valid = (gt_d > 0.1) & (pred_d > 0.1)
+                    if "valid_masks" in image_infos:
+                        d_valid &= image_infos["valid_masks"].squeeze().bool()
+                    if d_valid.any():
+                        gd, pd = gt_d[d_valid].float(), pred_d[d_valid].float()
+                        depth_rmses.append(torch.sqrt(torch.mean((pd - gd) ** 2)).item())
+                        depth_absrels.append(torch.mean(torch.abs(pd - gd) / gd).item())
+                        ratio = torch.maximum(pd / gd, gd / pd)
+                        depth_delta1s.append((ratio < 1.25).float().mean().item())
+
             if save_video_kwargs is not None and (
                 (frame_idx + 1) % save_video_kwargs["num_cams"] == 0
             ):
@@ -487,6 +508,12 @@ def render(
     results_dict["human_ssim"] = non_zero_mean(human_ssims) if compute_metrics else -1
     results_dict["vehicle_psnr"] = non_zero_mean(vehicle_psnrs) if compute_metrics else -1
     results_dict["vehicle_ssim"] = non_zero_mean(vehicle_ssims) if compute_metrics else -1
+    elapsed_render = max(time.perf_counter() - t_render_start, 1e-6)
+    results_dict["depth_rmse"] = non_zero_mean(depth_rmses) if compute_metrics else -1
+    results_dict["depth_absrel"] = non_zero_mean(depth_absrels) if compute_metrics else -1
+    results_dict["depth_delta1"] = non_zero_mean(depth_delta1s) if compute_metrics else -1
+    results_dict["render_fps"] = (len(indices) / elapsed_render) if (compute_metrics and len(indices) > 0) else -1
+    results_dict["peak_vram_gib"] = (torch.cuda.max_memory_allocated() / 2**30) if torch.cuda.is_available() else -1
     results_dict["rgbs"] = rgbs
     if len(depths) > 0:
         results_dict["depths"] = depths

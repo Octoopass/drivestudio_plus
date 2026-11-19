@@ -110,6 +110,10 @@ class DrivingDataset(SceneDataset):
         
     @property
     def instance_num(self):
+        # load_objects: False (or a clip without tracks, e.g. KITTI-360 via NCore) leaves no instances;
+        # the scene-graph trainer then drops the empty RigidNodes/DeformableNodes classes.
+        if getattr(self.pixel_source, "instances_pose", None) is None:
+            return 0
         return len(self.pixel_source.instances_pose[0])
     
     @property

@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fisheye Fusion Lab - Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+  <link rel="stylesheet" href="/static/pipeline.css?v=20261119w">
+</head>
+<body data-view="focus">
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-overview" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></symbol>
+    <symbol id="i-data" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></symbol>
+    <symbol id="i-scene" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol>
+    <symbol id="i-results" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></symbol>
+    <symbol id="i-gpu" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/></symbol>
+    <symbol id="i-lens" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M14.3 3.3 9 12.5M20.6 9.6 10 9.6M18 19.3 12.7 10.1M9.7 20.7 15 11.5M3.4 14.4H14M6 4.7l5.3 9.2"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 9h8M8 13h5"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M8 16H3v5"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></symbol>
+    <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01"/></symbol>
+    <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M17.5 19H8a6 6 0 1 1 5.7-7.9A4.5 4.5 0 1 1 17.5 19z"/></symbol>
+    <symbol id="i-ext" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+  </svg>
+
+  <a class="skip" href="#main">Bỏ qua điều hướng</a>
+  <div class="shell">
+    <aside class="side">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"><svg class="ic"><use href="#i-lens"/></svg></span>
+        <div class="brand-badge" id="brandBadge">3DGS · FISHEYE · LIDAR</div>
+        <strong id="brandName">Fisheye Fusion Lab Studio</strong>
+        <span id="brandTagline">Benchmark &amp; Dựng cảnh lái xe đa phương pháp</span>
+      </div>
+      <nav id="steps" aria-label="Các bước">
+        <a href="#overview" data-step="data" aria-current="true"><svg class="ic"><use href="#i-overview"/></svg><span>Tổng quan</span><span class="nav-badge" id="navDepsBadge" hidden></span></a>
+        <a href="#step-convert" data-step="convert"><svg class="ic"><use href="#i-data"/></svg><span><b>1</b> Dữ liệu</span></a>
+        <a href="#step-train" data-step="nurec"><svg class="ic"><use href="#i-scene"/></svg><span><b>2</b> Huấn luyện / Dựng</span></a>
+        <a href="#step-results" data-step="results"><svg class="ic"><use href="#i-results"/></svg><span><b>3</b> Bảng xếp hạng &amp; Video</span></a>
+      </nav>
+      <div class="view-mode">
+        <button type="button" class="small fullw" id="toggleViewMode">Chế độ: Từng bước</button>
+      </div>
+      <div class="side-foot">
+        <div class="status" id="status" role="status">Đang kiểm tra máy…</div>
+        <a class="legacy" href="/legacy">Giao diện ghép Panorama cũ <svg class="ic sm"><use href="#i-ext"/></svg></a>
+      </div>
+    </aside>
+
+    <main id="main">
+      <section class="sec is-active" id="overview" aria-labelledby="h-overview">
+        <header class="sec-head row-between">
+          <div>
+            <h1 id="h-overview">Tổng quan hệ thống &amp; Tiến độ</h1>
+            <p class="lead">Luồng chuẩn: <b>1</b> đồng bộ KITTI-360 từ Drive &amp; chuẩn bị clip → <b>2</b> train DriveStudio+ / 3DGUT / 3DGEER hoặc Instant NuRec → <b>3</b> so sánh metrics &amp; video A/B.</p>
+          </div>
+          <div class="quick-jump">
+            <button type="button" class="small" data-goto="step-convert">1. Dữ liệu</button>
+            <button type="button" class="small" data-goto="step-train">2. Train / Dựng</button>
+            <button type="button" class="small" data-goto="step-results">3. Kết quả &amp; Video</button>
+          </div>
+        </header>
+        <div class="kpis" id="dsKpis" aria-live="polite"></div>
+        <div class="grid3">
+          <div class="panel">
+            <h3><svg class="ic"><use href="#i-gpu"/></svg> Tài nguyên GPU</h3>
+            <div id="gpus" class="list"></div>
+          </div>
+          <div class="panel">
+            <h3>Môi trường Backend</h3>
+            <dl id="env" class="kv"></dl>
+            <dl id="dsEnv" class="kv"></dl>
+          </div>
+          <div class="panel">
+            <h3>Bộ dữ liệu KITTI-360</h3>
+            <div id="datasets" class="list"><p class="muted">Đang tải…</p></div>
+          </div>
+        </div>
+        <div class="panel deps-panel" id="depsPanel">
+          <div class="row-between deps-head">
+            <div><h3>Thư viện &amp; môi trường</h3>
+              <p class="hint">Mọi thứ app cần, kèm link nguồn. Bấm <b>Cài đặt</b> để cài trên máy ảo; tiến trình và thời gian chờ hiện ngay tại mục đó.</p></div>
+            <div class="toolbar-right"><span class="hint" id="depsSummary">Đang kiểm tra…</span>
+              <button type="button" class="small" id="depsRefresh"><svg class="ic sm"><use href="#i-refresh"/></svg> Kiểm tra lại</button></div>
+          </div>
+          <div id="depsList" class="deps-list"><p class="muted">Đang kiểm tra…</p></div>
+        </div>
+      </section>
+
+      <section class="sec" id="step-convert" aria-labelledby="h-data">
+        <header class="sec-head">
+          <h2 id="h-data"><b>1</b> Dữ liệu</h2>
+          <p class="lead">Đưa dataset (KITTI-360, Waymo, nuScenes, PandaSet, Argoverse 2, KITTI, nuPlan, PhysicalAI) lên máy ảo từ máy tính hoặc Google Drive, rồi chuẩn bị / tiền xử lý để huấn luyện.</p>
+        </header>
+        <div class="panel" id="dataSource">
+          <h3><span class="step-no">A</span> Chọn nguồn dữ liệu</h3>
+          <div class="src-cards" role="tablist" aria-label="Nguồn dữ liệu">
+            <button type="button" role="tab" class="src-card" id="src-local" aria-controls="pane-local" aria-selected="true">
+              <svg class="ic"><use href="#i-server"/></svg><span><b>Có sẵn trên máy ảo</b><small id="srcLocalCount">Đang quét…</small></span></button>
+            <button type="button" role="tab" class="src-card" id="src-upload" aria-controls="pane-upload" aria-selected="false" tabindex="-1">
+              <svg class="ic"><use href="#i-upload"/></svg><span><b>Tải lên từ máy tính</b><small>Kéo thả file hoặc thư mục</small></span></button>
+            <button type="button" role="tab" class="src-card" id="src-drive" aria-controls="p-data-drive" aria-selected="false" tabindex="-1">
+              <svg class="ic"><use href="#i-cloud"/></svg><span><b>Google Drive</b><small>Qua phiên Colab</small></span></button>
+          </div>
+
+          <div class="src-pane" role="tabpanel" id="pane-local" aria-labelledby="src-local">
+            <div class="toolbar">
+              <p class="hint">Mọi dữ liệu đang có trên máy ảo, theo từng bộ dataset.</p>
+              <button type="button" class="small" id="rescanData"><svg class="ic sm"><use href="#i-refresh"/></svg> Quét lại</button>
+            </div>
+            <h4 class="sub-h">KITTI-360 <small>bấm để chọn, rồi chuẩn bị clip ở bên dưới</small></h4>
+            <div id="seqCards" class="seq-cards" role="listbox" aria-label="Sequence trên máy ảo"></div>
+            <div id="rawSection" hidden>
+              <h4 class="sub-h">Dữ liệu gốc các bộ khác <small>cần tiền xử lý một lần trước khi train</small></h4>
+              <div id="rawCards" class="raw-cards"></div>
+            </div>
+            <div id="processedSection" hidden>
+              <h4 class="sub-h">Đã tiền xử lý, sẵn sàng train</h4>
+              <div id="processedCards" class="seq-cards"></div>
+            </div>
+            <label hidden>Sequence trên máy <select id="localSequence" disabled><option>Đang tải…</option></select></label>
+          </div>
+
+          <div class="src-pane" role="tabpanel" id="pane-upload" aria-labelledby="src-upload" hidden>
+            <div class="row-inline upload-type">
+              <label class="grow">Loại dữ liệu
+                <select id="uploadDataset"><option value="auto">Tự nhận diện theo tên file / thư mục</option></select></label>
+              <p class="hint" id="uploadDatasetHint"></p>
+            </div>
+            <div class="dropzone" id="dropzone">
+              <svg class="ic xl"><use href="#i-upload"/></svg>
+              <b>Kéo thả file hoặc cả thư mục dataset vào đây</b>
+              <small>Giữ nguyên cấu trúc thư mục gốc và đặt vào <code id="uploadFolder">data/&lt;dataset&gt;/raw/</code> (KITTI-360 thì tự xếp vào <code>kitti360/</code>). Mất mạng giữa chừng thì chọn lại file/thư mục, nó sẽ tải tiếp từ chỗ dừng.</small>
+              <div class="actions center">
+                <button type="button" class="primary" id="pickFiles">Chọn file…</button>
+                <button type="button" id="pickFolder">Chọn cả thư mục…</button>
+              </div>
+              <input type="file" id="fileInput" multiple hidden>
+              <input type="file" id="folderInput" webkitdirectory hidden>
+            </div>
+            <div id="uploadQueue" class="upload-queue" hidden>
+              <div class="toolbar">
+                <div><b id="uploadSummary"></b> <span id="uploadSpeed" class="hint"></span></div>
+                <div class="toolbar-right">
+                  <button type="button" class="small" id="uploadPause">Tạm dừng</button>
+                  <button type="button" class="small" id="uploadClear">Xoá danh sách</button>
+                </div>
+              </div>
+              <div class="bar run"><i id="uploadTotalBar" style="width:0%"></i></div>
+              <ul id="uploadList" class="upload-list"></ul>
+            </div>
+            <div id="uploadChecklist" class="checklist"></div>
+            <details class="cli-tip">
+              <summary>Dữ liệu rất lớn (hàng chục GB)? Copy bằng lệnh sẽ nhanh và ổn định hơn</summary>
+              <p class="hint">Mở PowerShell trên máy tính của bạn (Tailscale phải đang bật), sửa <code>D:\dataset</code> thành thư mục chứa dữ liệu, rồi chạy lệnh (đích đổi theo ô "Loại dữ liệu" ở trên):</p>
+              <div class="copy-row"><pre id="scpCmd"></pre><button type="button" class="small" id="copyScp">Copy</button></div>
+              <p class="hint">Thư mục trên máy tính cần giữ đúng cấu trúc gốc của dataset. Copy xong, bấm <b>Quét lại</b> ở thẻ "Có sẵn trên máy ảo".</p>
+            </details>
+          </div>
+
+          <div class="src-pane" role="tabpanel" id="p-data-drive" aria-labelledby="src-drive" hidden>
+            <p class="hint">Máy ảo đọc Google Drive của bạn qua một phiên Colab. Làm lần lượt từng bước, không cần gõ đường dẫn. Hỗ trợ KITTI-360, Waymo, nuScenes, PandaSet, Argoverse 2, KITTI, nuPlan, PhysicalAI.</p>
+            <ol class="wizard">
+              <li class="wz" id="wzAccount" data-state="active">
+                <div class="wz-head"><span class="wz-no">1</span><b>Tài khoản Google &amp; Colab CLI</b><span class="wz-state" id="wzAccountState">Đang kiểm tra…</span></div>
+                <div class="wz-body">
+                  <div class="row-inline">
+                    <label class="grow">Tài khoản đang dùng <select id="acctSelect"><option value="">Đang tải…</option></select></label>
+                    <button type="button" class="small" id="acctUse" hidden>Chuyển sang tài khoản này</button>
+                    <button type="button" class="small" id="acctAdd">+ Thêm tài khoản Google</button>
+                    <button type="button" class="link" id="acctForget" hidden>Bỏ khỏi danh sách</button>
+                  </div>
+                  <p class="hint">Drive được kết nối ở các bước sau là Drive của tài khoản này. Đổi tài khoản thì danh sách phiên Colab cũng đổi theo.</p>
+                  <div class="consent" id="acctLogin" hidden>
+                    <p><b>Đăng nhập tài khoản Google mới.</b> Mở trang dưới, chọn tài khoản, bấm <i>Cho phép</i>. Google sẽ hiện một <b>mã xác thực</b>: copy mã đó và dán vào ô bên dưới.</p>
+                    <div class="row-inline">
+                      <a class="btn primary" id="acctLoginLink" target="_blank" rel="noopener">1. Mở trang đăng nhập Google <svg class="ic sm"><use href="#i-ext"/></svg></a>
+                      <label class="grow">2. Dán mã xác thực <input id="acctCode" autocomplete="off" spellcheck="false" placeholder="4/0A…"></label>
+                      <button type="button" class="play" id="acctCodeSubmit">Xác nhận</button>
+                      <button type="button" class="link" id="acctCancel">Huỷ</button>
+                    </div>
+                  </div>
+                  <div class="row-inline cli-row">
+                    <span class="hint" id="cliInfo">Colab CLI: đang kiểm tra…</span>
+                    <button type="button" class="small" id="cliCheck">Kiểm tra cập nhật</button>
+                    <button type="button" class="small primary" id="cliUpdate" hidden>Cập nhật Colab CLI</button>
+                  </div>
+                </div>
+              </li>
+              <li class="wz" id="wzSession" data-state="active">
+                <div class="wz-head"><span class="wz-no">2</span><b>Phiên Colab</b><span class="wz-state" id="wzSessionState">Đang kiểm tra…</span></div>
+                <div class="wz-body">
+                  <div class="row-inline">
+                    <label class="grow">Phiên đang chạy <select id="colabSession"><option value="">Đang tải…</option></select></label>
+                    <button type="button" class="small" id="colabRefresh" title="Tải lại danh sách phiên"><svg class="ic sm"><use href="#i-refresh"/></svg></button>
+                    <a class="btn small" id="colabOpen" target="_blank" rel="noopener" hidden>Mở trong Colab <svg class="ic sm"><use href="#i-ext"/></svg></a>
+                  </div>
+                  <details id="colabNewBox">
+                    <summary>+ Tạo phiên Colab mới</summary>
+                    <div class="row-inline">
+                      <label class="grow">Tên phiên <input id="colabNewName" value="" maxlength="64" pattern="[A-Za-z0-9_.\-]{1,64}"></label>
+                      <label>Máy <select id="colabNewGpu"><option value="">CPU (đủ để tải dữ liệu)</option></select></label>
+                      <button type="button" class="primary small" id="colabCreate">Tạo phiên</button>
+                    </div>
+                  </details>
+                </div>
+              </li>
+              <li class="wz" id="wzDrive" data-state="todo">
+                <div class="wz-head"><span class="wz-no">3</span><b>Kết nối Google Drive</b><span class="wz-state" id="wzDriveState"></span></div>
+                <div class="wz-body">
+                  <div class="row-inline">
+                    <button type="button" class="primary" id="driveMount">Kết nối Google Drive</button>
+                    <span class="hint" id="driveMountHint">Chỉ cần làm một lần cho mỗi phiên Colab.</span>
+                  </div>
+                  <div class="consent" id="driveConsent" hidden>
+                    <p><b>Google cần bạn cho phép.</b> Bấm nút dưới, đăng nhập đúng tài khoản Google chứa dữ liệu, chọn <i>Cho phép</i>, rồi quay lại đây.</p>
+                    <div class="row-inline">
+                      <a class="btn primary" id="driveConsentLink" target="_blank" rel="noopener">1. Mở trang cấp quyền <svg class="ic sm"><use href="#i-ext"/></svg></a>
+                      <button type="button" class="play" id="driveConfirm">2. Tôi đã cho phép xong</button>
+                    </div>
+                  </div>
+                  <details id="driveMountLogBox" hidden><summary>Log kết nối</summary><pre id="driveMountLog"></pre></details>
+                </div>
+              </li>
+              <li class="wz" id="wzFolder" data-state="todo">
+                <div class="wz-head"><span class="wz-no">4</span><b>Chọn thư mục dữ liệu trên Drive</b><span class="wz-state" id="wzFolderState"></span></div>
+                <div class="wz-body">
+                  <div class="row-inline">
+                    <button type="button" class="primary small" id="driveFind">Tự tìm dataset trên Drive</button>
+                    <span class="hint" id="driveFindHint"></span>
+                  </div>
+                  <div id="driveFound" class="found-list"></div>
+                  <div class="browser">
+                    <div class="crumbs" id="driveCrumbs"></div>
+                    <ul class="folders" id="driveFolders"></ul>
+                  </div>
+                </div>
+              </li>
+              <li class="wz" id="wzSeq" data-state="todo">
+                <div class="wz-head"><span class="wz-no">5</span><b>Chọn phần cần tải về máy ảo</b><span class="wz-state" id="wzSeqState"></span></div>
+                <div class="wz-body">
+                  <p class="hint">Thư mục: <code id="driveChosen">—</code></p>
+                  <div class="row-inline">
+                    <label class="grow">Loại dữ liệu <select id="driveDataset"></select></label>
+                    <p class="hint" id="driveDatasetHint"></p>
+                  </div>
+                  <div id="driveCommon" class="tags"></div>
+                  <div id="driveItems" class="item-list" hidden></div>
+                  <div id="driveSeqs" class="seq-cards" role="listbox" aria-label="Sequence trên Drive"></div>
+                  <div class="actions">
+                    <button type="button" class="primary" id="driveDownload" disabled><svg class="ic"><use href="#i-play"/></svg> Tải về máy ảo</button>
+                    <button type="button" class="small" id="driveRuns" title="Chép metric/video của các lần chạy từ thư mục này">Hoặc: đồng bộ kết quả chạy từ thư mục này</button>
+                  </div>
+                  <div id="driveSyncJob" class="job" hidden></div>
+                </div>
+              </li>
+            </ol>
+          </div>
+        </div>
+
+        <div class="selected-bar" id="selectedBar" hidden>
+          <span class="step-no">B</span>
+          <span>Đang dùng: <b id="selectedSeq"></b> <span id="selectedTags"></span></span>
+          <button type="button" class="small" id="changeSeq">Đổi</button>
+        </div>
+        <div id="prepareSection" hidden>
+        <h3 id="prepareTitle">Chuẩn bị clip cho sequence đã chọn</h3>
+        <div class="tabs" role="tablist" aria-label="Phương pháp chuẩn bị clip">
+          <button role="tab" id="t-data-ds" aria-controls="p-data-ds" aria-selected="true">Cho DriveStudio+</button>
+          <button role="tab" id="t-data-nurec" aria-controls="p-data-nurec" aria-selected="false" tabindex="-1">Cho Instant NuRec</button>
+        </div>
+
+        <div class="panel" role="tabpanel" id="p-data-ds" aria-labelledby="t-data-ds">
+          <p class="hint">3 camera (trước + 2 fisheye F-theta), LiDAR và box 3D xe/người. NCore → preprocess → SegFormer sky mask → <code>data/kitti360/processed_&lt;tên&gt;</code>.</p>
+          <div class="deps-need" data-dep-need="ds-env,ds-ncore,segformer" hidden></div>
+          <form id="dsPrepareForm" class="form">
+            <label hidden>Bộ dữ liệu <select name="dataset"></select></label>
+            <label hidden>Sequence <select name="sequence"></select></label>
+            <label>Frame bắt đầu <input name="start" type="number" min="0" value="0" inputmode="numeric"></label>
+            <label>Số frame <input name="frames" type="number" min="2" max="2000" value="100" inputmode="numeric">
+              <small>100 frame ≈ 740 m đường.</small></label>
+            <label>Tên bộ xử lý <input name="name" placeholder="tự đặt nếu để trống" pattern="[A-Za-z0-9_.\\-]{0,80}"></label>
+            <label class="inline"><input name="objects" type="checkbox" checked> Kèm 3D Object Tracks (ROSA boxes)</label>
+            <div class="actions"><button class="primary" type="submit"><svg class="ic"><use href="#i-play"/></svg> Chuẩn bị dữ liệu</button></div>
+          </form>
+          <div id="dsPrepareJob" class="job" hidden></div>
+        </div>
+
+        <div class="panel" role="tabpanel" id="p-data-nurec" aria-labelledby="t-data-nurec" hidden>
+          <p class="hint">4 camera, LiDAR và poses thành clip NCore V4 trong <code>outputs/ncore/</code> kèm ảnh kiểm tra chiếu LiDAR.</p>
+          <div class="deps-need" data-dep-need="nurec" hidden></div>
+          <form id="convertForm" class="form">
+            <label hidden>Bộ dữ liệu <select name="ds"></select></label>
+            <label hidden>Sequence <select name="sequence"></select></label>
+            <label>Frame bắt đầu <input name="start" type="number" min="0" value="0" inputmode="numeric"></label>
+            <label>Số frame <input name="frames" type="number" min="2" max="2000" value="40" inputmode="numeric"></label>
+            <fieldset><legend>Camera</legend><div id="convertCams" class="checks"></div></fieldset>
+            <label>Mô hình Fisheye
+              <select name="fisheye_model">
+                <option value="rectify120" selected>Rectify 120° (chuẩn Instant NuRec)</option>
+                <option value="ftheta">F-theta nguyên bản</option>
+                <option value="opencv">Kannala-Brandt (3DGUT / gsplat)</option>
+              </select></label>
+            <label class="inline"><input name="lidar" type="checkbox" checked> Kèm LiDAR</label>
+            <label>Tên clip <input name="clipname" placeholder="tự đặt nếu để trống" pattern="[A-Za-z0-9_.\\-]{0,80}"></label>
+            <div class="actions"><button class="primary" type="submit"><svg class="ic"><use href="#i-play"/></svg> Chuyển đổi sang NCore</button></div>
+          </form>
+          <div id="convertJob" class="job" hidden></div>
+        </div>
+        </div>
+
+      </section>
+
+      <section class="sec" id="step-train" aria-labelledby="h-train">
+        <header class="sec-head">
+          <h2 id="h-train"><b>2</b> Huấn luyện &amp; Dựng cảnh</h2>
+          <p class="lead">Chọn dữ liệu và phương pháp, rồi chạy trên GPU của máy chủ hoặc trên GPU Colab bằng tài khoản Google đã kết nối ở bước 1.</p>
+        </header>
+        <div class="tabs" role="tablist" aria-label="Phương pháp dựng cảnh">
+          <button role="tab" id="t-train-ds" aria-controls="p-train-ds" aria-selected="true">DriveStudio+ (Per-scene)</button>
+          <button role="tab" id="t-train-nurec" aria-controls="step-nurec" aria-selected="false" tabindex="-1">Instant NuRec (Feed-forward)</button>
+        </div>
+
+        <div class="panel" role="tabpanel" id="p-train-ds" aria-labelledby="t-train-ds">
+          <form id="dsTrainForm" class="train-form">
+            <section class="tf-group">
+              <h3 class="tf-h"><span class="wz-no">1</span> Dữ liệu</h3>
+              <div class="tf-body">
+                <label>Cấu hình dataset <select name="dataset" required></select></label>
+                <label>Dữ liệu đã chuẩn bị <select name="data_root"><option value="">theo cấu hình dataset</option></select>
+                  <small id="tfDataHint">Chưa có dữ liệu? Làm ở bước 1.</small></label>
+              </div>
+            </section>
+
+            <section class="tf-group">
+              <h3 class="tf-h"><span class="wz-no">2</span> Phương pháp</h3>
+              <div class="tf-body">
+                <label class="span2">Method config <select name="method" required></select>
+                  <small><code>streetgs</code>: nền + xe · <code>omnire</code>: thêm người · <code>pvg</code>/<code>deformablegs</code>: không cần box.</small></label>
+                <div class="span2">
+                  <span class="tf-label">Renderer (camera fisheye)</span>
+                  <div class="seg" role="radiogroup" aria-label="Renderer">
+                    <label><input type="radio" name="render_mode" value="" checked><span>Theo config</span></label>
+                    <label><input type="radio" name="render_mode" value="ut"><span>3DGUT</span></label>
+                    <label><input type="radio" name="render_mode" value="geer"><span>3DGEER <small>wide-FoV chính xác</small></span></label>
+                    <label><input type="radio" name="render_mode" value="default"><span>3DGS <small>chỉ pinhole</small></span></label>
+                  </div>
+                </div>
+                <div>
+                  <span class="tf-label">FastGS densification</span>
+                  <div class="seg" role="radiogroup" aria-label="FastGS">
+                    <label><input type="radio" name="fastgs" value="" checked><span>Theo config</span></label>
+                    <label><input type="radio" name="fastgs" value="true"><span>Bật</span></label>
+                    <label><input type="radio" name="fastgs" value="false"><span>Tắt</span></label>
+                  </div>
+                </div>
+                <div>
+                  <span class="tf-label">Số bước (iters)</span>
+                  <div class="row-inline">
+                    <input name="steps" type="number" min="100" max="100000" step="100" value="30000" inputmode="numeric" aria-label="Số bước" class="steps-in">
+                    <span class="chips"><button type="button" class="chip" data-steps="3000">3k thử</button><button type="button" class="chip" data-steps="7000">7k</button><button type="button" class="chip" data-steps="30000">30k</button></span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="tf-group">
+              <h3 class="tf-h"><span class="wz-no">3</span> Chạy ở đâu</h3>
+              <div class="src-cards two" role="tablist" aria-label="Nơi chạy">
+                <button type="button" role="tab" class="src-card" id="tgt-local" aria-controls="tgtPaneLocal" aria-selected="true">
+                  <svg class="ic"><use href="#i-server"/></svg><span><b>GPU máy ảo</b><small id="tgtLocalInfo">Đang đọc GPU…</small></span></button>
+                <button type="button" role="tab" class="src-card" id="tgt-colab" aria-controls="tgtPaneColab" aria-selected="false" tabindex="-1">
+                  <svg class="ic"><use href="#i-cloud"/></svg><span><b>Colab GPU</b><small id="tgtColabInfo">GPU Colab qua tài khoản Google</small></span></button>
+              </div>
+              <div class="tf-body" id="tgtPaneLocal" role="tabpanel" aria-labelledby="tgt-local">
+                <label class="span2">GPU <select name="gpu"></select><small id="dsTrainHint"></small></label>
+              </div>
+              <div class="tf-body" id="tgtPaneColab" role="tabpanel" aria-labelledby="tgt-colab" hidden>
+                <div class="span2 colab-acct">
+                  <span id="tcAccount" class="hint">Tài khoản Google: đang đọc…</span>
+                  <span id="tcUsage" class="hint"></span>
+                  <button type="button" class="link" id="tcAccountChange">Đổi tài khoản</button>
+                </div>
+                <label>Phiên Colab <select id="tcSession"><option value="">Đang tải…</option></select></label>
+                <label id="tcNewWrap">GPU cho phiên mới
+                  <select id="tcGpu"><option value="">Đang tải…</option></select></label>
+                <label id="tcNameWrap">Tên phiên mới <input id="tcName" value="" pattern="[A-Za-z0-9_.\-]{1,64}" spellcheck="false"></label>
+                <div class="span2 row-inline">
+                  <a class="btn small" id="tcOpen" target="_blank" rel="noopener" hidden>Mở phiên trong Colab <svg class="ic sm"><use href="#i-ext"/></svg></a>
+                  <button type="button" class="small" id="tcStop" hidden>Dừng phiên (trả GPU)</button>
+                  <button type="button" class="small" id="tcReload"><svg class="ic sm"><use href="#i-refresh"/></svg> Tải lại</button>
+                  <label class="check"><input type="checkbox" id="tcCkpt" checked> Tải checkpoint về (để mở 3D viewer)</label>
+                </div>
+                <p class="hint span2" id="tcNote">Lần đầu trên một phiên mới, Colab cần build <code>gsplat-geer</code>, <code>pytorch3d</code> và <code>nvdiffrast</code>, mất khoảng 30–60 phút. Nếu đã kết nối Drive (bước 1 → Google Drive), bản build được lưu vào <code>MyDrive/fflab_cache</code> để các phiên sau cài trong vài phút.</p>
+              </div>
+            </section>
+
+            <section class="tf-group">
+              <h3 class="tf-h"><span class="wz-no">4</span> Bắt đầu</h3>
+              <div class="tf-body">
+                <label>Tên lần chạy
+                  <span class="row-inline nowrap"><input name="name" required pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,79}" placeholder="vd. streetgs_geer_30k" spellcheck="false" class="grow">
+                  <button type="button" class="small" id="tfAutoName" title="Đặt tên tự động">Tự đặt</button></span></label>
+                <div class="tf-summary" id="tfSummary"></div>
+                <div class="deps-need span2" id="trainDepsLocal" data-dep-need="ds-env,ds-cuda" hidden></div>
+                <div class="actions span2">
+                  <button class="primary" type="submit" id="tfSubmit"><svg class="ic"><use href="#i-play"/></svg> <span>Bắt đầu train trên máy ảo</span></button>
+                </div>
+              </div>
+            </section>
+          </form>
+
+          <div id="colabJobsWrap" hidden>
+            <h3 class="sub-h">Job trên Colab</h3>
+            <div id="colabJobs" class="cjobs"></div>
+          </div>
+        </div>
+
+        <div class="panel" role="tabpanel" id="step-nurec" aria-labelledby="t-train-nurec" hidden>
+          <div id="nurecSetup" class="nurec-setup"></div>
+          <div id="nurecSetupJob" class="job" hidden></div>
+          <form id="nurecForm" class="form">
+            <label>Clip NCore <select name="clip" required></select></label>
+            <label>Model
+              <select name="model">
+                <option value="pa-multiview" selected>pa-multiview: 3 camera (trước, trái, phải)</option>
+                <option value="pa-front">pa-front: chỉ camera trước</option>
+                <option value="pq-front">pq-front: camera trước gọn</option>
+              </select></label>
+            <fieldset><legend>Camera đầu vào <small id="camHint"></small></legend><div id="nurecCams" class="slots"></div></fieldset>
+            <label>GPU <select name="gpu"></select></label>
+            <label>Số Gaussian tối đa <input name="n_gaussians" type="number" min="100000" max="2000000" step="100000" value="2000000"></label>
+            <label>Số chunk tối đa <input name="max_chunks" type="number" min="1" max="8" value="8"></label>
+            <div class="actions"><button class="primary" type="submit"><svg class="ic"><use href="#i-play"/></svg> Chạy Instant NuRec</button></div>
+          </form>
+          <div id="nurecJob" class="job" hidden></div>
+        </div>
+      </section>
+
+      <section class="sec" id="step-results" aria-labelledby="h-results">
+        <header class="sec-head row-between">
+          <div>
+            <h2 id="h-results"><b>3</b> Bảng xếp hạng Metrics &amp; So sánh Video</h2>
+            <p class="lead">Đối chiếu định lượng (PSNR, SSIM, LPIPS, Dynamic/Vehicle, LiDAR Depth, FPS, VRAM) và soi video A/B giữa các method.</p>
+          </div>
+          <div class="tabs compact-tabs" role="tablist" aria-label="Nhóm kết quả">
+            <button role="tab" id="t-res-ds" aria-controls="p-res-ds" aria-selected="true">Tổng hợp &amp; Video A/B</button>
+            <button role="tab" id="t-res-nurec" aria-controls="p-res-nurec" aria-selected="false" tabindex="-1">Đánh giá PLY / NuRec</button>
+          </div>
+        </header>
+
+        <div role="tabpanel" id="p-res-ds" aria-labelledby="t-res-ds">
+          <div class="stage collapsed" id="dsStage" aria-live="polite">
+            <div class="stage-bar">
+              <svg class="ic"><use href="#i-scene"/></svg><strong>Viewer 3D</strong>
+              <select id="dsViewRun" aria-label="Lần chạy để xem 3D"></select>
+              <button type="button" class="play small" id="dsViewStart"><svg class="ic sm"><use href="#i-play"/></svg> Mở Viewer 3D</button>
+              <button type="button" class="small" id="dsViewStop" hidden>Dừng viewer</button>
+              <a class="small-link" id="dsViewOpen" target="_blank" rel="noopener" hidden>Mở tab riêng <svg class="ic sm"><use href="#i-ext"/></svg></a>
+              <span class="hint" id="dsViewState">Chọn checkpoint để xoay/bay 3D trên GPU</span>
+            </div>
+            <div class="stage-body" id="dsStageBody" hidden></div>
+          </div>
+
+          <div class="panel vcomp" id="videoCompareBox">
+            <div class="vcomp-head">
+              <h3>So sánh Video Output giữa các Method</h3>
+              <span class="hint" id="vcCountHint"></span>
+            </div>
+            <div id="vcControlsWrap">
+              <div class="vcomp-controls">
+                <label>Method / Video A <select id="vcSelectA"></select></label>
+                <label>Method / Video B <select id="vcSelectB"></select></label>
+                <label>Chế độ xem
+                  <select id="vcLayout">
+                    <option value="wipe" selected>Kéo rèm A/B (Split Wipe)</option>
+                    <option value="hstack">Cạnh nhau (Trái / Phải)</option>
+                    <option value="vstack">Xếp chồng (Trên / Dưới)</option>
+                  </select></label>
+                <label>Tốc độ
+                  <select id="vcRate">
+                    <option value="0.25">0.25x (Soi lỗi)</option>
+                    <option value="0.5">0.5x</option>
+                    <option value="1" selected>1.0x</option>
+                  </select></label>
+                <div class="vcomp-transport">
+                  <button type="button" class="play small" id="vcPlayBtn"><svg class="ic sm"><use href="#i-play"/></svg> Play / Pause</button>
+                  <button type="button" class="small" id="vcPrevFrame" title="Lùi 1 frame">-1f</button>
+                  <button type="button" class="small" id="vcNextFrame" title="Tiến 1 frame">+1f</button>
+                  <button type="button" class="small" id="vcRestartBtn">0:00</button>
+                  <input type="range" id="vcScrub" min="0" max="1000" value="0" aria-label="Timeline video">
+                  <span class="mono muted" id="vcTime">0.0s</span>
+                  <button type="button" class="primary small" id="vcExportBtn">Xuất MP4 ghép nhãn</button>
+                  <a id="vcDownloadLink" class="small-link" download hidden>Tải MP4</a>
+                </div>
+              </div>
+              <div id="vcArena" class="vcomp-arena"></div>
+            </div>
+          </div>
+
+          <div class="panel table-panel">
+            <div class="toolbar">
+              <div class="metric-pills" id="metricGroupBar" role="group" aria-label="Nhóm chỉ số hiển thị">
+                <button type="button" class="pill active" data-mgroup="core">Cốt lõi</button>
+                <button type="button" class="pill" data-mgroup="image">Ảnh &amp; Vật thể động</button>
+                <button type="button" class="pill" data-mgroup="geom">Hình học LiDAR</button>
+                <button type="button" class="pill" data-mgroup="cost">Chi phí &amp; Tốc độ</button>
+                <button type="button" class="pill" data-mgroup="all">Tất cả</button>
+              </div>
+              <div class="toolbar-right">
+                <span id="dsUpdated" class="hint" aria-live="polite"></span>
+                <button type="button" class="small" id="dsRefresh"><svg class="ic sm"><use href="#i-refresh"/></svg> Làm mới</button>
+              </div>
+            </div>
+            <div class="table-wrap"><table class="runs" id="dsRuns" aria-describedby="h-results"></table></div>
+            <div id="dsViewer" class="viewer" hidden></div>
+          </div>
+        </div>
+
+        <div class="panel" role="tabpanel" id="p-res-nurec" aria-labelledby="t-res-nurec" hidden>
+          <div class="grid2">
+            <div>
+              <h3>Các file Gaussian PLY đã xuất</h3>
+              <div id="recons" class="list"></div>
+            </div>
+            <div>
+              <h3>Chấm điểm PLY trên NCore Clip</h3>
+              <form id="evalForm" class="form compact">
+                <label>PLY <select name="ply" required></select></label>
+                <label>So với clip <select name="clip" required></select></label>
+                <label>Lấy mỗi N frame <input name="every" type="number" min="1" max="100" value="4"></label>
+                <label>GPU <select name="gpu"></select></label>
+                <div class="actions"><button class="primary" type="submit">Render, xuất Video &amp; tính PSNR/SSIM</button></div>
+              </form>
+              <p class="hint">Tính PSNR + SSIM + FPS + VRAM và sinh <code>eval.mp4</code> để so sánh chung với DriveStudio+/3DGUT.</p>
+            </div>
+          </div>
+          <div id="evalJob" class="job" hidden></div>
+          <div id="evals"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" role="alert" hidden></div>
+  <script type="module" src="/static/pipeline.js?v=20261119w"></script>
+  <script type="module" src="/static/drivestudio.js?v=20261119w"></script>
+  <script type="module" src="/static/train.js?v=20261119w"></script>
+  <script type="module" src="/static/datasets.js?v=20261119w"></script>
+  <script type="module" src="/static/import.js?v=20261119w"></script>
+  <script type="module" src="/static/colab.js?v=20261119w"></script>
+  <script type="module" src="/static/ui.js?v=20261119w"></script>
+  <script type="module" src="/static/assistant.js?v=20261119w"></script>
+  <script type="module" src="/static/deps.js?v=20261119w"></script>
+</body>
+</html>

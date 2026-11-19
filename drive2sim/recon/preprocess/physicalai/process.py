@@ -32,7 +32,12 @@ class PhysicalAIProcessor:
         process_keys,
         process_id_list=None,
         workers=1,
+        frame_stride=3,
     ):
+        # PhysicalAI clips are 30 Hz and the dataset configs expect ~10 Hz; 10 Hz sources use 1.
+        self.frame_stride = int(frame_stride)
+        if self.frame_stride < 1:
+            raise ValueError('frame_stride must be >= 1')
         self.paths = sorted(Path(load_dir).glob('**/pai_*.json'))
         if not self.paths:
             raise FileNotFoundError('No pai_<clip_uuid>.json files found under ' + str(load_dir))
@@ -227,7 +232,7 @@ class PhysicalAIProcessor:
         if 0 not in sensors:
             raise ValueError('The reference front-wide camera is required')
         # Sample the full 30 Hz clip at approximately 10 Hz, matching the dataset config.
-        indices = np.arange(0, len(sensors[0].frames_timestamps_us), 3)
+        indices = np.arange(0, len(sensors[0].frames_timestamps_us), self.frame_stride)
         if not len(indices):
             raise ValueError('Selected frame range is empty')
         timestamps = (

@@ -90,7 +90,7 @@ Install the [official NuPlan toolkit](https://github.com/motional/nuplan-devkit)
 git clone https://github.com/motional/nuplan-devkit
 cd nuplan-devkit
 pip install -r requirements_torch.txt
-pip install -r requirements.txt
+pip install -r requirements-drivestudio.txt
 pip install -e .
 ```
 

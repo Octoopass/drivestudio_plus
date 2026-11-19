@@ -1532,7 +1532,8 @@ def create_gsplat_viewer(
             return int(current_frame)
 
     # drive2sim: host chọn được; Studio truyền 127.0.0.1 để cảnh không lộ ra mạng LAN.
-    server = viser.ViserServer(host=host, port=port, verbose=False)
+    # DRIVESTUDIO_VIEWER_HOST (Fisheye Fusion Lab web UI) overrides it when set.
+    server = viser.ViserServer(host=os.environ.get("DRIVESTUDIO_VIEWER_HOST") or host, port=port, verbose=False)
     if initial_camera is not None:
         server.initial_camera.position = initial_camera["position"]
         server.initial_camera.look_at = initial_camera["look_at"]
