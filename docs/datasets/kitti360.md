@@ -87,29 +87,51 @@ Pose của camera trong world của cảnh là `ego_pose[t] · extrinsics[camera
 Giới hạn (đo trên calib thật, ảnh 1400 px):
 - Sai số phần xuyên tâm của phép khớp tới 1,45 rad: 0,004 px (`image_02`), 0,011 px (`image_03`); ngoài miền khớp vẫn nhỏ: 0,10 px ở pi/2, 0,5 px ở 96 độ (mép trái, phải của ảnh), 1 px ở 99 độ, 2 px ở 103 độ (`image_02`, `kitti360_fisheye_workflow.md` mục 3).
 - Méo tiếp tuyến `p1`, `p2` bị bỏ (OpenCV fisheye không có). So với Mei chính xác trên điểm LiDAR thật (30 khung từ khung gốc 167, `check_kitti360_projection`): trung vị 0,10 px, lớn nhất 0,42 px (`image_02`); trung vị 0,17 px, lớn nhất 0,78 px (`image_03`).
-- Camera nhìn khoảng 191 độ theo chiều ngang (mép trái, phải của ảnh ở khoảng 96 độ lệch trục mỗi bên). **Phép chuyển Mei sang OpenCV fisheye giữ nguyên góc nhìn**: ảnh không bị sửa, và đa thức mô tả đúng ống kính tới mép trái, phải của ảnh (dòng trên). Góc nhìn chỉ bị thu khi train: renderer UT của gsplat không vẽ được tia từ pi/2 trở ra, nên loader `KITTI360CameraData` che vùng ảnh ngoài 1,45 rad (83 độ, chọn dưới 90 độ có khoảng an toàn) khi train và đánh giá, cho mọi renderer, ở cả OmniRe và Street GS. Báo cáo kiểm tra ghi mục `camera.fisheye_fit` và `camera.fisheye_fov`.
+- Camera nhìn khoảng 191 độ theo chiều ngang (mép trái, phải của ảnh ở khoảng 96 độ lệch trục mỗi bên). **Phép chuyển Mei sang OpenCV fisheye giữ nguyên góc nhìn**: ảnh không bị sửa, và đa thức mô tả đúng ống kính tới mép trái, phải của ảnh (dòng trên). Khi train, loader `KITTI360CameraData` che pixel ngoài góc nhỏ hơn giữa vùng ảnh còn nội dung (`cameras[].max_angle` = 1,68 rad, 96 độ) và giới hạn của renderer (3DGUT 88 độ; 3DGEER không có), cùng mặt nạ thân xe, ở cả OmniRe và Street GS (mục 5.1). Báo cáo kiểm tra ghi mục `camera.fisheye_fit` và `camera.fisheye_fov`.
 
-### 5.1 Góc nhìn dùng được: 166 độ trên khoảng 191 độ
+### 5.1 Vùng ảnh dùng khi train: 3DGEER 96 độ, 3DGUT 88 độ mỗi bên
 
-So sánh với mô hình camera của các dataset khác: `overview.md` mục 2.1. KITTI-360 là dataset duy nhất hiện nay mà mô hình gốc (Mei) phải chuyển gần đúng, nên là dataset duy nhất mất góc nhìn.
+So sánh với mô hình camera của các dataset khác: `overview.md` mục 2.1. KITTI-360 là dataset duy nhất hiện nay mà mô hình gốc (Mei) phải chuyển gần đúng.
 
-Góc θ đo từ trục nhìn sang **một bên**; góc nhìn tổng là hai bên cộng lại (83 độ mỗi bên là 166 độ tổng). Với `image_02`, `image_03` có ba lớp, mỗi lớp một giới hạn:
+Góc θ đo từ trục nhìn sang **một bên**; góc nhìn tổng là hai bên cộng lại (96 độ mỗi bên là khoảng 191 độ tổng). Với `image_02`, `image_03` có ba lớp, mỗi lớp một giới hạn:
 
 | Lớp | Là gì | Mỗi bên | Tổng |
 |---|---|---|---|
 | Ống kính vật lý | Mô hình Mei của KITTI-360 | khoảng 96 độ tới mép trái, phải của ảnh | khoảng 191 độ theo chiều ngang |
-| Mô hình sau khi chuyển | OpenCV fisheye khớp từ Mei (`core/camera.py`, khớp trên 0–1,45 rad); renderer của gsplat không có mô hình Mei | lệch Mei dưới 0,5 px tới 96 độ (mép trái, phải của ảnh), 1 px ở 99 độ | khoảng 191 độ |
-| Renderer | 3DGUT chiếu điểm mẫu của Gaussian qua ống kính, hỏng khi điểm mẫu ở 90 độ hoặc sau camera; 3DGEER tính theo tia của từng pixel nên không có giới hạn này | 3DGUT dưới 90 độ | 3DGUT dưới 180 độ |
+| Mô hình sau khi chuyển | OpenCV fisheye khớp từ Mei (`core/camera.py`, khớp trên 0–1,45 rad); renderer của gsplat không có mô hình Mei | lệch Mei dưới 0,5 px tới 96 độ, 1 px ở 99 độ | khoảng 191 độ |
+| Renderer | 3DGUT chiếu điểm mẫu của Gaussian qua ống kính, hỏng khi điểm mẫu ở 90 độ hoặc sau camera; 3DGEER tính theo tia của từng pixel nên không có giới hạn này | 3DGUT 88 độ | 3DGUT 176 độ |
 
-1,45 rad được chọn vì nằm dưới 90 độ (3DGUT vẽ được), có khoảng an toàn. Phép khớp không phải giới hạn: đo trên calib thật của `image_02` (`kitti360_fisheye_workflow.md` mục 3), OpenCV fisheye lệch Mei 0,004 px ở 83 độ, 0,1 px ở 90 độ, 0,5 px ở 96 độ (mép trái, phải của ảnh), 1 px ở 99 độ, 2 px ở 103 độ. Đa thức với hệ số khớp được còn tăng tới khoảng 2 rad (115 độ), xa hơn thì đổi chiều.
+**Mặt nạ khi train và đánh giá** (từ 19/11/2026; trước đó mọi renderer che từ 1,45 rad, 83 độ):
+
+| | 3DGEER | 3DGUT |
+|---|---|---|
+| Vùng ngoài ảnh có nội dung (`cameras[].max_angle`, converter khai báo; KITTI-360: 1,68 rad, 96 độ) | che | che |
+| Thân xe (`assets/ego_masks/kitti360/`) | che | che |
+| Giới hạn của renderer (stage train, mọi dataset: `UT_MAX_ANGLE` = 1,536 rad, 88 độ) | không | che |
+| Góc nhìn dùng được | khoảng 191 độ | 176 độ |
+
+Loader lấy góc nhỏ hơn giữa giới hạn của dataset và giới hạn của renderer; tham số stage `train.drivestudio.fisheye_max_angle` đè lên cả hai để thử nghiệm. Cảnh ingest trước khi manifest có `max_angle` (`kitti360_drive0003`) dùng 1,68 rad.
+
+Căn cứ của hai con số:
+- **96 độ (vùng ảnh)**: độ sáng trung bình theo góc trên 11 khung ảnh gốc chuỗi 0003 giữ khoảng 150–160 tới 96 độ, rồi tối dần (khoảng 145 ở 97–98 độ, 109–124 ở 99–100 độ, 30–60 ở 101–105 độ); phép khớp lệch Mei 0,5 px ở 96 độ, 1 px ở 99 độ. Dataset khác do converter của nó khai báo con số riêng.
+- **88 độ (3DGUT)**: (1) checkpoint 3DGUT `146b` và 3DGEER `e3e3` (cùng split `every10_fisheye2`, cùng che từ 83 độ) vẽ không che, so với ảnh gốc theo dải góc trên 12 khung `image_02`: hai renderer tụt giống nhau ngoài 83 độ (88–89 độ: 17,4 so với 17,4 dB; 89–90 độ: 16,5 so với 16,6 dB), tức 3DGUT không vẽ hỏng riêng tới 90 độ, phần tụt là do vùng chưa được học. (2) Hai run thử OmniRe + 3DGUT, 1000 bước, cảnh `kitti360_0003_local` (40 khung của chuỗi 0003, hai camera mắt cá), chỉ khác ngưỡng che, đo bằng `drive2sim/scripts/fisheye_angle_bands.py` trên 8 khung test `image_02`:
+
+| Dải góc | Che từ 83 độ (`4ef4`) | Che từ 88 độ (`fe92`) |
+|---|---|---|
+| 0–60 độ | 19,5 dB | 19,0 dB |
+| 60–83 độ | 18,3–20,8 | 18,4–20,9 |
+| 83–86 độ | 16,2 | 17,4 |
+| 86–88 độ | 14,8 | 17,2 |
+| 88–90 độ | 13,9 | 16,1 |
+
+  Vùng 83–88 độ tốt hơn 1,2–2,4 dB, vùng trong gần như không đổi. Mới là run 1000 bước, một lần chạy mỗi cấu hình, một camera; chưa có run 30 000 bước.
 
 Hệ quả:
-- **Cả 3DGUT lẫn 3DGEER chỉ train trên 166 độ.** Dữ liệu gốc (ảnh, calib Mei) có đủ khoảng 191 độ, và phép chuyển sang OpenCV fisheye giữ nguyên góc đó; giới hạn đến từ cách xử lý: loader che mọi pixel ngoài 1,45 rad (83 độ mỗi bên, chọn dưới giới hạn 90 độ của 3DGUT) trước khi train, với mọi renderer (run `146b`, `e627` dùng 3DGUT; `e3e3`, `0b27` dùng 3DGEER). Với 3DGEER, renderer không phải là chỗ giới hạn.
-- **Trong 166 độ, ảnh vẽ ra không lệch góc** so với camera thật: sai số chiếu dưới nửa pixel (các số đo ở trên).
-- **Video, ảnh đánh giá của stage train** có cùng khung ảnh, kích thước và tâm ảnh với ảnh gốc (700×700 khi train, thu từ 1400×1400). Renderer vẽ mọi pixel theo OpenCV fisheye khớp từ Mei; pixel ngoài 1,45 rad và pixel thân xe được loader đánh dấu không hợp lệ (`valid_masks`, `recon/data/loaders/kitti360.py`) và bị tô đen ở **cả** ảnh render lẫn ảnh thật dùng để so (`recon/rendering/videos.py`); PSNR, SSIM, LPIPS chỉ tính trên pixel hợp lệ. Vì vậy video render và video ảnh thật trông khớp nhau ở vành ngoài, nhưng ảnh thật nguyên bản vẫn có nội dung ở đó.
-- **Vành ảnh từ 166 độ tới khoảng 191 độ không có trong cảnh dựng lại**: camera thật thấy nhưng ảnh mô phỏng để trống. Một phần vành này vốn bị thân xe che (`ego_masks/kitti360`).
-- Thử thuật toán lái xe, perception trên ảnh mô phỏng: dùng được với thuật toán chỉ cần vùng giữa ảnh mắt cá, hoặc khử méo rồi cắt vùng trung tâm; khi so với ảnh thật thì che cùng vành ngoài trên ảnh thật để hai bên cùng điều kiện. Thuật toán cần nguyên ảnh mắt cá (vật sát hai bên xe) sẽ thấy vành ngoài trống, khác camera thật.
-- Hướng có thể lấy lại vành ngoài, **chưa kiểm chứng**: với 3DGEER (tính theo tia, không có giới hạn 90 độ), nới vùng che của loader tới góc mà phép khớp OpenCV fisheye hiện có còn đúng (dưới 0,5 px tới 96 độ) là lấy lại được phần lớn vành ngoài mà không đổi mô hình ống kính; muốn rộng hơn nữa thì khớp Mei sang F-theta (đa thức bậc tuỳ chọn, 3DGEER đã nối sẵn). 3DGUT không dùng được cho phần ngoài 90 độ.
+- **Trong vùng dùng được, ảnh vẽ ra không lệch góc** so với camera thật: sai số chiếu dưới nửa pixel tới 96 độ.
+- **Video, ảnh đánh giá của stage train** có cùng khung ảnh, kích thước và tâm ảnh với ảnh gốc (700×700 khi train, thu từ 1400×1400). Renderer vẽ mọi pixel theo OpenCV fisheye khớp từ Mei; pixel ngoài vùng dùng được và pixel thân xe được loader đánh dấu không hợp lệ (`valid_masks`, `recon/data/loaders/kitti360.py`) và bị tô đen ở **cả** ảnh render lẫn ảnh thật dùng để so (`recon/rendering/videos.py`); PSNR, SSIM, LPIPS chỉ tính trên pixel hợp lệ.
+- **Không so PSNR tổng giữa run che khác nhau**: run 3DGUT với 3DGEER, hay run trước với run sau 19/11/2026, đo trên vùng ảnh khác nhau; so theo dải góc bằng `fisheye_angle_bands.py`.
+- Run 3DGUT còn thiếu vành 176 độ tới khoảng 191 độ. Thuật toán cần nguyên ảnh mắt cá nên dùng 3DGEER.
+- Mặt nạ vật động lúc ingest (`kitti360_boxes.py`, mục 3.1) vẫn coi góc ngoài 1,45 rad là không thấy; vật nằm trong vành 83–96 độ không có mặt nạ vật động.
 
 ## 6. Đã kiểm tra trên dữ liệu thật
 
@@ -133,8 +155,8 @@ Chuỗi `2013_05_28_drive_0003_sync`, 30 khung từ khung gốc 167 (`--start-fr
 
 ## 8. Mask thân xe trong trainer chung
 
-Hai asset `drive2sim/assets/ego_masks/kitti360/image_02.png` và `image_03.png` che phần cứng gắn trên xe. Chúng là ảnh nhị phân 1400x1400: trắng (255) là bỏ, đen (0) là giữ. `outlines.json` lưu biên và các khung tham chiếu để tái tạo; README cạnh asset ghi cách làm. Mask đã được xem trên các khung 2, 257, 507, 759, 1009 của chuỗi 0003; chưa xác nhận trên các chuỗi khác. Bóng xe trên đường và vệt sáng mặt trời vẫn được giữ. Trên calib chuỗi 0003, mask thân xe bỏ thêm 8,8% (`image_02`) và 8,1% (`image_03`) số pixel trong vùng FOV 1,45 rad.
+Hai asset `drive2sim/assets/ego_masks/kitti360/image_02.png` và `image_03.png` che phần cứng gắn trên xe. Chúng là ảnh nhị phân 1400x1400: trắng (255) là bỏ, đen (0) là giữ. `outlines.json` lưu biên và các khung tham chiếu để tái tạo; README cạnh asset ghi cách làm. Mask đã được xem trên các khung 2, 257, 507, 759, 1009 của chuỗi 0003; chưa xác nhận trên các chuỗi khác. Bóng xe trên đường và vệt sáng mặt trời vẫn được giữ. Trên calib chuỗi 0003, mask thân xe bỏ thêm 8,8% (`image_02`) và 8,1% (`image_03`) số pixel trong vùng 1,45 rad (83 độ). Mask đã phủ thân xe tới mép ảnh, nên vẫn đúng khi vùng dùng được rộng tới 96 độ.
 
-Loader chọn mask theo tên `image_02` hoặc `image_03` trong manifest, kể cả khi ingest chỉ hai camera và chúng trở thành chỉ số 0, 1. Mask được thu nhỏ bằng nearest rồi ghép với vùng tia ngoài 1,45 rad. Loss ảnh và depth, điểm lỗi FastGS, đánh giá và phép chiếu LiDAR dùng mask này; không dò lại trong ingest hoặc trong từng run. Pinhole và loader KITTI gốc giữ đường cũ.
+Loader chọn mask theo tên `image_02` hoặc `image_03` trong manifest, kể cả khi ingest chỉ hai camera và chúng trở thành chỉ số 0, 1. Mask được thu nhỏ bằng nearest rồi ghép với vùng tia ngoài góc dùng được (mục 5.1). Loss ảnh và depth, điểm lỗi FastGS, đánh giá và phép chiếu LiDAR dùng mask này; không dò lại trong ingest hoặc trong từng run. Pinhole và loader KITTI gốc giữ đường cũ.
 
 Từ protocol đánh giá `0.3` (commit `793849d`), PSNR, SSIM và LPIPS test đều chỉ xét pixel hợp lệ: SSIM lấy trung bình bản đồ SSIM trên pixel hợp lệ, LPIPS đo trên khung bao vùng hợp lệ (góc ảnh ngoài vùng FOV trong khung vẫn làm LPIPS loãng đi một chút); `summary.json` có thêm `per_camera` cho từng camera (CONTRACTS mục 6.3). Run đánh giá bằng protocol `0.2` tính SSIM, LPIPS trên hai ảnh đã tô đen vùng không hợp lệ nên tốt hơn thực tế; không so SSIM, LPIPS giữa hai protocol. PSNR trong đường cong train vẫn tính toàn ảnh. Đã chạy thử 500 bước OmniRe + 3DGUT trên 20 khung, cả 4 camera (ARCHITECTURE mục 7.1); chưa train hồi quy 30 000 bước.

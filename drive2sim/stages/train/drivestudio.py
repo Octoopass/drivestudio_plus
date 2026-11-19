@@ -94,6 +94,11 @@ SMPL_ENTRY = "humanpose"
 FINAL_CHECKPOINT = "checkpoint_final.pth"
 # Config method đã gộp extends, ghi trong thư mục stage và đưa cho DriveStudio.
 METHOD_CONFIG = "method_config.yaml"
+# Góc lệch trục lớn nhất (rad) renderer 3DGUT dùng: nó chiếu điểm mẫu của mỗi Gaussian qua ống
+# kính, hỏng khi điểm mẫu ở 90 độ hoặc sau camera. 88 độ: run thử trên KITTI-360 0003 cho vùng
+# 83..88 độ tốt hơn 1,2..2,4 dB so với che từ 83 độ, vùng trong không đổi
+# (docs/datasets/kitti360.md mục 5.1).
+UT_MAX_ANGLE = 1.536
 
 
 class TrainDrivestudioParams(BaseModel):
@@ -125,9 +130,10 @@ class TrainDrivestudioParams(BaseModel):
             (``trainer.gaussian_ctrl_general_cfg.refine_interval``); bỏ trống thì theo config
             (3DGS, 3DGUT 100; 3DGEER 50, Bosch để 300). Dùng để so renderer với cùng nhịp densify.
         fisheye_max_angle: Góc lệch trục lớn nhất (rad) của pixel camera mắt cá được dùng khi
-            train, đánh giá (``data.pixel_source.fisheye_max_angle``); bỏ trống thì theo
-            ``cameras[].max_angle`` của manifest (KITTI-360: 1,45 rad, chọn dưới giới hạn 90 độ
-            của 3DGUT). Hiện chỉ loader KITTI-360 đọc; dùng để thử ngưỡng khác.
+            train, đánh giá (``data.pixel_source.fisheye_max_angle``), đè lên mọi giới hạn khác;
+            bỏ trống thì loader lấy góc nhỏ hơn giữa ``cameras[].max_angle`` của manifest (vùng ảnh
+            còn nội dung, mô hình ống kính còn đúng; KITTI-360: 1,68 rad) và giới hạn của renderer
+            (3DGUT: ``UT_MAX_ANGLE``; 3DGEER: không có). Hiện chỉ loader KITTI-360 đọc.
         densify: ``default`` là quy tắc của DriveStudio (theo gradient, có ngưỡng); ``mcmc`` là
             densify bằng MCMC cho nền, xe, vật biến dạng (``drive2sim/recon/densify/mcmc.py``,
             ``docs/methods/densify_mcmc.md``), không dùng cùng FastGS. Approach không còn cho
@@ -388,6 +394,10 @@ def build_command(
         options["trainer.type"] = SCREEN_GRAD_TRAINER
     if params.refine_interval is not None:
         options["trainer.gaussian_ctrl_general_cfg.refine_interval"] = params.refine_interval
+    if params.renderer == "3dgut":
+        # 3DGUT không vẽ được tia từ 90 độ trở ra (giới hạn của renderer, mọi dataset); loader che
+        # theo góc nhỏ hơn giữa giới hạn này và cameras[].max_angle của manifest.
+        options["data.pixel_source.fisheye_renderer_max_angle"] = UT_MAX_ANGLE
     if params.fisheye_max_angle is not None:
         options["data.pixel_source.fisheye_max_angle"] = params.fisheye_max_angle
     if params.densify == "mcmc":

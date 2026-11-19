@@ -8,9 +8,9 @@ Tài liệu này đi theo một ảnh của camera mắt cá `image_02` (chuỗi
 |---|---|---|---|
 | 1. Dữ liệu gốc | Ảnh PNG 1400×1400 | Mô hình **Mei** (ống kính thật) | khoảng 191° theo chiều ngang |
 | 2. Ingest | Chép nguyên ảnh | Khớp Mei sang **OpenCV fisheye** | (chưa che gì) |
-| 3. Nạp dữ liệu | Thu nhỏ 700×700, lập mặt nạ | Tính góc tia của từng pixel | **166°** (che ngoài 83° mỗi bên và thân xe) |
-| 4. Train | Chỉ dùng pixel hợp lệ | Renderer vẽ qua OpenCV fisheye | 166° |
-| 5. Video, điểm số | Tô đen cùng vùng ở ảnh render và ảnh thật | Như bước 4 | 166° |
+| 3. Nạp dữ liệu | Thu nhỏ 700×700, lập mặt nạ | Tính góc tia của từng pixel | 3DGEER **khoảng 191°** (che ngoài 96° mỗi bên và thân xe); 3DGUT **176°** (che thêm ngoài 88°) |
+| 4. Train | Chỉ dùng pixel hợp lệ | Renderer vẽ qua OpenCV fisheye | như bước 3 |
+| 5. Video, điểm số | Tô đen cùng vùng ở ảnh render và ảnh thật | Như bước 4 | như bước 3 |
 | 6. Xem trên Studio | Trình duyệt vẽ pinhole | Spark chỉ có pinhole | tuỳ góc pinhole |
 
 ## 1. Ống kính là gì (khái niệm dùng trong cả tài liệu)
@@ -20,7 +20,7 @@ Mỗi điểm trong cảnh gửi một tia sáng tới camera. Tia lệch khỏi
 - **Pinhole**: khoảng cách = f·tan θ. Khi θ tiến tới 90° thì khoảng cách tiến tới vô cực, nên pinhole không bao giờ thấy tới 90° lệch trục.
 - **Mắt cá**: khoảng cách tăng gần đều theo θ, nên vẫn thấy được ở 90° và hơn.
 
-θ đo **từ trục sang một bên**. Góc nhìn tổng là hai bên cộng lại: 83° mỗi bên là 166° tổng, 90° mỗi bên là 180° tổng.
+θ đo **từ trục sang một bên**. Góc nhìn tổng là hai bên cộng lại: 88° mỗi bên là 176° tổng, 96° mỗi bên là khoảng 191° tổng.
 
 ## 2. Dữ liệu gốc
 
@@ -87,14 +87,22 @@ Loader: `drive2sim/recon/data/loaders/kitti360.py`.
 1. Đọc ảnh, **thu nhỏ còn 700×700**.
 2. Dùng mô hình OpenCV fisheye để tính hướng tia và góc θ của **từng pixel**.
 3. Lập **mặt nạ hợp lệ** (`valid_masks`). Pixel bị loại khi:
-   - **θ > 1,45 rad (83°)**: vành ngoài;
+   - **θ lớn hơn góc dùng được**: góc nhỏ hơn giữa vùng ảnh còn nội dung (`cameras[].max_angle` của manifest; KITTI-360: 1,68 rad, 96°) và giới hạn của renderer (3DGUT: 88°; 3DGEER: không có);
    - nằm trong **mặt nạ thân xe** `drive2sim/assets/ego_masks/kitti360/image_02.png`.
+
+| | 3DGEER | 3DGUT |
+|---|---|---|
+| Vùng ngoài ảnh có nội dung (ngoài 96°) | che | che |
+| Thân xe | che | che |
+| Ngoài 88° | không | che |
+
+Trước 19/11/2026 mọi renderer che từ 1,45 rad (83°); hình dưới vẽ theo ngưỡng cũ đó.
 
 Mặt nạ thân xe (trắng là che), do dự án vẽ một lần cho chuỗi 0003 vì KITTI-360 không cung cấp; đã xem trên khung 2, 257, 507, 759, 1009, chưa xác nhận trên chuỗi khác:
 
 ![Mặt nạ thân xe](../media/kitti360_fisheye/03_ego_mask.png)
 
-Cùng ảnh gốc ở bước 2, tô các vùng bị loại:
+Cùng ảnh gốc ở bước 2, tô các vùng bị loại theo ngưỡng cũ 83°:
 
 ![Vùng bị loại](../media/kitti360_fisheye/02_masked_regions.jpg)
 
@@ -104,11 +112,11 @@ Cùng ảnh gốc ở bước 2, tô các vùng bị loại:
 
 Phần lớn thân xe vốn đã nằm trong vùng đỏ; mặt nạ thân xe chỉ che thêm phần nóc xe lấn vào trong 83°.
 
-**Vì sao chọn 83°**: renderer **3DGUT** chiếu vài điểm mẫu của mỗi Gaussian qua ống kính, và phép chiếu hỏng khi điểm mẫu ở 90° hoặc sau camera; 1,45 rad nằm dưới 90° với khoảng an toàn. Bảng ở bước 3 cho thấy phép khớp ống kính không phải giới hạn: nó vẫn đúng dưới nửa pixel tới 96°.
+**Vì sao 96° và 88°**: ảnh gốc đủ sáng tới khoảng 96–97° rồi tối dần, và phép khớp ống kính còn đúng dưới nửa pixel tới 96° (bảng ở bước 3), nên vùng ảnh dùng được tới 96°. Renderer **3DGUT** chiếu vài điểm mẫu của mỗi Gaussian qua ống kính, và phép chiếu hỏng khi điểm mẫu ở 90° hoặc sau camera, nên nó dừng ở 88°; run thử 1000 bước cho vùng 83–88° tốt hơn 1,2–2,4 dB so với che từ 83°, vùng trong không đổi (`kitti360.md` mục 5.1).
 
 ## 5. Train
 
-Renderer 3DGUT hoặc 3DGEER vẽ cảnh 3D qua **ống kính OpenCV fisheye** của camera đó, ra ảnh 700×700, rồi so với ảnh thật **chỉ trên pixel hợp lệ**. Vành ngoài và thân xe không góp vào sai số, nên model không học hai vùng này. Áp dụng cho mọi renderer: các run 3DGUT (`146b`, `e627`) và 3DGEER (`e3e3`, `0b27`) đều train trên 166°.
+Renderer 3DGUT hoặc 3DGEER vẽ cảnh 3D qua **ống kính OpenCV fisheye** của camera đó, ra ảnh 700×700, rồi so với ảnh thật **chỉ trên pixel hợp lệ**. Pixel bị che (bước 4) không góp vào sai số, nên model không học các vùng đó: 3DGEER học tới 96° mỗi bên, 3DGUT tới 88°. Các run tạo trước 19/11/2026 (3DGUT `146b`, `e627`; 3DGEER `e3e3`, `0b27`) được che từ 83° với mọi renderer.
 
 ## 6. Video và điểm số
 
@@ -119,7 +127,7 @@ Renderer 3DGUT hoặc 3DGEER vẽ cảnh 3D qua **ống kính OpenCV fisheye** c
 3. PSNR, SSIM, LPIPS chỉ tính trên pixel hợp lệ.
 4. Ghép thành MP4 trong `runs/<cảnh>/omnire/<run>/d2s/stages/train.drivestudio/videos/`.
 
-Khung test của run `e3e3` (3DGEER, split `every10_fisheye2`; trái `image_02`, phải `image_03`):
+Khung test của run `e3e3` (3DGEER, split `every10_fisheye2`; trái `image_02`, phải `image_03`; run tạo trước 19/11/2026 nên được che từ 83°):
 
 Ảnh thật sau khi che (`test_set_30000_gt_rgbs.mp4`):
 
@@ -131,7 +139,7 @@ Khung test của run `e3e3` (3DGEER, split `every10_fisheye2`; trái `image_02`,
 
 - `gt_rgbs` là ảnh camera thật, chỉ thu nhỏ và tô đen; nội dung bên trong không bị biến đổi.
 - `rgbs` là ảnh model vẽ qua OpenCV fisheye, tô đen cùng chỗ.
-- Hai video cùng khung, cùng vị trí vật, cùng độ cong; vành ngoài đen ở cả hai nên trông khớp nhau. Ảnh thật nguyên bản (bước 2) vẫn có nội dung ở vành đó: cảnh dựng lại thiếu phần này, và điểm số không phản ánh phần thiếu.
+- Hai video cùng khung, cùng vị trí vật, cùng độ cong; vành ngoài đen ở cả hai nên trông khớp nhau. Ảnh thật nguyên bản (bước 2) vẫn có nội dung ở vành đó: cảnh dựng lại thiếu phần này, và điểm số không phản ánh phần thiếu. Run mới che hẹp hơn (3DGEER: chỉ ngoài 96°; 3DGUT: ngoài 88°).
 
 ## 7. Xem trên Studio
 
@@ -151,11 +159,12 @@ Vấn đề khi trình duyệt dùng tiêu cự của camera mắt cá trong ph�
 
 | | Hiện trạng |
 |---|---|
-| Trong 166° | Ảnh tái dựng đúng vị trí so với camera thật (sai số chiếu dưới nửa pixel) |
-| Vành ngoài 166° tới khoảng 191° | Không có trong cảnh dựng lại; ảnh thật có |
-| Lý do | 3DGUT không vẽ được từ 90° trở ra; con số 83° được chọn chung cho mọi renderer |
-| 3DGEER | Tính theo tia nên không có giới hạn 90°. Phép khớp OpenCV fisheye hiện có vẫn đúng dưới 0,5 px tới 96°, nên nới vùng che khi dùng 3DGEER có thể lấy lại phần lớn vành ngoài mà không cần đổi mô hình ống kính. **Chưa kiểm chứng bằng train.** |
-| Thử thuật toán lái xe, perception | Dùng được với thuật toán chỉ cần vùng giữa ảnh mắt cá; khi so với ảnh thật, che cùng vành ngoài trên ảnh thật |
+| Vùng dùng được | 3DGEER: tới 96° mỗi bên (khoảng 191°); 3DGUT: tới 88° mỗi bên (176°) |
+| Độ chính xác hình học | Ảnh tái dựng đúng vị trí so với camera thật (sai số chiếu dưới nửa pixel tới 96°) |
+| Run 3DGUT | Thiếu vành 176° tới khoảng 191°, vì 3DGUT không vẽ được tia từ 90° trở ra |
+| So sánh run | PSNR tổng của run 3DGUT và 3DGEER, hay run trước và sau 19/11/2026, đo trên vùng ảnh khác nhau; so theo dải góc (`drive2sim/scripts/fisheye_angle_bands.py`) |
+| Chưa kiểm chứng | Chất lượng vành 88–96° với 3DGEER, và run 3DGUT 30 000 bước với ngưỡng 88° |
+| Thử thuật toán lái xe, perception | Thuật toán cần nguyên ảnh mắt cá nên dùng run 3DGEER |
 
 ## Nguồn hình
 

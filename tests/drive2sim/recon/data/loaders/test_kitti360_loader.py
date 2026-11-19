@@ -5,7 +5,7 @@ fisheye, hai khung, pose đơn vị) rồi kiểm tra:
 - mô hình ``fisheye`` và ``radial_coeffs`` tới được ``cam_infos``, intrinsics được nhân theo kích
   thước nạp, còn hệ số méo không đổi;
 - pixel ở điểm chính cho tia trùng trục quang, pixel lệch trục có góc tia đúng như
-  ``cv2.fisheye`` tính; pixel có góc lệch quá ``MEI_FIT_MAX_ANGLE`` bị loại khỏi loss;
+  ``cv2.fisheye`` tính; pixel có góc lệch quá giới hạn của camera bị loại khỏi loss;
 - phép chiếu điểm world theo mô hình fisheye;
 - camera pinhole đi đúng đường cũ (tia pinhole của ``CameraData.get_image``);
 - ảnh ghép nhiều camera của KITTI-360.
@@ -29,7 +29,7 @@ yaml = pytest.importorskip("yaml")
 from omegaconf import OmegaConf  # noqa: E402
 from PIL import Image  # noqa: E402
 
-from drive2sim.core.camera import MEI_FIT_MAX_ANGLE  # noqa: E402
+from drive2sim.ingest.kitti360 import KITTI360_FISHEYE_MAX_ANGLE  # noqa: E402
 from drive2sim.recon.data.base.pixel_source import get_rays  # noqa: E402
 from drive2sim.recon.data.loaders.kitti import KITTICameraData, KITTIPixelSource  # noqa: E402
 from drive2sim.recon.data.loaders.kitti360 import KITTI360PixelSource  # noqa: E402
@@ -84,12 +84,16 @@ def make_scene(root: Path) -> Path:
 
 
 def make_source(
-    scene: Path, undistort: bool = False, fisheye_max_angle: Optional[float] = None
+    scene: Path,
+    undistort: bool = False,
+    fisheye_max_angle: Optional[float] = None,
+    renderer_max_angle: Optional[float] = None,
 ) -> KITTI360PixelSource:
     """Nạp nguồn ảnh của cảnh giả trên CPU: camera pinhole nạp nguyên, fisheye nạp một nửa."""
     config = OmegaConf.create(
         {
             "fisheye_max_angle": fisheye_max_angle,
+            "fisheye_renderer_max_angle": renderer_max_angle,
             "cameras": [0, 1],
             "downscale_when_loading": [1, 2],
             "downscale": 1,
@@ -150,18 +154,18 @@ def test_pixels_beyond_fit_angle_are_excluded_from_loss(source: KITTI360PixelSou
     angle = torch.acos(image["viewdirs"][..., 2].clamp(-1, 1))
     valid = image["valid_masks"]
     assert valid[10, 10] and not valid[0, 0]
-    assert bool((angle[valid] <= MEI_FIT_MAX_ANGLE + 1e-6).all())
+    assert bool((angle[valid] <= KITTI360_FISHEYE_MAX_ANGLE + 1e-6).all())
     assert torch.equal(image["egocar_masks"], (~valid).float())
 
 
 def test_fisheye_max_angle_from_config_overrides_default(tmp_path: Path) -> None:
-    # Run thử nới vùng che (data.pixel_source.fisheye_max_angle) dùng được nhiều pixel hơn.
+    # Tham số thử nghiệm (data.pixel_source.fisheye_max_angle) đổi được ngưỡng che mặc định.
     scene = make_scene(tmp_path)
-    narrow = make_source(scene).camera_data[1].get_image(0)[0]["valid_masks"]
-    wide = make_source(scene, fisheye_max_angle=1.55).camera_data[1].get_image(0)[0]
-    angle = torch.acos(wide["viewdirs"][..., 2].clamp(-1, 1))
-    assert int(wide["valid_masks"].sum()) > int(narrow.sum())
-    assert bool((angle[wide["valid_masks"]] <= 1.55 + 1e-6).all())
+    default = make_source(scene).camera_data[1].get_image(0)[0]["valid_masks"]
+    narrow = make_source(scene, fisheye_max_angle=1.2).camera_data[1].get_image(0)[0]
+    angle = torch.acos(narrow["viewdirs"][..., 2].clamp(-1, 1))
+    assert int(narrow["valid_masks"].sum()) < int(default.sum())
+    assert bool((angle[narrow["valid_masks"]] <= 1.2 + 1e-6).all())
 
 
 def test_fisheye_max_angle_from_manifest(tmp_path: Path) -> None:
@@ -174,10 +178,31 @@ def test_fisheye_max_angle_from_manifest(tmp_path: Path) -> None:
     assert bool((angle[image["valid_masks"]] <= 1.2 + 1e-6).all())
 
 
+def test_mask_angle_is_smaller_of_lens_and_renderer_limits(tmp_path: Path) -> None:
+    scene = make_scene(tmp_path)
+    manifest = yaml.safe_load((scene / "manifest.yaml").read_text())
+    manifest["cameras"][1]["max_angle"] = 1.3
+    (scene / "manifest.yaml").write_text(yaml.safe_dump(manifest))
+    lens_only = make_source(scene).camera_data[1]
+    assert lens_only.max_angle == 1.3  # 3DGEER: chỉ giới hạn của ống kính, ảnh
+    tighter = make_source(scene, renderer_max_angle=1.2).camera_data[1]
+    assert tighter.max_angle == 1.2  # 3DGUT nhỏ hơn: dùng giới hạn renderer
+    looser = make_source(scene, renderer_max_angle=1.5).camera_data[1]
+    assert looser.max_angle == 1.3
+    forced = make_source(scene, fisheye_max_angle=1.4, renderer_max_angle=1.2).camera_data[1]
+    assert forced.max_angle == 1.4  # tham số thử nghiệm đè lên cả hai
+
+
+def test_scene_without_manifest_limit_uses_kitti360_lens_limit(tmp_path: Path) -> None:
+    # Cảnh ingest trước khi manifest có max_angle (kitti360_drive0003).
+    source = make_source(make_scene(tmp_path))
+    assert source.camera_data[1].max_angle == KITTI360_FISHEYE_MAX_ANGLE
+
+
 def test_fisheye_project_points(source: KITTI360PixelSource) -> None:
     camera = source.camera_data[1]
     off_axis = math.radians(30)
-    beyond = MEI_FIT_MAX_ANGLE + 0.05
+    beyond = KITTI360_FISHEYE_MAX_ANGLE + 0.05
     points = torch.tensor(
         [
             [0.0, 0.0, 5.0],

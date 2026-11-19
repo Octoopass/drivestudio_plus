@@ -85,6 +85,14 @@ _FRAME_RE = re.compile(r"(\d{10})\.(png|bin)$")
 Matrix = list[list[float]]
 
 
+# Góc lệch trục lớn nhất (rad) mà ảnh mắt cá còn nội dung và mô hình OpenCV fisheye khớp từ Mei
+# còn đúng, khai báo vào manifest (cameras[].max_angle). Đo trên chuỗi 0003
+# (docs/datasets/kitti360.md mục 5.1): phép khớp lệch Mei 0,5 px ở 96 độ, 1 px ở 99 độ; ảnh đủ
+# sáng tới khoảng 97 độ rồi tối dần (100 độ: độ sáng còn khoảng 2/3, 104 độ: gần đen). Phép khớp
+# vẫn tính trên 0..MEI_FIT_MAX_ANGLE.
+KITTI360_FISHEYE_MAX_ANGLE = 1.68  # khoảng 96 độ
+
+
 @dataclass(frozen=True)
 class Kitti360Options:
     """Lựa chọn khi ingest một chuỗi KITTI-360.
@@ -669,10 +677,10 @@ def ingest_kitti360(
         lidar_ids=[LIDAR_ID],
         data_license=DATA_LICENSE,
         camera_models=models,
-        # Mei chỉ khớp sang OpenCV fisheye tới MEI_FIT_MAX_ANGLE: giới hạn của phép chuyển này,
-        # khai báo cho đúng các camera mắt cá (docs/datasets/kitti360.md mục 5.1).
+        # Vùng ảnh mắt cá còn nội dung và mô hình còn đúng (KITTI360_FISHEYE_MAX_ANGLE); renderer
+        # nào hẹp hơn (3DGUT) thì stage train đặt thêm giới hạn của nó.
         camera_max_angles=[
-            MEI_FIT_MAX_ANGLE if model == "opencv_fisheye" else None for model in models
+            KITTI360_FISHEYE_MAX_ANGLE if model == "opencv_fisheye" else None for model in models
         ],
     )
     files.dump(manifest, scene_dir / "manifest.yaml")
@@ -781,8 +789,8 @@ def _extra_checks(
       ma trận xoay) là lỗi, vì khi đó chuỗi biến đổi sai. ``cam0_to_world.txt`` chỉ ghi 7 chữ số
       có nghĩa (toạ độ cỡ 3000 m làm tròn tới 1 mm), nên ngưỡng không thể nhỏ hơn cỡ đó.
     - ``camera.fisheye_fit``: sai số khớp Mei → OpenCV fisheye của từng camera mắt cá.
-    - ``camera.fisheye_fov``: tia lệch trục hơn ``MEI_FIT_MAX_ANGLE`` không vẽ được; trainer phải
-      che vùng đó.
+    - ``camera.fisheye_fov``: pixel lệch trục hơn ``KITTI360_FISHEYE_MAX_ANGLE`` (ảnh tối dần, mô
+      hình ống kính không còn đúng) bị che; renderer 3DGUT che thêm từ 88 độ.
     - ``timestamps.nominal``: nguồn không có ``timestamps.txt``.
     - ``frames.gaps``: các chỗ hai khung liền nhau cách nhau nhiều hơn khung gốc liền kề.
     """
@@ -833,9 +841,10 @@ def _extra_checks(
             _check(
                 "camera.fisheye_fov",
                 "info",
-                f"camera mắt cá nhìn rộng hơn 180 độ; tia lệch trục hơn {MEI_FIT_MAX_ANGLE} rad "
-                "không vẽ được bằng 3DGUT của gsplat và phải được che khi train, đánh giá",
-                {"max_angle": MEI_FIT_MAX_ANGLE, "cameras": sorted(fits)},
+                "camera mắt cá nhìn khoảng 191 độ theo chiều ngang; pixel lệch trục hơn "
+                f"{KITTI360_FISHEYE_MAX_ANGLE} rad (ảnh tối dần, mô hình ống kính lệch Mei hơn "
+                "0,5 px) bị che khi train, đánh giá; renderer 3DGUT che thêm từ 88 độ",
+                {"max_angle": KITTI360_FISHEYE_MAX_ANGLE, "cameras": sorted(fits)},
             )
         )
     if nominal_timestamps:

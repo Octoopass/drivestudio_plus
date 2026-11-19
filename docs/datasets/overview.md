@@ -40,12 +40,12 @@ Mỗi dataset hiệu chỉnh camera bằng mô hình riêng của nó. Renderer 
 | Waymo, Argoverse 2, PandaSet, nuPlan, KITTI | Pinhole, có thể kèm méo xuyên tâm, tiếp tuyến | `opencv_pinhole` | Ghi vào `intrinsics/*.txt` nhưng loader không đưa vào renderer (DriveStudio: "we did not use distortion parameters for simplicity"); ảnh coi như pinhole lý tưởng. Hệ số khác 0 thì có sai số hình học nhỏ, chưa đo | Không |
 | PhysicalAI (NVIDIA) | F-Theta (đa thức góc ↔ khoảng cách pixel) | `ftheta`, giữ ảnh và mô hình gốc | Nằm trong đa thức F-Theta | Không (renderer 3DGUT, 3DGEER vẽ F-Theta trực tiếp) |
 | KITTI-360, camera `image_00`, `image_01` | Pinhole | `opencv_pinhole` | Như nhóm pinhole | Không |
-| KITTI-360, camera mắt cá `image_02`, `image_03` | **Mei** (mặt cầu đơn vị, thông số `xi`; nhìn khoảng 191° theo chiều ngang) | `opencv_fisheye`, **khớp gần đúng** từ Mei (`core/camera.py`) | `k1..k4` từ phép khớp; méo tiếp tuyến bị bỏ | **Có**: loader che ngoài 1,45 rad (83°) mỗi bên, chọn dưới giới hạn 90° của 3DGUT, nên chỉ dùng 166° trong khoảng 191°; phép khớp tự nó còn đúng dưới 0,5 px tới 96° (`kitti360.md` mục 5.1) |
+| KITTI-360, camera mắt cá `image_02`, `image_03` | **Mei** (mặt cầu đơn vị, thông số `xi`; nhìn khoảng 191° theo chiều ngang) | `opencv_fisheye`, **khớp gần đúng** từ Mei (`core/camera.py`) | `k1..k4` từ phép khớp; méo tiếp tuyến bị bỏ | **Một phần**: phép khớp còn đúng dưới 0,5 px tới 96° (mép trái, phải của ảnh), nên 3DGEER dùng khoảng 191°; 3DGUT dừng ở 88° mỗi bên (176°) vì không vẽ được tia từ 90° trở ra (`kitti360.md` mục 5.1) |
 
 Hệ quả:
 - Giới hạn góc nhìn không phải chung cho mọi camera mắt cá. Nó phụ thuộc vào việc mô hình gốc có được renderer hỗ trợ thẳng hay phải chuyển gần đúng, và phép chuyển đúng tới đâu.
 - Dataset mắt cá mới dùng sẵn OpenCV fisheye hoặc F-Theta thì không mất gì. Dùng mô hình khác (Mei, Kannala–Brandt có thêm hệ số, Scaramuzza...) thì converter phải chuyển, và giới hạn tuỳ phép chuyển đó.
-- Vì vậy giới hạn góc do converter của từng dataset khai báo trong manifest (`cameras[].max_angle`, rad; KITTI-360 ghi 1,45 cho camera mắt cá). Loader KITTI-360 (`recon/data/loaders/kitti360.py`) che pixel ngoài góc này khi train và đánh giá; tham số stage `train.drivestudio.fisheye_max_angle` đè được lên nó để thử ngưỡng khác; cảnh ingest trước khi manifest có trường này dùng 1,45 rad.
+- Vì vậy giới hạn góc do converter của từng dataset khai báo trong manifest (`cameras[].max_angle`, rad: vùng ảnh còn nội dung và mô hình ống kính còn đúng; KITTI-360 ghi 1,68, tức 96°). Loader KITTI-360 (`recon/data/loaders/kitti360.py`) che pixel ngoài góc này khi train và đánh giá; tham số stage `train.drivestudio.fisheye_max_angle` đè được lên nó để thử ngưỡng khác; renderer hẹp hơn thì stage train đặt thêm giới hạn của nó (3DGUT: 88°); cảnh ingest trước khi manifest có trường này dùng 1,68 rad.
 
 ## 3. Độ dài cảnh, số ảnh, quãng đường, tốc độ
 
