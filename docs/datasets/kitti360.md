@@ -89,6 +89,25 @@ Giới hạn (đo trên calib thật, ảnh 1400 px):
 - Méo tiếp tuyến `p1`, `p2` bị bỏ (OpenCV fisheye không có). So với Mei chính xác trên điểm LiDAR thật (30 khung từ khung gốc 167, `check_kitti360_projection`): trung vị 0,10 px, lớn nhất 0,42 px (`image_02`); trung vị 0,17 px, lớn nhất 0,78 px (`image_03`).
 - Camera nhìn rộng hơn 180 độ. Renderer UT của gsplat không vẽ được tia từ pi/2 trở ra, và đa thức chỉ khớp tới 1,45 rad (83 độ), nên vùng ảnh ngoài 1,45 rad **phải được che** khi train và đánh giá; loader `KITTI360CameraData` che vùng đó cho cả OmniRe và Street GS. Báo cáo kiểm tra ghi mục `camera.fisheye_fit` và `camera.fisheye_fov`.
 
+### 5.1 Góc nhìn dùng được: 166 độ, không phải hơn 180 độ
+
+Góc θ đo từ trục nhìn sang **một bên**; góc nhìn tổng là hai bên cộng lại (83 độ mỗi bên là 166 độ tổng). Với `image_02`, `image_03` có ba lớp, mỗi lớp một giới hạn:
+
+| Lớp | Là gì | Mỗi bên | Tổng |
+|---|---|---|---|
+| Ống kính vật lý | Mô hình Mei của KITTI-360 | hơn 90 độ | hơn 180 độ |
+| Mô hình sau khi chuyển | OpenCV fisheye khớp từ Mei (`core/camera.py`); renderer của gsplat không có mô hình Mei | chính xác tới 83 độ (1,45 rad) | 166 độ |
+| Renderer | 3DGUT chiếu điểm mẫu của Gaussian qua ống kính, hỏng khi điểm mẫu ở 90 độ hoặc sau camera; 3DGEER tính theo tia của từng pixel nên không có giới hạn này | 3DGUT dưới 90 độ | 3DGUT dưới 180 độ |
+
+1,45 rad được chọn vì nằm dưới 90 độ (3DGUT vẽ được) và trong miền phép khớp còn chính xác. Đa thức OpenCV fisheye với hệ số khớp được chỉ còn tăng tới khoảng 2 rad (115 độ), xa hơn thì đổi chiều.
+
+Hệ quả:
+- **Cả 3DGUT lẫn 3DGEER chỉ train trên 166 độ.** Giới hạn nằm ở dữ liệu, không nằm ở renderer: loader che mọi pixel ngoài 1,45 rad trước khi train, với mọi renderer (run `146b`, `e627` dùng 3DGUT; `e3e3`, `0b27` dùng 3DGEER).
+- **Trong 166 độ, ảnh vẽ ra không lệch góc** so với camera thật: sai số chiếu dưới nửa pixel (các số đo ở trên).
+- **Vành ảnh từ 166 độ tới hơn 180 độ không có trong cảnh dựng lại**: camera thật thấy nhưng ảnh mô phỏng để trống. Một phần vành này vốn bị thân xe che (`ego_masks/kitti360`).
+- Thử thuật toán lái xe, perception trên ảnh mô phỏng: dùng được với thuật toán chỉ cần vùng giữa ảnh mắt cá, hoặc khử méo rồi cắt vùng trung tâm; khi so với ảnh thật thì che cùng vành ngoài trên ảnh thật để hai bên cùng điều kiện. Thuật toán cần nguyên ảnh mắt cá (vật sát hai bên xe) sẽ thấy vành ngoài trống, khác camera thật.
+- Hướng có thể lấy lại vành ngoài, **chưa kiểm chứng**: 3DGEER đã nối sẵn mô hình F-theta (đa thức bậc tuỳ chọn giữa khoảng cách pixel và góc, `camera_rasterization_kwargs`), có thể khớp Mei rộng hơn 83 độ mỗi bên; khi đó loader phải nới vùng che theo mô hình mới. 3DGUT không dùng được cho phần ngoài 90 độ.
+
 ## 6. Đã kiểm tra trên dữ liệu thật
 
 Chuỗi `2013_05_28_drive_0003_sync`, 30 khung từ khung gốc 167 (`--start-frame 167 --num-frames 30`), ingest mất 1,2 s, 248 MB.
