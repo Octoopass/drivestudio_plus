@@ -17,11 +17,10 @@ import { go } from "../router";
 import { useExactFrame } from "../viewer/useExactFrame";
 import { DEFAULT_FOV, novelTrajectory, SplatViewer, upAxisFromCameras, type HumanMotion, type SceneCamera, type SplatSource, type UpAxis } from "../viewer/engine";
 
-/** Khoảng của thanh trượt góc nhìn dọc (độ): tối thiểu tới FOV_RANGE để xoay xem tự do, nâng tới góc
- * nhìn thật của camera gốc (fisheye KITTI-360 166°), nhưng dưới 180° vì pinhole không vẽ được. */
-const FOV_MIN = 30;
-const FOV_RANGE = 120;
-const FOV_LIMIT = 175;
+/** Khoảng của thanh trượt (góc nhìn dọc, độ): như nhau với mọi camera, vì thanh trượt luôn điều khiển
+ * một camera pinhole ảo; muốn đúng camera gốc thì dùng ô "Dùng tiêu cự của camera gốc". */
+const FOV_MIN = 10;
+const FOV_MAX = 170;
 
 /** Trục lên ghi trong phần đầu file PLY do tool xuất ("comment drive2sim up=+z ..."), nếu có. */
 async function headerUpAxis(picked: File): Promise<UpAxis | null> {
@@ -275,8 +274,6 @@ export function ViewerPage({ runId }: { runId?: string }) {
   })();
   // Góc nhìn dọc thật của camera gốc theo mô hình ống kính (API, từ intrinsics của cảnh).
   const lens = cameras?.[cameraIndex] ? splats.data?.lenses?.[cameras[cameraIndex].name] : undefined;
-  // Không biết góc thật (server bản cũ, cảnh thiếu intrinsics trên máy): cho kéo hết khoảng thay vì
-  // lặng lẽ chặn ở FOV_RANGE.
   // Tiêu cự (pixel) ứng với góc nhìn dọc, theo chiều cao ảnh lúc train của camera đang chọn: cùng đơn
   // vị với K trong cameras.json (image_02 KITTI-360: 700 px, fy 208). f = (H / 2) / tan(góc / 2).
   const focalText = (deg: number) => {
@@ -285,7 +282,6 @@ export function ViewerPage({ runId }: { runId?: string }) {
     const focal = height / 2 / Math.tan((deg * Math.PI) / 360);
     return `f ≈ ${Math.round(focal)} px · ${deg}°`;
   };
-  const fovMax = lens ? Math.min(FOV_LIMIT, Math.max(FOV_RANGE, Math.ceil(lens.fov_y_deg))) : FOV_LIMIT;
   // Bỏ chọn run (về "không chọn"): dọn cảnh của run cũ, trừ khi đang xem file kéo thả.
   useEffect(() => {
     if (runId || source === "file") return;
@@ -707,9 +703,9 @@ export function ViewerPage({ runId }: { runId?: string }) {
                     <input
                       type="range"
                       min={FOV_MIN}
-                      max={fovMax}
+                      max={FOV_MAX}
                       step={1}
-                      value={Math.min(fovMax, Math.max(FOV_MIN, fov ?? nativeFov))}
+                      value={Math.min(FOV_MAX, Math.max(FOV_MIN, fov ?? nativeFov))}
                       onChange={(e) => setFov(Number(e.target.value))}
                       aria-label={t("viewer.field.fov")}
                     />
@@ -719,7 +715,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
                     <input
                       type="checkbox"
                       checked={fov === null}
-                      onChange={(e) => setFov(e.target.checked ? null : Math.min(fovMax, nativeFov))}
+                      onChange={(e) => setFov(e.target.checked ? null : Math.min(FOV_MAX, Math.max(FOV_MIN, nativeFov)))}
                     />
                     {t("viewer.fov.native")}
                   </label>
