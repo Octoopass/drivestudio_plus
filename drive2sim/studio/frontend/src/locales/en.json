@@ -243,6 +243,8 @@
   "run.stages.reused": "reused from cache",
   "run.stages.from_cache": "reused from cache",
   "run.videos.none": "No videos yet",
+  "run.videos.writing": "This video is still being written (the run is rendering). Check back in a few minutes.",
+  "run.videos.original": "Download original",
   "run.logs.engine": "engine",
   "run.logs.empty": "(empty)",
   "run.logs.reload": "Reload",

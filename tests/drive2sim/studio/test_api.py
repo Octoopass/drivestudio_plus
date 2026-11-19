@@ -373,6 +373,13 @@ def test_run_lifecycle(client: TestClient) -> None:
     videos = client.get(f"/api/runs/{run_id}/videos").json()["items"]
     assert videos[0]["stage_id"] == "train.toy" and videos[0]["name"] == "videos/test_set.mp4"
     assert client.get(videos[0]["url"]).content == b"mp4"
+    # 3 byte, chưa có hộp moov: coi như đang ghi; bản xem trước trả 409, đường dẫn lạ trả 404
+    assert videos[0]["ready"] is False
+    preview = client.get(videos[0]["preview_url"])
+    assert preview.status_code == 409 and preview.json()["error"]["code"] == "conflict"
+    query = "stage_id=train.toy&name=../../d2s/run.json"
+    bad = client.get(f"/api/runs/{run_id}/videos/preview?{query}")
+    assert bad.status_code == 404
 
     with client.stream("GET", f"/api/runs/{run_id}/events") as stream:
         text = "".join(stream.iter_text())

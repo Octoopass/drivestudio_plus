@@ -13,7 +13,10 @@ File này chứa:
 - ``POST /api/runs/{run_id}/export``: chạy lại một stage export (như ``d2s export``).
 - ``GET /api/runs/{run_id}/events``, ``GET /api/events``: tiến độ qua Server-Sent Events.
 - ``GET /api/runs/{run_id}/log``: log của engine và phần cuối log của từng stage.
-- ``GET /api/runs/{run_id}/videos``: các video MP4 trong thư mục run, kèm đường dẫn để phát.
+- ``GET /api/runs/{run_id}/videos``: các video MP4 trong thư mục run, kèm đường dẫn để phát, đường
+  dẫn bản xem trước và cờ đã ghi xong.
+- ``GET /api/runs/{run_id}/videos/preview``: bản xem trước trình duyệt phát được của một video
+  (``drive2sim/studio/api/preview.py``).
 - ``GET /api/runs/{run_id}/artifacts``: nơi lưu kết quả của từng stage và các file trong đó.
 - ``GET /api/runs/{run_id}/curve``: đường cong train (PSNR, loss, số Gaussian theo bước).
 - ``GET /api/runs/{run_id}/splats``: file Gaussian xem được trong trình duyệt (gói xem trước,
@@ -25,7 +28,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 
 from drive2sim.core import files
@@ -53,6 +56,7 @@ from drive2sim.engine.run import (
 from drive2sim.engine.workdir import Workdir
 from drive2sim.kaggle import executor as kaggle_executor
 from drive2sim.stages.commands import CAMERAS_FILE
+from drive2sim.studio.api import preview
 from drive2sim.studio.api.events import stream_events
 from drive2sim.studio.api.routes import colab, kaggle
 from drive2sim.studio.api.routes.approaches import PlanBody, plan_from_body
@@ -390,7 +394,9 @@ def run_videos(run_id: str, request: Request) -> dict:
     """Liệt kê các video MP4 trong thư mục run.
 
     Returns:
-        ``{"items": [{"name", "stage_id", "url"}], "total": n}``; ``url`` phát qua ``/files/``.
+        ``{"items": [{"name", "stage_id", "url", "preview_url", "ready"}], "total": n}``; ``url``
+        là video gốc qua ``/files/``, ``preview_url`` là bản trình duyệt phát được, ``ready`` là
+        ``False`` khi video còn đang được ghi.
     """
     run_dir, _ = _load(request, run_id)
     workdir = state_of(request).workdir
@@ -405,9 +411,38 @@ def run_videos(run_id: str, request: Request) -> dict:
                 "name": path.relative_to(stages_dir / stage_id).as_posix(),
                 "stage_id": stage_id,
                 "url": f"/files/{workdir.relative(path)}",
+                "preview_url": (
+                    f"/api/runs/{run_id}/videos/preview?stage_id={stage_id}"
+                    f"&name={path.relative_to(stages_dir / stage_id).as_posix()}"
+                ),
+                "ready": preview.is_complete(path),
             }
         )
     return {"items": items, "total": len(items)}
+
+
+@router.get("/api/runs/{run_id}/videos/preview")
+def run_video_preview(run_id: str, stage_id: str, name: str, request: Request) -> FileResponse:
+    """Bản xem trước của một video: H.264 rộng tối đa 1920 điểm ảnh, tạo lần đầu rồi dùng lại.
+
+    Returns:
+        File MP4 để phát; ``404`` nếu không có video, ``409`` khi video đang được ghi hoặc
+        ffmpeg lỗi.
+    """
+    run_dir, _ = _load(request, run_id)
+    stage_dir = (run_dir / D2S_DIR / "stages" / stage_id).resolve()
+    source = (stage_dir / name).resolve()
+    stages_dir = (run_dir / D2S_DIR / "stages").resolve()
+    if stages_dir not in stage_dir.parents or stage_dir not in source.parents:
+        raise HTTPException(404, f"không có video {stage_id}/{name}")
+    if source.suffix.lower() != ".mp4" or not source.is_file():
+        raise HTTPException(404, f"không có video {stage_id}/{name}")
+    target = preview.preview_path(run_dir / D2S_DIR, stage_id, name)
+    try:
+        playable = preview.build_preview(source, target)
+    except preview.PreviewError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return FileResponse(playable, media_type="video/mp4")
 
 
 @router.get("/api/runs/{run_id}/splats")

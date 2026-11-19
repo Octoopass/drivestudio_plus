@@ -109,7 +109,12 @@ export interface RunLog {
 export interface Video {
   name: string;
   stage_id: string;
+  /** Video gốc qua /files/ (để tải về). */
   url: string;
+  /** Bản trình duyệt phát được (H.264, rộng tối đa 1920 px); server cũ không có trường này. */
+  preview_url?: string;
+  /** `false` khi video còn đang được ghi. */
+  ready?: boolean;
 }
 
 export interface ReportRow {

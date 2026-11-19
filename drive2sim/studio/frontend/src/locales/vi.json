@@ -243,6 +243,8 @@
   "run.stages.reused": "dùng lại cache",
   "run.stages.from_cache": "dùng lại cache",
   "run.videos.none": "Chưa có video",
+  "run.videos.writing": "Video đang được ghi (run còn đang render). Mở lại sau ít phút.",
+  "run.videos.original": "Tải video gốc",
   "run.logs.engine": "engine",
   "run.logs.empty": "(trống)",
   "run.logs.reload": "Tải lại",

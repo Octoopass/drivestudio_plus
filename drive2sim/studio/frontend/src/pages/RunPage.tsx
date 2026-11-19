@@ -3,7 +3,7 @@
 // Kaggle, Colab.
 import { Box, Cloud, CloudDownload, CloudUpload, Download, Power, RefreshCw, RotateCcw, Square, Trash2, Zap, Trophy, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { asApiError, del, post, seg, useApi } from "../api/client";
+import { asApiError, del, playableUrl, post, seg, useApi } from "../api/client";
 import type { ColabStatus, EnvRecord, KaggleStatus, List, ReportRow, RunDetail, RunEvent, RunLog, Splats, Video } from "../api/types";
 import { LineChart, type Point } from "../components/charts";
 import { RunArtifacts } from "../components/RunArtifacts";
@@ -475,8 +475,17 @@ export function RunPage({ runId }: { runId: string }) {
               <div className="videos">
                 {videos.data!.items.map((video) => (
                   <figure key={video.url}>
-                    <video src={video.url} controls preload="metadata" />
-                    <figcaption>{`${video.stage_id}/${video.name}`}</figcaption>
+                    {video.ready === false ? (
+                      <p className="muted">{t("run.videos.writing")}</p>
+                    ) : (
+                      <video src={playableUrl(video)} controls preload="metadata" />
+                    )}
+                    <figcaption>
+                      {`${video.stage_id}/${video.name}`}{" "}
+                      <a href={video.url} download>
+                        {t("run.videos.original")}
+                      </a>
+                    </figcaption>
                   </figure>
                 ))}
               </div>

@@ -10,7 +10,7 @@
 // - Video của hai run đặt cạnh nhau, phát đồng bộ.
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, ChevronDown, ChevronsUpDown, ChevronUp, Download, Pause, Play } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, preferredVideo, seg, useApi } from "../api/client";
+import { api, playableUrl, preferredVideo, seg, useApi } from "../api/client";
 import type { List, Manifest, ReportRow, SceneDetail, Video } from "../api/types";
 import { GroupedBarChart, Legend, MultiLineChart, ScatterChart, seriesColor, StackedBarChart, type Point } from "../components/charts";
 import { count, duration, Empty, ErrorBox, InfoTip, Loading, PageHead, Panel, Segmented, Tabs } from "../components/ui";
@@ -552,7 +552,7 @@ function FirstVideo({ runId, register }: { runId: string; register: (el: HTMLVid
   const video = preferredVideo(videos.data?.items ?? []);
   return (
     <figure>
-      {video ? <video ref={register} src={video.url} controls muted preload="metadata" /> : <p className="muted">{t("run.videos.none")}</p>}
+      {video ? <video ref={register} src={playableUrl(video)} controls muted preload="metadata" /> : <p className="muted">{t("run.videos.none")}</p>}
       <figcaption>{runId}</figcaption>
     </figure>
   );

@@ -8,7 +8,7 @@
 // File kéo thả (.ply, .spz, .splat, .ksplat, .sog) chỉ đọc trong trình duyệt, không gửi lên server.
 import { ArrowLeft, Box, CheckCircle2, ChevronLeft, Crosshair, FileUp, Maximize2, Minimize2, Pause, Play, Power, SlidersHorizontal, XCircle, Video as VideoIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, asApiError, del, post, preferredVideo, seg, useApi, type ApiError } from "../api/client";
+import { api, asApiError, del, post, playableUrl, preferredVideo, seg, useApi, type ApiError } from "../api/client";
 import type { ActorPoses, List, RunRecord, Splats, Video } from "../api/types";
 import { ErrorBox, InfoTip, Note, PageHead, Segmented } from "../components/ui";
 import { RoadScene } from "../components/Illustration";
@@ -162,7 +162,8 @@ export function ViewerPage({ runId }: { runId?: string }) {
   useEffect(() => {
     if (!splats.data || !videos.data) return;
     setSource(splats.data.preview ? "preview" : splats.data.ply ? "ply" : videos.data.items.length ? "video" : "gpu");
-    setVideoUrl(preferredVideo(videos.data.items)?.url ?? "");
+    const first = preferredVideo(videos.data.items);
+    setVideoUrl(first ? playableUrl(first) : "");
   }, [splats.data, videos.data, runId]); // runId: mở lại cùng run thì dữ liệu cache không đổi
 
   // Nạp nguồn đã chọn.
@@ -648,7 +649,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
                 <span>{t("viewer.field.video")}</span>
                 <select value={videoUrl} onChange={(e) => setVideoUrl(e.target.value)}>
                   {videoItems.map((v) => (
-                    <option key={v.url} value={v.url}>
+                    <option key={v.url} value={playableUrl(v)}>
                       {v.name}
                     </option>
                   ))}
