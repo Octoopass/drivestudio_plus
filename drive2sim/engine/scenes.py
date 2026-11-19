@@ -12,6 +12,7 @@ File này chứa:
 - ``camera_lenses``: mô hình ống kính và góc nhìn thật của từng camera trong cảnh.
 """
 
+import json
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Optional
@@ -155,20 +156,25 @@ def camera_lenses(scene_dir: Path) -> dict[str, dict]:
 
     Gói xem trước chỉ có pose và K theo khung; trang Xem 3D cần biết camera gốc thật sự nhìn rộng
     bao nhiêu (fisheye KITTI-360 khoảng 166°, mà K của nó đưa vào phép chiếu pinhole chỉ ra 119°,
-    ARCHITECTURE mục 2.13). Đọc ``manifest.yaml`` (mô hình, độ phân giải gốc) và
-    ``intrinsics/<thứ tự camera trong manifest>.txt`` (cách DriveStudio đặt tên file).
+    ARCHITECTURE mục 2.13). Đọc ``manifest.yaml`` (mô hình, độ phân giải gốc, ``max_angle``) và
+    ``intrinsics/<thứ tự camera trong manifest>.txt`` (cách DriveStudio đặt tên file). Không có
+    hằng số nào theo dataset: giới hạn góc là ``max_angle`` mà converter khai báo; cảnh ingest
+    trước khi manifest có trường này thì lấy ở mục ``camera.fisheye_fov`` của báo cáo kiểm tra
+    mà chính converter đã ghi (``_report_max_angles``).
 
     Args:
         scene_dir: Thư mục cảnh trên máy.
 
     Returns:
-        ``{camera_id: {"model", "fov_x_deg", "fov_y_deg"}}``; bỏ camera thiếu file intrinsics hoặc
+        ``{camera_id: {"model", "fov_x_deg", "fov_y_deg", "max_angle"}}``; bỏ camera thiếu file
+        intrinsics hoặc
         có mô hình chưa tính được (F-theta); rỗng nếu cảnh không có manifest.
     """
     manifest_path = Path(scene_dir) / "manifest.yaml"
     if not manifest_path.is_file():
         return {}
     manifest = files.load(manifest_path, Manifest)
+    reported = _report_max_angles(Path(scene_dir))
     lenses: dict[str, dict] = {}
     for index, camera in enumerate(manifest.cameras):
         path = Path(scene_dir) / "intrinsics" / f"{index}.txt"
@@ -176,13 +182,41 @@ def camera_lenses(scene_dir: Path) -> dict[str, dict]:
             continue
         values = [float(value) for value in path.read_text(encoding="utf-8").split()]
         width, height = camera.resolution
+        max_angle = (
+            camera.max_angle if camera.max_angle is not None else reported.get(camera.camera_id)
+        )
         try:
-            fov_x, fov_y = field_of_view(camera.model, values, width, height)
+            fov_x, fov_y = field_of_view(camera.model, values, width, height, max_angle=max_angle)
         except ValueError:
             continue
         lenses[camera.camera_id] = {
             "model": camera.model,
             "fov_x_deg": round(fov_x, 3),
             "fov_y_deg": round(fov_y, 3),
+            "max_angle": max_angle,
         }
     return lenses
+
+
+def _report_max_angles(scene_dir: Path) -> dict[str, float]:
+    """Giới hạn góc mà converter ghi vào báo cáo kiểm tra (mục ``camera.fisheye_fov``).
+
+    Chỉ dùng cho cảnh ingest trước khi manifest có ``cameras[].max_angle``.
+
+    Returns:
+        ``{camera_id: max_angle}``; rỗng nếu không có báo cáo hoặc mục đó.
+    """
+    path = scene_dir / "reports" / "validation.json"
+    if not path.is_file():
+        return {}
+    try:
+        checks = json.loads(path.read_text(encoding="utf-8")).get("checks", [])
+    except ValueError:
+        return {}
+    found: dict[str, float] = {}
+    for check in checks:
+        details = check.get("details") or {}
+        if check.get("check_id") == "camera.fisheye_fov" and "max_angle" in details:
+            for camera_id in details.get("cameras", []):
+                found[camera_id] = float(details["max_angle"])
+    return found

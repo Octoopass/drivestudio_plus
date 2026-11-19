@@ -165,6 +165,9 @@ MANIFEST = {
 
 def test_manifest_ok() -> None:
     assert Manifest.model_validate(MANIFEST).camera("CAM_FRONT").resolution == (1600, 900)
+    assert Manifest.model_validate(MANIFEST).camera("CAM_FRONT").max_angle is None
+    limited = modified(MANIFEST, lambda data: data["cameras"][0].update(max_angle=1.45))
+    assert Manifest.model_validate(limited).camera("CAM_FRONT").max_angle == 1.45
 
 
 @pytest.mark.parametrize(
@@ -177,6 +180,8 @@ def test_manifest_ok() -> None:
         ),  # prefix differs from source.dataset
         lambda data: data["cameras"].append(dict(data["cameras"][0])),  # duplicate camera_id
         lambda data: data["cameras"][0].update(model="fisheye"),
+        lambda data: data["cameras"][0].update(max_angle=0),  # góc phải dương
+        lambda data: data["cameras"][0].update(max_angle=4.0),  # quá π
     ],
 )
 def test_manifest_rejects(change: Callable[[dict], None]) -> None:

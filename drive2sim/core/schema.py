@@ -297,12 +297,17 @@ class ManifestCamera(StrictModel):
             ``ideal_pinhole``.
         resolution: ``[width, height]`` tính bằng pixel.
         shutter: Loại shutter theo tên của NCore, ví dụ ``GLOBAL``.
+        max_angle: Góc lệch trục lớn nhất (rad) mà mô hình trong ``intrinsics/`` còn đúng, khi
+            converter phải chuyển gần đúng mô hình gốc của dataset (KITTI-360: Mei khớp sang
+            OpenCV fisheye tới 1,45 rad); ``None`` khi không có giới hạn như vậy. Thêm sau
+            ``d2s-manifest/1.1`` mà không tăng phiên bản (không bắt buộc).
     """
 
     camera_id: str
     model: CameraModel
     resolution: tuple[int, int]
     shutter: ShutterType
+    max_angle: Optional[float] = Field(default=None, gt=0, le=math.pi)
 
     @field_validator("resolution")
     @classmethod

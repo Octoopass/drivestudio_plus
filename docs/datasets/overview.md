@@ -45,7 +45,7 @@ Mỗi dataset hiệu chỉnh camera bằng mô hình riêng của nó. Renderer 
 Hệ quả:
 - Giới hạn góc nhìn không phải chung cho mọi camera mắt cá. Nó phụ thuộc vào việc mô hình gốc có được renderer hỗ trợ thẳng hay phải chuyển gần đúng, và phép chuyển đúng tới đâu.
 - Dataset mắt cá mới dùng sẵn OpenCV fisheye hoặc F-Theta thì không mất gì. Dùng mô hình khác (Mei, Kannala–Brandt có thêm hệ số, Scaramuzza...) thì converter phải chuyển, và giới hạn tuỳ phép chuyển đó.
-- Vì vậy giới hạn góc phải do converter của từng dataset khai báo. Hiện manifest chưa có trường cho việc này, và `engine/scenes.camera_lenses` còn áp giới hạn 1,45 rad của KITTI-360 cho mọi camera mắt cá (ARCHITECTURE mục 2.13).
+- Vì vậy giới hạn góc do converter của từng dataset khai báo trong manifest (`cameras[].max_angle`, rad; KITTI-360 ghi 1,45 cho camera mắt cá). Code dùng chung (`engine/scenes.camera_lenses`) không có hằng số theo dataset: có `max_angle` thì chặn ở đó, không có thì dùng tới chỗ đa thức ống kính của chính camera còn tăng. Cảnh ingest trước khi manifest có trường này đọc giới hạn ở mục `camera.fisheye_fov` của báo cáo kiểm tra mà converter đã ghi.
 
 ## 3. Độ dài cảnh, số ảnh, quãng đường, tốc độ
 

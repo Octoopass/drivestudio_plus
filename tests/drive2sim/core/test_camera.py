@@ -90,9 +90,15 @@ def test_field_of_view_fisheye_inverts_lens_and_clamps() -> None:
     )
     half = math.radians(vertical) / 2
     assert 416 * fisheye_radius(half, coeffs) == pytest.approx(700, abs=1e-6)
-    # KITTI-360 image_02: mép ảnh vượt 1,45 rad, nên chặn ở góc khớp được (166°).
-    _, clamped = field_of_view("opencv_fisheye", [416, 416, 700, 700, *coeffs], 1400, 1400)
+    # Converter khai báo giới hạn (KITTI-360: 1,45 rad) thì chặn ở đó (166°).
+    _, clamped = field_of_view(
+        "opencv_fisheye", [416, 416, 700, 700, *coeffs], 1400, 1400, max_angle=MEI_FIT_MAX_ANGLE
+    )
     assert clamped == pytest.approx(math.degrees(2 * MEI_FIT_MAX_ANGLE))
+    # Không khai báo: không có hằng số nào, dùng tới chỗ đa thức của chính camera còn tăng.
+    _, free = field_of_view("opencv_fisheye", [416, 416, 700, 700, *coeffs], 1400, 1400)
+    assert free > clamped  # rộng hơn 166°: không có giới hạn KITTI-360 nào chen vào
+    assert 416 * fisheye_radius(math.radians(free) / 2, coeffs) == pytest.approx(700, abs=1e-3)
 
 
 def test_field_of_view_rejects_unknown_model() -> None:

@@ -217,6 +217,7 @@ def build_manifest(
     data_license: Optional[str] = None,
     camera_model: str = "opencv_pinhole",
     camera_models: Optional[list[str]] = None,
+    camera_max_angles: Optional[list[Optional[float]]] = None,
 ) -> Manifest:
     """Dựng manifest cho một thư mục cảnh DriveStudio.
 
@@ -245,6 +246,9 @@ def build_manifest(
         camera_model: Mô hình ống kính của ảnh trong ``images/``, chung cho mọi camera.
         camera_models: Mô hình của từng camera, cùng thứ tự với ``camera_ids``; có thì thay cho
             ``camera_model``.
+        camera_max_angles: Góc lệch trục lớn nhất (rad) mà mô hình của từng camera còn đúng,
+            cùng thứ tự với ``camera_ids`` (``ManifestCamera.max_angle``); converter chuyển gần
+            đúng mô hình ống kính của dataset thì khai báo, ``None`` là không giới hạn.
 
     Returns:
         Manifest đã kiểm tra theo schema.
@@ -256,6 +260,9 @@ def build_manifest(
     models = list(camera_models) if camera_models else [camera_model] * len(camera_ids)
     if len(models) != len(camera_ids):
         raise ValueError("camera_models phải có đúng một mô hình cho mỗi camera")
+    max_angles = list(camera_max_angles) if camera_max_angles else [None] * len(camera_ids)
+    if len(max_angles) != len(camera_ids):
+        raise ValueError("camera_max_angles phải có đúng một giá trị cho mỗi camera")
     frames = frame_indices(scene_dir, 0)
     if not frames:
         raise ValueError(f"{scene_dir}: không có ảnh nào của camera 0 trong images/")
@@ -271,6 +278,7 @@ def build_manifest(
                 "model": models[index],
                 "resolution": list(size),
                 "shutter": "GLOBAL",
+                "max_angle": max_angles[index],
             }
         )
     has_lidar = any((scene_dir / "lidar").glob("*.bin"))

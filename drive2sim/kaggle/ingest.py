@@ -128,12 +128,18 @@ def load_scene_ref(scene_root: Path, username: str) -> Optional[KaggleSceneRef]:
 
 
 def _same_scene(local: Manifest, remote: Manifest) -> bool:
-    """Hai manifest mô tả cùng dữ liệu (bỏ qua phiên bản converter và thời điểm ingest)."""
+    """Hai manifest mô tả cùng dữ liệu.
+
+    Bỏ qua phiên bản converter, thời điểm ingest và ``cameras[].max_angle`` (thông tin của
+    converter, thêm sau: cảnh ingest trước đó không có trường này mà vẫn là cùng dữ liệu).
+    """
 
     def comparable(manifest: Manifest) -> dict:
         data = manifest.model_dump(mode="json")
         data["source"].pop("converter_version", None)
         data.pop("created_utc", None)
+        for camera in data["cameras"]:
+            camera.pop("max_angle", None)
         return data
 
     return comparable(local) == comparable(remote)

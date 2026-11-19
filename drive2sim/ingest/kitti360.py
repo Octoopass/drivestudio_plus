@@ -669,6 +669,11 @@ def ingest_kitti360(
         lidar_ids=[LIDAR_ID],
         data_license=DATA_LICENSE,
         camera_models=models,
+        # Mei chỉ khớp sang OpenCV fisheye tới MEI_FIT_MAX_ANGLE: giới hạn của phép chuyển này,
+        # khai báo cho đúng các camera mắt cá (docs/datasets/kitti360.md mục 5.1).
+        camera_max_angles=[
+            MEI_FIT_MAX_ANGLE if model == "opencv_fisheye" else None for model in models
+        ],
     )
     files.dump(manifest, scene_dir / "manifest.yaml")
     report = validate_scene(scene_dir, manifest)
