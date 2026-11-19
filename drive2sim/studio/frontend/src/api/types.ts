@@ -235,6 +235,8 @@ export interface Splats {
   ply: string | null;
   /** cameras.json: pose và thông số camera gốc theo khung, cùng hệ toạ độ với các file trên. */
   cameras: string | null;
+  /** Mô hình ống kính, góc nhìn thật (độ) của từng camera gốc, tính từ intrinsics của cảnh. */
+  lenses?: Record<string, { model: string; fov_x_deg: number; fov_y_deg: number }>;
 }
 
 export interface ActorPoses {

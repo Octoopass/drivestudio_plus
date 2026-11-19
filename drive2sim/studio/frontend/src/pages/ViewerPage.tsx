@@ -17,9 +17,11 @@ import { go } from "../router";
 import { useExactFrame } from "../viewer/useExactFrame";
 import { DEFAULT_FOV, novelTrajectory, SplatViewer, upAxisFromCameras, type HumanMotion, type SceneCamera, type SplatSource, type UpAxis } from "../viewer/engine";
 
-/** Khoảng của thanh trượt góc nhìn dọc (độ). */
+/** Khoảng của thanh trượt góc nhìn dọc (độ): tối thiểu tới FOV_RANGE để xoay xem tự do, nâng tới góc
+ * nhìn thật của camera gốc (fisheye KITTI-360 166°), nhưng dưới 180° vì pinhole không vẽ được. */
 const FOV_MIN = 30;
-const FOV_MAX = 160;
+const FOV_RANGE = 120;
+const FOV_LIMIT = 175;
 
 /** Trục lên ghi trong phần đầu file PLY do tool xuất ("comment drive2sim up=+z ..."), nếu có. */
 async function headerUpAxis(picked: File): Promise<UpAxis | null> {
@@ -265,12 +267,15 @@ export function ViewerPage({ runId }: { runId?: string }) {
   const fovRef = useRef(fov);
   fovRef.current = fov;
   useEffect(() => viewer.current?.setFovOverride(fov), [fov]);
-  // Góc nhìn dọc của camera gốc đang chọn, tính từ fy (camera fisheye ra khoảng 119°).
+  // Góc nhìn dọc của camera gốc đang chọn khi đưa K vào phép chiếu pinhole (fisheye ra khoảng 119°).
   const nativeFov = (() => {
     const camera = cameras?.[cameraIndex];
     if (!camera) return DEFAULT_FOV;
     return Math.round((2 * Math.atan(camera.height / (2 * camera.K[0][4])) * 180) / Math.PI);
   })();
+  // Góc nhìn dọc thật của camera gốc theo mô hình ống kính (API, từ intrinsics của cảnh).
+  const lens = cameras?.[cameraIndex] ? splats.data?.lenses?.[cameras[cameraIndex].name] : undefined;
+  const fovMax = Math.min(FOV_LIMIT, Math.max(FOV_RANGE, Math.ceil(lens?.fov_y_deg ?? nativeFov)));
   // Bỏ chọn run (về "không chọn"): dọn cảnh của run cũ, trừ khi đang xem file kéo thả.
   useEffect(() => {
     if (runId || source === "file") return;
@@ -692,9 +697,9 @@ export function ViewerPage({ runId }: { runId?: string }) {
                     <input
                       type="range"
                       min={FOV_MIN}
-                      max={FOV_MAX}
+                      max={fovMax}
                       step={1}
-                      value={Math.min(FOV_MAX, Math.max(FOV_MIN, fov ?? nativeFov))}
+                      value={Math.min(fovMax, Math.max(FOV_MIN, fov ?? nativeFov))}
                       onChange={(e) => setFov(Number(e.target.value))}
                       aria-label={t("viewer.field.fov")}
                     />
@@ -704,10 +709,15 @@ export function ViewerPage({ runId }: { runId?: string }) {
                     <input
                       type="checkbox"
                       checked={fov === null}
-                      onChange={(e) => setFov(e.target.checked ? null : Math.min(FOV_MAX, nativeFov))}
+                      onChange={(e) => setFov(e.target.checked ? null : Math.min(fovMax, nativeFov))}
                     />
                     {t("viewer.fov.native")}
                   </label>
+                  {lens && (
+                    <span className="small muted">
+                      {t("viewer.fov.lens", { fov: Math.round(lens.fov_y_deg), model: lens.model === "opencv_fisheye" ? "fisheye" : "pinhole" })}
+                    </span>
+                  )}
                 </div>
                 <div className="field">
                   <span>

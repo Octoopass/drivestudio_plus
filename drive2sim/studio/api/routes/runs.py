@@ -50,6 +50,7 @@ from drive2sim.engine.run import (
     reset_stage,
     run_is_active,
 )
+from drive2sim.engine.scenes import camera_lenses
 from drive2sim.engine.workdir import Workdir
 from drive2sim.kaggle import executor as kaggle_executor
 from drive2sim.stages.commands import CAMERAS_FILE
@@ -422,9 +423,10 @@ def run_splats(run_id: str, request: Request) -> dict:
         ``color_affine_url``;
         ``ply`` là ``scene.ply`` của ``export.ply_world``; ``cameras`` là url của
         ``cameras.json`` (pose, thông số camera theo khung, cùng hệ toạ độ với các file trên),
-        ``null`` nếu chưa có.
+        ``null`` nếu chưa có; ``lenses`` là ``{camera_id: {"model", "fov_x_deg", "fov_y_deg"}}``
+        (``camera_lenses``): góc nhìn thật của camera gốc, cho thanh trượt góc nhìn.
     """
-    run_dir, _ = _load(request, run_id)
+    run_dir, record = _load(request, run_id)
     workdir = state_of(request).workdir
     stages_dir = run_dir / D2S_DIR / "stages"
 
@@ -476,4 +478,7 @@ def run_splats(run_id: str, request: Request) -> dict:
         "preview": preview,
         "ply": url(stages_dir / "export.ply_world" / "scene.ply"),
         "cameras": cameras,
+        # Mô hình ống kính, góc nhìn thật của từng camera (camera_lenses); rỗng nếu cảnh thiếu
+        # intrinsics trên máy.
+        "lenses": camera_lenses(workdir.scene_dir(record.scene_id)),
     }

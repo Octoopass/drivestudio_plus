@@ -10,6 +10,7 @@ import pytest
 from drive2sim.core.camera import (
     FIT_SAMPLES,
     MEI_FIT_MAX_ANGLE,
+    field_of_view,
     fisheye_radius,
     fit_mei_to_fisheye,
     mei_fit_error_px,
@@ -64,3 +65,36 @@ def test_large_xi_recovers_sine_series() -> None:
     assert fx == pytest.approx(1.0, rel=1e-4) and fy == pytest.approx(fx)
     assert coeffs[0] == pytest.approx(-1 / 6, rel=1e-3)
     assert coeffs[1] == pytest.approx(1 / 120, rel=1e-2)
+
+
+def test_field_of_view_pinhole_uses_principal_point() -> None:
+    # fx = fy = 800, ảnh 1600×900, tâm lệch: góc hai bên tính riêng.
+    horizontal, vertical = field_of_view(
+        "opencv_pinhole", [800, 800, 800, 450, 0, 0, 0, 0, 0], 1600, 900
+    )
+    assert horizontal == pytest.approx(90.0)
+    assert vertical == pytest.approx(2 * math.degrees(math.atan(450 / 800)))
+    _, shifted = field_of_view("opencv_pinhole", [800, 800, 800, 300], 1600, 900)
+    expected = math.degrees(math.atan(300 / 800) + math.atan(600 / 800))
+    assert shifted == pytest.approx(expected)
+
+
+def test_field_of_view_fisheye_inverts_lens_and_clamps() -> None:
+    # Không méo (k = 0): r = f·θ. Mép cách tâm 400 px với f = 500 → θ = 0,8 rad mỗi bên.
+    horizontal, _ = field_of_view("opencv_fisheye", [500, 500, 400, 400, 0, 0, 0, 0], 800, 800)
+    assert horizontal == pytest.approx(math.degrees(1.6), abs=1e-6)
+    # Có méo: góc tìm được chiếu đúng tới mép.
+    coeffs = [-0.0096, 0.0094, -0.0018, -0.0004]
+    _, vertical = field_of_view(
+        "opencv_fisheye", [416, 416, 700, 700, *coeffs], 1400, 1400, max_angle=1.9
+    )
+    half = math.radians(vertical) / 2
+    assert 416 * fisheye_radius(half, coeffs) == pytest.approx(700, abs=1e-6)
+    # KITTI-360 image_02: mép ảnh vượt 1,45 rad, nên chặn ở góc khớp được (166°).
+    _, clamped = field_of_view("opencv_fisheye", [416, 416, 700, 700, *coeffs], 1400, 1400)
+    assert clamped == pytest.approx(math.degrees(2 * MEI_FIT_MAX_ANGLE))
+
+
+def test_field_of_view_rejects_unknown_model() -> None:
+    with pytest.raises(ValueError, match="ftheta"):
+        field_of_view("ftheta", [1, 1, 1, 1], 10, 10)

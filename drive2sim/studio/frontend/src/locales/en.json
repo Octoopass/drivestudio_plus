@@ -702,5 +702,6 @@
   "densify.source": "Read from the train stage's config.yaml (command-line overrides included).",
   "viewer.field.fov": "Field of view",
   "viewer.field.fov_hint": "Vertical field of view of the browser camera (experimental). By default it follows the source camera: a pinhole camera matches the source image; for a fisheye camera (KITTI-360 image_02, image_03) the browser can only draw pinhole, giving about 119° with stretched edges. Drag the slider to use a pinhole camera with your own field of view, keeping the camera position and direction; the exact image overlay uses the same view.",
-  "viewer.fov.native": "Follow source camera"
+  "viewer.fov.native": "Follow source camera",
+  "viewer.fov.lens": "Source camera ({model}) sees {fov}° vertically"
 }
