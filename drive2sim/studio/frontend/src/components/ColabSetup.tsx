@@ -1,10 +1,11 @@
 // Thiết lập Colab ngay trong trang Chạy mới: kiểm tra lệnh colab, đăng nhập Google, compute unit,
-// file SMPL trên máy và code đã push chưa (GET /api/colab/setup/status). Đăng nhập không làm được từ
-// trang này: lệnh colab mở trang đồng ý của Google từ terminal, nên ô này chỉ chỉ lệnh cần chạy.
+// file SMPL trên máy và code đã push chưa (GET /api/colab/setup/status). Đăng nhập, đổi tài khoản
+// Google và cập nhật lệnh colab làm ngay ở đây (ColabAccount).
 import { CheckCircle2, CircleAlert, RefreshCw, XCircle } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { api, asApiError, type ApiError } from "../api/client";
 import { useI18n } from "../i18n";
+import { ColabAccount } from "./ColabAccount";
 import { ErrorBox, InfoTip } from "./ui";
 
 export interface ColabSetupStatus {
@@ -100,6 +101,7 @@ export function ColabSetup({ onStatus, needsSmpl }: { onStatus?: (status: ColabS
           </Check>
         </ul>
       )}
+      {status?.cli.installed && <ColabAccount onChanged={() => void runCheck()} />}
     </div>
   );
 }

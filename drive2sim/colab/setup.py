@@ -8,8 +8,8 @@ Colab không cho biết trước còn GPU hay không: tài khoản miễn phí t
 đảm, và chỉ biết khi tạo phiên (``colab new`` báo lỗi khi hết chỗ hoặc không được cấp GPU đó). Vì
 vậy ``gpu`` chỉ báo các phiên GPU đang có và số compute unit, không chặn ``ready``.
 
-Đăng nhập không làm được từ Studio: lệnh ``colab`` mở trang đồng ý của Google ở lần gọi đầu, nên
-người dùng chạy ``colab sessions`` một lần trong terminal.
+Đăng nhập và đổi tài khoản: ``accounts.py`` (Studio mở trang đăng nhập Google và nhận mã xác thực
+dán vào; CLI: ``d2s colab account login``).
 
 File này chứa ``check``.
 """
@@ -56,7 +56,9 @@ def check(client: Optional[ColabClient] = None, workdir_root: Optional[Path] = N
             gpu["sessions"] = [s for s in client.sessions() if s["hardware"] in GPUS]
             account["ok"] = True
         except ColabError as error:
-            account["error"] = f"{error}; đăng nhập bằng cách chạy colab sessions trong terminal"
+            account["error"] = (
+                f"{error}; đăng nhập bằng nút Thêm tài khoản hoặc d2s colab account login"
+            )
             if "keyring" in str(error).lower() and not os.environ.get("PYTHON_KEYRING_BACKEND"):
                 account["hint"] = KEYRING_HINT
         if account["ok"]:

@@ -11,6 +11,14 @@ File này chứa:
   trả ``202`` kèm việc.
 - ``POST /api/colab/{run_id}/pull``: tải kết quả về; trả ``202`` kèm việc.
 - ``POST /api/colab/{run_id}/stop``: tắt phiên Colab của run.
+- ``GET /api/colab/accounts``, ``POST /api/colab/accounts/{email}/use``,
+  ``DELETE /api/colab/accounts/{email}``: tài khoản Google của lệnh ``colab``
+  (``drive2sim/colab/accounts.py``).
+- ``GET /api/colab/login``, ``POST /api/colab/login``, ``POST /api/colab/login/code``,
+  ``POST /api/colab/login/cancel``: thêm tài khoản ngay trên Studio (trang đăng nhập Google rồi dán
+  mã xác thực).
+- ``GET /api/colab/cli``, ``POST /api/colab/cli/update``: phiên bản google-colab-cli và cập nhật
+  (việc nền ``colab_update``).
 """
 
 from collections.abc import Callable
@@ -19,7 +27,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from drive2sim.colab import executor, setup
+from drive2sim.colab import accounts, executor, setup
 from drive2sim.colab.client import ColabError
 from drive2sim.engine.workdir import Workdir
 from drive2sim.studio.api.jobs import RunQueue
@@ -65,6 +73,106 @@ def submit_push(state: StudioState, run_id: str, body: Optional[PushBody] = None
         return run_id
 
     return state.jobs.submit("colab_push", f"đẩy {run_id} lên Colab", work)
+
+
+class CodeBody(BaseModel):
+    """Mã xác thực Google người dùng dán vào sau khi đăng nhập.
+
+    Attributes:
+        code: Mã Google hiển thị (dạng ``4/0A...``).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(pattern=accounts.CODE_PATTERN)
+
+
+def _login(request: Request) -> accounts.LoginFlow:
+    """Lần đăng nhập của Studio: một bản cho cả app, tạo khi cần."""
+    app_state = request.app.state
+    if not hasattr(app_state, "colab_login"):
+        app_state.colab_login = accounts.LoginFlow()
+    return app_state.colab_login
+
+
+@router.get("/accounts")
+def list_accounts() -> dict:
+    """Tài khoản Google đã đăng nhập vào lệnh ``colab`` và tài khoản đang dùng.
+
+    Returns:
+        ``{"accounts": [email], "active": email hoặc null}``.
+    """
+    return accounts.list_accounts()
+
+
+@router.post("/accounts/{email}/use")
+def use_account(email: str) -> dict:
+    """Chuyển lệnh ``colab`` (phiên, Drive) sang một tài khoản đã đăng nhập.
+
+    Returns:
+        Danh sách tài khoản sau khi chuyển.
+    """
+    return accounts.use_account(email)
+
+
+@router.delete("/accounts/{email}")
+def forget_account(email: str) -> dict:
+    """Bỏ một tài khoản khỏi danh sách; token đang dùng giữ nguyên.
+
+    Returns:
+        Danh sách tài khoản sau khi bỏ.
+    """
+    return accounts.forget_account(email)
+
+
+@router.get("/login")
+def login_status(request: Request) -> dict:
+    """Trạng thái lần thêm tài khoản.
+
+    Returns:
+        ``{"state", "url", "email", "error"}``; ``state`` là ``idle``, ``waiting_code``,
+        ``checking``, ``succeeded`` hoặc ``failed``.
+    """
+    return _login(request).view()
+
+
+@router.post("/login")
+def login_start(request: Request) -> dict:
+    """Bắt đầu thêm tài khoản; trả ``url`` trang đăng nhập Google để mở trong trình duyệt."""
+    return _login(request).start()
+
+
+@router.post("/login/code")
+def login_code(body: CodeBody, request: Request) -> dict:
+    """Gửi mã xác thực đã dán; trả trạng thái sau khi lệnh ``colab`` lưu token."""
+    return _login(request).submit_code(body.code)
+
+
+@router.post("/login/cancel")
+def login_cancel(request: Request) -> dict:
+    """Huỷ lần thêm tài khoản đang chờ mã."""
+    return _login(request).cancel()
+
+
+@router.get("/cli")
+def cli_versions() -> dict:
+    """Phiên bản google-colab-cli đang cài và bản mới nhất.
+
+    Returns:
+        ``{"version", "latest", "up_to_date"}``.
+    """
+    return accounts.cli_versions()
+
+
+@router.post("/cli/update", status_code=202)
+def cli_update(request: Request) -> dict:
+    """Cập nhật google-colab-cli ở nền (``uv tool upgrade``); trả việc vừa xếp hàng."""
+
+    def work() -> None:
+        accounts.update_cli()
+        return None
+
+    return state_of(request).jobs.submit("colab_update", "cập nhật google-colab-cli", work)
 
 
 @router.get("/{run_id}")

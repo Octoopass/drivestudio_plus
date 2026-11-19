@@ -117,6 +117,21 @@ class ColabClient:
         match = re.search(r"(\d+\.\d+(?:\.\d+)?)", result.stdout or "")
         return match.group(1) if result.returncode == 0 and match else None
 
+    def latest_version(self) -> Optional[str]:
+        """Bản google-colab-cli mới nhất theo ``colab update`` (chỉ kiểm tra, không cài).
+
+        Lệnh in dạng ``Colab CLI is up to date (version: 0.8.0, latest: 0.8.0).``.
+
+        Returns:
+            Số phiên bản, hoặc ``None`` nếu không hỏi được.
+        """
+        try:
+            result = self._run("update", timeout_s=60)
+        except ColabError:
+            return None
+        match = re.search(r"latest:\s*([0-9][^)\s,]*)", f"{result.stdout}\n{result.stderr}")
+        return match.group(1) if match else None
+
     def sessions(self) -> list[dict[str, str]]:
         """Các phiên đang có trên server (``colab sessions``); cần đăng nhập được.
 

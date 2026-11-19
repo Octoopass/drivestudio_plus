@@ -13,10 +13,11 @@ File này chứa:
 """
 
 import argparse
+import subprocess
 import sys
 
 from drive2sim.cli.output import emit
-from drive2sim.colab import executor
+from drive2sim.colab import accounts, executor
 from drive2sim.colab.client import GPUS
 from drive2sim.engine.workdir import Workdir
 
@@ -55,6 +56,14 @@ def register(
                 action="store_true",
                 help="không tắt phiên Colab kể cả khi run đã xong",
             )
+    account = actions.add_parser(
+        "account", parents=[common], help="tài khoản Google của lệnh colab (phiên, Drive)"
+    )
+    account.add_argument("account_action", choices=("list", "use", "forget", "login"))
+    account.add_argument("email", nargs="?", help="email (với use, forget)")
+    account.set_defaults(handler=account_command)
+    update = actions.add_parser("update", parents=[common], help="cập nhật google-colab-cli")
+    update.set_defaults(handler=update_command)
 
 
 def add_push_arguments(parser: argparse.ArgumentParser) -> None:
@@ -161,4 +170,35 @@ def stop(args: argparse.Namespace) -> int:
     """
     data = executor.stop_session(Workdir.from_env(args.workdir), args.run_id)
     emit(args, data, f"đã tắt phiên Colab {data['session']}")
+    return 0
+
+
+def account_command(args: argparse.Namespace) -> int:
+    """``d2s colab account list|use|forget|login``: xem, chuyển, bỏ, thêm tài khoản Google.
+
+    ``login`` chạy trong terminal: in đường dẫn đăng nhập Google rồi hỏi mã xác thực.
+    """
+    if args.account_action == "login":
+        command = [str(accounts.cli_python()), str(accounts.HELPER), "login"]
+        return subprocess.run(command, check=False).returncode
+    if args.account_action in ("use", "forget") and not args.email:
+        print(f"thiếu email: d2s colab account {args.account_action} <email>")
+        return 2
+    if args.account_action == "use":
+        data = accounts.use_account(args.email)
+    elif args.account_action == "forget":
+        data = accounts.forget_account(args.email)
+    else:
+        data = accounts.list_accounts()
+    for email in data["accounts"]:
+        print(f"{'*' if email == data['active'] else ' '} {email}")
+    if not data["accounts"]:
+        print("chưa đăng nhập tài khoản nào; thêm bằng: d2s colab account login")
+    return 0
+
+
+def update_command(args: argparse.Namespace) -> int:
+    """``d2s colab update``: cập nhật google-colab-cli rồi in phiên bản."""
+    info = accounts.update_cli()
+    print(f"google-colab-cli {info['version']} (mới nhất: {info['latest'] or 'không rõ'})")
     return 0

@@ -174,7 +174,7 @@ class BackgroundJobs:
 
         Args:
             kind: Loại việc: ``ingest``, ``kaggle_push``, ``kaggle_pull``, ``colab_push``,
-                ``colab_pull``.
+                ``colab_pull``, ``colab_update``.
             label: Mô tả ngắn hiện trên giao diện, ví dụ ``nuscenes scene-0061``.
             work: Hàm làm việc, trả về ``scene_id`` hoặc ``run_id`` liên quan (để giao diện mở);
                 lỗi gì thì việc thành ``failed`` kèm thông báo lỗi.
