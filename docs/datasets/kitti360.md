@@ -85,11 +85,11 @@ Pose của camera trong world của cảnh là `ego_pose[t] · extrinsics[camera
 `image_02`, `image_03` hiệu chỉnh bằng mô hình Mei (`xi`, `k1`, `k2`, `p1`, `p2`, `gamma1`, `gamma2`, `u0`, `v0`). Renderer 3DGUT của gsplat chỉ vẽ OpenCV fisheye, nên `drive2sim/core/camera.py` khớp bán kính pixel của hai mô hình: `γ1·m·(1 + k1m² + k2m⁴)` với `m = sin θ / (cos θ + xi)` bằng `fx·θ·(1 + k1θ² + k2θ⁴ + k3θ⁶ + k4θ⁸)`. Phương trình tuyến tính theo `fx` và `fx·k_i`, nên giải thẳng bằng bình phương tối thiểu trên 400 góc đều tới 1,45 rad (cho cùng nghiệm với `numpy.linalg.lstsq`); `fy = fx·γ2/γ1`.
 
 Giới hạn (đo trên calib thật, ảnh 1400 px):
-- Sai số phần xuyên tâm của phép khớp tới 1,45 rad: 0,004 px (`image_02`), 0,011 px (`image_03`); tới pi/2 tăng lên 0,10 px (`image_02`).
+- Sai số phần xuyên tâm của phép khớp tới 1,45 rad: 0,004 px (`image_02`), 0,011 px (`image_03`); ngoài miền khớp vẫn nhỏ: 0,10 px ở pi/2, 0,5 px ở 96 độ (mép trái, phải của ảnh), 1 px ở 99 độ, 2 px ở 103 độ (`image_02`, `kitti360_fisheye_workflow.md` mục 3).
 - Méo tiếp tuyến `p1`, `p2` bị bỏ (OpenCV fisheye không có). So với Mei chính xác trên điểm LiDAR thật (30 khung từ khung gốc 167, `check_kitti360_projection`): trung vị 0,10 px, lớn nhất 0,42 px (`image_02`); trung vị 0,17 px, lớn nhất 0,78 px (`image_03`).
-- Camera nhìn rộng hơn 180 độ. Renderer UT của gsplat không vẽ được tia từ pi/2 trở ra, và đa thức chỉ khớp tới 1,45 rad (83 độ), nên vùng ảnh ngoài 1,45 rad **phải được che** khi train và đánh giá; loader `KITTI360CameraData` che vùng đó cho cả OmniRe và Street GS. Báo cáo kiểm tra ghi mục `camera.fisheye_fit` và `camera.fisheye_fov`.
+- Camera nhìn khoảng 191 độ theo chiều ngang (mép trái, phải của ảnh ở khoảng 96 độ lệch trục mỗi bên). **Phép chuyển Mei sang OpenCV fisheye giữ nguyên góc nhìn**: ảnh không bị sửa, và đa thức mô tả đúng ống kính tới mép trái, phải của ảnh (dòng trên). Góc nhìn chỉ bị thu khi train: renderer UT của gsplat không vẽ được tia từ pi/2 trở ra, nên loader `KITTI360CameraData` che vùng ảnh ngoài 1,45 rad (83 độ, chọn dưới 90 độ có khoảng an toàn) khi train và đánh giá, cho mọi renderer, ở cả OmniRe và Street GS. Báo cáo kiểm tra ghi mục `camera.fisheye_fit` và `camera.fisheye_fov`.
 
-### 5.1 Góc nhìn dùng được: 166 độ, không phải hơn 180 độ
+### 5.1 Góc nhìn dùng được: 166 độ trên khoảng 191 độ
 
 So sánh với mô hình camera của các dataset khác: `overview.md` mục 2.1. KITTI-360 là dataset duy nhất hiện nay mà mô hình gốc (Mei) phải chuyển gần đúng, nên là dataset duy nhất mất góc nhìn.
 
@@ -97,17 +97,17 @@ Góc θ đo từ trục nhìn sang **một bên**; góc nhìn tổng là hai bê
 
 | Lớp | Là gì | Mỗi bên | Tổng |
 |---|---|---|---|
-| Ống kính vật lý | Mô hình Mei của KITTI-360 | hơn 90 độ | hơn 180 độ |
+| Ống kính vật lý | Mô hình Mei của KITTI-360 | khoảng 96 độ tới mép trái, phải của ảnh | khoảng 191 độ theo chiều ngang |
 | Mô hình sau khi chuyển | OpenCV fisheye khớp từ Mei (`core/camera.py`, khớp trên 0–1,45 rad); renderer của gsplat không có mô hình Mei | lệch Mei dưới 0,5 px tới 96 độ (mép trái, phải của ảnh), 1 px ở 99 độ | khoảng 191 độ |
 | Renderer | 3DGUT chiếu điểm mẫu của Gaussian qua ống kính, hỏng khi điểm mẫu ở 90 độ hoặc sau camera; 3DGEER tính theo tia của từng pixel nên không có giới hạn này | 3DGUT dưới 90 độ | 3DGUT dưới 180 độ |
 
 1,45 rad được chọn vì nằm dưới 90 độ (3DGUT vẽ được), có khoảng an toàn. Phép khớp không phải giới hạn: đo trên calib thật của `image_02` (`kitti360_fisheye_workflow.md` mục 3), OpenCV fisheye lệch Mei 0,004 px ở 83 độ, 0,1 px ở 90 độ, 0,5 px ở 96 độ (mép trái, phải của ảnh), 1 px ở 99 độ, 2 px ở 103 độ. Đa thức với hệ số khớp được còn tăng tới khoảng 2 rad (115 độ), xa hơn thì đổi chiều.
 
 Hệ quả:
-- **Cả 3DGUT lẫn 3DGEER chỉ train trên 166 độ.** Dữ liệu gốc (ảnh, calib Mei) có đủ hơn 180 độ; giới hạn đến từ cách xử lý: loader che mọi pixel ngoài 1,45 rad (83 độ mỗi bên, chọn dưới giới hạn 90 độ của 3DGUT) trước khi train, với mọi renderer (run `146b`, `e627` dùng 3DGUT; `e3e3`, `0b27` dùng 3DGEER). Với 3DGEER, renderer không phải là chỗ giới hạn.
+- **Cả 3DGUT lẫn 3DGEER chỉ train trên 166 độ.** Dữ liệu gốc (ảnh, calib Mei) có đủ khoảng 191 độ, và phép chuyển sang OpenCV fisheye giữ nguyên góc đó; giới hạn đến từ cách xử lý: loader che mọi pixel ngoài 1,45 rad (83 độ mỗi bên, chọn dưới giới hạn 90 độ của 3DGUT) trước khi train, với mọi renderer (run `146b`, `e627` dùng 3DGUT; `e3e3`, `0b27` dùng 3DGEER). Với 3DGEER, renderer không phải là chỗ giới hạn.
 - **Trong 166 độ, ảnh vẽ ra không lệch góc** so với camera thật: sai số chiếu dưới nửa pixel (các số đo ở trên).
 - **Video, ảnh đánh giá của stage train** có cùng khung ảnh, kích thước và tâm ảnh với ảnh gốc (700×700 khi train, thu từ 1400×1400). Renderer vẽ mọi pixel theo OpenCV fisheye khớp từ Mei; pixel ngoài 1,45 rad và pixel thân xe được loader đánh dấu không hợp lệ (`valid_masks`, `recon/data/loaders/kitti360.py`) và bị tô đen ở **cả** ảnh render lẫn ảnh thật dùng để so (`recon/rendering/videos.py`); PSNR, SSIM, LPIPS chỉ tính trên pixel hợp lệ. Vì vậy video render và video ảnh thật trông khớp nhau ở vành ngoài, nhưng ảnh thật nguyên bản vẫn có nội dung ở đó.
-- **Vành ảnh từ 166 độ tới hơn 180 độ không có trong cảnh dựng lại**: camera thật thấy nhưng ảnh mô phỏng để trống. Một phần vành này vốn bị thân xe che (`ego_masks/kitti360`).
+- **Vành ảnh từ 166 độ tới khoảng 191 độ không có trong cảnh dựng lại**: camera thật thấy nhưng ảnh mô phỏng để trống. Một phần vành này vốn bị thân xe che (`ego_masks/kitti360`).
 - Thử thuật toán lái xe, perception trên ảnh mô phỏng: dùng được với thuật toán chỉ cần vùng giữa ảnh mắt cá, hoặc khử méo rồi cắt vùng trung tâm; khi so với ảnh thật thì che cùng vành ngoài trên ảnh thật để hai bên cùng điều kiện. Thuật toán cần nguyên ảnh mắt cá (vật sát hai bên xe) sẽ thấy vành ngoài trống, khác camera thật.
 - Hướng có thể lấy lại vành ngoài, **chưa kiểm chứng**: với 3DGEER (tính theo tia, không có giới hạn 90 độ), nới vùng che của loader tới góc mà phép khớp OpenCV fisheye hiện có còn đúng (dưới 0,5 px tới 96 độ) là lấy lại được phần lớn vành ngoài mà không đổi mô hình ống kính; muốn rộng hơn nữa thì khớp Mei sang F-theta (đa thức bậc tuỳ chọn, 3DGEER đã nối sẵn). 3DGUT không dùng được cho phần ngoài 90 độ.
 

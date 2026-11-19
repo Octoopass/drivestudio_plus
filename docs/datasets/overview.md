@@ -17,7 +17,7 @@ Nguồn số liệu:
 | PandaSet | 6 | trước, trước-trái, trước-phải, trái, phải, sau | Có | pinhole |
 | nuPlan | 8 | F0 (trước), L0/R0, L1/R1, L2/R2 (hai bên), B0 (sau) | Có | pinhole |
 | KITTI | 2 | cặp stereo nhìn thẳng phía trước | Không | pinhole |
-| KITTI-360 | 4 | 2 nhìn thẳng phía trước (stereo) + 2 mắt cá 180° hai bên hông | Gần như có (thiếu phía sau) | pinhole + mắt cá (Mei, đổi sang OpenCV fisheye) |
+| KITTI-360 | 4 | 2 nhìn thẳng phía trước (stereo) + 2 mắt cá hai bên hông (khoảng 191° theo chiều ngang) | Gần như có (thiếu phía sau) | pinhole + mắt cá (Mei, đổi sang OpenCV fisheye) |
 | PhysicalAI (NVIDIA) | 7 | trước góc rộng 120°, trước tele 30°, chéo trái/phải 120°, sau-trái/sau-phải 70°, sau tele 30° | Có | F-Theta (góc rộng; trang NCore ghi Kannala–Brandt equidistant) |
 
 ## 2. Nhóm theo loại camera
@@ -40,7 +40,7 @@ Mỗi dataset hiệu chỉnh camera bằng mô hình riêng của nó. Renderer 
 | Waymo, Argoverse 2, PandaSet, nuPlan, KITTI | Pinhole, có thể kèm méo xuyên tâm, tiếp tuyến | `opencv_pinhole` | Ghi vào `intrinsics/*.txt` nhưng loader không đưa vào renderer (DriveStudio: "we did not use distortion parameters for simplicity"); ảnh coi như pinhole lý tưởng. Hệ số khác 0 thì có sai số hình học nhỏ, chưa đo | Không |
 | PhysicalAI (NVIDIA) | F-Theta (đa thức góc ↔ khoảng cách pixel) | `ftheta`, giữ ảnh và mô hình gốc | Nằm trong đa thức F-Theta | Không (renderer 3DGUT, 3DGEER vẽ F-Theta trực tiếp) |
 | KITTI-360, camera `image_00`, `image_01` | Pinhole | `opencv_pinhole` | Như nhóm pinhole | Không |
-| KITTI-360, camera mắt cá `image_02`, `image_03` | **Mei** (mặt cầu đơn vị, thông số `xi`; nhìn hơn 180°) | `opencv_fisheye`, **khớp gần đúng** từ Mei (`core/camera.py`) | `k1..k4` từ phép khớp; méo tiếp tuyến bị bỏ | **Có**: loader che ngoài 1,45 rad (83°) mỗi bên, chọn dưới giới hạn 90° của 3DGUT, nên chỉ dùng 166° trong khoảng 191°; phép khớp tự nó còn đúng dưới 0,5 px tới 96° (`kitti360.md` mục 5.1) |
+| KITTI-360, camera mắt cá `image_02`, `image_03` | **Mei** (mặt cầu đơn vị, thông số `xi`; nhìn khoảng 191° theo chiều ngang) | `opencv_fisheye`, **khớp gần đúng** từ Mei (`core/camera.py`) | `k1..k4` từ phép khớp; méo tiếp tuyến bị bỏ | **Có**: loader che ngoài 1,45 rad (83°) mỗi bên, chọn dưới giới hạn 90° của 3DGUT, nên chỉ dùng 166° trong khoảng 191°; phép khớp tự nó còn đúng dưới 0,5 px tới 96° (`kitti360.md` mục 5.1) |
 
 Hệ quả:
 - Giới hạn góc nhìn không phải chung cho mọi camera mắt cá. Nó phụ thuộc vào việc mô hình gốc có được renderer hỗ trợ thẳng hay phải chuyển gần đúng, và phép chuyển đúng tới đâu.
