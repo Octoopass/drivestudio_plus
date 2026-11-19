@@ -15,7 +15,11 @@ import { RoadScene } from "../components/Illustration";
 import { useI18n } from "../i18n";
 import { go } from "../router";
 import { useExactFrame } from "../viewer/useExactFrame";
-import { novelTrajectory, SplatViewer, upAxisFromCameras, type HumanMotion, type SceneCamera, type SplatSource, type UpAxis } from "../viewer/engine";
+import { DEFAULT_FOV, novelTrajectory, SplatViewer, upAxisFromCameras, type HumanMotion, type SceneCamera, type SplatSource, type UpAxis } from "../viewer/engine";
+
+/** Khoảng của thanh trượt góc nhìn dọc (độ). */
+const FOV_MIN = 30;
+const FOV_MAX = 120;
 
 /** Trục lên ghi trong phần đầu file PLY do tool xuất ("comment drive2sim up=+z ..."), nếu có. */
 async function headerUpAxis(picked: File): Promise<UpAxis | null> {
@@ -98,6 +102,8 @@ export function ViewerPage({ runId }: { runId?: string }) {
   const follow = path !== "free";
   const setFollow = (value: boolean) => setPath(value ? "camera" : "free");
   const [sh, setSh] = useState(3);
+  // Góc nhìn dọc người xem chọn (độ); null là theo camera gốc (thử nghiệm, ARCHITECTURE mục 2.13).
+  const [fov, setFov] = useState<number | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [count, setCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -232,6 +238,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
         const index = defaultCamera(loadedCameras);
         setCameraIndex(index);
         const camera = loadedCameras[index];
+        v.setFovOverride(fovRef.current);
         v.setCameraPose(camera.c2w[0], camera.K[0], camera.width, camera.height);
       }
       v.setMaxSh(shRef.current);
@@ -255,6 +262,15 @@ export function ViewerPage({ runId }: { runId?: string }) {
   const shRef = useRef(sh);
   shRef.current = sh;
   useEffect(() => viewer.current?.setMaxSh(sh), [sh]);
+  const fovRef = useRef(fov);
+  fovRef.current = fov;
+  useEffect(() => viewer.current?.setFovOverride(fov), [fov]);
+  // Góc nhìn dọc của camera gốc đang chọn, tính từ fy (camera fisheye ra khoảng 119°).
+  const nativeFov = (() => {
+    const camera = cameras?.[cameraIndex];
+    if (!camera) return DEFAULT_FOV;
+    return Math.round((2 * Math.atan(camera.height / (2 * camera.K[0][4])) * 180) / Math.PI);
+  })();
   // Bỏ chọn run (về "không chọn"): dọn cảnh của run cũ, trừ khi đang xem file kéo thả.
   useEffect(() => {
     if (runId || source === "file") return;
@@ -667,6 +683,32 @@ export function ViewerPage({ runId }: { runId?: string }) {
                     />
                   </div>
                 )}
+                <div className="field">
+                  <span>
+                    {t("viewer.field.fov")}
+                    <InfoTip>{t("viewer.field.fov_hint")}</InfoTip>
+                  </span>
+                  <div className="row" style={{ gap: 8 }}>
+                    <input
+                      type="range"
+                      min={FOV_MIN}
+                      max={FOV_MAX}
+                      step={1}
+                      value={Math.min(FOV_MAX, Math.max(FOV_MIN, fov ?? nativeFov))}
+                      onChange={(e) => setFov(Number(e.target.value))}
+                      aria-label={t("viewer.field.fov")}
+                    />
+                    <span className="small">{fov ?? nativeFov}°</span>
+                  </div>
+                  <label className="row small" style={{ gap: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={fov === null}
+                      onChange={(e) => setFov(e.target.checked ? null : Math.min(FOV_MAX, nativeFov))}
+                    />
+                    {t("viewer.fov.native")}
+                  </label>
+                </div>
                 <div className="field">
                   <span>
                     {t("viewer.field.up")}

@@ -8,6 +8,12 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 /** Trục "lên" của dữ liệu: DriveStudio dùng hệ world z lên; 3DGS gốc từ COLMAP thường y xuống. */
 export type UpAxis = "z" | "-z" | "y" | "-y" | "x" | "-x";
 
+/** K của camera gốc (điểm ảnh) và cỡ ảnh gốc. */
+type Intrinsics = { fx: number; fy: number; cx: number; cy: number; width: number; height: number };
+
+/** Góc nhìn dọc (độ) của khung nhìn bao quát. */
+export const DEFAULT_FOV = 60;
+
 const UP_VECTORS: Record<UpAxis, THREE.Vector3> = {
   z: new THREE.Vector3(0, 0, 1),
   "-z": new THREE.Vector3(0, 0, -1),
@@ -234,6 +240,9 @@ const SKY_FRAGMENT = /* glsl */ `
 
 export class SplatViewer {
   private renderer: THREE.WebGLRenderer;
+  private fovOverride: number | null = null;
+  // Góc nhìn và K của camera gốc gần nhất (setCameraPose), để bỏ góc tự chọn thì quay lại được.
+  private native: { fov: number; intrinsics: Intrinsics } | null = null;
   private scene = new THREE.Scene();
   private camera: THREE.PerspectiveCamera;
   private controls: OrbitControls;
@@ -257,7 +266,7 @@ export class SplatViewer {
   private affine: { scene: THREE.Scene; camera: THREE.OrthographicCamera; material: THREE.ShaderMaterial } | null = null;
   private colorTarget: THREE.FramebufferTexture | null = null;
   /** K của camera gốc đang dùng (setCameraPose), null khi nhìn tự do bao quát. */
-  private intrinsics: { fx: number; fy: number; cx: number; cy: number; width: number; height: number } | null = null;
+  private intrinsics: Intrinsics | null = null;
   /** Gọi mỗi khi camera đổi (vị trí, hướng, phép chiếu), để trang ẩn ảnh chính xác cũ. */
   onCameraChange?: () => void;
   private lastView = new THREE.Matrix4();
@@ -275,7 +284,7 @@ export class SplatViewer {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setClearColor(0x0a0d10);
     host.appendChild(this.renderer.domElement);
-    this.camera = new THREE.PerspectiveCamera(60, 1, 0.05, 5000);
+    this.camera = new THREE.PerspectiveCamera(DEFAULT_FOV, 1, 0.05, 5000);
     this.camera.position.set(0, 4, 12);
     this.spark = new SparkRenderer({ renderer: this.renderer });
     this.renderer.setPixelRatio(this.basePixelRatio);
@@ -712,10 +721,36 @@ export class SplatViewer {
     this.camera.position.copy(center).add(new THREE.Vector3(0, radius * 0.75, radius * 0.65));
     this.camera.near = Math.max(0.01, radius / 2000);
     this.camera.far = radius * 40;
+    this.camera.fov = this.fovOverride ?? DEFAULT_FOV;
     this.intrinsics = null;
+    this.native = null;
     this.roll.identity();
     this.updateProjection();
     this.controls.update();
+  }
+
+  /**
+   * Góc nhìn dọc do người xem chọn (độ), dùng thay K của camera gốc; ``null`` là theo camera gốc
+   * (khung nhìn bao quát thì 60°). Thử nghiệm cho camera fisheye: K của fisheye đưa vào phép chiếu
+   * pinhole cho góc nhìn khoảng 119° (ARCHITECTURE mục 2.13).
+   */
+  setFovOverride(deg: number | null): void {
+    this.fovOverride = deg;
+    if (deg !== null) {
+      this.camera.fov = deg;
+      this.intrinsics = null;
+    } else {
+      // Về theo camera gốc: K của camera gốc gần nhất, hoặc 60° ở khung nhìn bao quát.
+      this.camera.fov = this.native?.fov ?? DEFAULT_FOV;
+      this.intrinsics = this.native?.intrinsics ?? null;
+    }
+    this.updateProjection();
+    this.invalidate();
+  }
+
+  /** Góc nhìn dọc đang dùng (độ). */
+  verticalFov(): number {
+    return this.camera.fov;
   }
 
   /**
@@ -734,10 +769,20 @@ export class SplatViewer {
     world.decompose(position, quaternion, new THREE.Vector3());
     this.camera.position.copy(position);
     this.camera.quaternion.copy(quaternion);
-    this.camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(height / (2 * K[4])));
     this.camera.near = 0.05;
     this.camera.far = 5000;
-    this.intrinsics = { fx: K[0], fy: K[4], cx: K[2], cy: K[5], width, height };
+    this.native = {
+      fov: THREE.MathUtils.radToDeg(2 * Math.atan(height / (2 * K[4]))),
+      intrinsics: { fx: K[0], fy: K[4], cx: K[2], cy: K[5], width, height },
+    };
+    if (this.fovOverride === null) {
+      this.camera.fov = this.native.fov;
+      this.intrinsics = this.native.intrinsics;
+    } else {
+      // Góc nhìn người xem chọn: pinhole đối xứng, giữ pose của camera gốc, bỏ K của nó.
+      this.camera.fov = this.fovOverride;
+      this.intrinsics = null;
+    }
     this.updateProjection();
     // Tâm xoay đặt trước mặt camera 10 m, để kéo chuột thì xoay quanh cảnh trước mặt.
     this.controls.target.copy(position).add(new THREE.Vector3(0, 0, -10).applyQuaternion(quaternion));

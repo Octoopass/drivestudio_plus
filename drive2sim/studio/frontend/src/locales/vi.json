@@ -699,5 +699,8 @@
   "densify.mcmc.noise_lr": "Hệ số nhiễu vị trí",
   "densify.mcmc.opacity_reg": "Điều chuẩn độ đục",
   "densify.mcmc.scale_reg": "Điều chuẩn kích thước",
-  "densify.source": "Đọc từ config.yaml của stage train (đã gộp override dòng lệnh)."
+  "densify.source": "Đọc từ config.yaml của stage train (đã gộp override dòng lệnh).",
+  "viewer.field.fov": "Góc nhìn",
+  "viewer.field.fov_hint": "Góc nhìn dọc của camera trong trình duyệt (thử nghiệm). Mặc định theo camera gốc: camera pinhole thì đúng ảnh gốc; camera fisheye (KITTI-360 image_02, image_03) thì trình duyệt chỉ vẽ được pinhole nên góc khoảng 119°, mép ảnh bị kéo giãn. Kéo thanh trượt để dùng pinhole với góc nhìn tự chọn, giữ vị trí và hướng của camera; ảnh chính xác đè lên vẽ cùng góc đó.",
+  "viewer.fov.native": "Theo camera gốc"
 }
