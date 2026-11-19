@@ -19,7 +19,7 @@ import { DEFAULT_FOV, novelTrajectory, SplatViewer, upAxisFromCameras, type Huma
 
 /** Khoảng của thanh trượt góc nhìn dọc (độ). */
 const FOV_MIN = 30;
-const FOV_MAX = 120;
+const FOV_MAX = 160;
 
 /** Trục lên ghi trong phần đầu file PLY do tool xuất ("comment drive2sim up=+z ..."), nếu có. */
 async function headerUpAxis(picked: File): Promise<UpAxis | null> {
