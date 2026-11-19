@@ -65,7 +65,40 @@ export interface RunDetail extends RunRecord {
   train_params?: Record<string, unknown>;
   summary: Summary | null;
   env: EnvRecord | null;
+  /** Lịch densify hiệu lực từ ``config.yaml`` của stage train (engine/densify_info.py); ``null`` khi train chưa bắt đầu. */
+  densify?: DensifyInfo | null;
   run_dir: string;
+}
+
+export type DensifyKey =
+  | "warmup_steps"
+  | "refine_interval"
+  | "densify_grad_thresh"
+  | "densify_size_thresh"
+  | "cull_alpha_thresh"
+  | "reset_alpha_interval"
+  | "stop_split_at";
+
+export interface DensifyInfo {
+  rule: "default" | "fastgs" | "mcmc";
+  /** ``render_mode`` của DriveStudio: ``default`` (3DGS), ``ut`` (3DGUT), ``geer`` (3DGEER). */
+  renderer: string;
+  /** Đại lượng so với ngưỡng: gradient 2D (có/không absgrad), 3D (3DGUT gốc), screen, geer. */
+  statistic: "2d_abs" | "2d" | "3d" | "screen" | "geer";
+  nodes: Record<string, Partial<Record<DensifyKey, number>>>;
+  fastgs?: Record<string, unknown>;
+  mcmc?: {
+    refine_start_iter: number;
+    refine_stop_iter: number;
+    refine_every: number;
+    grow_rate: number;
+    min_opacity: number;
+    noise_lr: number;
+    opacity_reg: number;
+    scale_reg: number;
+    classes: string[];
+    caps: Record<string, number>;
+  };
 }
 
 export interface RunLog {

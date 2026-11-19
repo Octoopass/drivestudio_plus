@@ -33,6 +33,7 @@ from drive2sim.core.schema import Preview, RunRecord
 from drive2sim.engine import housekeeping
 from drive2sim.engine.approaches import load_approach
 from drive2sim.engine.artifacts import run_artifacts, train_curve
+from drive2sim.engine.densify_info import load_densify_info
 from drive2sim.engine.environment import require_local_environment
 from drive2sim.engine.registry import produces_artifact
 from drive2sim.engine.render_check import render_readiness
@@ -198,9 +199,12 @@ def get_runs(
 
 @router.get("/api/runs/{run_id}")
 def get_run(run_id: str, request: Request) -> dict:
-    """Trả về ``run.json`` cộng ``remote`` (``_remote``), ``summary`` (nếu đã có), ``env``.
+    """Trả về ``run.json`` cộng ``remote``, ``summary`` (nếu đã có), ``env``, ``densify``.
 
-    ``env`` là nội dung ``env.json``.
+    ``remote`` là trạng thái phía Kaggle (``_remote``).
+
+    ``env`` là nội dung ``env.json``; ``densify`` là lịch densify hiệu lực đọc từ ``config.yaml``
+    của stage train (``densify_info``), ``null`` khi train chưa bắt đầu.
     """
     run_dir, record = _load(request, run_id)
     summary = load_summary(run_dir)
@@ -210,6 +214,7 @@ def get_run(run_id: str, request: Request) -> dict:
     data["summary"] = summary.model_dump(mode="json") if summary else None
     env = load_env(run_dir)
     data["env"] = env.model_dump(mode="json") if env else None
+    data["densify"] = load_densify_info(run_dir)
     data["run_dir"] = state_of(request).workdir.relative(run_dir)
     return data
 

@@ -310,6 +310,8 @@ def test_run_lifecycle(client: TestClient) -> None:
     # env.json ghi máy đã chạy run (ghi lúc bắt đầu chạy, không phải lúc tạo run)
     assert len(run["env"]["machines"]) == 1
     assert run["env"]["machines"][0]["cpu_cores"] > 0
+    # approach toy không có stage train.drivestudio nên không có lịch densify
+    assert run["densify"] is None
     assert client.get("/api/runs", params={"scene_id": SCENE}).json()["total"] == 1
     assert client.get("/api/runs", params={"status": "failed"}).json()["total"] == 0
     log = client.get(f"/api/runs/{run_id}/log").json()

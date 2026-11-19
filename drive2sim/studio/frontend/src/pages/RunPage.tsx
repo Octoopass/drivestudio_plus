@@ -11,6 +11,7 @@ import { StageRoad } from "../components/StageRoad";
 import { ago, Confirm, count, duration, Empty, ErrorBox, fixed, InfoTip, Loading, Note, PageHead, Status, Tabs, useToast } from "../components/ui";
 import { ConfigText, paramsLabel, useApproaches } from "../components/ConfigText";
 import { SpeedupText } from "../components/SpeedupText";
+import { DensifyText } from "../components/DensifyInfo";
 import { useI18n } from "../i18n";
 import { useLive } from "../live";
 import { BetterArrow, visibleGroups } from "../metrics";
@@ -182,6 +183,12 @@ export function RunPage({ runId }: { runId: string }) {
                       <SpeedupText speedups={summary.speedups} />
                     </div>
                   )}
+                </dd>
+              </div>
+              <div>
+                <dt>{t("run.facts.densify")}</dt>
+                <dd>
+                  <DensifyText info={data.densify} />
                 </dd>
               </div>
               <div>

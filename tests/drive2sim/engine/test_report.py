@@ -97,8 +97,13 @@ def test_preview_stats_counts_spz(tmp_path: Path) -> None:
 
     folder = tmp_path / "export.preview"
     (folder / "humans").mkdir(parents=True)
-    for path, count in ((folder / "background.spz", 3000), (folder / "humans" / "smpl_0000.spz", 70)):
-        path.write_bytes(gzip.compress(struct.pack("<IIIBBBB", 0x5053474E, 3, count, 3, 12, 0, 0) + b"\0" * 8))
+    for path, count in (
+        (folder / "background.spz", 3000),
+        (folder / "humans" / "smpl_0000.spz", 70),
+    ):
+        path.write_bytes(
+            gzip.compress(struct.pack("<IIIBBBB", 0x5053474E, 3, count, 3, 12, 0, 0) + b"\0" * 8)
+        )
     (folder / "humans" / "broken.spz").write_bytes(b"not gzip")  # file hỏng không tính, không lỗi
     (folder / "preview.json").write_text("{}")
     count, _ = preview_stats(folder)

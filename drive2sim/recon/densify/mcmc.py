@@ -32,6 +32,8 @@ from typing import Any, Optional
 import torch
 from torch.nn import Parameter
 
+from drive2sim.recon.densify.mcmc_defaults import DEFAULT_CLASSES, DEFAULTS, caps_for
+
 # Tham số Gaussian của node (tên trong get_gaussian_param_groups bỏ tiền tố) → thuộc tính.
 PARAMS = {
     "xyz": "_means",
@@ -43,11 +45,6 @@ PARAMS = {
 }
 # Dữ liệu riêng mỗi Gaussian không phải tham số, chép theo khi dời hay thêm.
 PER_POINT_BUFFERS = ("point_ids",)
-DEFAULT_CLASSES = ("Background", "RigidNodes", "DeformableNodes")
-# Ngân sách mặc định mỗi node. Nền: 1 triệu như mặc định của gsplat; nuScenes scene-0061 khởi tạo
-# khoảng 0,66 triệu Gaussian nền (LiDAR và điểm ngẫu nhiên), nên ngân sách thấp hơn số đó thì MCMC
-# chỉ dời mà không bao giờ thêm (MCMC không xoá Gaussian).
-DEFAULT_CAPS = {"Background": 1_000_000, "RigidNodes": 50_000, "DeformableNodes": 10_000}
 N_MAX = 51  # số bản tối đa của một Gaussian trong một lần dời, như gsplat
 
 
@@ -126,20 +123,15 @@ class MCMC:
         cfg = dict(cfg or {})
         self.enabled = bool(cfg.get("enabled", False))
         self.classes = tuple(cfg.get("classes", DEFAULT_CLASSES))
-        cap = cfg.get("cap_max", None)
-        self.caps = dict(DEFAULT_CAPS)
-        if isinstance(cap, (int, float)):
-            self.caps = {name: int(cap) for name in self.classes}
-        elif cap:
-            self.caps.update({k: int(v) for k, v in dict(cap).items()})
-        self.noise_lr = float(cfg.get("noise_lr", 5e5))
-        self.min_opacity = float(cfg.get("min_opacity", 0.005))
-        self.refine_start = int(cfg.get("refine_start_iter", 500))
-        self.refine_stop = int(cfg.get("refine_stop_iter", 25_000))
-        self.refine_every = int(cfg.get("refine_every", 100))
-        self.grow_rate = float(cfg.get("grow_rate", 0.05))
-        self.opacity_reg = float(cfg.get("opacity_reg", 0.01))
-        self.scale_reg = float(cfg.get("scale_reg", 0.01))
+        self.caps = caps_for(cfg.get("cap_max", None), self.classes)
+        self.noise_lr = float(cfg.get("noise_lr", DEFAULTS["noise_lr"]))
+        self.min_opacity = float(cfg.get("min_opacity", DEFAULTS["min_opacity"]))
+        self.refine_start = int(cfg.get("refine_start_iter", DEFAULTS["refine_start_iter"]))
+        self.refine_stop = int(cfg.get("refine_stop_iter", DEFAULTS["refine_stop_iter"]))
+        self.refine_every = int(cfg.get("refine_every", DEFAULTS["refine_every"]))
+        self.grow_rate = float(cfg.get("grow_rate", DEFAULTS["grow_rate"]))
+        self.opacity_reg = float(cfg.get("opacity_reg", DEFAULTS["opacity_reg"]))
+        self.scale_reg = float(cfg.get("scale_reg", DEFAULTS["scale_reg"]))
 
     def applies(self, class_name: str) -> bool:
         """Node này densify bằng MCMC không."""
