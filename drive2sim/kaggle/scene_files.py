@@ -8,14 +8,22 @@ camera để xem model bằng renderer gốc (Render GPU, ảnh chính xác củ
 
 Notebook in các file này vào log (đọc bằng một lệnh API), vì ``kaggle kernels output`` liệt kê mọi
 file của output trước khi lọc, kể cả với ``--file-pattern``, và output của cảnh lớn đủ làm Kaggle
-trả 429 (đã gặp với KITTI-360 0003).
+trả 429 (đã gặp với KITTI-360 0003). Payload chia thành dòng ngắn có đánh số (``write_log_lines``):
+ghi 1,5 MB bằng một lần ``os.write`` không nguyên tử, dòng stdout của notebook chen vào giữa chuỗi
+base64 và làm hỏng nó (đã gặp với KITTI-360 0003, 876 file).
 
 Chỉ dùng thư viện chuẩn: notebook trên Kaggle import file này từ repo vừa clone, không cài gói.
 
-File này chứa ``light_scene_files``, ``missing_view_files``, ``write_scene_files``.
+File này chứa ``light_scene_files``, ``missing_view_files``, ``write_scene_files``,
+``write_log_lines``, ``read_log_lines``.
 """
 
+import base64
+import json
+import os
+import re
 from pathlib import Path
+from typing import Optional
 
 # Thư mục pose, calib mà loader đọc ở chế độ viewer (CONTRACTS mục 2.1).
 VIEW_DIRS = ("intrinsics", "extrinsics", "ego_pose", "lidar_pose")
@@ -24,6 +32,9 @@ POSE_DIRS = ("ego_pose", "lidar_pose")
 TOP_LEVEL_SUFFIXES = (".yaml", ".txt", ".json")
 # Giới hạn tổng dung lượng in vào log; nuScenes 1 cảnh khoảng 5 MB (extrinsics theo từng khung).
 MAX_BYTES = 32 * 1024 * 1024
+# Mỗi dòng log tối đa bao nhiêu byte: ghi vào pipe không quá PIPE_BUF (4096 trên Linux) là nguyên
+# tử, nên stdout không chen được vào giữa một dòng.
+LOG_LINE_BYTES = 4000
 
 
 def light_scene_files(scene: Path) -> dict[str, str]:
@@ -101,3 +112,58 @@ def write_scene_files(scene: Path, files: dict[str, str]) -> list[str]:
         target.write_text(text, "utf-8")
         written.append(name)
     return written
+
+
+def write_log_lines(marker: str, payload: dict, fd: int = 2) -> None:
+    """Ghi ``payload`` (JSON) vào log thành các dòng ``<marker> <i>/<n> <base64>``.
+
+    Mỗi dòng ghi bằng một lần ``os.write`` riêng, dài không quá ``LOG_LINE_BYTES``, để không bị
+    output khác chen vào giữa.
+
+    Args:
+        marker: Chữ đánh dấu, ví dụ ``D2S_SCENE_FILES``.
+        payload: Dict ghi được bằng ``json.dumps``.
+        fd: File descriptor; mặc định stderr (Kaggle giữ stderr trong ``kaggle kernels logs``).
+    """
+    data = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
+    width = LOG_LINE_BYTES - len(marker) - 32  # chừa chỗ cho chữ đánh dấu, số thứ tự, xuống dòng
+    chunks = [data[start : start + width] for start in range(0, len(data), width)] or [""]
+    for index, chunk in enumerate(chunks):
+        os.write(fd, f"\n{marker} {index}/{len(chunks)} {chunk}\n".encode("ascii"))
+
+
+def read_log_lines(marker: str, logs: str) -> Optional[dict]:
+    """Ghép lại payload mà ``write_log_lines`` ghi vào log.
+
+    Đọc cả dạng một dòng ``<marker> <base64>`` của notebook cũ.
+
+    Args:
+        marker: Chữ đánh dấu.
+        logs: Toàn bộ log.
+
+    Returns:
+        Payload; ``None`` nếu log không có chữ đánh dấu.
+
+    Raises:
+        ValueError: Nếu thiếu đoạn, các đoạn không cùng tổng số, hoặc dữ liệu không đọc được.
+    """
+    found = re.findall(re.escape(marker) + r" (\d+)/(\d+) ([A-Za-z0-9+/=]*)\n", logs)
+    if not found:
+        legacy = re.search(re.escape(marker) + r" ([A-Za-z0-9+/=]+)", logs)
+        if legacy is None:
+            return None
+        data = legacy.group(1)
+    else:
+        totals = {int(total) for _, total, _ in found}
+        if len(totals) != 1:
+            raise ValueError(f"log có {marker} của nhiều lần ghi khác nhau")
+        total = totals.pop()
+        parts = {int(index): chunk for index, _, chunk in found}
+        missing = sorted(set(range(total)) - set(parts))
+        if missing:
+            raise ValueError(f"log thiếu {len(missing)}/{total} đoạn {marker}")
+        data = "".join(parts[index] for index in range(total))
+    try:
+        return json.loads(base64.b64decode(data).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as error:
+        raise ValueError(f"không đọc được {marker} trong log: {error}") from None

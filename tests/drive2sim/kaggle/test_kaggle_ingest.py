@@ -10,9 +10,9 @@ File này kiểm tra:
   cảnh cũ trên máy không bị thay âm thầm.
 """
 
-import base64
 import copy
 import json
+import os
 import re
 import shutil
 from pathlib import Path
@@ -29,7 +29,7 @@ from drive2sim.ingest.validate import validate_scene
 from drive2sim.kaggle import executor, ingest
 from drive2sim.kaggle.bundle import materialize, read_bundle
 from drive2sim.kaggle.client import KaggleError
-from drive2sim.kaggle.scene_files import light_scene_files
+from drive2sim.kaggle.scene_files import light_scene_files, write_log_lines
 from tests.drive2sim.kaggle.test_kaggle import (
     RUN_ID,
     SCENE,
@@ -42,6 +42,18 @@ from tests.drive2sim.samples import MANIFEST
 SOURCE = "alice/nuscenes-raw"
 REQUEST = ingest.IngestRequest(SOURCE, "", ("--sequence", "scene-0061"))
 COMMIT = "c0ffee" * 6 + "abcd"
+
+
+def log_text(folder: Path, marker: str, payload: dict) -> str:
+    """Log như notebook thật ghi bằng ``write_log_lines``, có dòng stdout chen giữa."""
+    path = folder / f"{marker}.log"
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
+    try:
+        write_log_lines(marker, payload, fd=fd)
+    finally:
+        os.close(fd)
+    lines = path.read_text().splitlines(keepends=True)
+    return "pip ...\n" + lines[0] + "stdout của notebook\n" + "".join(lines[1:])
 
 
 class FakeIngestKaggle(FakeKaggle):
@@ -95,14 +107,12 @@ class FakeIngestKaggle(FakeKaggle):
                     if name == "manifest.yaml" or name.startswith("reports/")
                 }
             light = {"result": result, "files": light_files}
-            encoded = base64.b64encode(json.dumps(light).encode()).decode()
-            self.logs[metadata["id"]] = f"pip ...\n{ingest.LIGHT_MARKER} {encoded}\n"
+            self.logs[metadata["id"]] = log_text(self.root, ingest.LIGHT_MARKER, light)
         if name == "scene_files.ipynb":  # notebook lấy bù: đọc cảnh trong output ingest đã gắn
             source = metadata["kernel_sources"][0]
             scene = self.root / "output" / source.split("/")[1] / "data" / SCENE
             light = {"scene_id": SCENE, "files": light_scene_files(scene)}
-            encoded = base64.b64encode(json.dumps(light).encode()).decode()
-            self.logs[metadata["id"]] = f"git ...\n{ingest.SCENE_FILES_MARKER} {encoded}\n"
+            self.logs[metadata["id"]] = log_text(self.root, ingest.SCENE_FILES_MARKER, light)
 
     def kernel_status(self, slug: str) -> str:
         """Notebook chưa đẩy thì báo 404 như Kaggle."""
@@ -402,3 +412,20 @@ def test_fetch_scene_files_refuses_local_scene(tmp_path: Path, fake: FakeIngestK
     files.dump(Manifest.model_validate(MANIFEST), scene_dir / "manifest.yaml")
     with pytest.raises(KaggleError, match="không phải cảnh ingest trên Kaggle"):
         ingest.fetch_scene_files(workdir, SCENE, client=fake, sleep=lambda s: None)
+
+
+def test_fetch_scene_files_repushes_when_log_is_corrupted(
+    tmp_path: Path, fake: FakeIngestKaggle
+) -> None:
+    # Notebook lấy bù theo dạng một dòng cũ: stdout chen vào giữa base64 (đã gặp với KITTI-360).
+    fake.light_pose = False
+    workdir = Workdir(tmp_path / "work")
+    workdir.root.mkdir()
+    scene_dir = ingest.ingest_on_kaggle(workdir, REQUEST, client=fake, sleep=lambda s: None)
+    files_kernel = f"alice/{REQUEST.kernel_name()}".replace("/d2s-ingest-", "/d2s-files-")
+    fake.kernels[files_kernel] = {"metadata": {}, "notebook": {}}
+    fake.logs[files_kernel] = f"{ingest.SCENE_FILES_MARKER} eyJzY2VuZV9pZCI6kitti360_drive0003\n"
+    count = len(fake.pushed)
+    written = ingest.fetch_scene_files(workdir, SCENE, client=fake, sleep=lambda s: None)
+    assert fake.pushed[count:] == [files_kernel]
+    assert "lidar_pose/000.txt" in written and (scene_dir / "lidar_pose").is_dir()

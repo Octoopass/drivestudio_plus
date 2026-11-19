@@ -21,9 +21,7 @@ File này chứa ``KaggleSceneRef``, ``IngestRequest``, ``load_scene_refs``, ``l
 ``build_ingest_notebook``, ``read_light_files``, ``ingest_on_kaggle``.
 """
 
-import base64
 import json
-import re
 import tempfile
 import time
 from collections.abc import Callable, Sequence
@@ -42,7 +40,7 @@ from drive2sim.ingest.manifest import outdated_output_version
 from drive2sim.kaggle import names
 from drive2sim.kaggle.client import KaggleClient, KaggleError
 from drive2sim.kaggle.executor import code_source
-from drive2sim.kaggle.scene_files import missing_view_files, write_scene_files
+from drive2sim.kaggle.scene_files import missing_view_files, read_log_lines, write_scene_files
 
 TEMPLATE = paths.PACKAGE_DIR / "kaggle" / "templates" / "ingest.ipynb"
 SCENE_FILES_TEMPLATE = paths.PACKAGE_DIR / "kaggle" / "templates" / "scene_files.ipynb"
@@ -226,12 +224,13 @@ def read_light_files(client: KaggleClient, kernel: str) -> Optional[dict]:
 
     Returns:
         ``{"result": <ingest_result.json>, "files": {đường dẫn trong cảnh: nội dung}}``, hoặc
-        ``None`` nếu log không có dòng đánh dấu (notebook theo template cũ, hoặc chưa xong).
+        ``None`` nếu log không có dòng đánh dấu (notebook theo template cũ, hoặc chưa xong) hoặc
+        dữ liệu trong log hỏng (khi đó đẩy lại notebook).
     """
-    match = re.search(LIGHT_MARKER + r" ([A-Za-z0-9+/=]+)", client.kernel_logs(kernel))
-    if match is None:
+    try:
+        return read_log_lines(LIGHT_MARKER, client.kernel_logs(kernel))
+    except ValueError:
         return None
-    return json.loads(base64.b64decode(match.group(1)).decode("utf-8"))
 
 
 def _signature(light: dict) -> dict:
@@ -455,11 +454,16 @@ def build_scene_files_notebook(
 
 
 def _read_scene_files(client: KaggleClient, kernel: str) -> Optional[dict]:
-    """``{"scene_id", "files"}`` mà notebook lấy bù in vào log; ``None`` nếu log chưa có."""
-    match = re.search(SCENE_FILES_MARKER + r" ([A-Za-z0-9+/=]+)", client.kernel_logs(kernel))
-    if match is None:
+    """``{"scene_id", "files"}`` mà notebook lấy bù in vào log.
+
+    Returns:
+        Payload; ``None`` nếu log chưa có, hoặc dữ liệu hỏng (notebook ghi theo dạng một dòng cũ,
+        bị stdout chen vào): khi đó đẩy lại notebook.
+    """
+    try:
+        return read_log_lines(SCENE_FILES_MARKER, client.kernel_logs(kernel))
+    except ValueError:
         return None
-    return json.loads(base64.b64decode(match.group(1)).decode("utf-8"))
 
 
 def fetch_scene_files(

@@ -1,13 +1,19 @@
 """Test ``drive2sim.kaggle.scene_files``: tập file nhỏ của cảnh ingest trên Kaggle."""
 
+import base64
+import json
+import os
 from pathlib import Path
 
 import pytest
 
 from drive2sim.kaggle.scene_files import (
+    LOG_LINE_BYTES,
     MAX_BYTES,
     light_scene_files,
     missing_view_files,
+    read_log_lines,
+    write_log_lines,
     write_scene_files,
 )
 
@@ -94,3 +100,32 @@ def test_write_scene_files_rejects_paths_outside_scene(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="đường dẫn lạ"):
         write_scene_files(scene, {"../escape.txt": "x"})
     assert not (tmp_path / "escape.txt").exists()
+
+
+def test_log_lines_survive_interleaved_output(tmp_path: Path) -> None:
+    pose = "1 0 0 0\n" * 40
+    payload = {"scene_id": "s", "files": {f"ego_pose/{i:03d}.txt": pose for i in range(300)}}
+    path = tmp_path / "log"
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT)
+    try:
+        write_log_lines("D2S_TEST", payload, fd=fd)
+    finally:
+        os.close(fd)
+    text = path.read_text()
+    lines = text.splitlines(keepends=True)
+    assert len(lines) > 3 and all(len(line.encode()) <= LOG_LINE_BYTES for line in lines)
+    # Kaggle chèn stdout giữa các dòng, và trả log theo từng đoạn nối lại.
+    stdout = "kitti360_drive0003 876 file\n"
+    mixed = "pip ...\n" + "".join(
+        line + (stdout if i == 1 else "") for i, line in enumerate(lines)
+    )
+    assert read_log_lines("D2S_TEST", mixed) == payload
+
+
+def test_read_log_lines_reports_missing_chunk_and_reads_legacy() -> None:
+    payload = {"a": 1}
+    encoded = base64.b64encode(json.dumps(payload).encode()).decode()
+    assert read_log_lines("D2S_TEST", f"x\nD2S_TEST {encoded}\n") == payload  # dạng một dòng cũ
+    assert read_log_lines("D2S_TEST", "không có gì") is None
+    with pytest.raises(ValueError, match="thiếu"):
+        read_log_lines("D2S_TEST", "D2S_TEST 0/2 abcd\n")
