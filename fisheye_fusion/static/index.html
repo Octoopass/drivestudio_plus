@@ -4,7 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Fisheye Fusion Lab - Studio</title>
-  <link rel="stylesheet" href="/static/pipeline.css?v=20261119n">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+  <link rel="stylesheet" href="/static/pipeline.css?v=20261119q">
 </head>
 <body data-view="focus">
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -13,6 +16,9 @@
     <symbol id="i-scene" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol>
     <symbol id="i-results" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></symbol>
     <symbol id="i-gpu" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/></symbol>
+    <symbol id="i-lens" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M14.3 3.3 9 12.5M20.6 9.6 10 9.6M18 19.3 12.7 10.1M9.7 20.7 15 11.5M3.4 14.4H14M6 4.7l5.3 9.2"/></symbol>
     <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
     <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M8 16H3v5"/></symbol>
     <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></symbol>
@@ -25,12 +31,13 @@
   <div class="shell">
     <aside class="side">
       <div class="brand">
-        <div class="brand-badge">3DGS · FISHEYE · LIDAR</div>
-        <strong>Fisheye Fusion Lab Studio</strong>
-        <span>Benchmark &amp; Dựng cảnh lái xe đa phương pháp</span>
+        <span class="brand-mark" aria-hidden="true"><svg class="ic"><use href="#i-lens"/></svg></span>
+        <div class="brand-badge" id="brandBadge">3DGS · FISHEYE · LIDAR</div>
+        <strong id="brandName">Fisheye Fusion Lab Studio</strong>
+        <span id="brandTagline">Benchmark &amp; Dựng cảnh lái xe đa phương pháp</span>
       </div>
       <nav id="steps" aria-label="Các bước">
-        <a href="#overview" data-step="data" aria-current="true"><svg class="ic"><use href="#i-overview"/></svg><span>Tổng quan</span></a>
+        <a href="#overview" data-step="data" aria-current="true"><svg class="ic"><use href="#i-overview"/></svg><span>Tổng quan</span><span class="nav-badge" id="navDepsBadge" hidden></span></a>
         <a href="#step-convert" data-step="convert"><svg class="ic"><use href="#i-data"/></svg><span><b>1</b> Dữ liệu</span></a>
         <a href="#step-train" data-step="nurec"><svg class="ic"><use href="#i-scene"/></svg><span><b>2</b> Huấn luyện / Dựng</span></a>
         <a href="#step-results" data-step="results"><svg class="ic"><use href="#i-results"/></svg><span><b>3</b> Bảng xếp hạng &amp; Video</span></a>
@@ -54,7 +61,7 @@
           <div class="quick-jump">
             <button type="button" class="small" data-goto="step-convert">1. Dữ liệu</button>
             <button type="button" class="small" data-goto="step-train">2. Train / Dựng</button>
-            <button type="button" class="primary small" data-goto="step-results">3. Kết quả &amp; Video</button>
+            <button type="button" class="small" data-goto="step-results">3. Kết quả &amp; Video</button>
           </div>
         </header>
         <div class="kpis" id="dsKpis" aria-live="polite"></div>
@@ -195,8 +202,8 @@
                   <details id="colabNewBox">
                     <summary>+ Tạo phiên Colab mới</summary>
                     <div class="row-inline">
-                      <label class="grow">Tên phiên <input id="colabNewName" value="fisheye-lab" maxlength="64" pattern="[A-Za-z0-9_.\-]{1,64}"></label>
-                      <label>Máy <select id="colabNewGpu"><option value="">CPU (đủ để tải dữ liệu)</option><option>T4</option><option>L4</option><option>A100</option></select></label>
+                      <label class="grow">Tên phiên <input id="colabNewName" value="" maxlength="64" pattern="[A-Za-z0-9_.\-]{1,64}"></label>
+                      <label>Máy <select id="colabNewGpu"><option value="">CPU (đủ để tải dữ liệu)</option></select></label>
                       <button type="button" class="primary small" id="colabCreate">Tạo phiên</button>
                     </div>
                   </details>
@@ -311,7 +318,7 @@
       <section class="sec" id="step-train" aria-labelledby="h-train">
         <header class="sec-head">
           <h2 id="h-train"><b>2</b> Huấn luyện &amp; Dựng cảnh</h2>
-          <p class="lead">Chọn dữ liệu và phương pháp, rồi chạy trên GPU của máy ảo hoặc trên GPU Colab (T4/L4/A100) bằng tài khoản Google đã kết nối ở bước 1.</p>
+          <p class="lead">Chọn dữ liệu và phương pháp, rồi chạy trên GPU của máy chủ hoặc trên GPU Colab bằng tài khoản Google đã kết nối ở bước 1.</p>
         </header>
         <div class="tabs" role="tablist" aria-label="Phương pháp dựng cảnh">
           <button role="tab" id="t-train-ds" aria-controls="p-train-ds" aria-selected="true">DriveStudio+ (Per-scene)</button>
@@ -367,7 +374,7 @@
                 <button type="button" role="tab" class="src-card" id="tgt-local" aria-controls="tgtPaneLocal" aria-selected="true">
                   <svg class="ic"><use href="#i-server"/></svg><span><b>GPU máy ảo</b><small id="tgtLocalInfo">Đang đọc GPU…</small></span></button>
                 <button type="button" role="tab" class="src-card" id="tgt-colab" aria-controls="tgtPaneColab" aria-selected="false" tabindex="-1">
-                  <svg class="ic"><use href="#i-cloud"/></svg><span><b>Colab GPU</b><small id="tgtColabInfo">T4 / L4 / A100 qua tài khoản Google</small></span></button>
+                  <svg class="ic"><use href="#i-cloud"/></svg><span><b>Colab GPU</b><small id="tgtColabInfo">GPU Colab qua tài khoản Google</small></span></button>
               </div>
               <div class="tf-body" id="tgtPaneLocal" role="tabpanel" aria-labelledby="tgt-local">
                 <label class="span2">GPU <select name="gpu"></select><small id="dsTrainHint"></small></label>
@@ -380,13 +387,8 @@
                 </div>
                 <label>Phiên Colab <select id="tcSession"><option value="">Đang tải…</option></select></label>
                 <label id="tcNewWrap">GPU cho phiên mới
-                  <select id="tcGpu">
-                    <option value="T4" selected>T4 · 16 GB (miễn phí)</option>
-                    <option value="L4">L4 · 24 GB (Pro)</option>
-                    <option value="A100">A100 · 40/80 GB (Pro)</option>
-                    <option value="H100">H100 · 80 GB (Pro)</option>
-                  </select></label>
-                <label id="tcNameWrap">Tên phiên mới <input id="tcName" value="fflab-gpu" pattern="[A-Za-z0-9_.\-]{1,64}" spellcheck="false"></label>
+                  <select id="tcGpu"><option value="">Đang tải…</option></select></label>
+                <label id="tcNameWrap">Tên phiên mới <input id="tcName" value="" pattern="[A-Za-z0-9_.\-]{1,64}" spellcheck="false"></label>
                 <div class="span2 row-inline">
                   <a class="btn small" id="tcOpen" target="_blank" rel="noopener" hidden>Mở phiên trong Colab <svg class="ic sm"><use href="#i-ext"/></svg></a>
                   <button type="button" class="small" id="tcStop" hidden>Dừng phiên (trả GPU)</button>
@@ -545,12 +547,13 @@
   </div>
 
   <div id="toast" class="toast" role="alert" hidden></div>
-  <script type="module" src="/static/pipeline.js?v=20261119n"></script>
-  <script type="module" src="/static/drivestudio.js?v=20261119n"></script>
-  <script type="module" src="/static/train.js?v=20261119n"></script>
-  <script type="module" src="/static/datasets.js?v=20261119n"></script>
-  <script type="module" src="/static/import.js?v=20261119n"></script>
-  <script type="module" src="/static/colab.js?v=20261119n"></script>
-  <script type="module" src="/static/deps.js?v=20261119n"></script>
+  <script type="module" src="/static/pipeline.js?v=20261119q"></script>
+  <script type="module" src="/static/drivestudio.js?v=20261119q"></script>
+  <script type="module" src="/static/train.js?v=20261119q"></script>
+  <script type="module" src="/static/datasets.js?v=20261119q"></script>
+  <script type="module" src="/static/import.js?v=20261119q"></script>
+  <script type="module" src="/static/colab.js?v=20261119q"></script>
+  <script type="module" src="/static/ui.js?v=20261119q"></script>
+  <script type="module" src="/static/deps.js?v=20261119q"></script>
 </body>
 </html>

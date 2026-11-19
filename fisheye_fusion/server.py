@@ -62,7 +62,7 @@ class ReconstructionJob(BaseModel):
 
 class ConvertJob(BaseModel):
     dataset: str = Field(min_length=1, max_length=512)
-    sequence: str = "2013_05_28_drive_0003_sync"
+    sequence: str = Field(min_length=1, max_length=80)
     start: int = Field(default=0, ge=0)
     frames: int = Field(default=40, ge=2, le=2000)
     cameras: list[str] = Field(default_factory=lambda: ["image_00", "image_01", "image_02", "image_03"], max_length=4)
@@ -88,7 +88,7 @@ class DriveStudioJob(BaseModel):
 
 class PrepareJob(BaseModel):
     dataset: str = Field(min_length=1, max_length=512)
-    sequence: str = "2013_05_28_drive_0003_sync"
+    sequence: str = Field(min_length=1, max_length=80)
     start: int = Field(default=0, ge=0)
     frames: int = Field(default=100, ge=2, le=2000)
     name: str = ""
@@ -107,20 +107,20 @@ class DriveSyncJob(BaseModel):
     mode: Literal["dataset", "runs", "folder"] = "dataset"
     dataset: str = Field(default="", pattern=r"^[a-z0-9]{0,32}$")
     items: list[str] = Field(default_factory=list, max_length=200)
-    drive_path: str = Field(default="/content/drive/MyDrive/datasets/kitti360_full", min_length=15, max_length=512)
-    sequence: str = "2013_05_28_drive_0003_sync"
-    session: str = Field(default="fisheye-lab", pattern=r"^[A-Za-z0-9_.-]{1,64}$")
+    drive_path: str = Field(default="", max_length=512)
+    sequence: str = Field(default="", max_length=80)
+    session: str = Field(default="", pattern=r"^[A-Za-z0-9_.-]{0,64}$")       # empty = settings colab.data_session
     dest: str = "" 
 
 class ColabSession(BaseModel):
     session: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,64}$")
 
 class ColabNew(ColabSession):
-    gpu: Literal["", "T4", "L4", "A100", "H100", "G4"] = ""
+    gpu: str = Field(default="", max_length=16)          # one of settings colab.gpus, or "" for CPU
 
 class ColabTrainJob(DriveStudioJob):
     session: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,64}$")
-    colab_gpu: Literal["T4", "L4", "A100", "H100", "G4"] = "T4"
+    colab_gpu: str = Field(default="", max_length=16)    # one of settings colab.gpus; "" = default_gpu
     scene: int = Field(default=0, ge=0, le=999)
     with_ckpt: bool = True
 
@@ -194,17 +194,21 @@ def create_app():
     from .training import TrainingManager
     from .drivestudio import DriveStudioRuns
     from .uploads import UploadManager
-    uploads = UploadManager(WORKSPACE)
+    from .settings import Settings
+    settings = Settings(WORKSPACE)
+    uploads = UploadManager(WORKSPACE, ssh_user=settings.data["app"]["ssh_user"], ssh_host=settings.data["app"]["ssh_host"])
     from .colab import ColabHelper
-    drivestudio = DriveStudioRuns(WORKSPACE)
+    drivestudio = DriveStudioRuns(WORKSPACE, venv=settings.path("ds_venv"))
     reconstruction = ReconstructionManager(WORKSPACE)
     training = TrainingManager(WORKSPACE)
     pipeline = PipelineManager(WORKSPACE)
-    colab = ColabHelper(lambda: pipeline.discovery.colab_bin)
+    pipeline.default_session = settings.data["colab"]["data_session"]
+    pipeline.discovery.eval_venv = settings.path("eval_venv")
+    colab = ColabHelper(lambda: pipeline.discovery.colab_bin, gpus=[g["id"] for g in settings.gpus])
     from .colab_train import ColabTrainer
-    colab_train = ColabTrainer(WORKSPACE, colab, drivestudio)
+    colab_train = ColabTrainer(WORKSPACE, colab, drivestudio, settings)
     from .deps import Deps
-    deps = Deps(WORKSPACE, pipeline, drivestudio.venv)
+    deps = Deps(WORKSPACE, pipeline, drivestudio.venv, settings)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -418,6 +422,10 @@ def create_app():
     @app.post("/api/upload/cancel")
     def upload_cancel(job: UploadTarget):
         return uploads.cancel(job.target)
+
+    @app.get("/api/config")
+    def public_config():
+        return settings.public()
 
     @app.get("/api/deps")
     def deps_status():

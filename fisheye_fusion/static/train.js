@@ -18,6 +18,15 @@ async function busy(btn, fn) {
   try { return await fn(); } catch (err) { toast(err.message, true); return undefined; } finally { btn.disabled = false; }
 }
 const isGpu = (s) => s.hardware && s.hardware.toUpperCase() !== 'CPU';
+const gpuList = () => window.__fflab.config?.colab?.gpus || [];
+const defaultGpu = () => window.__fflab.config?.colab?.default_gpu || gpuList()[0]?.id || '';
+window.__fflab.configReady?.then((cfg) => {
+  const c = cfg.colab || {};
+  $('#tcGpu').innerHTML = gpuList().map((g) => `<option value="${esc(g.id)}">${esc(g.label)} · ${esc(g.memory_gb)} GB${g.tier === 'free' ? ' (miễn phí)' : ' (trả phí)'}</option>`).join('');
+  $('#tcGpu').value = defaultGpu();
+  if (!$('#tcName').value) $('#tcName').value = c.gpu_session || 'fflab-gpu';
+  summary();
+}).catch(() => {});
 
 // ---------------------------------------------------------------- target cards
 function setTarget(target) {
@@ -98,8 +107,9 @@ async function loadColab() {
   } else $('#tcAccount').textContent = `Tài khoản Google: ${acct.reason.message}`;
   if (usage.status === 'fulfilled' && usage.value.balance !== null) {
     const u = usage.value;
-    $('#tcUsage').innerHTML = `· ${u.balance.toFixed(2)} compute unit${u.balance < 1 ? ' <span class="tag warn">chỉ T4 miễn phí</span>' : ''}`;
-    $('#tcGpu').querySelectorAll('option').forEach((o) => { o.disabled = u.balance < 1 && o.value !== 'T4'; });
+    const free = gpuList().filter((g) => g.tier === 'free').map((g) => g.label);
+    $('#tcUsage').innerHTML = `· ${u.balance.toFixed(2)} compute unit${u.balance < 1 ? ` <span class="tag warn">chỉ GPU miễn phí${free.length ? `: ${esc(free.join(', '))}` : ''}</span>` : ''}`;
+    $('#tcGpu').querySelectorAll('option').forEach((o) => { o.disabled = u.balance < 1 && gpuList().find((g) => g.id === o.value)?.tier !== 'free'; });
   }
   if (sessions.status === 'fulfilled') {
     st.sessions = sessions.value.sessions || [];
@@ -176,8 +186,8 @@ async function start(body) {
     if (!/^[A-Za-z0-9_.-]{1,64}$/.test(session)) throw new Error('Tên phiên mới chỉ gồm chữ, số, _ . -');
     if (st.sessions.some((s) => s.name === session)) throw new Error(`Đã có phiên "${session}", chọn nó trong danh sách hoặc đặt tên khác`);
   } else {
-    gpu = (st.sessions.find((s) => s.name === session)?.hardware || 'T4').toUpperCase();
-    if (!['T4', 'L4', 'A100', 'H100', 'G4'].includes(gpu)) gpu = 'T4';
+    const hw = (st.sessions.find((s) => s.name === session)?.hardware || '').toUpperCase();
+    gpu = gpuList().find((g) => g.id.toUpperCase() === hw)?.id || defaultGpu();
   }
   const payload = { ...body, gpu: null, session, colab_gpu: gpu, with_ckpt: $('#tcCkpt').checked };
   await api('/api/colab/train', payload);

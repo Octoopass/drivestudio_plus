@@ -11,6 +11,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from .settings import display_path
+
 RUN_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 RENDER_MODES = ("", "default", "ut", "geer")
 STEP = re.compile(rb"\[\s*(\d+)/(\d+)\]\s+eta:\s*([^ ]+(?: days?, [^ ]+)?)\s+elapsed:\s*(\S+)")
@@ -104,7 +106,7 @@ class DriveStudioRuns:
             "datasets": datasets,
             "data_roots": data_roots,
             "render_modes": [m for m in RENDER_MODES if m],
-            "venv": str(self.venv),
+            "venv": display_path(self.venv, self.workspace),
             "venv_ok": (self.venv / "bin" / "python").exists(),
             "node_ok": shutil.which("node") is not None,
         }

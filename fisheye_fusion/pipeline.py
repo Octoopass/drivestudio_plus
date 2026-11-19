@@ -21,6 +21,8 @@ from pathlib import Path
 from .dataset_profiles import PROFILES, detect, detect_folder
 from .reconstruction import _stop, _tail
 
+from .settings import display_path
+
 TOOLS = Path(__file__).resolve().parent.parent / "tools"
 PROGRESS = re.compile(r"^@@PROGRESS (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)\s*$", re.M)
 NUREC_WEIGHTS = {"pa-multiview": 730202407, "pa-front": 730200087, "pq-front": 1141125047}
@@ -86,7 +88,7 @@ class Discovery:
 
     @property
     def gsplat_python(self) -> Path | None:
-        venv = os.environ.get("FFLAB_VENV") or str(Path.home() / ".fflab" / "venv")
+        venv = getattr(self, "eval_venv", None) or os.environ.get("FFLAB_VENV") or str(Path.home() / ".fflab" / "venv")
         python = Path(venv) / "bin" / "python"
         return python if python.is_file() else None
 
@@ -201,14 +203,14 @@ class Discovery:
     def report(self) -> dict:
         nurec_ok = (self.nurec_repo / "run_inference.py").is_file() and self.nurec_python.is_file()
         return {
-            "workspace": str(self.workspace),
+            "workspace": display_path(self.workspace),
             "nurec": {"ok": nurec_ok, "repo": self.rel(self.nurec_repo) if self.nurec_repo.exists() else None,
                       "source": (self.nurec_repo / "run_inference.py").is_file(), "venv": self.nurec_python.is_file(),
                       "available": self.checkpoints(), "weights_bytes": NUREC_WEIGHTS,
                       "python": self.rel(self.nurec_python) if self.nurec_python.is_file() else None,
                       "checkpoints": self.checkpoints() if nurec_ok else {}},
             "gsplat": {"ok": self.gsplat_python is not None, "cuda_home": _cuda_home()},
-            "colab": {"ok": self.colab_bin is not None, "bin": self.colab_bin},
+            "colab": {"ok": self.colab_bin is not None, "bin": display_path(self.colab_bin, self.workspace) if self.colab_bin else None},
             "gpus": _gpus(),
             "datasets": self.datasets(),
             "clips": self.clips(),
@@ -485,10 +487,10 @@ class PipelineManager:
         drive_path = str(cfg.get("drive_path") or "").strip()
         if not drive_path.startswith("/content/drive/") or ".." in Path(drive_path).parts:
             raise ValueError("drive_path must start with /content/drive/")
-        session = str(cfg.get("session") or "fisheye-lab").strip()
+        session = str(cfg.get("session") or getattr(self, "default_session", "") or "fflab-data").strip()
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", session):
             raise ValueError("invalid session name")
-        seq = str(cfg.get("sequence") or "2013_05_28_drive_0003_sync")
+        seq = str(cfg.get("sequence") or "")
         if mode == "dataset" and not SEQUENCE.fullmatch(seq):
             raise ValueError("sequence must look like 2013_05_28_drive_0003_sync")
         dest_rel = str(cfg.get("dest") or ("kitti360" if mode == "dataset" else "fflab-runs")).strip().strip("/")

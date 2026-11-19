@@ -1,5 +1,5 @@
 // Fisheye Fusion Lab: shared UI runtime + KITTI-360 / NCore / Instant NuRec / Google Drive sync.
-import { progressBoard, fmtDur } from './progress.js?v=20261119n';
+import { progressBoard, fmtDur } from './progress.js?v=20261119q';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -83,6 +83,15 @@ async function fetchSetup(force = false) {
 }
 
 window.__fflab = { api, esc, url, toast, openLightbox, fetchSetup, onSetup: (fn) => setupListeners.add(fn), getSetup: () => setup, progressBoard, fmtDur };
+// Deployment settings (fisheye_fusion/settings.py): branding, Colab GPU list, default session names.
+window.__fflab.configReady = api('/api/config').then((cfg) => {
+  window.__fflab.config = cfg;
+  const app = cfg.app || {};
+  if (app.name) { $('#brandName').textContent = app.name; document.title = `${app.name}`; }
+  if (app.tagline) $('#brandTagline').textContent = app.tagline;
+  if (app.badge) $('#brandBadge').textContent = app.badge;
+  return cfg;
+});
 
 function fillSelect(select, options, keep = true) {
   if (!select) return;
@@ -211,7 +220,7 @@ function renderNurecSetup(data) {
   const missing = NUREC_MODELS.filter(([m]) => !have[m]);
   const ckptOk = Object.keys(have).length > 0;
   const ready = envOk && ckptOk && clips.length;
-  const row = (ok, title, body) => `<li class="${ok ? 'ok' : 'todo'}"><span class="nr-ic" aria-hidden="true">${ok ? '✓' : '○'}</span><div><b>${title}</b>${body}</div></li>`;
+  const row = (ok, title, body) => `<li class="${ok ? 'ok' : 'todo'}">${ok ? '<span class="st-ic ok" aria-hidden="true"><svg class="ic"><use href="#i-check"/></svg></span>' : '<span class="st-ic warn" aria-hidden="true"><svg class="ic"><use href="#i-dot"/></svg></span>'}<div><b>${title}</b>${body}</div></li>`;
   const gb = (b) => `${(b / 2 ** 30).toFixed(1)} GB`;
   const models = NUREC_MODELS.map(([m, label]) => have[m]
     ? `<span class="tag ok">${esc(m)}</span>`

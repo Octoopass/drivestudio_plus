@@ -4,6 +4,13 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const { api, esc, toast } = window.__fflab;
+window.__fflab.configReady?.then((cfg) => {
+  const sel = document.querySelector('#colabNewGpu');
+  sel.innerHTML = '<option value="">CPU (đủ để tải dữ liệu)</option>'
+    + (cfg.colab?.gpus || []).map((g) => `<option value="${esc(g.id)}">${esc(g.label)} · ${esc(g.memory_gb)} GB${g.tier === 'free' ? ' (miễn phí)' : ''}</option>`).join('');
+  const name = document.querySelector('#colabNewName');
+  if (!name.value) name.value = cfg.colab?.data_session || 'fflab-data';
+}).catch(() => {});
 const MY = '/content/drive/MyDrive';
 const store = {
   get: (k) => { try { return localStorage.getItem(`fflab.${k}`) || ''; } catch { return ''; } },
@@ -47,9 +54,11 @@ async function loadSessions(prefer) {
   const pick = [prefer, store.get('colabSession'), names[0]].find((n) => n && names.includes(n)) || '';
   sel.value = pick;
   $('#colabNewBox').open = !names.length;
-  if (!names.includes($('#colabNewName').value)) { /* keep default */ } else {
-    let i = 2; while (names.includes(`fisheye-lab-${i}`)) i++;
-    $('#colabNewName').value = `fisheye-lab-${i}`;
+  const base = window.__fflab.config?.colab?.data_session || 'fflab-data';
+  if (!$('#colabNewName').value) $('#colabNewName').value = base;
+  if (!names.includes($('#colabNewName').value)) { /* keep */ } else {
+    let i = 2; while (names.includes(`${base}-${i}`)) i++;
+    $('#colabNewName').value = `${base}-${i}`;
   }
   await selectSession(pick);
 }

@@ -1,0 +1,18 @@
+{
+  "app": {
+    "name": "Fisheye Fusion Lab Studio",
+    "tagline": "Benchmark & Dựng cảnh lái xe đa phương pháp",
+    "ssh_user": "",
+    "ssh_host": ""
+  },
+  "paths": {
+    "ds_venv": "~/venvs/ds",
+    "eval_venv": "~/.fflab/venv"
+  },
+  "colab": {
+    "data_session": "fflab-data",
+    "gpu_session": "fflab-gpu",
+    "default_gpu": "T4",
+    "drive_cache": "fflab_cache"
+  }
+}

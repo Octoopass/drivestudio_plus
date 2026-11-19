@@ -109,8 +109,9 @@ print("FFLAB_JSON:" + json.dumps({"mounted": os.path.isdir(root), "dirs": seen})
 class ColabHelper:
     drive_root = "/content/drive"
 
-    def __init__(self, colab_bin):
+    def __init__(self, colab_bin, gpus=GPUS):
         self._bin = colab_bin            # callable -> path or None (PATH may change after install)
+        self.gpus = tuple(gpus)          # accelerator ids `colab new --gpu` may get (settings colab.gpus)
         self._lock = threading.Lock()
         self._mounts: dict[str, dict] = {}
         self._login: dict | None = None
@@ -177,7 +178,7 @@ class ColabHelper:
         name = self._session(name)
         args = ["new", "-s", name]
         if gpu:
-            if gpu not in GPUS:
+            if gpu not in self.gpus:
                 raise ValueError("GPU không hợp lệ")
             args += ["--gpu", gpu]
         if any(s["name"] == name for s in self.sessions()["sessions"]):

@@ -29,13 +29,11 @@ from pathlib import Path
 
 REMOTE = "/content/fflab"
 REPO = f"{REMOTE}/repo"
-CACHE = "/content/drive/MyDrive/fflab_cache"
+DRIVE = "/content/drive/MyDrive"
 PART = 200 * 1024 * 1024
 POLL = 10
 STAGES = (("session", "Phiên GPU"), ("code", "Đẩy code"), ("data", "Đẩy dữ liệu"),
           ("setup", "Cài môi trường"), ("train", "Huấn luyện"), ("download", "Tải kết quả về"))
-# rough seconds per training step by Colab GPU, for the first estimate (the log's own ETA replaces it)
-SEC_PER_STEP = {"T4": 0.45, "L4": 0.22, "A100": 0.12, "H100": 0.08, "G4": 0.3}
 SKIP_DIRS = {".git", "fflab-runs", "outputs", "work_dirs", "__pycache__", "node_modules"}
 
 
@@ -55,11 +53,16 @@ def dataset_data_root(workspace: Path, dataset: str) -> str:
 
 
 class ColabTrainer:
-    def __init__(self, workspace: Path, colab, drivestudio):
+    def __init__(self, workspace: Path, colab, drivestudio, settings=None):
         self.workspace = Path(workspace).resolve()
         self.runs_dir = self.workspace / "fflab-runs"
         self.colab = colab
         self.ds = drivestudio
+        if settings is None:
+            from .settings import Settings
+            settings = Settings(workspace, data={})
+        self.settings = settings
+        self.cache = f"{DRIVE}/{settings.data['colab']['drive_cache']}"
         self._lock = threading.Lock()
         self._threads: dict[str, threading.Thread] = {}
         self._cancel: set[str] = set()
@@ -114,7 +117,10 @@ class ColabTrainer:
         if not _scene_dir(self.workspace, data_root, scene).is_dir():
             raise ValueError(f"Chưa có dữ liệu đã xử lý ở {data_root}/{scene:03d} trên máy ảo (làm bước 1 trước)")
         session = self.colab._session(cfg["session"])
-        gpu = cfg.get("colab_gpu") or "T4"
+        gpu = cfg.get("colab_gpu") or self.settings.data["colab"]["default_gpu"]
+        if not self.settings.gpu(gpu):
+            raise ValueError(f"GPU Colab không hợp lệ: {gpu}")
+        sec_per_step = float(self.settings.gpu(gpu).get("sec_per_step") or 0.4)
         root.mkdir(parents=True)
         job = {
             "name": name, "session": session, "gpu": gpu, "data_root": data_root, "scene": scene,
@@ -126,7 +132,7 @@ class ColabTrainer:
                 30,                                                                       # code
                 max(20, self._scene_bytes(data_root, scene) / (8 * 2**20)),               # data (~8 MB/s)
                 2700,                                                                     # setup (first build)
-                int(cfg.get("steps") or 30000) * SEC_PER_STEP.get(gpu, 0.4) + 120,       # train + eval
+                int(cfg.get("steps") or 30000) * sec_per_step + 120,                      # train + eval (rough)
                 90))},                                                                    # download
             "remote": {}, "offsets": {"setup": 0, "train": 0},
         }
@@ -423,12 +429,12 @@ if done and not more:
     def _do_setup(self, job: dict) -> str:
         if self._remote_marker(job, f"{REMOTE}/.setup_ok"):
             return "đã cài trên phiên này"
-        cached = self._remote_marker(job, f"{CACHE}/.has_wheels") if "setup_log" not in job["remote"] else ""
+        cached = self._remote_marker(job, f"{self.cache}/.has_wheels") if "setup_log" not in job["remote"] else ""
         if cached:
             job["stages"]["setup"]["est"] = 420
             self._save(job)
         if "setup_log" not in job["remote"]:
-            self._launch(job, "setup", ["{python}", "tools/colab_train_setup.py", "--cache", CACHE, "--marker", f"{REMOTE}/.setup_ok"],
+            self._launch(job, "setup", ["{python}", "tools/colab_train_setup.py", "--cache", self.cache, "--marker", f"{REMOTE}/.setup_ok"],
                          {}, f"{REMOTE}/jobs/{job['name']}-setup.log")
         local = self.ds._run_dir(job["name"]) / "colab-setup.log"
 

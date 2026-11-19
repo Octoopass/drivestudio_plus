@@ -1,5 +1,6 @@
 """Library catalog: status checks against a fake venv, and the install steps each entry plans."""
 import os
+from pathlib import Path
 import sys
 
 import pytest
@@ -54,3 +55,14 @@ def test_install_plans_steps(env):
         deps.install("node")
     with pytest.raises(ValueError):
         deps.install("nope")
+
+
+def test_deps_setup_pip_args(monkeypatch):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("deps_setup", Path(__file__).resolve().parents[1] / "tools" / "deps_setup.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    seen = {}
+    monkeypatch.setattr(mod, "pip", lambda py, *args, env=None: seen.update(py=py, args=args))
+    monkeypatch.setattr(sys, "argv", ["deps_setup.py", "pip", "--venv", "/v", "--", "a==1", "b>=1,<2"])
+    assert mod.main() == 0 and seen["args"] == ("a==1", "b>=1,<2") and str(seen["py"]) == "/v/bin/python"

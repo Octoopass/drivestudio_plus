@@ -33,7 +33,7 @@ function updateTarget() {
   const dest = ds === 'kitti360' ? server?.absolute : prof ? `${server?.workspace}/${prof.raw}` : `${server?.workspace || '~'}/data/<dataset>/raw`;
   $('#uploadFolder').textContent = ds === 'kitti360' ? 'kitti360/' : prof ? `${prof.raw}/` : 'data/<dataset>/raw/';
   $('#uploadDatasetHint').textContent = prof ? `Cần có: ${prof.hint}` : 'Hệ thống tự nhận ra loại dataset theo tên file và thư mục.';
-  if (server) $('#scpCmd').textContent = `scp -r "D:\\dataset\\*" ${server.user || 'research03'}@${location.hostname}:${dest}/`;
+  if (server) $('#scpCmd').textContent = `scp -r "D:\\dataset\\*" ${server.user || 'user'}@${server.host || location.hostname}:${dest}/`;
   $('#uploadChecklist').hidden = !(ds === 'auto' || ds === 'kitti360');
 }
 

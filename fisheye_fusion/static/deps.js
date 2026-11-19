@@ -25,7 +25,7 @@ function row(d) {
     ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(label)} <svg class="ic sm"><use href="#i-ext"/></svg></a>`
     : `<code>${esc(url)}</code>`).join(' · ');
   return `<article class="dep" id="dep-${esc(d.id)}" data-ok="${d.ok ? 'yes' : 'no'}">
-    <span class="dep-ic" aria-hidden="true">${d.ok ? '✓' : '○'}</span>
+    ${d.ok ? '<span class="st-ic ok" aria-hidden="true"><svg class="ic"><use href="#i-check"/></svg></span>' : '<span class="st-ic warn" aria-hidden="true"><svg class="ic"><use href="#i-dot"/></svg></span>'}
     <div class="dep-main">
       <div class="dep-title"><b>${esc(d.name)}</b>${d.size ? `<span class="hint">${esc(d.size)}${d.minutes ? ` · ${minutes(d.minutes)}` : ''}</span>` : ''}</div>
       <p>${esc(d.desc)}</p>
@@ -48,6 +48,7 @@ function render() {
   }).join('');
   const missing = st.items.filter((d) => !d.ok);
   $('#depsSummary').textContent = missing.length ? `Thiếu ${missing.length}/${st.items.length} mục` : 'Đã cài đủ';
+  window.__fflab.setDepsBadge?.(missing.length, st.items.length);
   // re-attach progress boards of running installs
   st.items.filter((d) => d.job).forEach((d) => watch(d.id, d.job));
   st.watching.forEach((id) => { const d = st.byId.get(id); if (d?.jobId) watch(id, d.jobId, true); });

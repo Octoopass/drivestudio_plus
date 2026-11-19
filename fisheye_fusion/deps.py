@@ -18,6 +18,8 @@ import sys
 import time
 from pathlib import Path
 
+from .settings import display_path
+
 TOOLS = Path(__file__).resolve().parent.parent / "tools"
 SEGFORMER = "nvidia/segformer-b5-finetuned-cityscapes-1024-1024"
 
@@ -114,10 +116,11 @@ def nvcc_version() -> str | None:
 
 
 class Deps:
-    def __init__(self, workspace: Path, pipeline, ds_venv: Path):
+    def __init__(self, workspace: Path, pipeline, ds_venv: Path, settings=None):
         self.workspace = Path(workspace).resolve()
         self.pipeline = pipeline
         self.ds_venv = Path(ds_venv)
+        self.settings = settings
 
     # ---- environments
     def _python(self, venv: str | None) -> Path | None:
@@ -160,7 +163,7 @@ class Deps:
         for d in CATALOG:
             items.append({**{k: v for k, v in d.items() if k not in ("pip",)}, **self._check(d, probes, nvcc),
                           "installable": d.get("installable", True), "job": self.pipeline.active(f"deps-{d['id']}")})
-        return {"items": items, "nvcc": nvcc, "ds_venv": str(self.ds_venv),
+        return {"items": items, "nvcc": nvcc, "ds_venv": display_path(self.ds_venv, self.workspace),
                 "envs": {k: (v or {}).get("info") for k, v in probes.items()}}
 
     def _check(self, d: dict, probes: dict, nvcc: str | None) -> dict:
@@ -176,10 +179,10 @@ class Deps:
             return {"ok": ok, "detail": "đã tải" if ok else "chưa tải", "missing": []}
         if i == "uv":
             uv = self._uv()
-            return {"ok": bool(uv), "detail": uv or "không thấy", "missing": []}
+            return {"ok": bool(uv), "detail": display_path(uv, self.workspace) if uv else "không thấy", "missing": []}
         if i == "colab-cli":
             colab = self.pipeline.discovery.colab_bin
-            return {"ok": bool(colab), "detail": colab or "chưa cài", "missing": []}
+            return {"ok": bool(colab), "detail": display_path(colab, self.workspace) if colab else "chưa cài", "missing": []}
         if i == "node":
             node = shutil.which("node")
             ver = ""
@@ -246,7 +249,8 @@ class Deps:
             idx = {"11": "cu118", "12": "cu124"}.get(nvcc.split(".")[0], "cu124")
             steps = [("fflab setup: venv + PyTorch + gsplat 1.5.3 (build CUDA)",
                       ["node", str(self.workspace / "fflab" / "bin" / "fflab.js"), "setup", "--backend", "3dgut-gsplat",
-                       "--torch-index-url", f"https://download.pytorch.org/whl/{idx}"], 1200)]
+                       "--torch-index-url", f"https://download.pytorch.org/whl/{idx}",
+                       *(["--venv", str(self.settings.path("eval_venv"))] if self.settings else [])], 1200)]
         elif dep_id == "segformer":
             py_ds = self._python("ds") or Path(sys.executable)
             steps = [("Tải SegFormer-B5 từ Hugging Face", [str(py_ds), "-u", script, "hf-model", "--model", SEGFORMER], 90)]

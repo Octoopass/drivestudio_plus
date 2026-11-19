@@ -86,6 +86,9 @@ def ds_env(a):
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
         f.write(f"torch=={torch_ver}\n" if torch_ver else "")
         constraints = f.name
+    if any(l.split("=")[0].strip().lower() == "chumpy" for l in lines) and not can_import(py, "chumpy"):
+        # chumpy's setup.py imports pip, which pip's isolated build environment does not have
+        pip(py, "--no-build-isolation", "chumpy")
     print(f"== Cài thư viện Python (giữ torch {torch_ver})", flush=True)
     pip(py, "-r", req_file, "-c", constraints)
     smplx = Path(a.repo) / "third_party" / "smplx"
@@ -156,7 +159,11 @@ def main() -> int:
     ap.add_argument("--nvcc", default="")
     ap.add_argument("--model", default="")
     ap.add_argument("rest", nargs="*")
-    a = ap.parse_args()
+    # packages for "pip" come after "--"; argparse would reject them once the options are parsed
+    argv = sys.argv[1:]
+    extra = argv[argv.index("--") + 1:] if "--" in argv else []
+    a = ap.parse_args(argv[:argv.index("--")] if "--" in argv else argv)
+    a.rest = [*a.rest, *extra]
     if a.cmd == "ds-env":
         ds_env(a)
     elif a.cmd == "torch-align":

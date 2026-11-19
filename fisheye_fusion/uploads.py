@@ -14,6 +14,8 @@ import threading
 import zipfile
 from pathlib import Path
 
+from .settings import display_path
+
 from .dataset_profiles import PROFILES, detect, safe_relative
 
 SEQ = r"2013_05_28_drive_\d{4}_sync"
@@ -56,7 +58,8 @@ IGNORED = {".DS_Store", "Thumbs.db", "desktop.ini"}
 class UploadManager:
     """Targets are workspace-relative: `kitti360/<canonical KITTI-360 name>` or `data/<dataset>/raw/<relative path>`."""
 
-    def __init__(self, workspace: Path, folder: str = "kitti360"):
+    def __init__(self, workspace: Path, folder: str = "kitti360", ssh_user: str = "", ssh_host: str = ""):
+        self.ssh_user, self.ssh_host = ssh_user, ssh_host
         self.workspace = Path(workspace).resolve()
         self.root = (self.workspace / folder).resolve()
         self.folder = folder
@@ -98,8 +101,8 @@ class UploadManager:
                     if seq:
                         sequences.add(seq.group(0))
         disk = shutil.disk_usage(self.workspace)
-        return {"folder": self.folder, "absolute": str(self.root), "workspace": str(self.workspace),
-                "user": getpass.getuser(),
+        return {"folder": self.folder, "absolute": display_path(self.root), "workspace": display_path(self.workspace),  # "~/..." works in scp
+                "user": self.ssh_user or getpass.getuser(), "host": self.ssh_host,
                 "files": files, "partial": partial, "free_bytes": disk.free,
                 "sequences": {s: required(s) for s in sorted(sequences)}}
 
