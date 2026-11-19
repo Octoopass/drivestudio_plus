@@ -12,6 +12,7 @@ from drive2sim.core.camera import (
     MEI_FIT_MAX_ANGLE,
     fisheye_radius,
     fit_mei_to_fisheye,
+    fit_valid_angle,
     mei_fit_error_px,
     mei_radius,
 )
@@ -64,3 +65,15 @@ def test_large_xi_recovers_sine_series() -> None:
     assert fx == pytest.approx(1.0, rel=1e-4) and fy == pytest.approx(fx)
     assert coeffs[0] == pytest.approx(-1 / 6, rel=1e-3)
     assert coeffs[1] == pytest.approx(1 / 120, rel=1e-2)
+
+
+def test_fit_valid_angle_stops_where_fit_error_reaches_tolerance() -> None:
+    xi, k1, k2, g1, g2 = 2.2134, 0.0168, 1.6549, 1336.32, 1335.79  # image_02 KITTI-360
+    fx, _, coeffs = fit_mei_to_fisheye(xi, k1, k2, g1, g2)
+    angle = fit_valid_angle(xi, k1, k2, g1, fx, coeffs, tolerance_px=0.5)
+    error = lambda t: abs(g1 * mei_radius(t, xi, k1, k2) - fx * fisheye_radius(t, coeffs))  # noqa: E731
+    assert MEI_FIT_MAX_ANGLE < angle < math.pi
+    assert error(angle) <= 0.5 + 1e-6
+    assert error(angle + 0.01) > 0.5
+    # Ngưỡng lỏng hơn thì góc rộng hơn; cùng calib, không có hằng số theo camera.
+    assert fit_valid_angle(xi, k1, k2, g1, fx, coeffs, tolerance_px=2.0) > angle

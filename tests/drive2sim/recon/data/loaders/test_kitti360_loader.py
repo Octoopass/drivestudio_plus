@@ -29,7 +29,7 @@ yaml = pytest.importorskip("yaml")
 from omegaconf import OmegaConf  # noqa: E402
 from PIL import Image  # noqa: E402
 
-from drive2sim.ingest.kitti360 import KITTI360_FISHEYE_MAX_ANGLE  # noqa: E402
+from drive2sim.core.camera import MEI_FIT_MAX_ANGLE  # noqa: E402
 from drive2sim.recon.data.base.pixel_source import get_rays  # noqa: E402
 from drive2sim.recon.data.loaders.kitti import KITTICameraData, KITTIPixelSource  # noqa: E402
 from drive2sim.recon.data.loaders.kitti360 import KITTI360PixelSource  # noqa: E402
@@ -154,7 +154,7 @@ def test_pixels_beyond_fit_angle_are_excluded_from_loss(source: KITTI360PixelSou
     angle = torch.acos(image["viewdirs"][..., 2].clamp(-1, 1))
     valid = image["valid_masks"]
     assert valid[10, 10] and not valid[0, 0]
-    assert bool((angle[valid] <= KITTI360_FISHEYE_MAX_ANGLE + 1e-6).all())
+    assert bool((angle[valid] <= MEI_FIT_MAX_ANGLE + 1e-6).all())
     assert torch.equal(image["egocar_masks"], (~valid).float())
 
 
@@ -193,16 +193,45 @@ def test_mask_angle_is_smaller_of_lens_and_renderer_limits(tmp_path: Path) -> No
     assert forced.max_angle == 1.4  # tham số thử nghiệm đè lên cả hai
 
 
-def test_scene_without_manifest_limit_uses_kitti360_lens_limit(tmp_path: Path) -> None:
-    # Cảnh ingest trước khi manifest có max_angle (kitti360_drive0003).
+def test_scene_without_manifest_limit_keeps_old_limit(tmp_path: Path) -> None:
+    # Cảnh ingest trước khi manifest có max_angle (kitti360_drive0003): không có calib Mei để tính,
+    # giữ giới hạn cũ 1,45 rad cho an toàn.
     source = make_source(make_scene(tmp_path))
-    assert source.camera_data[1].max_angle == KITTI360_FISHEYE_MAX_ANGLE
+    assert source.camera_data[1].max_angle == MEI_FIT_MAX_ANGLE
+
+
+def test_dark_border_outside_lens_circle_is_masked(tmp_path: Path) -> None:
+    # Ảnh đen ngoài hình tròn bán kính 13 px quanh điểm chính (ảnh gốc 40x40), ở mọi khung, như
+    # vùng ống kính không chiếu tới; trong hình tròn có một chấm tối (cảnh tối thật) phải giữ.
+    scene = make_scene(tmp_path)
+    v, u = np.mgrid[0:40, 0:40]
+    outside = np.hypot(u + 0.5 - 21.0, v + 0.5 - 21.0) > 13
+    for path in (scene / "images").glob("*_1.png"):
+        image = np.asarray(Image.open(path).convert("RGB")).copy()
+        image[outside] = 0
+        image[20:22, 20:22] = 0
+        Image.fromarray(image).save(path)
+    camera = make_source(scene, fisheye_max_angle=3.0).camera_data[1]
+    assert camera.dark_angle is not None and camera.dark_angle < 3.0
+    assert camera.max_angle == camera.dark_angle
+    image = camera.get_image(0)[0]
+    valid, rgb = image["valid_masks"], image["pixels"]
+    dark = rgb.mean(-1) < 0.05
+    assert bool(valid[10, 10])  # chấm tối ở giữa vẫn được dùng
+    # mọi pixel còn hợp lệ ngoài chấm giữa đều sáng: vùng đen ngoài vòng đã bị che
+    border = torch.ones_like(valid)
+    border[9:12, 9:12] = False
+    assert not bool((valid & dark & border).any())
+
+
+def test_uniform_images_have_no_dark_border(source: KITTI360PixelSource) -> None:
+    assert source.camera_data[1].dark_angle == math.pi
 
 
 def test_fisheye_project_points(source: KITTI360PixelSource) -> None:
     camera = source.camera_data[1]
     off_axis = math.radians(30)
-    beyond = KITTI360_FISHEYE_MAX_ANGLE + 0.05
+    beyond = MEI_FIT_MAX_ANGLE + 0.05
     points = torch.tensor(
         [
             [0.0, 0.0, 5.0],
@@ -414,3 +443,10 @@ def test_vehicle_mask_survives_reversed_camera_order(tmp_path: Path) -> None:
         expected = np.array(mask.resize((40, 40), Image.Resampling.NEAREST)) > 0
     assert torch.equal(camera.egocar_mask.bool(), torch.from_numpy(expected))
     assert source.camera_data[1].egocar_mask is None
+
+
+def test_pixel_sources_do_not_share_cameras(tmp_path: Path) -> None:
+    first = make_source(make_scene(tmp_path / "a"))
+    second = make_source(make_scene(tmp_path / "b"))
+    assert first.camera_data is not second.camera_data
+    assert first.camera_data[1] is not second.camera_data[1]

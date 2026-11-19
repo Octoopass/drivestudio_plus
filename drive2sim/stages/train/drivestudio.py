@@ -130,10 +130,11 @@ class TrainDrivestudioParams(BaseModel):
             (``trainer.gaussian_ctrl_general_cfg.refine_interval``); bỏ trống thì theo config
             (3DGS, 3DGUT 100; 3DGEER 50, Bosch để 300). Dùng để so renderer với cùng nhịp densify.
         fisheye_max_angle: Góc lệch trục lớn nhất (rad) của pixel camera mắt cá được dùng khi
-            train, đánh giá (``data.pixel_source.fisheye_max_angle``), đè lên mọi giới hạn khác;
-            bỏ trống thì loader lấy góc nhỏ hơn giữa ``cameras[].max_angle`` của manifest (vùng ảnh
-            còn nội dung, mô hình ống kính còn đúng; KITTI-360: 1,68 rad) và giới hạn của renderer
-            (3DGUT: ``UT_MAX_ANGLE``; 3DGEER: không có). Hiện chỉ loader KITTI-360 đọc.
+            train, đánh giá (``data.pixel_source.fisheye_max_angle``), thay giới hạn của mô hình
+            ống kính và renderer; vùng đen dò từ ảnh vẫn bị che. Bỏ trống thì loader lấy góc nhỏ
+            nhất giữa ``cameras[].max_angle`` của manifest (góc mô hình ống kính còn đúng,
+            converter tính từ calib của từng camera), góc bắt đầu vùng đen và giới hạn của
+            renderer (3DGUT: ``UT_MAX_ANGLE``; 3DGEER: không có). Hiện chỉ loader KITTI-360 đọc.
         densify: ``default`` là quy tắc của DriveStudio (theo gradient, có ngưỡng); ``mcmc`` là
             densify bằng MCMC cho nền, xe, vật biến dạng (``drive2sim/recon/densify/mcmc.py``,
             ``docs/methods/densify_mcmc.md``), không dùng cùng FastGS. Approach không còn cho

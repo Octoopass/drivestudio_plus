@@ -1,4 +1,6 @@
 # Utility functions for geometric transformations and projections.
+import math
+
 import numpy as np
 import torch
 from torch import Tensor
@@ -241,8 +243,14 @@ def camera_model_rays(
     radial_coeffs=None,
     ftheta_parameters=None,
     tangential_coeffs=None,
+    fisheye_max_angle=None,
 ):
-    """Unit camera rays and valid pixels. Pixel centers are (x + .5, y + .5)."""
+    """Unit camera rays and valid pixels. Pixel centers are (x + .5, y + .5).
+
+    Fisheye rays are valid below 90 degrees off axis by default (the limit of 3DGUT);
+    ``fisheye_max_angle`` (rad) replaces it for callers that know the usable angle of the camera
+    and renderer, such as the KITTI-360 loader with 3DGEER.
+    """
     y, x = torch.meshgrid(
         torch.arange(height, device=intrinsics.device, dtype=intrinsics.dtype) + 0.5,
         torch.arange(width, device=intrinsics.device, dtype=intrinsics.dtype) + 0.5,
@@ -269,7 +277,10 @@ def camera_model_rays(
         for k in (radial_coeffs if radial_coeffs is not None else [0.0] * 4):
             coefficients.extend([0.0, float(k)])
         theta, valid = _invert_camera_polynomial(coefficients, radius, radius)
-        valid &= (theta >= 0) & (theta < np.pi / 2)
+        if fisheye_max_angle is None:
+            valid &= (theta >= 0) & (theta < np.pi / 2)
+        else:
+            valid &= (theta >= 0) & (theta <= fisheye_max_angle)
     elif camera_model == 'ftheta' and ftheta_parameters is not None:
         p = ftheta_parameters
         c, d, e = [float(v) for v in p['linear_cde']]
@@ -361,3 +372,49 @@ def project_world_camera(
         & (pixels[..., 1] < height)
     )
     return pixels, local[..., 2], valid
+
+
+def dark_border_angle(
+    images,
+    theta,
+    valid,
+    ratio=0.5,
+    bin_width=math.radians(0.5),
+    center_angle=math.radians(60),
+    max_frames=50,
+):
+    """Góc lệch trục (rad) mà từ đó ảnh fisheye chỉ còn vùng đen ngoài hình tròn ống kính.
+
+    Vùng đen là ranh giới của ống kính nên là một vòng quanh trục: lấy độ sáng trung vị theo
+    thời gian của từng pixel (tối đa ``max_frames`` khung chia đều), chia pixel thành các vòng góc
+    rộng ``bin_width``, lấy trung vị mỗi vòng, rồi tìm vòng sáng cuối cùng (không tối hơn
+    ``ratio`` lần độ sáng vùng giữa, ``theta < center_angle``). Dò theo vòng chứ không theo pixel,
+    vì trong ảnh vẫn có cảnh tối thật (nóc xe, bóng cây). Không phụ thuộc dataset hay camera.
+
+    Args:
+        images: Ảnh ``(N, H, W, 3)`` giá trị 0..1.
+        theta: Góc lệch trục của từng pixel ``(H, W)`` (rad).
+        valid: Pixel có tia hợp lệ ``(H, W)`` kiểu bool.
+        ratio: Vòng tối hơn ``ratio`` lần độ sáng vùng giữa là đen.
+        bin_width: Độ rộng vòng góc (rad).
+        center_angle: Vùng giữa dùng làm độ sáng tham chiếu.
+        max_frames: Số khung lớn nhất dùng để lấy trung vị.
+
+    Returns:
+        Góc (rad); ``math.pi`` nếu ảnh không có vùng đen ở vành ngoài hoặc không đủ dữ liệu.
+    """
+    step = max(1, math.ceil(images.shape[0] / max_frames))
+    gray = images[::step].float().mean(-1).median(dim=0).values
+    center = valid & (theta < center_angle)
+    if not center.any():
+        return math.pi
+    threshold = ratio * float(gray[center].median())
+    bins = (theta[valid] / bin_width).long()
+    values = gray[valid]
+    last_bright = None
+    for index in torch.unique(bins).tolist():
+        if float(values[bins == index].median()) >= threshold:
+            last_bright = index
+    if last_bright is None or last_bright == int(bins.max()):
+        return math.pi
+    return (last_bright + 1) * bin_width

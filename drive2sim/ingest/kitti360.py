@@ -39,6 +39,7 @@ Viết bằng Python thuần (không numpy) để chạy trong môi trường nh
 """
 
 import json
+import math
 import re
 import shutil
 import tarfile
@@ -51,8 +52,10 @@ from typing import Optional, Union
 
 from drive2sim.core import files, identifiers
 from drive2sim.core.camera import (
+    FIT_TOLERANCE_PX,
     MEI_FIT_MAX_ANGLE,
     fit_mei_to_fisheye,
+    fit_valid_angle,
     mei_fit_error_px,
 )
 from drive2sim.core.schema import Check, ReportSummary, ValidationReport
@@ -83,14 +86,6 @@ SEQUENCE_RE = re.compile(r"\d{4}_\d{2}_\d{2}_drive_\d{4}_sync")
 _FRAME_RE = re.compile(r"(\d{10})\.(png|bin)$")
 
 Matrix = list[list[float]]
-
-
-# Góc lệch trục lớn nhất (rad) mà ảnh mắt cá còn nội dung và mô hình OpenCV fisheye khớp từ Mei
-# còn đúng, khai báo vào manifest (cameras[].max_angle). Đo trên chuỗi 0003
-# (docs/datasets/kitti360.md mục 5.1): phép khớp lệch Mei 0,5 px ở 96 độ, 1 px ở 99 độ; ảnh đủ
-# sáng tới khoảng 97 độ rồi tối dần (100 độ: độ sáng còn khoảng 2/3, 104 độ: gần đen). Phép khớp
-# vẫn tính trên 0..MEI_FIT_MAX_ANGLE.
-KITTI360_FISHEYE_MAX_ANGLE = 1.68  # khoảng 96 độ
 
 
 @dataclass(frozen=True)
@@ -467,7 +462,13 @@ def camera_intrinsics(calib: Kitti360Calibration, camera: str) -> tuple[str, lis
         mei["xi"], mei["k1"], mei["k2"], mei["gamma1"], mei["gamma2"]
     )
     error = mei_fit_error_px(mei["xi"], mei["k1"], mei["k2"], mei["gamma1"], fx, coeffs)
-    info = {**mei, "fit_max_angle": MEI_FIT_MAX_ANGLE, "fit_error_px": error}
+    valid_angle = fit_valid_angle(mei["xi"], mei["k1"], mei["k2"], mei["gamma1"], fx, coeffs)
+    info = {
+        **mei,
+        "fit_max_angle": MEI_FIT_MAX_ANGLE,
+        "fit_error_px": error,
+        "valid_angle": valid_angle,
+    }
     return "opencv_fisheye", [fx, fy, mei["u0"], mei["v0"], *coeffs], info
 
 
@@ -677,10 +678,11 @@ def ingest_kitti360(
         lidar_ids=[LIDAR_ID],
         data_license=DATA_LICENSE,
         camera_models=models,
-        # Vùng ảnh mắt cá còn nội dung và mô hình còn đúng (KITTI360_FISHEYE_MAX_ANGLE); renderer
-        # nào hẹp hơn (3DGUT) thì stage train đặt thêm giới hạn của nó.
+        # Góc mà mô hình OpenCV fisheye khớp từ Mei còn đúng, tính từ calib của từng camera
+        # (fit_valid_angle). Vùng đen loader dò từ ảnh; renderer hẹp hơn (3DGUT) thì stage train
+        # đặt thêm giới hạn của nó.
         camera_max_angles=[
-            KITTI360_FISHEYE_MAX_ANGLE if model == "opencv_fisheye" else None for model in models
+            fits[camera]["valid_angle"] if camera in fits else None for camera in cameras
         ],
     )
     files.dump(manifest, scene_dir / "manifest.yaml")
@@ -789,8 +791,8 @@ def _extra_checks(
       ma trận xoay) là lỗi, vì khi đó chuỗi biến đổi sai. ``cam0_to_world.txt`` chỉ ghi 7 chữ số
       có nghĩa (toạ độ cỡ 3000 m làm tròn tới 1 mm), nên ngưỡng không thể nhỏ hơn cỡ đó.
     - ``camera.fisheye_fit``: sai số khớp Mei → OpenCV fisheye của từng camera mắt cá.
-    - ``camera.fisheye_fov``: pixel lệch trục hơn ``KITTI360_FISHEYE_MAX_ANGLE`` (ảnh tối dần, mô
-      hình ống kính không còn đúng) bị che; renderer 3DGUT che thêm từ 88 độ.
+    - ``camera.fisheye_fov``: góc lệch trục mà mô hình OpenCV fisheye còn lệch Mei không quá
+      ``FIT_TOLERANCE_PX``, tính từ calib của từng camera; pixel ngoài góc đó bị che.
     - ``timestamps.nominal``: nguồn không có ``timestamps.txt``.
     - ``frames.gaps``: các chỗ hai khung liền nhau cách nhau nhiều hơn khung gốc liền kề.
     """
@@ -841,10 +843,18 @@ def _extra_checks(
             _check(
                 "camera.fisheye_fov",
                 "info",
-                "camera mắt cá nhìn khoảng 191 độ theo chiều ngang; pixel lệch trục hơn "
-                f"{KITTI360_FISHEYE_MAX_ANGLE} rad (ảnh tối dần, mô hình ống kính lệch Mei hơn "
-                "0,5 px) bị che khi train, đánh giá; renderer 3DGUT che thêm từ 88 độ",
-                {"max_angle": KITTI360_FISHEYE_MAX_ANGLE, "cameras": sorted(fits)},
+                "mô hình OpenCV fisheye còn lệch Mei dưới "
+                f"{FIT_TOLERANCE_PX} px tới "
+                + ", ".join(
+                    f"{camera} {math.degrees(fit['valid_angle']):.1f} độ"
+                    for camera, fit in sorted(fits.items())
+                )
+                + " lệch trục; pixel ngoài góc đó, vùng đen và thân xe bị che khi train, "
+                "đánh giá; renderer 3DGUT che thêm từ 88 độ",
+                {
+                    "tolerance_px": FIT_TOLERANCE_PX,
+                    "max_angle": {camera: fit["valid_angle"] for camera, fit in fits.items()},
+                },
             )
         )
     if nominal_timestamps:

@@ -32,6 +32,7 @@ Quy ước pixel: giống loader KITTI, ``cx``, ``cy`` trong file
 intrinsics được dùng nguyên (không cộng 0,5); tâm pixel ``i`` nằm ở toạ độ ``i + 0.5``.
 """
 
+import math
 import os
 from pathlib import Path
 
@@ -43,11 +44,15 @@ from PIL import Image
 from torch import Tensor
 
 from drive2sim import paths
-from drive2sim.ingest.kitti360 import KITTI360_FISHEYE_MAX_ANGLE
+from drive2sim.core.camera import MEI_FIT_MAX_ANGLE
 from drive2sim.core.files import load
 from drive2sim.core.schema import Manifest
 from drive2sim.recon.data.loaders.kitti import KITTICameraData, KITTIPixelSource
-from drive2sim.recon.utils.geometry import camera_model_rays, project_world_camera
+from drive2sim.recon.utils.geometry import (
+    camera_model_rays,
+    dark_border_angle,
+    project_world_camera,
+)
 
 MANIFEST_FILE = "manifest.yaml"
 # Mô hình camera trong manifest → mô hình camera trainer DriveStudio nhận (recon/trainers/base.py).
@@ -78,8 +83,9 @@ class KITTI360CameraData(KITTICameraData):
         """Đọc mô hình và độ phân giải của camera từ manifest rồi nạp dữ liệu như KITTI.
 
         Args:
-            fisheye_max_angle: Góc lệch trục lớn nhất (rad) của pixel được dùng, đè lên mọi giới
-                hạn khác (``data.pixel_source.fisheye_max_angle``, để thử ngưỡng khác).
+            fisheye_max_angle: Góc lệch trục lớn nhất (rad) của pixel được dùng, thay cho giới
+                hạn của mô hình ống kính và của renderer (``data.pixel_source.fisheye_max_angle``,
+                để thử ngưỡng khác); vùng đen dò từ ảnh vẫn bị che.
             fisheye_renderer_max_angle: Giới hạn của renderer (``data.pixel_source.
                 fisheye_renderer_max_angle``, stage train đặt cho 3DGUT); ``None`` là không có.
             **kwargs: Tham số của ``CameraData`` (``data_path``, ``cam_id``, ...); ``cam_id`` là
@@ -98,12 +104,11 @@ class KITTI360CameraData(KITTICameraData):
             raise ValueError(f"{camera.camera_id}: loader KITTI-360 không đọc được {camera.model}")
         self.camera_model = TRAINER_CAMERA_MODELS[camera.model]
         self.radial_coeffs = None
-        # Ngưỡng che theo góc. Tham số thử nghiệm đè lên tất cả; không có thì lấy góc nhỏ hơn giữa
-        # vùng ảnh còn nội dung, mô hình ống kính còn đúng (cameras[].max_angle; cảnh ingest trước
-        # khi manifest có trường này dùng KITTI360_FISHEYE_MAX_ANGLE) và giới hạn của renderer.
-        lens_limit = (
-            camera.max_angle if camera.max_angle is not None else KITTI360_FISHEYE_MAX_ANGLE
-        )
+        # Ngưỡng che theo góc = nhỏ nhất của: góc mô hình ống kính còn đúng (cameras[].max_angle,
+        # converter tính từ calib của từng camera; cảnh ingest trước khi manifest có trường này
+        # dùng miền khớp MEI_FIT_MAX_ANGLE), giới hạn của renderer, và góc bắt đầu vùng đen dò từ
+        # ảnh (sau khi nạp ảnh, bên dưới). Tham số thử nghiệm thay hai giới hạn đầu.
+        lens_limit = camera.max_angle if camera.max_angle is not None else MEI_FIT_MAX_ANGLE
         if fisheye_max_angle is not None:
             self.max_angle = float(fisheye_max_angle)
         elif fisheye_renderer_max_angle is not None:
@@ -119,6 +124,20 @@ class KITTI360CameraData(KITTICameraData):
             "egocar_visible": camera.camera_id in ("image_02", "image_03"),
         }
         super().__init__(**kwargs)
+        self.dark_angle = None
+        if self.camera_model == "fisheye" and self.images is not None:
+            rays, valid = camera_model_rays(
+                self.HEIGHT,
+                self.WIDTH,
+                self.intrinsics[0],
+                "fisheye",
+                self.radial_coeffs,
+                fisheye_max_angle=math.pi,
+            )
+            theta = torch.acos(rays[..., 2].clamp(-1, 1))
+            self.dark_angle = dark_border_angle(self.images, theta, valid)
+            self.max_angle = min(self.max_angle, self.dark_angle)
+            self._ray_cache.clear()
 
     def load_egocar_mask(self) -> None:
         """Nạp mask thân xe cố định theo tên camera trong manifest.
@@ -215,9 +234,13 @@ class KITTI360CameraData(KITTICameraData):
         key = (height, width)
         if key not in self._ray_cache:
             rays, valid = camera_model_rays(
-                height, width, intrinsics, "fisheye", self.radial_coeffs
+                height,
+                width,
+                intrinsics,
+                "fisheye",
+                self.radial_coeffs,
+                fisheye_max_angle=self.max_angle,
             )
-            valid &= rays[..., 2] >= float(np.cos(self.max_angle))
             self._ray_cache[key] = rays, valid
         return self._ray_cache[key]
 

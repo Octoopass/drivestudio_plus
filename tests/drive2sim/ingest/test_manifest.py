@@ -42,7 +42,7 @@ def manifest_with(
 
 
 def test_current_output_version_by_converter() -> None:
-    assert KITTI360_OUTPUT_VERSION == 2  # bản khớp Mei mới
+    assert KITTI360_OUTPUT_VERSION == 3  # manifest có góc dùng được của camera mắt cá
     assert current_output_version(kitti360.CONVERTER) == KITTI360_OUTPUT_VERSION
     assert current_output_version("drivestudio.nuscenes") == DRIVESTUDIO_OUTPUT_VERSION
     assert current_output_version("drivestudio.kitti") == DRIVESTUDIO_OUTPUT_VERSION
@@ -52,10 +52,11 @@ def test_current_output_version_by_converter() -> None:
 @pytest.mark.parametrize(
     ("converter", "output_version", "converter_version", "expected"),
     [
-        ("kitti360", None, "0.1.0+e567e29", (1, 2)),  # manifest cũ, KITTI-360 đã đổi đầu ra
-        ("kitti360", 1, "0.1.0+e567e29", (1, 2)),
-        ("kitti360", 2, "0.1.0+abc1234", None),
-        ("kitti360", None, "0.1.0+188fb9b", None),  # commit đã có đầu ra 2, chưa ghi trường
+        ("kitti360", None, "0.1.0+e567e29", (1, 3)),  # manifest cũ, KITTI-360 đã đổi đầu ra
+        ("kitti360", 1, "0.1.0+e567e29", (1, 3)),
+        ("kitti360", 2, "0.1.0+abc1234", (2, 3)),  # chưa có góc dùng được của camera mắt cá
+        ("kitti360", 3, "0.1.0+abc1234", None),
+        ("kitti360", None, "0.1.0+188fb9b", (2, 3)),  # commit đã có đầu ra 2, chưa ghi trường
         ("drivestudio.nuscenes", None, "0.1.0+e567e29", None),  # DriveStudio chưa đổi đầu ra
         ("drivestudio.nuscenes", 1, "0.1.0+e567e29", None),
         ("drivestudio.nuscenes", None, "0.1.0+188fb9b", None),
@@ -86,7 +87,7 @@ def test_old_manifest_without_output_version_still_validates() -> None:
 def test_outdated_message_names_both_versions() -> None:
     message = outdated_message(manifest_with("kitti360", None))
     assert message is not None
-    assert "converter kitti360 cũ" in message and "phiên bản 1, hiện tại 2" in message
+    assert "converter kitti360 cũ" in message and "phiên bản 1, hiện tại 3" in message
 
 
 def _git(repo: Path, *args: str) -> None:

@@ -132,8 +132,10 @@ def _uncommitted_suffix() -> str:
 # Mọi converter ``drivestudio.<dataset>`` (script tiền xử lý của DriveStudio) dùng chung một số.
 DRIVESTUDIO_OUTPUT_VERSION = 1
 # 1: các bản trước 17/11/2026. 2: khớp Mei sang opencv_fisheye viết lại, intrinsics của image_02,
-# image_03 đổi (commit 188fb9b, 17/11/2026).
-KITTI360_OUTPUT_VERSION = 2
+# image_03 đổi (commit 188fb9b, 17/11/2026). 3: manifest ghi cameras[].max_angle của camera mắt cá
+# tính từ calib (góc mà OpenCV fisheye còn lệch Mei dưới 0,5 px, khoảng 96 độ, 19/11/2026); cảnh
+# cũ không có trường này bị loader che từ 1,45 rad.
+KITTI360_OUTPUT_VERSION = 3
 # Tên converter KITTI-360 ghi trong manifest (``kitti360.CONVERTER``; không import để tránh vòng).
 _KITTI360_CONVERTER = "kitti360"
 # Manifest viết trước ``d2s-manifest/1.1`` không có ``output_version``: coi là bản đầu, trừ khi

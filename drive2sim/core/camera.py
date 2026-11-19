@@ -33,6 +33,11 @@ from collections.abc import Sequence
 
 MEI_FIT_MAX_ANGLE = 1.45
 FIT_SAMPLES = 400  # số góc đều trên (0, MEI_FIT_MAX_ANGLE] dùng để khớp
+# Sai lệch bán kính lớn nhất (pixel trên ảnh gốc) mà mô hình ống kính chuyển gần đúng còn được
+# dùng. 0,5 px cùng cỡ với sai số do bỏ méo tiếp tuyến (tới 0,78 px khi chiếu LiDAR KITTI-360);
+# ở 10 m vật lệch khoảng 1,6 cm ở vành 96 độ (docs/datasets/kitti360.md mục 5.1). Chung mọi
+# dataset; góc tương ứng tính từ calib của từng camera bằng ``fit_valid_angle``.
+FIT_TOLERANCE_PX = 0.5
 
 
 def mei_radius(theta: float, xi: float, k1: float, k2: float) -> float:
@@ -116,3 +121,43 @@ def mei_fit_error_px(
         )
         for i in range(samples + 1)
     )
+
+
+def fit_valid_angle(
+    xi: float,
+    k1: float,
+    k2: float,
+    gamma: float,
+    fx: float,
+    coeffs: Sequence[float],
+    tolerance_px: float = FIT_TOLERANCE_PX,
+    step: float = 1e-3,
+) -> float:
+    """Tìm góc lệch trục lớn nhất (rad) mà OpenCV fisheye khớp từ Mei còn đúng.
+
+    Đi từ trục ra ngoài theo bước ``step``, dừng ở góc cuối cùng mà sai lệch bán kính với Mei
+    không quá ``tolerance_px`` và bán kính fisheye còn tăng (đa thức đổi chiều thì một pixel ứng
+    với hai tia). Tính riêng cho từng camera từ calib của nó, không có hằng số theo camera.
+
+    Args:
+        xi: Tham số ``xi`` của Mei.
+        k1: Méo xuyên tâm ``k1`` của Mei.
+        k2: Méo xuyên tâm ``k2`` của Mei.
+        gamma: Tiêu cự Mei theo trục x (``gamma1``), như ``mei_fit_error_px``.
+        fx: Tiêu cự của OpenCV fisheye, kết quả ``fit_mei_to_fisheye``.
+        coeffs: ``k1..k4`` của OpenCV fisheye, kết quả ``fit_mei_to_fisheye``.
+        tolerance_px: Sai lệch lớn nhất cho phép, pixel trên ảnh gốc.
+        step: Bước góc (rad).
+
+    Returns:
+        Góc (rad) trong ``(0, pi]``.
+    """
+    angle, previous = 0.0, 0.0
+    while angle + step <= math.pi:
+        theta = angle + step
+        radius = fx * fisheye_radius(theta, coeffs)
+        error = abs(gamma * mei_radius(theta, xi, k1, k2) - radius)
+        if error > tolerance_px or radius <= previous:
+            break
+        angle, previous = theta, radius
+    return angle
