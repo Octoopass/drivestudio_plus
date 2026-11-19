@@ -23,6 +23,8 @@ METRIC = re.compile(
 EVAL_HEAD = re.compile(rb"Eval over (\d+) images")
 FILES = {".png", ".jpg", ".mp4", ".json", ".yaml", ".log", ".ply"}
 STALE_SECONDS = 600
+ACTIVE_SECONDS = 90          # log written this recently: the run is still working (e.g. rendering videos)
+WEB_MAX_WIDTH = 1920         # browsers decode H.264 up to ~4096 px wide; previews are scaled below that
 
 JSON_METRIC_MAP = {
     "image_metrics/test/psnr": "Full Image PSNR",
@@ -211,14 +213,14 @@ class DriveStudioRuns:
         finished = info["step"] is not None and info["total"] is not None and info["step"] >= info["total"] and info["metrics"]
         if info["error"]:
             state = "failed"
-        elif finished and not alive:
+        elif finished and not alive and not (age is not None and age < ACTIVE_SECONDS):
             state = "succeeded"
         elif alive or (age is not None and age < STALE_SECONDS):
             state = "running"
         else:
             state = "stopped"
         images = sorted(p.relative_to(root).as_posix() for p in (out / "images").glob("*.png")) if out and (out / "images").exists() else []
-        videos = sorted(p.relative_to(root).as_posix() for p in out.rglob("*.mp4")) if out else []
+        videos = sorted(p.relative_to(root).as_posix() for p in out.rglob("*.mp4") if ".web" not in p.parts) if out else []
         colab = None
         try:
             cj = json.loads((root / "colab.json").read_text(encoding="utf-8"))
@@ -273,8 +275,10 @@ class DriveStudioRuns:
         for r in self.runs():
             method = (r.get("method") or "unknown").replace("configs/", "").replace(".yaml", "")
             psnr = (r.get("metrics") or {}).get("Full Image PSNR")
+            root = self._run_dir(r["name"])
             for v in r.get("videos") or []:
                 vid_id = f"run:{r['name']}:{v}"
+                ready = self.video_complete(root / v)
                 items.append({
                     "id": vid_id,
                     "run": r["name"],
@@ -282,7 +286,9 @@ class DriveStudioRuns:
                     "render_mode": r.get("render_mode") or "",
                     "psnr": psnr,
                     "label": f"{r['name']} ({method}{f' · {psnr:.2f} dB' if psnr is not None else ''}) — {Path(v).name}",
-                    "url": f"/api/drivestudio/runs/{r['name']}/files/{v}",
+                    "url": f"/api/drivestudio/runs/{r['name']}/preview/{v}",
+                    "download": f"/api/drivestudio/runs/{r['name']}/files/{v}",
+                    "ready": ready,
                 })
         eval_root = self.workspace / "outputs" / "eval"
         if eval_root.is_dir():
@@ -305,6 +311,58 @@ class DriveStudioRuns:
                     "url": f"/api/outputs/{rel}",
                 })
         return items
+
+    # ---------------------------------------------------------------- browser previews of run videos
+    @staticmethod
+    def video_complete(path: Path) -> bool:
+        """An MP4 whose writer has not finished yet has no 'moov' index (imageio writes it on close)."""
+        try:
+            size = path.stat().st_size
+            with path.open("rb") as f:
+                if size < 64:
+                    return False
+                head = f.read(1 << 16)
+                f.seek(max(0, size - (1 << 20)))
+                tail = f.read()
+            return b"moov" in head or b"moov" in tail
+        except OSError:
+            return False
+
+    @staticmethod
+    def _ffmpeg() -> str | None:
+        found = shutil.which("ffmpeg")
+        if found:
+            return found
+        try:
+            import imageio_ffmpeg
+            return imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:  # noqa: BLE001 - optional dependency
+            return None
+
+    def preview(self, name: str, relative: str) -> Path:
+        """H.264 (yuv420p, faststart) copy at most WEB_MAX_WIDTH wide, cached next to the run; built on first use."""
+        src = self.file(name, relative)
+        if src.suffix.lower() != ".mp4":
+            raise ValueError("chỉ có bản xem trước cho video .mp4")
+        if not self.video_complete(src):
+            raise ValueError("Video này đang được ghi (run vẫn đang render), thử lại sau ít phút")
+        out = self._run_dir(name) / ".web" / relative
+        if out.is_file() and out.stat().st_mtime >= src.stat().st_mtime:
+            return out
+        ff = self._ffmpeg()
+        if not ff:
+            return src
+        out.parent.mkdir(parents=True, exist_ok=True)
+        tmp = out.with_name(out.stem + ".tmp.mp4")
+        cmd = [ff, "-y", "-loglevel", "error", "-i", str(src),
+               "-vf", f"scale='min({WEB_MAX_WIDTH},iw)':-2", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+               "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", str(tmp)]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        if r.returncode or not tmp.is_file():
+            tmp.unlink(missing_ok=True)
+            raise ValueError(f"Không tạo được bản xem trước: {(r.stderr or '').strip()[-300:]}")
+        tmp.replace(out)
+        return out
 
     def _resolve_video(self, vid_id: str) -> tuple[Path, str]:
         if vid_id.startswith("run:"):

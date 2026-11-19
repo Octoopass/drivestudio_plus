@@ -124,6 +124,22 @@ class ColabTrainJob(DriveStudioJob):
     scene: int = Field(default=0, ge=0, le=999)
     with_ckpt: bool = True
 
+class AssistantConfig(BaseModel):
+    provider: Literal["openai", "anthropic", "gemini", "openrouter", "custom"] | None = None
+    base_url: str | None = Field(default=None, max_length=300)
+    model: str | None = Field(default=None, max_length=120)
+    api_key: str | None = Field(default=None, max_length=400)
+    clear_key: bool = False
+
+class AssistantMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(max_length=20000)
+
+class AssistantChat(BaseModel):
+    messages: list[AssistantMessage] = Field(min_length=1, max_length=40)
+    form: dict = Field(default_factory=dict)
+    page: str = Field(default="", max_length=60)
+
 class NurecSetup(BaseModel):
     models: list[Literal["pa-multiview", "pa-front", "pq-front"]] = Field(
         default=["pa-multiview", "pa-front", "pq-front"], min_length=1, max_length=3)
@@ -209,6 +225,57 @@ def create_app():
     colab_train = ColabTrainer(WORKSPACE, colab, drivestudio, settings)
     from .deps import Deps
     deps = Deps(WORKSPACE, pipeline, drivestudio.venv, settings)
+    from .assistant import Assistant, config_headers
+
+    def gather_facts(form: dict) -> dict:
+        """What the assistant knows about this installation right now (no secrets, no absolute paths)."""
+        import re as _re
+        opts = drivestudio.options()
+        local = pipeline.discovery.local_datasets()
+        scenes = []
+        for sc in local.get("processed", [])[:12]:
+            cams = {}
+            try:
+                meta = json.loads((WORKSPACE / sc["data_root"] / sc["scene"] / "metadata.json").read_text(encoding="utf-8"))
+                for cid, c in (meta.get("cameras") or {}).items():
+                    cal = c.get("calibration") or {}
+                    ang = float(cal.get("max_angle") or 0)
+                    cams[cid] = {"name": c.get("camera_name"), "model": cal.get("camera_model"),
+                                 "fov_deg": round(2 * ang * 57.2958) if ang else None, "fisheye": ang > 1.2}
+                frames = meta.get("num_frames")
+            except (OSError, ValueError, TypeError):
+                frames = None
+            scenes.append({**sc, "frames": frames, "cameras": cams})
+        families = {sc["dataset"] for sc in scenes} | {str(form.get("dataset", "")).split("/")[0]}
+        ds_cfgs = {}
+        for d in opts["datasets"]:
+            if d.split("/")[0] in families:
+                path = WORKSPACE / "configs" / "datasets" / f"{d}.yaml"
+                text = path.read_text(encoding="utf-8") if path.is_file() else ""
+                m = _re.search(r"load_smpl:\s*(\w+)", text)
+                ds_cfgs[d] = {"about": config_headers(path, 10), "load_smpl": m.group(1) if m else None}
+        runs = []
+        for r in drivestudio.runs()[:12]:
+            met = r.get("metrics") or {}
+            runs.append({k: r.get(k) for k in ("name", "method", "dataset", "render_mode", "fastgs", "state", "step",
+                                                  "total", "eta", "elapsed", "error", "colab")}
+                        | {"psnr": met.get("Full Image PSNR"), "ssim": met.get("Full Image SSIM"),
+                           "lpips": met.get("Full Image LPIPS"), "vram_gib": met.get("Peak VRAM GiB")})
+        dep_items = deps.status()["items"]
+        return {
+            "form": {k: v for k, v in form.items() if k in ("dataset", "data_root", "method", "render_mode", "fastgs",
+                                                           "steps", "gpu", "target", "name")},
+            "prepared_scenes": scenes,
+            "method_configs": {m: config_headers(WORKSPACE / m) for m in opts["methods"]},
+            "dataset_configs": ds_cfgs,
+            "runs": runs,
+            "gpus": [{k: g.get(k) for k in ("index", "name", "utilization", "memory_used_mib", "memory_total_mib")}
+                     for g in (pipeline.discovery.report().get("gpus") or [])],
+            "libraries_missing": [d["name"] for d in dep_items if not d["ok"]],
+            "colab_gpus": [g["id"] for g in settings.gpus],
+        }
+
+    assistant = Assistant(WORKSPACE, gather_facts)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -423,6 +490,27 @@ def create_app():
     def upload_cancel(job: UploadTarget):
         return uploads.cancel(job.target)
 
+    @app.get("/api/assistant/config")
+    def assistant_config():
+        return assistant.config()
+
+    @app.post("/api/assistant/config")
+    def assistant_set_config(job: AssistantConfig):
+        return assistant.set_config(job.provider, job.base_url, job.model, job.api_key, job.clear_key)
+
+    @app.get("/api/assistant/context")
+    def assistant_context():
+        """Exactly the app facts sent with each question (for transparency and debugging)."""
+        return gather_facts({})
+
+    @app.get("/api/assistant/models")
+    def assistant_models():
+        return assistant.models()
+
+    @app.post("/api/assistant/chat")
+    def assistant_chat(job: AssistantChat):
+        return assistant.chat([m.model_dump() for m in job.messages], job.form, job.page)
+
     @app.get("/api/config")
     def public_config():
         return settings.public()
@@ -612,6 +700,10 @@ def create_app():
         if run is None:
             return JSONResponse({"detail": "run not found"}, status_code=404)
         return run
+
+    @app.get("/api/drivestudio/runs/{name}/preview/{relative:path}")
+    def drivestudio_preview(name: str, relative: str):
+        return FileResponse(drivestudio.preview(name, relative), media_type="video/mp4")
 
     @app.get("/api/drivestudio/runs/{name}/files/{relative:path}")
     def drivestudio_file(name: str, relative: str):

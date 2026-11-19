@@ -316,7 +316,7 @@ function renderViewer() {
     ${step ? `<div class="compare">${files.get('gt_rgbs') ? img(files.get('gt_rgbs'), 'Ảnh gốc (GT)') : ''}${files.get(shown) ? img(files.get(shown), `${kindNames[shown]} · bước ${step[0]}`) : ''}</div>`
       : (run.images.length ? `<div class="gallery wide">${run.images.map((p) => img(p, p)).join('')}</div>`
         : '<p class="empty"><b>Chưa có ảnh</b>DriveStudio lưu ảnh render định kỳ trong lúc train.</p>')}
-    ${run.videos.length ? `<h3 style="margin-top:16px">Video Output (${run.videos.length})</h3><div class="vcomp-arena side">${run.videos.map((v) => `<figure class="vcomp-card"><video controls preload="metadata" src="/api/drivestudio/runs/${enc(run.name)}/files/${enc(v)}"></video><figcaption><span>${esc(v.split('/').pop())}</span><a href="/api/drivestudio/runs/${enc(run.name)}/files/${enc(v)}" download>Tải</a></figcaption></figure>`).join('')}</div>` : ''}`;
+    ${run.videos.length ? `<h3 style="margin-top:16px">Video Output (${run.videos.length})</h3><div class="vcomp-arena side">${run.videos.map((v) => `<figure class="vcomp-card"><video controls preload="metadata" src="/api/drivestudio/runs/${enc(run.name)}/preview/${enc(v)}"></video><figcaption><span>${esc(v.split('/').pop())}</span><a href="/api/drivestudio/runs/${enc(run.name)}/files/${enc(v)}" download>Tải</a></figcaption></figure>`).join('')}</div>` : ''}`;
 }
 
 // ------------------------------------------------------------------ 3D viewer (DriveStudio tools/viewer.py, served on its own port)
@@ -495,14 +495,16 @@ async function renderVideoCompare() {
     return;
   }
   selA.disabled = selB.disabled = false;
-  const opts = vids.map((v) => [v.id, v.label]);
+  const opts = vids.map((v) => [v.id, v.ready === false ? `${v.label} (đang ghi…)` : v.label]);
   const prevA = selA.value, prevB = selB.value;
   fill(selA, opts, true);
   fill(selB, opts, true);
-  if (!prevA || !vids.some((v) => v.id === selA.value)) selA.value = vids[0].id;
-  if (!vids.some((v) => v.id === prevB)) {
-    selB.value = (vids.find((v) => v.id !== selA.value) || vids[0]).id;
-  }
+  // default pair: a finished rendered video (A) against its ground truth (B)
+  const ready = vids.filter((v) => v.ready !== false);
+  const render = ready.find((v) => /_set_\d+_rgbs\.mp4$/.test(v.id)) || ready[0] || vids[0];
+  const gt = ready.find((v) => v.run === render.run && v.id === render.id.replace(/_rgbs\.mp4$/, '_gt_rgbs.mp4'));
+  if (!prevA || !vids.some((v) => v.id === prevA)) selA.value = render.id;
+  if (!prevB || !vids.some((v) => v.id === prevB)) selB.value = (gt || vids.find((v) => v.id !== selA.value) || vids[0]).id;
   updateVideoArena();
 }
 
@@ -523,9 +525,11 @@ function updateVideoArena() {
   arena.dataset.pair = pair;
   arena.className = `vcomp-arena ${layout === 'hstack' ? 'side' : 'stack'}`;
   const card = (v, id) => `<figure class="vcomp-card">
-    <video id="${id}" preload="metadata" muted playsinline src="${esc(v.url)}"></video>
-    <figcaption><span><b>${esc(v.run)}</b> · ${esc(v.method)}${v.psnr != null ? ` · ${v.psnr.toFixed(2)} dB` : ''}</span>
-      <a href="${esc(v.url)}" download>MP4</a></figcaption></figure>`;
+    ${v.ready === false
+      ? `<div class="vcomp-wait" id="${id}-wait">Video đang được ghi (run vẫn đang render). Bấm Làm mới sau ít phút.</div><video id="${id}" hidden muted playsinline></video>`
+      : `<video id="${id}" preload="metadata" muted playsinline src="${esc(v.url)}"></video>`}
+    <figcaption><span><b>${esc(v.run)}</b> · ${esc(v.method)}${v.psnr != null ? ` · ${v.psnr.toFixed(2)} dB` : ''} · ${esc(v.id.split('/').pop())}</span>
+      <a href="${esc(v.download || v.url)}" download>MP4 gốc</a></figcaption></figure>`;
   if (changed) arena.innerHTML = card(va, 'vcVidA') + card(vb, 'vcVidB') +
     '<label>Rèm A/B <input id="vcWipe" type="range" min="0" max="100" value="50"></label>';
   $('#vcDownloadLink').hidden = true;

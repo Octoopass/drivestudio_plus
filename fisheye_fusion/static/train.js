@@ -174,6 +174,33 @@ function summary() {
   $('#tfSummary').innerHTML = `Sẽ chạy: ${parts.join(' · ')}`;
 }
 form.addEventListener('change', summary);
+
+// Picking prepared data selects the matching dataset config: same dataset family (data/<family>/processed…),
+// the "_objects" variant when the scene has object tracks, otherwise one without.
+function matchDatasetConfig() {
+  const root = form.elements.data_root.value;
+  const sel = form.elements.dataset;
+  const hint = $('#tfDataHint');
+  if (!root) { if (hint) hint.textContent = 'Chưa có dữ liệu? Làm ở bước 1.'; return; }
+  const family = root.split('/')[1] || '';
+  const scene = (window.__fflab.datasets?.get?.().local?.processed || []).find((p) => p.data_root === root);
+  const objects = scene ? !!scene.objects : /obj/.test(root);
+  const opts = [...sel.options].map((o) => o.value).filter((v) => v.startsWith(`${family}/`));
+  if (!opts.length) return;
+  const pick = (objects ? opts.find((v) => v.includes('objects')) : opts.find((v) => !v.includes('objects'))) || opts[0];
+  if (!sel.value.startsWith(`${family}/`) || sel.value.includes('objects') !== pick.includes('objects')) sel.value = pick;
+  if (hint) hint.textContent = `Cấu hình dataset tự chọn theo dữ liệu: ${pick}${objects ? ' (có 3D object tracks)' : ''}.`;
+  summary();
+}
+form.elements.data_root.addEventListener('change', matchDatasetConfig);
+form.elements.dataset.addEventListener('change', () => {
+  const root = form.elements.data_root.value;
+  const family = root.split('/')[1] || '';
+  const hint = $('#tfDataHint');
+  if (hint && root && !form.elements.dataset.value.startsWith(`${family}/`)) {
+    hint.innerHTML = `<span class="tag bad">Cấu hình ${esc(form.elements.dataset.value)} không khớp dữ liệu ${esc(family)}.</span>`;
+  }
+});
 form.addEventListener('input', (e) => { if (e.target.name === 'steps' || e.target.id === 'tcName') summary(); });
 
 // ---------------------------------------------------------------- Colab start + job cards

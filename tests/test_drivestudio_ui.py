@@ -2,6 +2,8 @@
 import subprocess
 from pathlib import Path
 
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -46,12 +48,31 @@ def test_parse_log_reports_the_exception_line():
 
 def test_runs_lists_finished_run_with_config(tmp_path):
     make_run(tmp_path, "r1", LOG)
+    log = tmp_path / "fflab-runs" / "r1" / "fflab-train.log"
+    old = log.stat().st_mtime - 3600                       # finished an hour ago (a fresh log means still working)
+    os.utime(log, (old, old))
     runs = ds.DriveStudioRuns(tmp_path, venv=tmp_path / "venv").runs()
     assert [r["name"] for r in runs] == ["r1"]
     r = runs[0]
     assert r["state"] == "succeeded"
     assert (r["method"], r["dataset"], r["steps_cfg"]) == ("configs/streetgs_ut.yaml", "kitti360/ncore_3cams", "2000")
     assert r["images"] == ["drivestudio/r1/images/step_2000_rgbs.png"]
+
+    os.utime(log, None)                                     # log written just now: still rendering videos
+    assert ds.DriveStudioRuns(tmp_path, venv=tmp_path / "venv").runs()[0]["state"] == "running"
+
+
+def test_video_preview_waits_for_complete_mp4(tmp_path):
+    make_run(tmp_path, "r1", LOG)
+    vdir = tmp_path / "fflab-runs" / "r1" / "drivestudio" / "r1" / "videos"
+    vdir.mkdir(parents=True)
+    (vdir / "half.mp4").write_bytes(bytes.fromhex("0000002066747970") + b"isom" + bytes(20) + b"mdat" + bytes([1]) * 200)
+    runs = ds.DriveStudioRuns(tmp_path, venv=tmp_path / "venv")
+    assert not runs.video_complete(vdir / "half.mp4")
+    with pytest.raises(ValueError, match="đang được ghi"):
+        runs.preview("r1", "drivestudio/r1/videos/half.mp4")
+    item = next(v for v in runs.videos() if v["id"].endswith("half.mp4"))
+    assert item["ready"] is False and "/preview/" in item["url"] and "/files/" in item["download"]
 
 
 def test_file_access_stays_inside_the_run(tmp_path):
