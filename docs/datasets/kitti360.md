@@ -91,6 +91,8 @@ Giới hạn (đo trên calib thật, ảnh 1400 px):
 
 ### 5.1 Góc nhìn dùng được: 166 độ, không phải hơn 180 độ
 
+So sánh với mô hình camera của các dataset khác: `overview.md` mục 2.1. KITTI-360 là dataset duy nhất hiện nay mà mô hình gốc (Mei) phải chuyển gần đúng, nên là dataset duy nhất mất góc nhìn.
+
 Góc θ đo từ trục nhìn sang **một bên**; góc nhìn tổng là hai bên cộng lại (83 độ mỗi bên là 166 độ tổng). Với `image_02`, `image_03` có ba lớp, mỗi lớp một giới hạn:
 
 | Lớp | Là gì | Mỗi bên | Tổng |

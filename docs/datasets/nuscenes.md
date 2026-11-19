@@ -165,3 +165,7 @@ ProjectPath/data/
               ├── 002/
               └── ...
 ```
+
+## Camera model in drive2sim
+
+Calibration model: pinhole. In the tool: `opencv_pinhole`, kept as is, so no field of view is lost. nuScenes images are already undistorted and the processed `intrinsics/*.txt` have zero distortion coefficients (checked on `scene-0061`). Comparison across datasets: `overview.md` section 2.1.

@@ -199,3 +199,7 @@ ProjectPath/data/
             ├── instances/           # Instances' bounding boxes information
             └── humanpose/           # (Optional) Human body poses: smpl.pkl
 ```
+
+## Camera model in drive2sim
+
+Calibration model: F-Theta (a polynomial between ray angle and pixel distance). In the tool: `ftheta`, keeping the native images and calibration; 3DGUT and 3DGEER render F-Theta directly, so no field of view is lost to a model conversion. Comparison across datasets: `overview.md` section 2.1.

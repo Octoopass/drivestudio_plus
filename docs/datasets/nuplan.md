@@ -231,3 +231,7 @@ ProjectPath/data/
               ├── 2021.05.12.22.28.35_veh-35_00620_01164/
               └── ...
 ```
+
+## Camera model in drive2sim
+
+Calibration model: pinhole. In the tool: `opencv_pinhole`, kept as is, so no field of view is lost. The preprocessor writes the nuPlan distortion coefficients to `intrinsics/*.txt`, but the loader ignores them ("we did not use distortion parameters for simplicity"), so images are treated as ideal pinhole. Any non-zero coefficient leaves a small geometric error, not measured yet. Comparison across datasets: `overview.md` section 2.1.

@@ -30,6 +30,23 @@ Nguồn số liệu:
 | Chỉ mắt cá | WoodScape (Valeo): 4 mắt cá quanh xe, có LiDAR, có box 3D | Chưa: cần converter và loader mới |
 | Chưa xác nhận | ZOD (Zenseact): camera trước 120°; nguồn đã đọc không nói là mắt cá | Chưa |
 
+## 2.1 Mô hình hiệu chỉnh camera và góc nhìn dùng được
+
+Mỗi dataset hiệu chỉnh camera bằng mô hình riêng của nó. Renderer của tool (gsplat 3DGS, 3DGUT, 3DGEER) chỉ hiểu ba mô hình chuẩn: `opencv_pinhole`, `opencv_fisheye`, `ftheta` (ARCHITECTURE mục 2.15). Mô hình gốc được renderer hỗ trợ thẳng thì giữ nguyên; mô hình khác phải được converter chuyển gần đúng sang một trong ba mô hình, và chỉ khi đó mới có thể mất góc nhìn.
+
+| Dataset | Mô hình hiệu chỉnh gốc | Trong tool | Hệ số méo | Mất góc nhìn |
+|---|---|---|---|---|
+| nuScenes | Pinhole, ảnh đã khử méo | `opencv_pinhole` | Bằng 0 (`intrinsics/*.txt` của `scene-0061`) | Không |
+| Waymo, Argoverse 2, PandaSet, nuPlan, KITTI | Pinhole, có thể kèm méo xuyên tâm, tiếp tuyến | `opencv_pinhole` | Ghi vào `intrinsics/*.txt` nhưng loader không đưa vào renderer (DriveStudio: "we did not use distortion parameters for simplicity"); ảnh coi như pinhole lý tưởng. Hệ số khác 0 thì có sai số hình học nhỏ, chưa đo | Không |
+| PhysicalAI (NVIDIA) | F-Theta (đa thức góc ↔ khoảng cách pixel) | `ftheta`, giữ ảnh và mô hình gốc | Nằm trong đa thức F-Theta | Không (renderer 3DGUT, 3DGEER vẽ F-Theta trực tiếp) |
+| KITTI-360, camera `image_00`, `image_01` | Pinhole | `opencv_pinhole` | Như nhóm pinhole | Không |
+| KITTI-360, camera mắt cá `image_02`, `image_03` | **Mei** (mặt cầu đơn vị, thông số `xi`; nhìn hơn 180°) | `opencv_fisheye`, **khớp gần đúng** từ Mei (`core/camera.py`) | `k1..k4` từ phép khớp; méo tiếp tuyến bị bỏ | **Có**: phép khớp chỉ chính xác tới 1,45 rad (83°) mỗi bên, loader che phần ngoài, nên chỉ dùng 166° (`kitti360.md` mục 5.1) |
+
+Hệ quả:
+- Giới hạn góc nhìn không phải chung cho mọi camera mắt cá. Nó phụ thuộc vào việc mô hình gốc có được renderer hỗ trợ thẳng hay phải chuyển gần đúng, và phép chuyển đúng tới đâu.
+- Dataset mắt cá mới dùng sẵn OpenCV fisheye hoặc F-Theta thì không mất gì. Dùng mô hình khác (Mei, Kannala–Brandt có thêm hệ số, Scaramuzza...) thì converter phải chuyển, và giới hạn tuỳ phép chuyển đó.
+- Vì vậy giới hạn góc phải do converter của từng dataset khai báo. Hiện manifest chưa có trường cho việc này, và `engine/scenes.camera_lenses` còn áp giới hạn 1,45 rad của KITTI-360 cho mọi camera mắt cá (ARCHITECTURE mục 2.13).
+
 ## 3. Độ dài cảnh, số ảnh, quãng đường, tốc độ
 
 | Dataset | Độ dài một cảnh | Tần số camera | Số khung mỗi camera mỗi cảnh | Quãng đường, tốc độ |

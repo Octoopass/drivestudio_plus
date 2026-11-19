@@ -187,3 +187,7 @@ ProjectPath/data/
          ├── 2011_09_26_drive_0002_sync/
          └── ...
 ```
+
+## Camera model in drive2sim
+
+Calibration model: pinhole. In the tool: `opencv_pinhole`, kept as is, so no field of view is lost. The loader ignores the distortion coefficients ("we did not use distortion parameters for simplicity"), so images are treated as ideal pinhole. Comparison across datasets: `overview.md` section 2.1.

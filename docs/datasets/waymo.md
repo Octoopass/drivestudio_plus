@@ -201,3 +201,7 @@ ProjectPath/data/
               ├── 002/
               ├── ...
 ```
+
+## Camera model in drive2sim
+
+Calibration model: pinhole. In the tool: `opencv_pinhole`, kept as is, so no field of view is lost. The processed `intrinsics/*.txt` hold the Waymo distortion coefficients, but the loader does not pass them to the renderer, so images are treated as ideal pinhole. Any non-zero coefficient leaves a small geometric error, not measured yet. Comparison across datasets: `overview.md` section 2.1.
