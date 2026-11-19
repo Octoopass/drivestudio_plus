@@ -201,3 +201,6 @@ local_scripts/
 
 # Dự đoán trước thực nghiệm, chỉ lưu local theo yêu cầu người dùng
 /docs/experiments/local/kitti360_predictions_20261117.md
+
+# Sổ tay kỹ thuật LaTeX chỉ lưu local theo yêu cầu người dùng
+/docs/sổ tay kỹ thuật/
