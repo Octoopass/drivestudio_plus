@@ -796,6 +796,10 @@ class Approach(VersionedFile):
         presets: Tên preset → giá trị của các mục cấu hình khác mặc định.
         preset_help: Tên preset → mô tả ngắn hiện trên Studio (thêm từ ``d2s-approach/0.2``).
         groups: Tên nhóm → nhóm mục cấu hình, theo thứ tự hiện trên Studio; chỉ để hiển thị.
+        retired_options: Mục cấu hình đã gỡ (không còn chọn được) mà run cũ còn ghi trong
+            ``approach.options``: giữ nhãn và giá trị mặc định cũ để Studio hiện cấu hình của run
+            cũ (``MCMC`` thay vì chữ trơ ``mcmc``; ẩn khi run dùng giá trị mặc định). Engine không
+            đọc trường này. Thêm sau ``d2s-approach/0.3`` mà không tăng phiên bản (không bắt buộc).
         stages: Các bước theo thứ tự chạy, ít nhất một.
     """
 
@@ -811,6 +815,7 @@ class Approach(VersionedFile):
     presets: dict[str, dict[str, OptionValue]] = {}
     preset_help: dict[str, str] = {}
     groups: dict[str, OptionGroup] = {}
+    retired_options: dict[str, OptionSpec] = {}
     stages: list[StageEntry] = Field(min_length=1)
 
     @model_validator(mode="before")
@@ -909,6 +914,10 @@ class Approach(VersionedFile):
         """
         for option_name in self.options:
             identifiers.check_snake_case(option_name, "option name")
+        for option_name in self.retired_options:
+            identifiers.check_snake_case(option_name, "retired option name")
+            if option_name in self.options:
+                raise ValueError(f"retired_options.{option_name} trùng một mục cấu hình đang có")
         for preset_name in self.presets:
             identifiers.check_snake_case(preset_name, "preset name")
         for index, constraint in enumerate(self.constraints):

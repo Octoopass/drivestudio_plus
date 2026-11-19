@@ -24,6 +24,9 @@ export function useApproaches(): Record<string, Approach> | null {
   return data;
 }
 
+/** Mục cấu hình luôn hiện trong ô cấu hình, kể cả khi bằng giá trị mặc định. */
+const ALWAYS_SHOWN = ["renderer"];
+
 function same(a: unknown, b: unknown): boolean {
   return typeof a === typeof b && a === b;
 }
@@ -31,7 +34,7 @@ function same(a: unknown, b: unknown): boolean {
 /** Một tham số viết bằng nhãn của file approach khi có ("FastGS: Bật"), không thì ``tên=giá trị``.
  * Dùng chung cho mọi chỗ hiện tham số, để cùng một mục không lúc ``fastgs`` lúc ``FastGS``. */
 export function paramLabel(approach: Approach | undefined, name: string, value: unknown): string {
-  const spec = approach?.options?.[name];
+  const spec = approach?.options?.[name] ?? approach?.retired_options?.[name];
   if (spec) {
     const index = spec.choices.findIndex((choice) => same(choice, value));
     return `${spec.label ?? name}: ${spec.labels?.[index] ?? String(value)}`;
@@ -81,21 +84,35 @@ export function ConfigText({
   // Preset ghi trong run, hoặc preset nào có đúng cấu hình này (người dùng tự bấm ra cùng tổ hợp).
   const name = preset ?? Object.keys(approach.presets ?? {}).find((key) => matches(presetValues(key))) ?? null;
   const base = name ? presetValues(name) : defaults;
+  // Mục đã gỡ (retired_options): run cũ còn ghi nó; so với giá trị mặc định cũ, nhãn lấy từ đó.
+  const retired = approach.retired_options ?? {};
+  const baseOf = (key: string) => (key in retired ? retired[key].default : base[key]);
+  const specOf = (key: string) => approach.options?.[key] ?? retired[key];
+  // Mục luôn hiện kể cả khi bằng mặc định (ô trống dễ đọc nhầm khi so run), trừ khi preset của run
+  // đã đặt nó (preset "geer" đã nói lên renderer). Đặt lên đầu.
+  const presetKeys = new Set(Object.keys((name && approach.presets?.[name]) || {}));
+  const always = (key: string) => ALWAYS_SHOWN.includes(key) && !presetKeys.has(key);
   const changed = Object.entries(options)
-    .filter(([key, value]) => !same(base[key], value))
+    .filter(([key, value]) => always(key) || !same(baseOf(key), value))
+    .sort(([a], [b]) => Number(always(b)) - Number(always(a)))
     .map(([key, value]) => {
-      const spec = approach.options?.[key];
+      const spec = specOf(key);
       const index = spec ? spec.choices.findIndex((choice) => same(choice, value)) : -1;
       const label = spec?.labels?.[index] ?? String(value);
       const full = `${spec?.label ?? key}: ${label}`;
       if (!compact) return { full, short: full };
       const title = (spec?.label ?? key).replace(/\s*\(.*?\)/g, "");
       const short = typeof value === "boolean" ? (value ? title : t("config.off", { name: title })) : label.replace(/\s*\(.*?\)/g, "");
-      return { full, short };
+      return { full, short, first: always(key) };
     });
-  const head = name ?? (changed.length ? null : t("config.default"));
-  const fullText = [head, ...changed.map((c) => c.full), ...extra].filter(Boolean).join(" · ");
+  const firsts = changed.filter((c) => c.first);
+  const rest = changed.filter((c) => !c.first);
+  const head = name ?? (rest.length ? null : t("config.default"));
+  // Renderer đứng đầu, rồi preset, rồi các mục khác: mọi dòng của bảng cùng thứ tự.
+  const text = (pick: (c: (typeof changed)[number]) => string) =>
+    [...firsts.map(pick), head, ...rest.map(pick), ...extra].filter(Boolean).join(" · ");
+  const fullText = text((c) => c.full);
   if (!compact) return <>{fullText}</>;
-  const shortText = [head, ...changed.map((c) => c.short), ...extra].filter(Boolean).join(" · ");
+  const shortText = text((c) => c.short);
   return <span title={fullText}>{shortText}</span>;
 }

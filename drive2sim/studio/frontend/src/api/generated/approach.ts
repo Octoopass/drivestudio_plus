@@ -60,6 +60,10 @@ export type Stage = string;
  *     presets: Tên preset → giá trị của các mục cấu hình khác mặc định.
  *     preset_help: Tên preset → mô tả ngắn hiện trên Studio (thêm từ ``d2s-approach/0.2``).
  *     groups: Tên nhóm → nhóm mục cấu hình, theo thứ tự hiện trên Studio; chỉ để hiển thị.
+ *     retired_options: Mục cấu hình đã gỡ (không còn chọn được) mà run cũ còn ghi trong
+ *         ``approach.options``: giữ nhãn và giá trị mặc định cũ để Studio hiện cấu hình của run
+ *         cũ (``MCMC`` thay vì chữ trơ ``mcmc``; ẩn khi run dùng giá trị mặc định). Engine không
+ *         đọc trường này. Thêm sau ``d2s-approach/0.3`` mà không tăng phiên bản (không bắt buộc).
  *     stages: Các bước theo thứ tự chạy, ít nhất một.
  */
 export interface Approach {
@@ -75,6 +79,7 @@ export interface Approach {
   presets?: Presets;
   preset_help?: PresetHelp;
   groups?: Groups;
+  retired_options?: RetiredOptions;
   stages: Stages;
 }
 /**
@@ -171,6 +176,9 @@ export interface Groups {
 export interface OptionGroup {
   label: Label1;
   help?: Help1;
+}
+export interface RetiredOptions {
+  [k: string]: OptionSpec;
 }
 /**
  * Một bước trong danh sách ``stages`` của approach.

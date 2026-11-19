@@ -90,6 +90,16 @@ options:
       - "Train như DriveStudio gốc."
       - "Mỗi bước train chạy nhanh hơn; ảnh và gradient chỉ lệch ở mức làm tròn số thực. Kỹ thuật thật sự đã bật được ghi vào summary.json (speedups)."
 
+# Mục đã gỡ, chỉ để Studio hiện cấu hình của run cũ (engine không đọc). densify: gỡ 19/11/2026,
+# MCMC kém quy tắc gốc ở mọi run đã đo (docs/methods/densify_mcmc.md); run mới vẫn bật được bằng
+# --set train.drivestudio.densify=mcmc.
+retired_options:
+  densify:
+    choices: [default, mcmc]
+    default: default
+    label: "Densify"
+    labels: ["Theo gradient (gốc)", "MCMC"]
+
 constraints:
   - when: {renderer: 3dgeer}
     forbid: {campose: true}

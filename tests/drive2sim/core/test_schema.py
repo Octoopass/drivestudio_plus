@@ -64,6 +64,17 @@ def test_approach_ok() -> None:
     assert approach.options["campose"].choices == [False, True]
 
 
+def test_approach_retired_options() -> None:
+    retired = {
+        "densify": {"choices": ["default", "mcmc"], "default": "default", "label": "Densify"}
+    }
+    approach = Approach.model_validate(
+        modified(APPROACH, lambda d: d.update(retired_options=retired))
+    )
+    assert approach.retired_options["densify"].label == "Densify"
+    assert "densify" not in approach.options
+
+
 def test_approach_display_text() -> None:
     def add_text(data: dict) -> None:
         data["options"]["campose"].update(
@@ -111,6 +122,13 @@ def test_approach_display_text() -> None:
         ),
         lambda data: data["options"]["renderer"].update(
             camera_models=[["opencv_pinhole"], [], []]
+        ),
+        # Mục đã gỡ không được trùng tên mục đang có, và tên phải snake_case.
+        lambda data: data.update(
+            retired_options={"campose": {"choices": [False, True], "default": False}}
+        ),
+        lambda data: data.update(
+            retired_options={"Densify": {"choices": ["default"], "default": "default"}}
         ),
         # Từ 0.3 track suy ra từ mô hình camera; ghi track là khoá lạ.
         lambda data: data.update(schema_version="d2s-approach/0.3"),
