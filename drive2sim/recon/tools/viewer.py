@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import os
 import threading
 import time
@@ -30,6 +31,9 @@ from drive2sim.recon.data.base.pixel_source import get_rays
 from drive2sim.recon.data.driving_dataset import DrivingDataset
 from drive2sim.recon.models.gaussians.basics import dataclass_camera, dataclass_gs
 from drive2sim.recon.utils.misc import import_str
+from drive2sim.recon.utils.scene_aabb import training_aabb
+
+logger = logging.getLogger(__name__)
 
 
 _NERFVIEW_CAMERA_PATH_SCALE_RATIO = 10.0
@@ -2441,6 +2445,20 @@ def _dataset_camera_tools(dataset) -> dict:
     }
 
 
+def scene_aabb_for(ckpt_path: str, dataset) -> torch.Tensor:
+    """Khung bao cảnh cho trainer của viewer: khung lúc train nếu tìm được, không thì của dataset.
+
+    Khung lúc train nằm cạnh checkpoint (``scene_aabb.json``, hoặc ``log.txt`` của run cũ).
+    """
+    # drive2sim: khung bao cảnh lúc train (recon/utils/scene_aabb.py); viewer tắt LiDAR nên dataset
+    # tính lại từ camera ra khung khác, làm DeformableNodes vẽ sai.
+    aabb = training_aabb(Path(ckpt_path).parent)
+    if aabb is None:
+        logger.warning("Không tìm thấy scene_aabb lúc train; dùng khung tính từ dữ liệu xem")
+        return dataset.get_aabb().reshape(2, 3)
+    return torch.tensor(aabb, dtype=torch.float32).reshape(2, 3)
+
+
 def main(local_rank: int, world_rank, world_size: int, args):
     torch.manual_seed(42)
     device = torch.device("cuda", local_rank) if torch.cuda.is_available() else torch.device("cpu")
@@ -2472,7 +2490,7 @@ def main(local_rank: int, world_rank, world_size: int, args):
         num_train_images=len(dataset.train_image_set),
         num_full_images=len(dataset.full_image_set),
         test_set_indices=dataset.test_timesteps,
-        scene_aabb=dataset.get_aabb().reshape(2, 3),
+        scene_aabb=scene_aabb_for(ckpt_path, dataset),
         device=device,
     )
     trainer.resume_from_checkpoint(ckpt_path=ckpt_path, load_only_model=True)

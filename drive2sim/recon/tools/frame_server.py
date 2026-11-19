@@ -38,6 +38,7 @@ from drive2sim.recon.tools.viewer import (
     _initial_render_settings_from_trainer,
     _set_frame_on_trainer,
     make_viewer_render_fn,
+    scene_aabb_for,
 )
 from drive2sim.recon.utils.misc import import_str
 
@@ -69,7 +70,7 @@ def load(ckpt: str, config: str) -> tuple:
         num_train_images=len(dataset.train_image_set),
         num_full_images=len(dataset.full_image_set),
         test_set_indices=dataset.test_timesteps,
-        scene_aabb=dataset.get_aabb().reshape(2, 3),
+        scene_aabb=scene_aabb_for(ckpt, dataset),
         device=device,
     )
     trainer.resume_from_checkpoint(ckpt_path=os.path.abspath(ckpt), load_only_model=True)

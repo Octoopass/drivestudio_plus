@@ -803,7 +803,9 @@ class ScenePixelSource(abc.ABC):
         Returns:
             the front camera trajectory.
         """
-        front_camera = self.camera_data[0]
+        # drive2sim: camera đầu tiên của split, không phải camera số 0 (split chỉ có camera mắt cá
+        # image_02, image_03 của KITTI-360 không có camera 0)
+        front_camera = self.camera_data[next(iter(self.camera_data))]
         assert (
             front_camera.cam_to_worlds is not None
         ), "Camera poses not loaded, cannot compute front camera trajectory."

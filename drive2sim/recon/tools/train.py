@@ -14,6 +14,7 @@ import argparse
 import torch
 from drive2sim.recon.tools.eval import do_evaluation
 from drive2sim.recon.utils.misc import import_str
+from drive2sim.recon.utils.scene_aabb import save_scene_aabb
 from drive2sim.recon.utils.backup import backup_project
 from drive2sim.recon.utils.logging import MetricLogger, setup_logging
 from drive2sim.recon.utils.step_profile import StepProfiler
@@ -192,6 +193,7 @@ def main(args):
     dataset = DrivingDataset(data_cfg=cfg.data)
     save_cameras(cfg.log_dir, dataset)
 
+    scene_aabb = dataset.get_aabb().reshape(2, 3)
     # setup trainer
     trainer = import_str(cfg.trainer.type)(
         **cfg.trainer,
@@ -200,9 +202,12 @@ def main(args):
         num_train_images=len(dataset.train_image_set),
         num_full_images=len(dataset.full_image_set),
         test_set_indices=dataset.test_timesteps,
-        scene_aabb=dataset.get_aabb().reshape(2, 3),
+        scene_aabb=scene_aabb,
         device=device
     )
+    # drive2sim: ghi khung bao cảnh trainer nhận, để viewer dựng trainer giống hệt (không có trong
+    # checkpoint mà DeformableNodes dùng khi vẽ; recon/utils/scene_aabb.py)
+    save_scene_aabb(log_dir, scene_aabb.flatten().tolist())
     # training views for FastGS multi-view scoring (only used when trainer.fastgs.enabled)
     trainer.fastgs.view_source = dataset.train_image_set
     
