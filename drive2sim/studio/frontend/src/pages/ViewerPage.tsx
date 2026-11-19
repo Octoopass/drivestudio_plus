@@ -275,7 +275,9 @@ export function ViewerPage({ runId }: { runId?: string }) {
   })();
   // Góc nhìn dọc thật của camera gốc theo mô hình ống kính (API, từ intrinsics của cảnh).
   const lens = cameras?.[cameraIndex] ? splats.data?.lenses?.[cameras[cameraIndex].name] : undefined;
-  const fovMax = Math.min(FOV_LIMIT, Math.max(FOV_RANGE, Math.ceil(lens?.fov_y_deg ?? nativeFov)));
+  // Không biết góc thật (server bản cũ, cảnh thiếu intrinsics trên máy): cho kéo hết khoảng thay vì
+  // lặng lẽ chặn ở FOV_RANGE.
+  const fovMax = lens ? Math.min(FOV_LIMIT, Math.max(FOV_RANGE, Math.ceil(lens.fov_y_deg))) : FOV_LIMIT;
   // Bỏ chọn run (về "không chọn"): dọn cảnh của run cũ, trừ khi đang xem file kéo thả.
   useEffect(() => {
     if (runId || source === "file") return;

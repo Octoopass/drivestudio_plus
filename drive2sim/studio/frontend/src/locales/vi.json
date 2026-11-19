@@ -701,7 +701,7 @@
   "densify.mcmc.scale_reg": "Điều chuẩn kích thước",
   "densify.source": "Đọc từ config.yaml của stage train (đã gộp override dòng lệnh).",
   "viewer.field.fov": "Góc nhìn",
-  "viewer.field.fov_hint": "Góc nhìn dọc của camera trong trình duyệt (thử nghiệm). Mặc định theo camera gốc: camera pinhole thì đúng ảnh gốc; camera fisheye (KITTI-360 image_02, image_03) thì trình duyệt chỉ vẽ được pinhole nên góc khoảng 119°, mép ảnh bị kéo giãn. Kéo thanh trượt để dùng pinhole với góc nhìn tự chọn, giữ vị trí và hướng của camera; ảnh chính xác đè lên vẽ cùng góc đó.",
-  "viewer.fov.native": "Theo camera gốc",
+  "viewer.field.fov_hint": "Góc nhìn dọc của camera trong trình duyệt (thử nghiệm). Tích \"Dùng tiêu cự của camera gốc\": trình duyệt dùng đúng tiêu cự và tâm ảnh (K) của camera đang chọn, như trước khi có thanh trượt; camera pinhole thì khung nhìn trùng ảnh gốc và video, camera mắt cá (KITTI-360 image_02, image_03) thì ra khoảng 119° và mép bị kéo giãn, vì trình duyệt chỉ vẽ được pinhole. Bỏ tích hoặc kéo thanh trượt: dùng pinhole với góc tự chọn, giữ vị trí và hướng của camera. Giới hạn trên là góc nhìn thật của camera gốc (ít nhất 120°, dưới 180°). Ảnh chính xác đè lên vẽ cùng góc đó.",
+  "viewer.fov.native": "Dùng tiêu cự của camera gốc",
   "viewer.fov.lens": "Camera gốc ({model}) thấy {fov}° theo chiều dọc"
 }
