@@ -354,6 +354,41 @@ def test_client_parses_cli_output(tmp_path: Path) -> None:
         client.stop("d2s")
 
 
+def test_download_falls_back_to_exec(tmp_path: Path) -> None:
+    """``colab download`` trả 500 cho mọi file: tải qua ``colab exec``, kiểm MD5.
+
+    Lần tải sau trên cùng client không thử ``colab download`` nữa.
+    """
+    import base64
+    import hashlib
+
+    payload = bytes(range(256)) * 10
+    calls: list[str] = []
+
+    def runner(command: Sequence[str], timeout_s: float) -> Done:
+        calls.append(command[1])
+        if command[1] == "download":
+            return Done(1, "[colab] Download failed: 500 Server Error: Internal Server Error\n")
+        assert "open('/content/d2s/out/part000', 'rb')" in Path(command[-1]).read_text()
+        md5, b64 = hashlib.md5(payload).hexdigest(), base64.b64encode(payload).decode()
+        return Done(0, f"D2S_MD5 {md5}\nD2S_B64 {b64}\n")
+
+    client = ColabClient(runner=runner)  # type: ignore[arg-type]
+    client.download("d2s", "/content/d2s/out/part000", tmp_path / "a" / "part")
+    assert (tmp_path / "a" / "part").read_bytes() == payload
+    client.download("d2s", "/content/d2s/out/part000", tmp_path / "b")
+    assert calls == ["download", "exec", "exec"]
+
+    def corrupt(command: Sequence[str], timeout_s: float) -> Done:
+        if command[1] == "download":
+            return Done(1, "[colab] Download failed: 500\n")
+        return Done(0, f"D2S_MD5 {'0' * 32}\nD2S_B64 {base64.b64encode(payload).decode()}\n")
+
+    with pytest.raises(ColabError, match="MD5"):
+        ColabClient(runner=corrupt).download("d2s", "/content/x", tmp_path / "c")  # type: ignore[arg-type]
+    assert not (tmp_path / "c").exists()
+
+
 def test_missing_cli_reports_install_hint(monkeypatch: pytest.MonkeyPatch) -> None:
     def missing(command: Sequence[str], timeout: float) -> Optional[Done]:
         raise FileNotFoundError(command[0])

@@ -422,7 +422,7 @@ Nguồn: `drive2sim/recon/trainers/base.py`, `camera_rasterization_kwargs` (3DGS
 **Nhược điểm.**
 - Mất phiên là mất mọi thứ chưa tải về, kể cả checkpoint giữa chừng; chạy tiếp chỉ từ bản đã tải về gần nhất.
 - Mỗi phiên mới phải upload lại cảnh và cài lại môi trường (build gsplat-geer, nvdiffrast, pytorch3d: hàng chục phút).
-- Upload, download qua API nội dung của Jupyter, chậm với cảnh lớn; giới hạn kích thước request chưa kiểm tra.
+- Upload, download qua API nội dung của Jupyter, chậm với cảnh lớn; giới hạn kích thước request chưa kiểm tra. Có phiên mà API này trả 500 cho mọi file; download khi đó chuyển sang đọc qua `colab exec` (base64, kiểm MD5), đo khoảng 2,4 MB/s với phần 32 MiB (13,5 s); upload chưa có đường dự phòng.
 - Đăng nhập lần đầu cần người (trang đồng ý của Google); không có API để biết trước còn GPU hay không.
 - Chưa chạy thật trên Colab (mục 7.1).
 
