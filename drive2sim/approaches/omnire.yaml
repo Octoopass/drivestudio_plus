@@ -55,16 +55,6 @@ options:
     descriptions:
       - "Dùng nguyên pose camera của dataset."
       - "Học thêm một độ lệch nhỏ (vị trí và góc xoay) cho pose của từng ảnh, bắt đầu từ 0. Cấu hình gốc trong paper của DriveStudio bật CamPose."
-  densify:
-    choices: [default, mcmc]
-    default: default
-    group: core
-    label: "Densify"
-    help: "Cách thêm, bớt Gaussian trong lúc train (docs/methods/densify_mcmc.md). Áp cho nền, xe, vật biến dạng; người (SMPL) không densify."
-    labels: ["Theo gradient (gốc)", "MCMC"]
-    descriptions:
-      - "Quy tắc của DriveStudio: Gaussian có gradient vị trí vượt ngưỡng thì nhân hoặc tách. Ngưỡng có đơn vị riêng của từng renderer; với 3DGUT ra ít Gaussian hơn 3DGS 40 %."
-      - "Ngân sách Gaussian cố định mỗi node: dời Gaussian gần trong suốt sang chỗ đậm, thêm dần tới ngân sách, cộng nhiễu nhỏ vào vị trí. Không dùng ngưỡng gradient nên như nhau với mọi renderer. Không dùng cùng FastGS."
   smpl:
     # Thứ tự là thứ tự ưu tiên của auto. Hai stage SMPL bị khoá khi biết chắc đoạn khung của split
     # không có box người (available.human_frames của manifest); khi đó auto chọn none.
@@ -110,9 +100,6 @@ constraints:
   - when: {fastgs: true}
     forbid: {campose: true}
     reason: "config FastGS của OmniRe tắt CamPose"
-  - when: {densify: mcmc}
-    forbid: {fastgs: true}
-    reason: "MCMC thay quy tắc densify mà FastGS sửa; chọn một trong hai"
 
 presets:
   paper: {campose: true}       # omnire.yaml gốc của DriveStudio
@@ -138,7 +125,6 @@ stages:
       campose: "${options.campose}"
       fastgs: "${options.fastgs}"
       fastergs: "${options.fastergs}"
-      densify: "${options.densify}"
   - {stage: eval.standard}
   - {stage: export.ply_world}
   - {stage: export.preview}

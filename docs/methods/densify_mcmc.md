@@ -1,10 +1,22 @@
 # MCMC densification for OmniRe
 
+## Status
+
+Removed from the OmniRe options on 2026-11-19 after a negative result. Both 30 000-step runs on nuScenes `scene-0061` (`front3`, Faster-GS) scored below their baselines: 3DGS 23.56 dB against 25.20 (`a022` against `8d9c`), 3DGUT 23.19 against 23.99 with FastGS (`44d8` against `60e5`). The background lost detail visibly, and vehicles lost the most PSNR.
+
+3DGEER with MCMC was not run, for these reasons:
+
+- With FastGS, 3DGEER keeps as many background Gaussians as 3DGS (0.39 million at the end of `a8a9` and `f8a6`) yet scores 3.2 dB lower, so the number and placement of Gaussians, which is all MCMC changes, is not what limits it.
+- The 3DGEER gap lies mainly in the static background, where MCMC also lost quality with 3DGS.
+- Bosch recommends the default strategy for 3DGEER (`third_party/gsplat-geer/README.md`). Its MCMC benchmark scripts come from upstream gsplat and use 3DGUT (`--with_ut`), and the 3DGEER paper (arXiv 2505.24053) does not use MCMC.
+
+The code and tests stay so that `a022` and `44d8` remain readable and resumable.
+
 ## Where the code is
 
 - `drive2sim/recon/densify/mcmc.py`: `MCMC` and `relocation`, tested in `tests/drive2sim/recon/densify/test_mcmc.py`.
 - `drive2sim/recon/trainers/base.py`: `postprocess_per_train_step` calls `MCMC.step` and adds `MCMC.regularization` to the losses.
-- `drive2sim/stages/train/drivestudio.py`, `drive2sim/approaches/omnire.yaml`: the option `densify: default | mcmc` (incompatible with FastGS).
+- `drive2sim/stages/train/drivestudio.py`: the stage parameter `densify: default | mcmc` (incompatible with FastGS). The OmniRe approach no longer offers it (see Status); `--set train.drivestudio.densify=mcmc` still enables it.
 
 ## What it does
 

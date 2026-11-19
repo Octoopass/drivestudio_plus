@@ -47,4 +47,4 @@ Reference: the FastGS repository (`github.com/fastgs/FastGS`).
 - Scoring costs about two extra renders per sampled view at each refinement.
 - Fewer Gaussians can lose fine detail. Detail-sensitive LPIPS worsens more than PSNR.
 - FastGS keeps the gradient test. With 3DGUT, whose threshold is uncalibrated, filtering relies almost entirely on the error score.
-- FastGS cannot be combined with MCMC, which replaces the gradient rule FastGS modifies.
+- FastGS cannot be combined with MCMC, which replaces the gradient rule FastGS modifies. MCMC is no longer an OmniRe option (`densify_mcmc.md`).

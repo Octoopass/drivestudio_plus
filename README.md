@@ -52,7 +52,7 @@ The **reconstruction method** decides how the scene is represented and divided i
 | **3DGS** (`3dgs`) | The renderer for pinhole cameras, which use the usual perspective projection model. |
 | **3DGUT** (`3dgut`) and **3DGEER** (`3dgeer`) | Renderers that support pinhole and the wide-angle camera models integrated in the tool. |
 
-Optional settings change training speed or the way Gaussians are added and removed. **FastGS** changes the addition and removal rules. **Faster-GS** optimizes some training computations; the optimizations used depend on the renderer. **MCMC** changes how Gaussians are distributed, moved and added, and cannot be enabled with FastGS. `d2s approach show omnire` lists the settings, and `d2s approach check` checks a configuration before creating a run. See [docs/methods/](docs/methods/) for the mechanisms and limits.
+Optional settings change training speed or the way Gaussians are added and removed. **FastGS** changes the addition and removal rules. **Faster-GS** optimizes some training computations; the optimizations used depend on the renderer. MCMC densification was tried and removed from the options because it scored lower than the default rule ([docs/methods/densify_mcmc.md](docs/methods/densify_mcmc.md)). `d2s approach show omnire` lists the settings, and `d2s approach check` checks a configuration before creating a run. See [docs/methods/](docs/methods/) for the mechanisms and limits.
 
 ## Using pinhole and fisheye cameras together
 

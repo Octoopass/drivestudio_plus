@@ -57,7 +57,7 @@ Mọi dữ liệu nằm trong một **thư mục làm việc** (*workdir*) do b�
 | **3DGS** (`3dgs`) | Renderer dùng cho camera pinhole, tức mô hình chiếu phối cảnh thông thường. |
 | **3DGUT** (`3dgut`) và **3DGEER** (`3dgeer`) | Các renderer có thể làm việc với camera pinhole và các mô hình camera góc rộng mà tool hỗ trợ. |
 
-Tool còn có các tuỳ chọn về tốc độ và cách thêm, bớt Gaussian khi học. **FastGS** điều chỉnh việc thêm và loại Gaussian. **Faster-GS** tối ưu một số phép tính trong quá trình huấn luyện; phần tối ưu thực sự được dùng phụ thuộc renderer. **MCMC** là một cách khác để phân bố, di chuyển và thêm Gaussian, nên không bật cùng FastGS. Chạy `d2s approach show omnire` để xem các lựa chọn; `d2s approach check` kiểm tra cấu hình trước khi tạo run. Chi tiết từng cách nằm trong [docs/methods/](docs/methods/).
+Tool còn có các tuỳ chọn về tốc độ và cách thêm, bớt Gaussian khi học. **FastGS** điều chỉnh việc thêm và loại Gaussian. **Faster-GS** tối ưu một số phép tính trong quá trình huấn luyện; phần tối ưu thực sự được dùng phụ thuộc renderer. Cách densify MCMC đã được thử rồi gỡ khỏi lựa chọn vì kém hơn quy tắc gốc ([docs/methods/densify_mcmc.md](docs/methods/densify_mcmc.md)). Chạy `d2s approach show omnire` để xem các lựa chọn; `d2s approach check` kiểm tra cấu hình trước khi tạo run. Chi tiết từng cách nằm trong [docs/methods/](docs/methods/).
 
 ## Dùng chung camera pinhole và mắt cá
 

@@ -122,10 +122,13 @@ class TrainDrivestudioParams(BaseModel):
             khác bỏ qua.
         refine_interval: Densify, prune mỗi bao nhiêu bước
             (``trainer.gaussian_ctrl_general_cfg.refine_interval``); bỏ trống thì theo config
-            (3DGS 100; 3DGEER 300 theo Bosch). Dùng để so renderer với cùng nhịp densify.
+            (3DGS, 3DGUT 100; 3DGEER 50, Bosch để 300). Dùng để so renderer với cùng nhịp densify.
         densify: ``default`` là quy tắc của DriveStudio (theo gradient, có ngưỡng); ``mcmc`` là
             densify bằng MCMC cho nền, xe, vật biến dạng (``drive2sim/recon/densify/mcmc.py``,
-            ``docs/methods/densify_mcmc.md``), không dùng cùng FastGS.
+            ``docs/methods/densify_mcmc.md``), không dùng cùng FastGS. Approach không còn cho
+            chọn ``mcmc`` (kết quả kém hơn quy tắc gốc ở mọi run đã đo); giữ giá trị này để run cũ
+            (``a022``, ``44d8``) đọc và resume được, và để thử lại bằng
+            ``--set train.drivestudio.densify=mcmc``.
         densify_stats: Ghi phân bố của đại lượng densify ở mỗi lần refine vào
             ``densify_stats.jsonl`` (``drive2sim/recon/utils/densify_stats.py``), để chỉnh ngưỡng
             densify theo renderer (``docs/methods/densify_3dgut.md``). Chỉ đọc, không đổi kết quả.

@@ -37,4 +37,4 @@ Instead of the screen-space gradient that 3DGS densification uses, 3DGEER return
 - The 3DGEER threshold (`0.01`) is on a different scale from the 3DGS (`0.0005`) and 3DGUT thresholds, so they are not interchangeable.
 - The roughly 3 dB gap to 3DGS on pinhole nuScenes lies mainly in the static background, while human and vehicle regions were close. Its cause is unknown.
 - Only cameras supported by `gsplat-geer` can be trained. Rolling shutter needs exposure start and end poses.
-- MCMC densification (`densify_mcmc.md`) ignores the gradient scale and could replace the threshold.
+- MCMC densification (`densify_mcmc.md`) ignores the gradient scale, but it was not run with 3DGEER: with FastGS, 3DGEER already keeps as many Gaussians as 3DGS, and MCMC was removed after scoring lower with 3DGS and 3DGUT.
