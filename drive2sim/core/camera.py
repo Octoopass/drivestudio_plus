@@ -30,7 +30,6 @@ File này chứa ``MEI_FIT_MAX_ANGLE``, ``mei_radius``, ``fisheye_radius``, ``fi
 
 import math
 from collections.abc import Sequence
-from typing import Optional
 
 MEI_FIT_MAX_ANGLE = 1.45
 FIT_SAMPLES = 400  # số góc đều trên (0, MEI_FIT_MAX_ANGLE] dùng để khớp
@@ -117,79 +116,3 @@ def mei_fit_error_px(
         )
         for i in range(samples + 1)
     )
-
-
-def _monotonic_limit(coeffs: Sequence[float], step: float = 1e-3) -> float:
-    """Góc lớn nhất (rad, tới π) mà ``fisheye_radius`` còn tăng theo ``θ``.
-
-    Xa hơn thì đa thức đổi chiều, một bán kính ứng với hai góc, nên không còn là ống kính.
-    """
-    theta, last = 0.0, 0.0
-    while theta + step <= math.pi:
-        value = fisheye_radius(theta + step, coeffs)
-        if value <= last:
-            return theta
-        theta, last = theta + step, value
-    return math.pi
-
-
-def field_of_view(
-    model: str,
-    values: Sequence[float],
-    width: int,
-    height: int,
-    max_angle: Optional[float] = None,
-) -> tuple[float, float]:
-    """Góc nhìn ngang và dọc (độ) mà camera thật sự thấy, từ ``intrinsics/<camera>.txt``.
-
-    Góc mỗi phía tính riêng từ tâm ảnh tới mép (tâm ảnh có thể lệch). Pinhole: ``atan(d / f)``,
-    bỏ qua hệ số méo (loader cũng không dùng chúng). Fisheye: góc ``θ`` mà
-    ``f · fisheye_radius(θ)`` bằng khoảng cách tới mép, tìm bằng chia đôi trong miền đa thức của
-    chính camera còn tăng (``_monotonic_limit``), chặn thêm ở ``max_angle`` nếu converter khai
-    báo mô hình chỉ đúng tới đó (``ManifestCamera.max_angle``; KITTI-360: 1,45 rad).
-
-    Args:
-        model: ``opencv_pinhole`` hoặc ``opencv_fisheye`` (CONTRACTS mục 2.1).
-        values: Các số của ``intrinsics/<camera>.txt``: bốn số đầu ``fx fy cx cy`` (pixel, ảnh
-            gốc), fisheye thêm ``k1 k2 k3 k4``.
-        width: Chiều rộng ảnh gốc.
-        height: Chiều cao ảnh gốc.
-        max_angle: Góc lệch trục lớn nhất (rad) mà mô hình còn đúng; ``None`` là không giới hạn
-            ngoài miền đa thức còn tăng.
-
-    Returns:
-        ``(ngang, dọc)`` tính bằng độ.
-
-    Raises:
-        ValueError: Nếu ``model`` không phải hai mô hình trên.
-    """
-    fx, fy, cx, cy = (float(value) for value in values[:4])
-    coeffs = [float(value) for value in values[4:8]]
-    if model == "opencv_pinhole":
-
-        def angle(distance: float, focal: float) -> float:
-            return math.atan(distance / focal)
-
-    elif model == "opencv_fisheye":
-        limit = _monotonic_limit(coeffs)
-        if max_angle is not None:
-            limit = min(limit, max_angle)
-
-        def angle(distance: float, focal: float) -> float:
-            target = distance / focal
-            if fisheye_radius(limit, coeffs) <= target:
-                return limit
-            low, high = 0.0, limit
-            for _ in range(60):
-                middle = (low + high) / 2
-                if fisheye_radius(middle, coeffs) < target:
-                    low = middle
-                else:
-                    high = middle
-            return (low + high) / 2
-
-    else:
-        raise ValueError(f"chưa tính được góc nhìn của mô hình camera {model}")
-    horizontal = angle(cx, fx) + angle(width - cx, fx)
-    vertical = angle(cy, fy) + angle(height - cy, fy)
-    return math.degrees(horizontal), math.degrees(vertical)

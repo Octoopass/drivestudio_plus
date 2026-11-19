@@ -1,5 +1,5 @@
-// Cấu hình của một run, viết như trang Chạy mới: tên preset (nếu cấu hình khớp một preset), cộng
-// các mục cấu hình khác giá trị của preset hay mặc định, bằng nhãn trong file approach
+// Cấu hình của một run: renderer, rồi các mục cấu hình khác giá trị mặc định, bằng nhãn trong file
+// approach
 // ("Renderer: 3DGEER"). Thay cho dạng thô "renderer=3dgeer, campose=false, fastgs=false".
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
@@ -55,12 +55,12 @@ function paramsText(approach: Approach | undefined, params: Record<string, unkno
 export function ConfigText({
   approachId,
   options,
-  preset,
   params,
   compact = false,
 }: {
   approachId: string;
   options: Record<string, OptionValue>;
+  /** Preset ghi trong run; giữ để các trang gọi không phải đổi, không còn dùng để hiển thị. */
   preset?: string | null;
   /** Tham số stage train khác mặc định: hai run cùng cấu hình approach vẫn phân biệt được. */
   params?: Record<string, unknown>;
@@ -79,19 +79,15 @@ export function ConfigText({
     return <>{raw || "–"}</>;
   }
   const defaults = Object.fromEntries(Object.entries(approach.options ?? {}).map(([name, spec]) => [name, spec.default]));
-  const presetValues = (name: string) => ({ ...defaults, ...(approach.presets?.[name] ?? {}) });
-  const matches = (values: Record<string, unknown>) => Object.entries(options).every(([name, value]) => same(values[name], value));
-  // Preset ghi trong run, hoặc preset nào có đúng cấu hình này (người dùng tự bấm ra cùng tổ hợp).
-  const name = preset ?? Object.keys(approach.presets ?? {}).find((key) => matches(presetValues(key))) ?? null;
-  const base = name ? presetValues(name) : defaults;
+  // So với giá trị mặc định và hiện nhãn từng mục, không hiện tên preset: run khớp đúng một preset
+  // (ví dụ "fastgs") trước đây hiện tên kỹ thuật viết thường, khác run cùng mục mà không khớp preset.
+  const base = defaults;
   // Mục đã gỡ (retired_options): run cũ còn ghi nó; so với giá trị mặc định cũ, nhãn lấy từ đó.
   const retired = approach.retired_options ?? {};
   const baseOf = (key: string) => (key in retired ? retired[key].default : base[key]);
   const specOf = (key: string) => approach.options?.[key] ?? retired[key];
-  // Mục luôn hiện kể cả khi bằng mặc định (ô trống dễ đọc nhầm khi so run), trừ khi preset của run
-  // đã đặt nó (preset "geer" đã nói lên renderer). Đặt lên đầu.
-  const presetKeys = new Set(Object.keys((name && approach.presets?.[name]) || {}));
-  const always = (key: string) => ALWAYS_SHOWN.includes(key) && !presetKeys.has(key);
+  // Mục luôn hiện kể cả khi bằng mặc định (ô trống dễ đọc nhầm khi so run), đặt lên đầu.
+  const always = (key: string) => ALWAYS_SHOWN.includes(key);
   const changed = Object.entries(options)
     .filter(([key, value]) => always(key) || !same(baseOf(key), value))
     .sort(([a], [b]) => Number(always(b)) - Number(always(a)))
@@ -107,8 +103,8 @@ export function ConfigText({
     });
   const firsts = changed.filter((c) => c.first);
   const rest = changed.filter((c) => !c.first);
-  const head = name ?? (rest.length ? null : t("config.default"));
-  // Renderer đứng đầu, rồi preset, rồi các mục khác: mọi dòng của bảng cùng thứ tự.
+  const head = rest.length ? null : t("config.default");
+  // Renderer đứng đầu, rồi các mục khác: mọi dòng của bảng cùng thứ tự.
   const text = (pick: (c: (typeof changed)[number]) => string) =>
     [...firsts.map(pick), head, ...rest.map(pick), ...extra].filter(Boolean).join(" · ");
   const fullText = text((c) => c.full);
