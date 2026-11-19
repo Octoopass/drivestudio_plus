@@ -700,8 +700,8 @@
   "densify.mcmc.opacity_reg": "Opacity regularisation",
   "densify.mcmc.scale_reg": "Scale regularisation",
   "densify.source": "Read from the train stage's config.yaml (command-line overrides included).",
-  "viewer.field.fov": "Field of view",
-  "viewer.field.fov_hint": "Vertical field of view of the browser camera (experimental). With \"Use the source camera's focal length\" checked, the browser uses the selected camera's focal length and principal point (K), as before the slider existed: a pinhole camera then matches the source image and the video, while a fisheye camera (KITTI-360 image_02, image_03) gives about 119° with stretched edges, because the browser can only draw pinhole. Uncheck it or drag the slider for a pinhole camera with your own field of view, keeping the camera position and direction. The maximum is the source camera's real field of view (at least 120°, below 180°). The exact image overlay uses the same view.",
+  "viewer.field.fov": "Focal length",
+  "viewer.field.fov_hint": "Focal length of the browser's pinhole camera (experimental), in pixels of the selected camera's training image size (the unit of K in cameras.json; KITTI-360 image_02: 700×700, source focal length 208 px), with the matching vertical field of view: f = (height / 2) / tan(angle / 2). A long focal length is a narrow view (zoomed in), a short one a wide view. With \"Use the source camera's focal length\" checked, the browser uses the selected camera's focal length and principal point (K), as before the slider existed: a pinhole camera then matches the source image and the video, while a fisheye camera (KITTI-360 image_02, image_03) gives about 119° with stretched edges, because the browser can only draw pinhole. Uncheck it or drag the slider for a pinhole camera with your own focal length, centred principal point, same position and direction. The shortest focal length matches the source camera's real field of view (at least 120°, below 180°). The exact image overlay uses the same focal length.",
   "viewer.fov.native": "Use the source camera's focal length",
   "viewer.fov.lens": "Source camera ({model}) sees {fov}° vertically"
 }
