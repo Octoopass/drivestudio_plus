@@ -138,7 +138,7 @@ Khung test của run `e3e3` (3DGEER, split `every10_fisheye2`; trái `image_02`,
 | Chế độ | Ống kính | Ghi chú |
 |---|---|---|
 | Video | Mắt cá (bước 6) | Giống video kết quả |
-| Gói xem trước (trình duyệt) | Pinhole | Spark chỉ vẽ được pinhole; thanh trượt "Góc nhìn" đổi góc pinhole, giới hạn trên là góc thật của camera (166°) |
+| Gói xem trước (trình duyệt) | Pinhole | Spark chỉ vẽ được pinhole; thanh trượt "Tiêu cự" đổi tiêu cự (góc nhìn) của pinhole, tiêu cự ngắn nhất ứng với góc thật của camera (166°) |
 | Ảnh chính xác khi dừng tay, Render GPU | Pinhole mặc định | Renderer gốc vẽ được mắt cá nhưng Studio chưa có lựa chọn này |
 
 Cùng model `e3e3`, vẽ bằng renderer gốc qua camera **pinhole 90°** đặt ở vị trí `image_02`: đường thẳng giữ thẳng, góc nhìn hẹp hơn ảnh mắt cá:
