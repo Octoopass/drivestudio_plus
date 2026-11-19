@@ -78,6 +78,11 @@ def do_evaluation(
                     "human_ssim",
                     "vehicle_psnr",
                     "vehicle_ssim",
+                    "depth_rmse",
+                    "depth_absrel",
+                    "depth_delta1",
+                    "render_fps",
+                    "peak_vram_gib",
                 ]:
                     eval_dict[f"image_metrics/test/{k}"] = v
             if args.enable_wandb:
@@ -134,6 +139,11 @@ def do_evaluation(
                     "human_ssim",
                     "vehicle_psnr",
                     "vehicle_ssim",
+                    "depth_rmse",
+                    "depth_absrel",
+                    "depth_delta1",
+                    "render_fps",
+                    "peak_vram_gib",
                 ]:
                     eval_dict[f"image_metrics/full/{k}"] = v
             if args.enable_wandb:

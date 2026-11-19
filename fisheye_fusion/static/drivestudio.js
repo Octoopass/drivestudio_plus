@@ -8,7 +8,7 @@ const enc = (p) => p.split('/').map(encodeURIComponent).join('/');
 const STATE = { running: ['Đang chạy', 'run'], succeeded: ['Xong', 'ok'], failed: ['Lỗi', 'bad'], stopped: ['Đã dừng', 'warn'] };
 const POLL_MS = 10000;
 
-let overview = { options: {}, runs: [] };
+let overview = { options: {}, runs: [], videos: [] };
 let setup = null;
 let selected = null;
 let sort = { key: 'updated', dir: -1 };
@@ -76,23 +76,86 @@ function showTab(id) {
 function initNav() {
   const links = $$('#steps a');
   const byId = new Map(links.map((a) => [a.getAttribute('href').slice(1), a]));
-  const mark = (id) => links.forEach((a) => a.setAttribute('aria-current', String(byId.get(id) === a)));
-  const io = new IntersectionObserver((entries) => {
-    const visible = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-    if (visible.length) mark(visible[0].target.id);
-  }, { rootMargin: '-10% 0px -60% 0px' });
-  byId.forEach((_, id) => { const s = document.getElementById(id); if (s) io.observe(s); });
-  mark('overview');
-  // pipeline.js jumps to #step-results after a NuRec evaluation: show that tab
-  window.addEventListener('hashchange', () => { if (location.hash === '#step-results' && !$('#evalJob').hidden) showTab('t-res-nurec'); });
+  const activate = () => {
+    const id = byId.has(location.hash.slice(1)) ? location.hash.slice(1) : 'overview';
+    links.forEach(a => a.setAttribute('aria-current', String(byId.get(id) === a)));
+    $$('.sec').forEach(s => s.classList.toggle('is-active', s.id === id));
+    if (location.hash === '#' + id) document.getElementById(id).scrollIntoView();
+  };
+  window.__fflab.goto = (id, tab) => {
+    if (!byId.has(id)) return;
+    location.hash = id;
+    activate();
+    if (tab) showTab(tab);
+  };
+  $$('[data-goto]').forEach(b => b.onclick = () => window.__fflab.goto(b.dataset.goto));
+  $('#toggleViewMode').onclick = e => {
+    const focus = document.body.dataset.view !== 'focus';
+    document.body.dataset.view = focus ? 'focus' : 'scroll';
+    e.currentTarget.textContent = focus ? 'Chế độ: Từng bước' : 'Chế độ: Cuộn';
+    activate();
+  };
+  window.addEventListener('hashchange', activate);
+  activate();
 }
 
 // ------------------------------------------------------------------ data
-async function loadSetup() {
-  setup = await api('/api/setup');
+async function loadSetup(preferred) {
+  setup = await window.__fflab.fetchSetup();
   const f = $('#dsPrepareForm');
   fill(f.elements.dataset, setup.datasets.map((d) => [d.path, d.path]));
   updateSequences();
+  const picker = $('#localSequence');
+  const entries = setup.datasets.flatMap(d => Object.entries(d.sequences || {}).map(([seq, info]) =>
+    ({ value: JSON.stringify([d.path, seq]), path: d.path, seq, info, meta: d.calibration_pickles })));
+  const prev = picker.value;
+  fill(picker, [['', 'Chọn sequence trên máy'], ...entries.map(e => [e.value, `${e.seq} · ${e.path}`])]);
+  if (preferred) {
+    const matches = entries.filter(e => e.seq === preferred.seq &&
+      (!preferred.path || e.path === preferred.path || preferred.path.endsWith('/' + e.path)));
+    picker.value = matches.length === 1 ? matches[0].value : '';
+  } else if (!entries.some(e => e.value === prev) && entries.length === 1) {
+    picker.value = entries[0].value;
+  }
+  picker.disabled = !entries.length;
+  const cards = $('#seqCards');
+  cards.innerHTML = entries.length ? entries.map(e => {
+    const cams = e.info.cameras?.length || 0;
+    const ok = cams === 4 && e.info.lidar && e.meta;
+    return `<button type="button" role="option" class="seq-card" data-value="${esc(e.value)}" aria-selected="${picker.value === e.value}">
+      <span class="seq-name">${esc(e.seq.replace('2013_05_28_drive_', 'drive_').replace('_sync', ''))}</span>
+      <code>${esc(e.path)}/</code>
+      <span class="tags"><span class="tag ${cams === 4 ? 'ok' : 'warn'}">${cams}/4 camera</span>
+        <span class="tag ${e.info.lidar ? 'ok' : 'warn'}">${e.info.lidar ? 'LiDAR' : 'thiếu LiDAR'}</span>
+        ${e.meta ? '' : '<span class="tag warn">thiếu file .pkl</span>'}
+        ${ok ? '<span class="tag ok">đủ dữ liệu</span>' : ''}</span>
+    </button>`;
+  }).join('') : `<div class="empty-inline">Chưa có sequence KITTI-360 nào trên máy ảo.
+      <div class="actions"><button type="button" class="primary small" data-src="src-upload">Tải lên từ máy tính</button>
+      <button type="button" class="small" data-src="src-drive">Lấy từ Google Drive</button></div></div>`;
+  for (const card of $$('.seq-card', cards)) card.onclick = () => { picker.value = card.dataset.value; picker.onchange(); };
+  for (const btn of $$('[data-src]', cards)) btn.onclick = () => showTab(btn.dataset.src);
+  picker.onchange = () => {
+    for (const card of $$('.seq-card', cards)) card.setAttribute('aria-selected', String(card.dataset.value === picker.value));
+    const entry = entries.find(e => e.value === picker.value);
+    $('#prepareSection').hidden = !entry;
+    $('#selectedBar').hidden = !entry;
+    if (entry) {
+      $('#selectedSeq').textContent = entry.seq;
+      $('#selectedTags').innerHTML = `<span class="tag">${esc(entry.path)}/</span><span class="tag">${entry.info.cameras?.length || 0} camera</span>${entry.info.lidar ? '<span class="tag ok">LiDAR</span>' : ''}`;
+    }
+    for (const form of [f, $('#convertForm')]) {
+      form.querySelector('button[type=submit]').disabled = !picker.value;
+      if (!picker.value) continue;
+      const [path, seq] = JSON.parse(picker.value);
+      const ds = form.elements.dataset || form.elements.ds;
+      ds.value = path;
+      ds.dispatchEvent(new Event('change', {bubbles:true}));
+      form.elements.sequence.value = seq;
+      form.elements.sequence.dispatchEvent(new Event('change', {bubbles:true}));
+    }
+  };
+  picker.onchange();
   const gpus = setup.gpus.map((g) => [String(g.index), `GPU ${g.index} · ${g.name} · ${g.utilization}% · ${(g.memory_used_mib / 1024).toFixed(0)}/${(g.memory_total_mib / 1024).toFixed(0)} GB`]);
   fill($('#dsTrainForm').elements.gpu, gpus.length ? gpus : [['', 'mặc định']]);
   // default to the least loaded GPU
@@ -107,16 +170,17 @@ function updateSequences() {
   fill(f.elements.sequence, Object.keys(ds?.sequences || {}).map((s) => [s, s]));
 }
 
+let runsRequest = 0;
 async function loadRuns() {
-  overview = await api('/api/drivestudio');
+  const request = ++runsRequest;
+  const next = await api('/api/drivestudio');
+  if (request !== runsRequest) return;
+  overview = next;
   const o = overview.options;
   const t = $('#dsTrainForm');
-  fill(t.elements.method, (o.methods || []).map((m) => [m, m.replace(/^configs\//, '')]));
-  if (!loadRuns.done && (o.methods || []).includes('configs/streetgs_ut.yaml')) t.elements.method.value = 'configs/streetgs_ut.yaml';
-  fill(t.elements.dataset, (o.datasets || []).map((d) => [d, d]));
-  if (!loadRuns.done && (o.datasets || []).includes('kitti360/ncore_3cams_objects')) t.elements.dataset.value = 'kitti360/ncore_3cams_objects';
+  fill(t.elements.method, [['', 'Chọn phương pháp'], ...(o.methods || []).map((m) => [m, m.replace(/^configs\//, '')])]);
+  fill(t.elements.dataset, [['', 'Chọn cấu hình dữ liệu'], ...(o.datasets || []).map((d) => [d, d])]);
   fill(t.elements.data_root, [['', 'theo dataset config'], ...(o.data_roots || []).map((d) => [d, d])]);
-  loadRuns.done = true;
   $('#dsTrainHint').innerHTML = o.venv_ok ? `Môi trường <code>${esc(o.venv)}</code>` : `<span class="tag bad">thiếu môi trường DriveStudio+</span> <code>${esc(o.venv)}</code>`;
   $('#dsEnv').innerHTML = `
     <dt>DriveStudio+</dt><dd>${o.venv_ok ? '<span class="tag ok">có</span>' : '<span class="tag bad">chưa có</span>'} <code>${esc(o.venv)}</code></dd>
@@ -124,6 +188,7 @@ async function loadRuns() {
   renderKpis();
   renderRuns();
   renderViewerRuns();
+  renderVideoCompare();
   if (selected) renderViewer();
   $('#dsUpdated').textContent = `Cập nhật ${new Date().toLocaleTimeString('vi-VN')}`;
   clearTimeout(pollTimer);
@@ -149,8 +214,10 @@ function renderKpis() {
 // ------------------------------------------------------------------ comparison table
 const COLS = [
   ['name', 'Lần chạy'], ['method', 'Phương pháp'], ['render', 'Renderer'], ['fastgs', 'FastGS'], ['state', 'Trạng thái'],
-  ['progress', 'Tiến độ'], ['psnr', 'PSNR', 'num', 1], ['nonsky', 'PSNR (bỏ trời)', 'num', 1], ['ssim', 'SSIM', 'num', 1],
-  ['lpips', 'LPIPS ↓', 'num', -1], ['elapsed', 'Thời gian', 'num'],
+  ['progress', 'Tiến độ'], ['psnr', 'PSNR', 'num', 1], ['nonsky', 'Non-Sky', 'num', 1], ['dyn', 'Dynamic PSNR', 'num', 1],
+  ['veh', 'Vehicle PSNR', 'num', 1], ['ssim', 'SSIM', 'num', 1], ['lpips', 'LPIPS ↓', 'num', -1],
+  ['drmse', 'Depth RMSE ↓', 'num', -1], ['absrel', 'AbsRel ↓', 'num', -1], ['delta1', 'δ<1.25', 'num', 1],
+  ['fps', 'FPS', 'num', 1], ['vram', 'VRAM (GiB) ↓', 'num', -1], ['elapsed', 'Thời gian', 'num'],
 ];
 const metric = (r, k) => r.metrics?.[k] ?? null;
 const VALUE = {
@@ -158,14 +225,22 @@ const VALUE = {
   render: (r) => r.render_mode || (/_geer/.test(r.method || '') ? 'geer' : /_ut/.test(r.method || '') ? 'ut' : 'config'),
   fastgs: (r) => r.fastgs ?? (/fastgs/.test(r.method || '') ? 'true' : '—'), state: (r) => r.state,
   progress: (r) => (r.total ? r.step / r.total : 0), psnr: (r) => metric(r, 'Full Image PSNR'), nonsky: (r) => metric(r, 'Non-Sky PSNR'),
-  ssim: (r) => metric(r, 'Full Image SSIM'), lpips: (r) => metric(r, 'Full Image LPIPS'), elapsed: (r) => r.elapsed || '', updated: (r) => r.updated || 0,
+  dyn: (r) => metric(r, 'Dynamic-Only PSNR'), veh: (r) => metric(r, 'Vehicle-Only PSNR'),
+  ssim: (r) => metric(r, 'Full Image SSIM'), lpips: (r) => metric(r, 'Full Image LPIPS'),
+  drmse: (r) => metric(r, 'Depth RMSE'), absrel: (r) => metric(r, 'Depth AbsRel'), delta1: (r) => metric(r, 'Depth Delta1'),
+  fps: (r) => metric(r, 'Render FPS'), vram: (r) => metric(r, 'Peak VRAM GiB'),
+  elapsed: (r) => r.elapsed || '', updated: (r) => r.updated || 0,
 };
 
+const groups = { core: ['psnr','ssim','lpips','fps'], image: ['psnr','nonsky','dyn','veh','ssim','lpips'], geom: ['drmse','absrel','delta1'], cost: ['fps','vram','elapsed'] };
+let group = 'core';
 function renderRuns() {
   const table = $('#dsRuns');
+  const cols = COLS.filter(([key], i) => i < 6 || group === 'all' || groups[group].includes(key));
+  const head = cols.map(([key, label, kind]) => `<th scope="col" class="${kind || ''}" aria-sort="${sort.key === key ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none'}"><button type="button" data-sort="${key}">${label}</button></th>`).join('');
   const runs = [...overview.runs];
   if (!runs.length) {
-    table.innerHTML = `<tbody><tr><td class="empty" colspan="${COLS.length}"><b>Chưa có lần chạy nào</b>Chuẩn bị dữ liệu ở bước 1, rồi bắt đầu train ở bước 2. Lần chạy từ dòng lệnh (<code>fflab train --backend drivestudio</code>) cũng hiện ở đây.</td></tr></tbody>`;
+    table.innerHTML = `<thead><tr>${head}</tr></thead><tbody><tr><td class="empty" colspan="${cols.length}"><b>Chưa có lần chạy nào</b>Chuẩn bị dữ liệu ở bước 1, rồi bắt đầu train ở bước 2.</td></tr></tbody>`;
     return;
   }
   const finished = runs.filter((r) => r.state === 'succeeded');
@@ -180,7 +255,6 @@ function renderRuns() {
     if (va == null) return 1; if (vb == null) return -1;
     return (va > vb ? 1 : va < vb ? -1 : 0) * sort.dir;
   });
-  const head = COLS.map(([key, label, kind]) => `<th scope="col" class="${kind || ''}" aria-sort="${sort.key === key ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none'}"><button type="button" data-sort="${key}">${label}</button></th>`).join('');
   const fmt = (v, d) => (v == null ? '<span class="muted">—</span>' : v.toFixed(d));
   const body = runs.map((r) => {
     const [stateText, stateCls] = STATE[r.state] || [r.state, ''];
@@ -197,11 +271,10 @@ function renderRuns() {
     return `<tr tabindex="0" data-run="${esc(r.name)}" aria-selected="${r.name === selected}">
       <td><b>${esc(r.name)}</b></td><td>${esc(VALUE.method(r))}</td><td>${esc(VALUE.render(r))}</td><td>${esc(VALUE.fastgs(r))}</td>
       <td><span class="tag ${stateCls}" title="${esc(r.error || '')}">${stateText}</span></td>
-      <td class="prog">${prog}</td>${cell('psnr', 2)}${cell('nonsky', 2)}${cell('ssim', 3)}${cell('lpips', 3)}
-      <td class="num mono">${esc(r.elapsed || '—')}</td></tr>`;
+      <td class="prog">${prog}</td>${cols.slice(6).map(([key]) => key === 'elapsed' ? `<td class="num mono">${esc(r.elapsed || '—')}</td>` : cell(key, ({ssim:3,lpips:3,absrel:3,delta1:3,fps:1})[key] ?? 2)).join('')}</tr>`;
   }).join('');
   const foot = runs.some((r) => r.state !== 'succeeded' && r.metrics)
-    ? `<tfoot><tr><td colspan="${COLS.length}" class="muted">* đánh giá tạm trong lúc train (vài ảnh), không so sánh được với kết quả test cuối.</td></tr></tfoot>` : '';
+    ? `<tfoot><tr><td colspan="${cols.length}" class="muted">* đánh giá tạm trong lúc train (vài ảnh), không so sánh được với kết quả test cuối.</td></tr></tfoot>` : '';
   table.innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>${foot}`;
 }
 
@@ -238,9 +311,11 @@ function renderViewer() {
       </div>
     </div>
     ${run.error ? `<pre class="log">${esc(run.error)}</pre>` : ''}
+    ${run.metrics ? `<div class="mgrid">${Object.entries(run.metrics).map(([k, val]) => `<div class="mchip"><span>${esc(k)}</span><b>${k === 'Gaussians' ? `${(val / 1e6).toFixed(2)}M` : Number(val).toFixed(/SSIM|LPIPS|AbsRel|Delta1/.test(k) ? 3 : 2)}</b></div>`).join('')}</div>` : ''}
     ${step ? `<div class="compare">${files.get('gt_rgbs') ? img(files.get('gt_rgbs'), 'Ảnh gốc (GT)') : ''}${files.get(shown) ? img(files.get(shown), `${kindNames[shown]} · bước ${step[0]}`) : ''}</div>`
-      : '<p class="empty"><b>Chưa có ảnh</b>DriveStudio lưu ảnh render định kỳ trong lúc train.</p>'}
-    ${run.videos.length ? `<h3 style="margin-top:16px">Video tập test</h3><div class="list">${run.videos.map((v) => `<a href="/api/drivestudio/runs/${enc(run.name)}/files/${enc(v)}" target="_blank" rel="noopener">${esc(v.split('/').pop())}</a>`).join('')}</div>` : ''}`;
+      : (run.images.length ? `<div class="gallery wide">${run.images.map((p) => img(p, p)).join('')}</div>`
+        : '<p class="empty"><b>Chưa có ảnh</b>DriveStudio lưu ảnh render định kỳ trong lúc train.</p>')}
+    ${run.videos.length ? `<h3 style="margin-top:16px">Video Output (${run.videos.length})</h3><div class="vcomp-arena side">${run.videos.map((v) => `<figure class="vcomp-card"><video controls preload="metadata" src="/api/drivestudio/runs/${enc(run.name)}/files/${enc(v)}"></video><figcaption><span>${esc(v.split('/').pop())}</span><a href="/api/drivestudio/runs/${enc(run.name)}/files/${enc(v)}" download>Tải</a></figcaption></figure>`).join('')}</div>` : ''}`;
 }
 
 // ------------------------------------------------------------------ 3D viewer (DriveStudio tools/viewer.py, served on its own port)
@@ -257,6 +332,8 @@ function renderViewerRuns() {
 
 function renderStage() {
   const body = $('#dsStageBody');
+  body.hidden = !['loading', 'running', 'ready', 'failed'].includes(viewer.state);
+  $('#dsStage').classList.toggle('collapsed', body.hidden);
   const st = viewer.state;
   $('#dsViewStop').hidden = !(st === 'ready' || st === 'loading');
   $('#dsViewOpen').hidden = st !== 'ready';
@@ -385,18 +462,194 @@ function initForms() {
   $('#dsViewer').addEventListener('click', (e) => {
     const img = e.target.closest('img');
     if (!img) return;
-    const box = document.createElement('div');
-    box.className = 'lightbox';
-    box.innerHTML = `<img src="${img.src}" alt="${esc(img.alt)}">`;
-    box.addEventListener('click', () => box.remove());
-    document.addEventListener('keydown', function close(k) { if (k.key === 'Escape') { box.remove(); document.removeEventListener('keydown', close); } });
-    document.body.append(box);
+    window.__fflab.openLightbox(img.src, img.alt);
   });
   $('#dsRefresh').addEventListener('click', () => Promise.all([loadSetup(), loadRuns()]).catch((err) => toast(err.message, true)));
 }
 
+
+// ------------------------------------------------------------------ synchronized multi-method video comparison
+async function renderVideoCompare() {
+  const snapshot = overview;
+  let vids;
+  try { ({ videos: vids } = await api('/api/videos')); }
+  catch (err) { if (overview === snapshot) toast(err.message, true); return; }
+  if (overview !== snapshot) return;
+  overview.videos = vids;
+  const selA = $('#vcSelectA'), selB = $('#vcSelectB'), arena = $('#vcArena');
+  if (!selA || !selB || !arena) return;
+  $('#vcCountHint').textContent = `${vids.length} video`;
+  $('#videoCompareBox').classList.toggle('is-empty', !vids.length);
+  if (!vids.length) {
+    selA.innerHTML = selB.innerHTML = '<option value="">Chưa có video (.mp4)</option>';
+    selA.disabled = selB.disabled = true;
+    delete arena.dataset.pair;
+    $('#vcDownloadLink').hidden = true;
+    $('#vcPlayBtn').disabled = $('#vcRestartBtn').disabled = $('#vcExportBtn').disabled = true;
+    arena.innerHTML = '<div class="empty" style="grid-column:1/-1"><b>Chưa có video output để so sánh</b>Sau khi train DriveStudio+, render <code>fflab render</code> (3DGUT) hoặc đồng bộ runs từ Google Drive, video sẽ tự xuất hiện ở đây.</div>';
+    return;
+  }
+  selA.disabled = selB.disabled = false;
+  const opts = vids.map((v) => [v.id, v.label]);
+  const prevA = selA.value, prevB = selB.value;
+  fill(selA, opts, true);
+  fill(selB, opts, true);
+  if (!prevA || !vids.some((v) => v.id === selA.value)) selA.value = vids[0].id;
+  if (!vids.some((v) => v.id === prevB)) {
+    selB.value = (vids.find((v) => v.id !== selA.value) || vids[0]).id;
+  }
+  updateVideoArena();
+}
+
+function updateVideoArena() {
+  const vids = overview.videos || [];
+  const va = vids.find((v) => v.id === $('#vcSelectA')?.value);
+  const vb = vids.find((v) => v.id === $('#vcSelectB')?.value);
+  const arena = $('#vcArena');
+  if (!arena || !va || !vb) return;
+  const layout = $('#vcLayout').value, wipe = layout === 'wipe';
+  const pair = JSON.stringify([va.id, va.url, vb.id, vb.url]);
+  const changed = arena.dataset.pair !== pair;
+  const btn = $('#vcExportBtn');
+  btn.disabled = !!btn.dataset.busy || va.id === vb.id;
+  btn.textContent = wipe ? 'Xuất MP4 cạnh nhau' : 'Xuất MP4 ghép nhãn';
+  if (!changed && arena.dataset.layout === layout) return;
+  arena.dataset.layout = layout;
+  arena.dataset.pair = pair;
+  arena.className = `vcomp-arena ${layout === 'hstack' ? 'side' : 'stack'}`;
+  const card = (v, id) => `<figure class="vcomp-card">
+    <video id="${id}" preload="metadata" muted playsinline src="${esc(v.url)}"></video>
+    <figcaption><span><b>${esc(v.run)}</b> · ${esc(v.method)}${v.psnr != null ? ` · ${v.psnr.toFixed(2)} dB` : ''}</span>
+      <a href="${esc(v.url)}" download>MP4</a></figcaption></figure>`;
+  if (changed) arena.innerHTML = card(va, 'vcVidA') + card(vb, 'vcVidB') +
+    '<label>Rèm A/B <input id="vcWipe" type="range" min="0" max="100" value="50"></label>';
+  $('#vcDownloadLink').hidden = true;
+  const elA = $('#vcVidA'), elB = $('#vcVidB');
+  const slider = $('#vcWipe');
+  slider.parentElement.hidden = !wipe;
+  for (const v of [elA, elB]) {
+    v.parentElement.style.display = wipe ? 'contents' : '';
+    v.style.gridArea = wipe ? '1 / 1' : '';
+    v.style.height = wipe ? '100%' : '';
+    v.style.objectFit = 'contain';
+  }
+  slider.oninput = () => { elB.style.clipPath = wipe ? `inset(0 0 0 ${slider.value}%)` : ''; };
+  slider.oninput();
+  if (!changed) return;
+  elA.playbackRate = elB.playbackRate = Number($('#vcRate').value);
+  const tick = () => {
+    if (!elA.isConnected) return;
+    const end = Math.min(elA.duration, elB.duration);
+    const ready = Number.isFinite(end) && end > 0;
+    for (const id of ['vcPlayBtn', 'vcRestartBtn', 'vcPrevFrame', 'vcNextFrame', 'vcScrub']) {
+      $('#' + id).disabled = !ready;
+    }
+    $('#vcScrub').value = ready ? 1000 * elA.currentTime / end : 0;
+    $('#vcTime').textContent = `${elA.currentTime.toFixed(2)}s`;
+    if (!ready || elA.seeking || elB.seeking) return;
+    if ((elA.currentTime >= end || elB.ended) && (!elA.paused || !elB.paused)) {
+      elA.pause(); elB.pause(); elA.currentTime = elB.currentTime = end;
+    } else if (!elA.paused && Math.abs(elA.currentTime - elB.currentTime) > 0.12) {
+      elB.currentTime = elA.currentTime;
+    }
+  };
+  for (const v of [elA, elB]) {
+    v.ondurationchange = tick;
+    v.onended = () => { if (v.isConnected) { elA.pause(); elB.pause(); elA.currentTime = elB.currentTime = Math.min(elA.duration, elB.duration); } };
+  }
+  elA.ontimeupdate = tick;
+  tick();
+}
+
+function initVideoCompare() {
+  if (!$('#vcSelectA')) return;
+  for (const id of ['#vcSelectA', '#vcSelectB', '#vcLayout']) {
+    $(id).addEventListener('change', updateVideoArena);
+  }
+  $('#vcRate').addEventListener('change', () => {
+    const r = Number($('#vcRate').value || 1);
+    for (const v of [$('#vcVidA'), $('#vcVidB')]) if (v) v.playbackRate = r;
+  });
+  $('#vcPlayBtn').addEventListener('click', () => {
+    const a = $('#vcVidA'), b = $('#vcVidB');
+    if (!a || !b) return;
+    if (a.paused) {
+      if (a.currentTime >= Math.min(a.duration, b.duration)) a.currentTime = 0;
+      b.currentTime = a.currentTime;
+      Promise.all([a.play(), b.play()]).catch((err) => {
+        if (!a.isConnected || err.name === 'AbortError') return;
+        a.pause(); b.pause(); toast(err.message, true);
+      });
+    }
+    else { a.pause(); b.pause(); }
+  });
+  const seek = (fraction, frames = 0) => {
+    const a = $('#vcVidA'), b = $('#vcVidB');
+    const end = Math.min(a?.duration, b?.duration);
+    if (!Number.isFinite(end)) return;
+    const fps = Number(overview.videos?.find(v => v.id === $('#vcSelectA').value)?.fps);
+    // ponytail: approximate frame steps at 30 fps when the catalog omits media FPS.
+    if (frames) { a.pause(); b.pause(); }
+    const time = frames ? a.currentTime + frames / (fps > 0 ? fps : 30) : end * fraction;
+    a.currentTime = b.currentTime = Math.max(0, Math.min(end, time));
+  };
+  $('#vcRestartBtn').onclick = () => seek(0);
+  $('#vcScrub').oninput = e => seek(e.target.value / 1000);
+  $('#vcPrevFrame').onclick = () => seek(0, -1);
+  $('#vcNextFrame').onclick = () => seek(0, 1);
+  $('#vcExportBtn').addEventListener('click', async () => {
+    const video_a = $('#vcSelectA').value, video_b = $('#vcSelectB').value, layout = $('#vcLayout').value;
+    if (!video_a || !video_b || video_a === video_b) return toast('Chọn 2 video khác nhau để ghép.', true);
+    const btn = $('#vcExportBtn');
+    const arena = $('#vcArena'), pair = arena.dataset.pair;
+    btn.dataset.busy = '1';
+    btn.disabled = true;
+    try {
+      const res = await api('/api/videos/compare', { video_a, video_b, layout: layout === 'vstack' ? 'vstack' : 'hstack' });
+      if (arena.dataset.pair !== pair || arena.dataset.layout !== layout) return;
+      const dl = $('#vcDownloadLink');
+      dl.href = res.url;
+      dl.hidden = false;
+      toast('Đã xuất video so sánh MP4.');
+    } catch (err) { toast(err.message, true); } finally {
+      delete btn.dataset.busy;
+      btn.disabled = $('#vcSelectA').value === $('#vcSelectB').value;
+    }
+  });
+}
+
 initTabs();
 initNav();
+$('#changeSeq').onclick = () => {
+  showTab('src-local');
+  ($('#seqCards .seq-card[aria-selected=true]') || $('#seqCards .seq-card'))?.focus();
+};
+$('#rescanData').onclick = async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  try { await loadSetup(); toast('Đã quét lại dữ liệu trên máy ảo'); }
+  catch (err) { toast(err.message, true); }
+  finally { btn.disabled = false; }
+};
+window.__fflab.reloadData = loadSetup;
+window.__fflab.showTab = showTab;
+window.__fflab.selectImported = async (path, seq) => {
+  await loadSetup({path: String(path || '').replace(/^\.\//, '').replace(/\/$/, ''), seq});
+  showTab('src-local');
+  if ($('#localSequence').value) {
+    showTab('t-data-ds');
+    $('#prepareSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+};
+$$('[data-mgroup]').forEach(b => {
+  b.setAttribute('aria-pressed', String(b.dataset.mgroup === group));
+  b.onclick = () => {
+    group = b.dataset.mgroup;
+    $$('[data-mgroup]').forEach(p => p.setAttribute('aria-pressed', String(p.classList.toggle('active', p === b))));
+    renderRuns();
+  };
+});
 initForms();
 initViewer();
+initVideoCompare();
 Promise.all([loadSetup(), loadRuns()]).then(() => { renderKpis(); return loadViewer(); }).catch((err) => toast(err.message, true));

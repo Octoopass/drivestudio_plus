@@ -1,13 +1,9 @@
-// Fisheye Fusion Lab: KITTI-360 -> NCore -> Instant NuRec -> evaluation.
-// Talks to /api/setup, /api/pipeline/*, /api/reconstruction/* and /api/outputs/* (fisheye_fusion/server.py).
+// Fisheye Fusion Lab: shared UI runtime + KITTI-360 / NCore / Instant NuRec / Google Drive sync.
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const url = (path) => path.split('/').map(encodeURIComponent).join('/');
+const url = (path) => String(path ?? '').split('/').map(encodeURIComponent).join('/');
 
-const NUREC_REPO = 'backends/instant-nurec';
-const NUREC_PYTHON = `${NUREC_REPO}/.venv/bin/python`;
-// Context-camera slots per model, in Instant NuRec's canonical order, and the KITTI-360 camera that fits each.
 const MODEL_SLOTS = {
   'pa-multiview': [['Trước', 'camera_front_left_00'], ['Chéo trái', 'camera_fisheye_left_02'], ['Chéo phải', 'camera_fisheye_right_03']],
   'pa-front': [['Trước', 'camera_front_left_00']],
@@ -15,9 +11,6 @@ const MODEL_SLOTS = {
 };
 const STATE_TEXT = { running: 'Đang chạy', cancelling: 'Đang huỷ', succeeded: 'Xong', failed: 'Lỗi', cancelled: 'Đã huỷ' };
 
-let setup = null;
-
-// ------------------------------------------------------------------ helpers
 async function api(path, body) {
   const res = await fetch(path, body === undefined ? {} : {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -30,17 +23,67 @@ async function api(path, body) {
   return data;
 }
 
-let toastTimer;
+let toastTimer = null;
 function toast(msg, error = false) {
   const el = $('#toast');
-  el.textContent = msg;
+  if (!el) return;
+  el.textContent = String(msg ?? '');
   el.className = `toast${error ? ' error' : ''}`;
   el.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, error ? 9000 : 4000);
+  toastTimer = setTimeout(() => { el.hidden = true; }, error ? 8500 : 4000);
 }
 
+let activeLightbox = null;
+function openLightbox(src, alt = '', trigger = document.activeElement) {
+  if (activeLightbox) activeLightbox.close();
+  const box = document.createElement('div');
+  box.className = 'lightbox';
+  box.tabIndex = -1;
+  box.setAttribute('role', 'dialog');
+  box.setAttribute('aria-label', alt || 'Xem ảnh phóng to');
+  const img = document.createElement('img');
+  img.src = src;
+  img.alt = alt;
+  box.appendChild(img);
+  const close = () => {
+    document.removeEventListener('keydown', onKey);
+    box.remove();
+    activeLightbox = null;
+    if (trigger && typeof trigger.focus === 'function') trigger.focus();
+  };
+  const onKey = (k) => { if (k.key === 'Escape') { k.preventDefault(); close(); } };
+  box.addEventListener('click', close);
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(box);
+  box.focus();
+  activeLightbox = { close };
+}
+
+document.addEventListener('click', (e) => {
+  const img = e.target.closest('.gallery img, .compare img');
+  if (img) openLightbox(img.src, img.alt || '', img);
+});
+
+let setup = null;
+let setupInFlight = null;
+const setupListeners = new Set();
+
+async function fetchSetup(force = false) {
+  if (!force && setupInFlight) return setupInFlight;
+  setupInFlight = api('/api/setup').then((data) => {
+    setup = data;
+    renderPipelineSetup(data);
+    for (const fn of setupListeners) fn(data);
+    return data;
+  }).finally(() => { setupInFlight = null; });
+  return setupInFlight;
+}
+
+window.__fflab = { api, esc, url, toast, openLightbox, fetchSetup, onSetup: (fn) => setupListeners.add(fn), getSetup: () => setup };
+
 function fillSelect(select, options, keep = true) {
+  if (!select) return;
   const old = select.value;
   select.innerHTML = options.map(([v, label]) => `<option value="${esc(v)}">${esc(label)}</option>`).join('');
   if (keep && options.some(([v]) => v === old)) select.value = old;
@@ -49,7 +92,7 @@ function fillSelect(select, options, keep = true) {
 
 function gpuOptions() {
   const gpus = setup?.gpus || [];
-  return gpus.map((g) => [String(g.index), `GPU ${g.index}: ${g.name}, đang dùng ${(g.memory_used_mib / 1024).toFixed(1)} / ${(g.memory_total_mib / 1024).toFixed(0)} GB, ${g.utilization}%`]);
+  return gpus.map((g) => [String(g.index), `GPU ${g.index}: ${g.name} · ${(g.memory_used_mib / 1024).toFixed(1)}/${(g.memory_total_mib / 1024).toFixed(0)} GB · ${g.utilization}%`]);
 }
 
 function freestGpu() {
@@ -60,94 +103,85 @@ function freestGpu() {
 function gallery(files, src, wide = false) {
   if (!files.length) return '';
   return `<div class="gallery${wide ? ' wide' : ''}">${files.map((f) => `
-    <figure><img loading="lazy" src="${esc(src(f))}" alt="${esc(f)}"><figcaption>${esc(f)}</figcaption></figure>`).join('')}</div>`;
+    <figure><img loading="lazy" tabindex="0" src="${esc(src(f))}" alt="${esc(f)}"><figcaption>${esc(f)}</figcaption></figure>`).join('')}</div>`;
 }
 
-document.addEventListener('click', (e) => {
-  if (e.target.matches('.gallery img')) {
-    const box = document.createElement('div');
-    box.className = 'lightbox';
-    box.innerHTML = `<img src="${esc(e.target.src)}" alt="">`;
-    box.onclick = () => box.remove();
-    document.body.append(box);
-  }
-});
-
-// ------------------------------------------------------------------ jobs
-// Polls a job and renders it into `box`; `render(status)` returns extra HTML (images, metrics).
-function watchJob(box, statusUrl, cancelUrl, render, onDone) {
+// Generation-guarded job watcher: cancels old pollers on the same box and always calls onFinish
+const boxGen = new WeakMap();
+function watchJob(box, statusUrl, cancelUrl, render, onFinish) {
+  const gen = (boxGen.get(box) || 0) + 1;
+  boxGen.set(box, gen);
   box.hidden = false;
-  let stopped = false;
+  let timer = null;
   const tick = async () => {
+    if (boxGen.get(box) !== gen) return;
     let s;
     try {
       s = await api(statusUrl);
     } catch (err) {
-      box.innerHTML = `<p class="state failed">${esc(err.message)}</p>`;
+      if (boxGen.get(box) !== gen) return;
+      box.innerHTML = `<div class="head"><span class="state failed">Lỗi kết nối</span></div><p class="state failed">${esc(err.message)}</p>`;
+      onFinish?.({ state: 'failed', error: err.message });
       return;
     }
+    if (boxGen.get(box) !== gen) return;
     const active = s.state === 'running' || s.state === 'cancelling';
+    const safeState = ['running', 'cancelling', 'succeeded', 'failed', 'cancelled'].includes(s.state) ? s.state : 'failed';
     box.innerHTML = `
       <div class="head">
-        ${active ? '<span class="spinner"></span>' : ''}
-        <span class="state ${esc(s.state)}">${esc(STATE_TEXT[s.state] || s.state)}${s.step ? ` · ${esc(s.step)}` : ''}</span>
-        <code>${esc(s.output || '')}</code>
-        ${active ? '<button class="small" data-cancel>Huỷ</button>' : ''}
+        ${active ? '<span class="spinner" aria-hidden="true"></span>' : ''}
+        <span class="state ${safeState}">${esc(STATE_TEXT[s.state] || s.state)}${s.step ? ` · ${esc(s.step)}` : ''}</span>
+        ${s.output ? `<code>${esc(s.output)}</code>` : ''}
+        ${active && cancelUrl ? '<button type="button" class="small" data-cancel>Huỷ job</button>' : ''}
       </div>
       ${s.error ? `<p class="state failed">${esc(s.error)}</p>` : ''}
       ${render ? render(s) : ''}
-      <details ${active || s.state === 'failed' ? 'open' : ''}><summary>Log</summary><pre>${esc((s.log || '').slice(-12000))}</pre></details>`;
+      <details ${active || s.state === 'failed' ? 'open' : ''}><summary>Log chi tiết</summary><pre>${esc((s.log || '').slice(-12000))}</pre></details>`;
     const pre = $('pre', box);
     if (pre) pre.scrollTop = pre.scrollHeight;
     const cancel = $('[data-cancel]', box);
     if (cancel) cancel.onclick = async () => { cancel.disabled = true; await api(cancelUrl, {}).catch((e) => toast(e.message, true)); };
-    if (active && !stopped) setTimeout(tick, 2000);
-    else if (!active && onDone) onDone(s);
+    if (active) timer = setTimeout(tick, 2000);
+    else onFinish?.(s);
   };
   tick();
-  return () => { stopped = true; };
+  return () => { if (boxGen.get(box) === gen) boxGen.set(box, gen + 1); clearTimeout(timer); };
 }
+window.__fflab.watchJob = watchJob;
 
-// ------------------------------------------------------------------ setup / step 1
-async function loadSetup() {
-  setup = await api('/api/setup');
-  const n = setup.nurec;
+function renderPipelineSetup(data) {
+  const n = data.nurec || {};
   const ckpts = Object.keys(n.checkpoints || {});
   $('#status').innerHTML = [
-    n.ok ? `<span class="good">NuRec sẵn sàng</span> (${ckpts.length} model)` : '<span class="bad">Chưa có NuRec</span>',
-    setup.gsplat.ok ? '<span class="good">gsplat</span>' : '<span class="bad">thiếu gsplat</span>',
-    `${setup.gpus.length} GPU`,
+    n.ok ? `<span class="good">NuRec (${ckpts.length})</span>` : '<span class="bad">Chưa cài NuRec</span>',
+    data.gsplat?.ok ? '<span class="good">gsplat</span>' : '<span class="bad">chưa cài gsplat</span>',
+    `${(data.gpus || []).length} GPU`,
   ].join(' · ');
 
   $('#env').innerHTML = `
-    <dt>Workspace</dt><dd><code>${esc(setup.workspace)}</code></dd>
-    <dt>Instant NuRec</dt><dd>${n.ok ? `<code>${esc(n.repo)}</code>` : '<span class="tag bad">không tìm thấy</span> cần <code>backends/instant-nurec</code> có <code>.venv</code>'}</dd>
-    <dt>Checkpoint</dt><dd>${ckpts.map((m) => `<span class="tag ok">${esc(m)}</span>`).join('') || '<span class="tag bad">chưa có</span>'}</dd>
-    <dt>gsplat (đánh giá)</dt><dd>${setup.gsplat.ok ? '<span class="tag ok">có</span>' : '<span class="tag bad">chưa cài: fflab setup</span>'}</dd>`;
+    <dt>Instant NuRec</dt><dd>${n.ok ? `<span class="tag ok">sẵn sàng</span> <code>${esc(n.repo)}</code>` : '<span class="tag warn">tùy chọn</span> <code>backends/instant-nurec</code>'}</dd>
+    <dt>Checkpoint</dt><dd>${ckpts.map((m) => `<span class="tag ok">${esc(m)}</span>`).join('') || '<span class="muted">chưa có</span>'}</dd>
+    <dt>gsplat (PLY eval)</dt><dd>${data.gsplat?.ok ? '<span class="tag ok">có</span>' : '<span class="tag warn">chưa cài</span> <code>fflab setup</code>'}</dd>
+    <dt>Colab CLI (Drive)</dt><dd>${data.colab?.ok ? `<span class="tag ok">sẵn sàng</span> <code>${esc(data.colab.bin)}</code>` : '<span class="tag bad">thiếu</span>'}</dd>`;
 
-  $('#gpus').innerHTML = setup.gpus.map((g) => {
-    const pct = Math.round((100 * g.memory_used_mib) / g.memory_total_mib);
-    return `<div class="item"><div class="row"><span class="name">GPU ${g.index} · ${esc(g.name)}</span>
-      <span class="muted">${(g.memory_used_mib / 1024).toFixed(1)} / ${(g.memory_total_mib / 1024).toFixed(0)} GB · ${g.utilization}%</span></div>
+  $('#gpus').innerHTML = (data.gpus || []).map((g) => {
+    const pct = g.memory_total_mib ? Math.round((100 * g.memory_used_mib) / g.memory_total_mib) : 0;
+    return `<div class="item"><div class="row"><span class="name">GPU ${Number(g.index)} · ${esc(g.name)}</span>
+      <span class="muted">${(g.memory_used_mib / 1024).toFixed(1)}/${(g.memory_total_mib / 1024).toFixed(0)} GB · ${Number(g.utilization)}%</span></div>
       <div class="bar"><i style="width:${pct}%"></i></div></div>`;
-  }).join('') || '<p class="muted">Không thấy GPU (nvidia-smi).</p>';
+  }).join('') || '<div class="empty-inline">Không thấy GPU NVIDIA (chế độ CPU / Colab).</div>';
 
-  $('#datasets').innerHTML = setup.datasets.map((d) => `
+  $('#datasets').innerHTML = (data.datasets || []).map((d) => `
     <div class="item"><div class="row"><span class="name">${esc(d.path)}</span>
-      ${d.calibration_pickles ? '<span class="tag ok">có calib</span>' : '<span class="tag bad">thiếu ImageSets-rosa-6class</span>'}</div>
-      ${Object.entries(d.sequences).map(([seq, info]) => `<div><code>${esc(seq)}</code>
-        ${info.cameras.map((c) => `<span class="tag">${esc(c)}</span>`).join('')}
-        ${info.lidar ? '<span class="tag">LiDAR</span>' : ''}</div>`).join('') || '<p class="muted">Chưa có sequence nào đủ file.</p>'}
-    </div>`).join('') || `<p class="muted">Chưa thấy bộ dữ liệu. Đặt thư mục KITTI-360 (có <code>data_poses.zip</code>) trong workspace.</p>`;
+      ${d.calibration_pickles ? '<span class="tag ok">calib đủ</span>' : '<span class="tag bad">thiếu pkl</span>'}</div>
+      ${Object.entries(d.sequences || {}).map(([seq, info]) => `<div><code>${esc(seq)}</code>
+        ${(info.cameras || []).map((c) => `<span class="tag">${esc(c)}</span>`).join('')}
+        ${info.lidar ? '<span class="tag ok">LiDAR</span>' : ''}</div>`).join('') || '<p class="muted">Chưa có sequence đủ file.</p>'}
+    </div>`).join('') || `<div class="empty-inline">Chưa có <code>./kitti360</code> trên máy ảo. Vào <b>1. Dữ liệu</b> để tải lên từ máy tính hoặc lấy từ Google Drive.</div>`;
 
-  const done = { data: setup.datasets.length > 0, convert: setup.clips.length > 0, nurec: setup.reconstructions.length > 0, results: setup.evaluations.length > 0 };
-  document.querySelectorAll('#steps a').forEach((a) => a.classList.toggle('done', done[a.dataset.step]));
-
-  // step 2 form
-  fillSelect($('#convertForm [name=ds]'), setup.datasets.map((d) => [d.path, d.path]));
+  fillSelect($('#convertForm [name=ds]'), (data.datasets || []).map((d) => [d.path, d.path]));
   updateSequences();
-  // step 3 + 4 forms
-  const clips = setup.clips.map((c) => [c.path, `${c.sequence_id} · ${c.frames} frame · ${c.cameras.length} camera`]);
+  const clips = (data.clips || []).map((c) => [c.path, `${c.sequence_id} · ${c.frames} frame · ${c.cameras.length} cam`]);
   fillSelect($('#nurecForm [name=clip]'), clips);
   fillSelect($('#evalForm [name=clip]'), clips);
   for (const sel of [$('#nurecForm [name=gpu]'), $('#evalForm [name=gpu]')]) {
@@ -159,10 +193,10 @@ async function loadSetup() {
   renderResults();
 }
 
-// ------------------------------------------------------------------ step 2: convert
 function updateSequences() {
   const form = $('#convertForm');
-  const ds = setup.datasets.find((d) => d.path === form.ds.value);
+  if (!form || !setup) return;
+  const ds = (setup.datasets || []).find((d) => d.path === form.ds.value);
   const seqs = ds ? Object.keys(ds.sequences) : [];
   fillSelect(form.sequence, seqs.map((s) => [s, s]));
   const cams = ds?.sequences[form.sequence.value]?.cameras || [];
@@ -189,15 +223,15 @@ $('#convertForm').addEventListener('submit', async (e) => {
   try {
     const job = await api('/api/pipeline/convert', body);
     watchJob($('#convertJob'), `/api/pipeline/${job.job_id}`, `/api/pipeline/${job.job_id}/cancel`,
-      (s) => gallery(s.artifacts.filter((a) => a.endsWith('.png')), (a) => `/api/pipeline/${s.job_id}/artifacts/${url(a)}`),
+      (s) => gallery((s.artifacts || []).filter((a) => a.endsWith('.png')), (a) => `/api/pipeline/${url(s.job_id)}/artifacts/${url(a)}`),
       async (s) => {
         btn.disabled = false;
         if (s.state === 'succeeded') {
-          await loadSetup();
+          await fetchSetup(true);
           $('#nurecForm [name=clip]').value = s.info.clip;
           $('#evalForm [name=clip]').value = s.info.clip;
           updateSlots();
-          toast('Đã tạo clip. Kiểm tra ảnh chiếu LiDAR rồi sang bước 3.');
+          toast('Đã tạo clip NCore.');
         }
       });
   } catch (err) {
@@ -206,16 +240,16 @@ $('#convertForm').addEventListener('submit', async (e) => {
   }
 });
 
-// ------------------------------------------------------------------ step 3: NuRec
 function updateSlots() {
   const form = $('#nurecForm');
-  const clip = setup?.clips.find((c) => c.path === form.clip.value);
+  if (!form) return;
+  const clip = (setup?.clips || []).find((c) => c.path === form.clip.value);
   const cams = clip?.cameras || [];
-  const slots = MODEL_SLOTS[form.model.value];
-  $('#camHint').textContent = slots.length ? `${slots.length} camera, theo thứ tự` : 'model này dùng camera cố định';
+  const slots = MODEL_SLOTS[form.model.value] || [];
+  $('#camHint').textContent = slots.length ? `${slots.length} camera theo thứ tự` : 'camera cố định';
   $('#nurecCams').innerHTML = slots.map(([label, preferred], i) => `
-    <label>${esc(label)}<select name="slot${i}">${cams.map((c) => `<option ${c === preferred ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>`).join('')
-    || '<p class="muted">pq-front chỉ chạy với camera tên <code>camera_front_wide_120fov</code>, nên không dùng được với clip KITTI-360.</p>';
+    <label>${esc(label)}<select name="slot${i}">${cams.map((c) => `<option value="${esc(c)}" ${c === preferred ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>`).join('')
+    || '<p class="muted">pq-front chỉ chạy với camera <code>camera_front_wide_120fov</code>.</p>';
 }
 
 $('#nurecForm').addEventListener('change', (e) => {
@@ -226,12 +260,14 @@ $('#nurecForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = e.target;
   const model = f.model.value;
-  const checkpoint = setup.nurec.checkpoints[model];
+  const checkpoint = setup?.nurec?.checkpoints?.[model];
   if (!checkpoint) return toast(`Chưa có checkpoint cho ${model}`, true);
-  const camera_ids = MODEL_SLOTS[model].map((_, i) => f[`slot${i}`].value);
+  const repo = setup?.nurec?.repo || 'backends/instant-nurec';
+  const python = setup?.nurec?.python || `${repo}/.venv/bin/python`;
+  const camera_ids = (MODEL_SLOTS[model] || []).map((_, i) => f[`slot${i}`].value);
   if (new Set(camera_ids).size !== camera_ids.length) return toast('Mỗi vị trí phải là một camera khác nhau', true);
   const body = {
-    repo: NUREC_REPO, python: NUREC_PYTHON, checkpoint, ncore_path: f.clip.value, model, camera_ids,
+    repo, python, checkpoint, ncore_path: f.clip.value, model, camera_ids,
     gpu: f.gpu.value === '' ? null : Number(f.gpu.value),
     n_gaussians: Number(f.n_gaussians.value), max_chunks: Number(f.max_chunks.value),
   };
@@ -242,19 +278,19 @@ $('#nurecForm').addEventListener('submit', async (e) => {
     const clip = f.clip.value;
     watchJob($('#nurecJob'), `/api/reconstruction/${job.job_id}`, `/api/reconstruction/${job.job_id}/cancel`,
       (s) => {
-        const ply = s.artifacts.filter((a) => a.endsWith('.ply'));
-        return ply.map((p) => `<p>PLY: <a href="/api/reconstruction/${s.job_id}/artifacts/${url(p)}" download>${esc(p)}</a></p>`).join('')
-          + gallery(s.artifacts.filter((a) => a.endsWith('.png')), (a) => `/api/reconstruction/${s.job_id}/artifacts/${url(a)}`);
+        const ply = (s.artifacts || []).filter((a) => a.endsWith('.ply'));
+        return ply.map((p) => `<p>PLY: <a href="/api/reconstruction/${url(s.job_id)}/artifacts/${url(p)}" download>${esc(p)}</a></p>`).join('')
+          + gallery((s.artifacts || []).filter((a) => a.endsWith('.png')), (a) => `/api/reconstruction/${url(s.job_id)}/artifacts/${url(a)}`);
       },
       async (s) => {
         btn.disabled = false;
         if (s.state === 'succeeded') {
-          await loadSetup();
-          const ply = setup.reconstructions.find((r) => r.job_id === s.job_id);
+          await fetchSetup(true);
+          const ply = (setup.reconstructions || []).find((r) => r.job_id === s.job_id);
           if (ply) $('#evalForm [name=ply]').value = ply.path;
           $('#evalForm [name=clip]').value = clip;
-          toast('NuRec xong. Sang bước 4 để đánh giá.');
-          location.hash = '#step-results';
+          toast('NuRec xong. Chuyển sang bước 3 để chấm điểm.');
+          window.__fflab.goto?.('step-results', 't-res-nurec');
         }
       });
   } catch (err) {
@@ -263,32 +299,38 @@ $('#nurecForm').addEventListener('submit', async (e) => {
   }
 });
 
-// ------------------------------------------------------------------ step 4: results
 function metricsTable(m) {
-  const rows = Object.entries(m).sort(([a], [b]) => a.localeCompare(b));
-  const mean = rows.reduce((s, [, v]) => s + v.psnr_mean, 0) / (rows.length || 1);
-  return `<table class="metrics"><tr><th>Camera</th><th>PSNR (dB)</th><th>Số view</th></tr>
-    ${rows.map(([c, v]) => `<tr><td>${esc(c)}</td><td class="num">${v.psnr_mean.toFixed(2)}</td><td class="num">${v.views}</td></tr>`).join('')}
-    <tr><th>Trung bình</th><th class="num">${mean.toFixed(2)}</th><th></th></tr></table>`;
+  const rows = Object.entries(m || {}).filter(([k]) => !k.startsWith('_')).sort(([a], [b]) => a.localeCompare(b));
+  const mean = rows.reduce((s, [, v]) => s + (Number(v.psnr_mean) || 0), 0) / (rows.length || 1);
+  const sv = rows.map(([, v]) => v.ssim_mean).filter((x) => x != null && !Number.isNaN(Number(x)));
+  const sMean = sv.length ? (sv.reduce((a, b) => a + Number(b), 0) / sv.length).toFixed(3) : '—';
+  const sum = m?._summary || {};
+  const chips = (sum.gaussians || sum.render_fps) ? `<div class="mgrid">
+    ${sum.gaussians ? `<div class="mchip"><span>Gaussians</span><b>${(Number(sum.gaussians) / 1e6).toFixed(2)}M</b></div>` : ''}
+    ${sum.render_fps ? `<div class="mchip"><span>Render FPS</span><b>${Number(sum.render_fps).toFixed(2)}</b></div>` : ''}
+    ${sum.peak_vram_gib ? `<div class="mchip"><span>Peak VRAM</span><b>${Number(sum.peak_vram_gib).toFixed(2)} GiB</b></div>` : ''}
+  </div>` : '';
+  return `${chips}<div class="table-wrap"><table class="metrics"><tr><th>Camera</th><th class="num">PSNR (dB)</th><th class="num">SSIM</th><th class="num">Số view</th></tr>
+    ${rows.map(([c, v]) => `<tr><td>${esc(c)}</td><td class="num">${(Number(v.psnr_mean) || 0).toFixed(2)}</td><td class="num">${v.ssim_mean != null ? Number(v.ssim_mean).toFixed(3) : '—'}</td><td class="num">${Number(v.views) || 0}</td></tr>`).join('')}
+    <tr><th>Trung bình</th><th class="num">${mean.toFixed(2)}</th><th class="num">${sMean}</th><th></th></tr></table></div>`;
 }
 
 function renderResults() {
-  const recons = setup.reconstructions;
-  fillSelect($('#evalForm [name=ply]'), recons.map((r) => [r.path, `${r.path.split('/').at(-1)} · ${r.size_mib} MB · job ${r.job_id.slice(0, 8)}`]));
+  const recons = setup?.reconstructions || [];
+  fillSelect($('#evalForm [name=ply]'), recons.map((r) => [r.path, `${r.path.split('/').at(-1)} · ${r.size_mib} MB · job ${String(r.job_id).slice(0, 8)}`]));
   $('#recons').innerHTML = recons.map((r) => `
-    <div class="item"><div class="row"><span class="name">${esc(r.path.split('/').at(-1))}</span><span class="muted">${r.size_mib} MB</span></div>
+    <div class="item"><div class="row"><span class="name">${esc(r.path.split('/').at(-1))}</span><span class="muted">${Number(r.size_mib)} MB</span></div>
       <code>${esc(r.path)}</code><br>
-      <a href="/api/outputs/${url(r.path.replace(/^outputs\//, ''))}" download>Tải PLY</a>
-      <span class="muted">· xem bằng cách kéo vào superspl.at/editor</span></div>`).join('')
-    || '<p class="muted">Chưa có. Chạy bước 3.</p>';
+      <a href="/api/outputs/${url(r.path.replace(/^outputs\//, ''))}" download>Tải PLY</a></div>`).join('')
+    || '<div class="empty-inline">Chưa có file PLY từ NuRec.</div>';
 
-  $('#evals').innerHTML = setup.evaluations.map((ev, i) => {
-    const base = ev.path.replace(/^outputs\//, '');
+  $('#evals').innerHTML = (setup?.evaluations || []).map((ev, i) => {
+    const base = String(ev.path || '').replace(/^outputs\//, '');
     return `<details class="eval" ${i === 0 ? 'open' : ''}>
-      <summary>${esc(ev.ply ? ev.ply.split('/').at(-1) : ev.path)} <span class="muted">so với ${esc(ev.clip ? ev.clip.split('/').at(-1) : '?')}</span></summary>
+      <summary>${esc(ev.ply ? ev.ply.split('/').at(-1) : ev.path)} <span class="muted">vs ${esc(ev.clip ? ev.clip.split('/').at(-1) : '?')}</span></summary>
       ${metricsTable(ev.metrics)}
-      <p class="hint">Mỗi ảnh: trái là ảnh thật, phải là ảnh render.</p>
-      ${gallery(ev.images, (f) => `/api/outputs/${url(`${base}/${f}`)}`, true)}
+      ${(ev.videos || []).map((v) => `<video controls preload="metadata" style="width:100%;max-height:360px;margin:8px 0;border-radius:6px;background:#000" src="/api/outputs/${url(`${base}/${v}`)}"></video>`).join('')}
+      ${gallery(ev.images || [], (f) => `/api/outputs/${url(`${base}/${f}`)}`, true)}
     </details>`;
   }).join('');
 }
@@ -306,8 +348,9 @@ $('#evalForm').addEventListener('submit', async (e) => {
       async (s) => {
         btn.disabled = false;
         if (s.state === 'succeeded') {
-          await loadSetup();
+          await fetchSetup(true);
           $('#evalJob').hidden = true;
+          document.getElementById('dsRefresh')?.click();
           toast('Đánh giá xong.');
         }
       });
@@ -317,6 +360,6 @@ $('#evalForm').addEventListener('submit', async (e) => {
   }
 });
 
-loadSetup().catch((err) => {
+fetchSetup().catch((err) => {
   $('#status').innerHTML = `<span class="bad">${esc(err.message)}</span>`;
 });

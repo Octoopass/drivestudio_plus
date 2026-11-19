@@ -10,6 +10,7 @@ import numpy as np
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .backends import BACKENDS
@@ -97,6 +98,48 @@ class ViewerJob(BaseModel):
     name: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
     gpu: int | None = Field(default=None, ge=0, le=63)
 
+class VideoCompareJob(BaseModel):
+    video_a: str = Field(min_length=4, max_length=300)
+    video_b: str = Field(min_length=4, max_length=300)
+    layout: Literal["vstack", "hstack"] = "vstack"
+
+class DriveSyncJob(BaseModel):
+    mode: Literal["dataset", "runs", "folder"] = "dataset"
+    dataset: str = Field(default="", pattern=r"^[a-z0-9]{0,32}$")
+    items: list[str] = Field(default_factory=list, max_length=200)
+    drive_path: str = Field(default="/content/drive/MyDrive/datasets/kitti360_full", min_length=15, max_length=512)
+    sequence: str = "2013_05_28_drive_0003_sync"
+    session: str = Field(default="fisheye-lab", pattern=r"^[A-Za-z0-9_.-]{1,64}$")
+    dest: str = "" 
+
+class ColabSession(BaseModel):
+    session: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,64}$")
+
+class ColabNew(ColabSession):
+    gpu: Literal["", "T4", "L4", "A100", "H100", "G4"] = ""
+
+class UploadItem(BaseModel):
+    name: str = Field(min_length=1, max_length=512)
+    path: str = Field(default="", max_length=1024)
+    size: int = Field(ge=1)
+
+class UploadPlan(BaseModel):
+    files: list[UploadItem] = Field(min_length=1, max_length=20000)
+    dataset: str = Field(default="auto", pattern=r"^[a-z0-9]{1,32}$")
+
+class PreprocessJob(BaseModel):
+    dataset: str = Field(pattern=r"^[a-z0-9]{1,32}$")
+    split: str = Field(default="", pattern=r"^[A-Za-z0-9_.-]{0,40}$")
+    scene_ids: str = Field(default="", pattern=r"^[0-9 ,]{0,400}$")
+    split_file: str = Field(default="", max_length=200)
+    start_idx: int = Field(default=0, ge=0, le=100000)
+    num_scenes: int = Field(default=0, ge=0, le=2000)
+    workers: int = Field(default=8, ge=1, le=64)
+    sky_masks: bool = True
+
+class UploadTarget(BaseModel):
+    target: str = Field(min_length=1, max_length=200)
+
 class TrainingInput(BaseModel):
     dataset: str = Field(min_length=1, max_length=512)
     camera_ids: list[str] | None = Field(default=None, max_length=4)
@@ -134,15 +177,20 @@ def create_app():
     from .reconstruction import ReconstructionManager
     from .training import TrainingManager
     from .drivestudio import DriveStudioRuns
+    from .uploads import UploadManager
+    uploads = UploadManager(WORKSPACE)
+    from .colab import ColabHelper
     drivestudio = DriveStudioRuns(WORKSPACE)
     reconstruction = ReconstructionManager(WORKSPACE)
     training = TrainingManager(WORKSPACE)
     pipeline = PipelineManager(WORKSPACE)
+    colab = ColabHelper(lambda: pipeline.discovery.colab_bin)
 
     @asynccontextmanager
     async def lifespan(app):
         yield
         pipeline.shutdown()
+        colab.shutdown()
         drivestudio.shutdown()
         training.shutdown()
         reconstruction.shutdown()
@@ -323,6 +371,33 @@ def create_app():
         path = reconstruction.artifact(job_id, relative)
         return FileResponse(path)
 
+    @app.get("/api/datasets")
+    def dataset_profiles():
+        from .dataset_profiles import public
+        return {"profiles": public(), "local": pipeline.discovery.local_datasets(),
+                "split_files": pipeline.discovery.split_files()}
+
+    @app.post("/api/datasets/preprocess")
+    def dataset_preprocess(job: PreprocessJob):
+        return pipeline.preprocess(job.model_dump(), drivestudio.venv)
+
+    @app.get("/api/upload")
+    def upload_status():
+        return uploads.status()
+
+    @app.post("/api/upload/plan")
+    def upload_plan(job: UploadPlan):
+        return uploads.plan([f.model_dump() for f in job.files], job.dataset)
+
+    @app.put("/api/upload/chunk")
+    async def upload_chunk(request: Request, target: str, offset: int, total: int):
+        data = await request.body()
+        return await run_in_threadpool(uploads.write, target, offset, total, data)
+
+    @app.post("/api/upload/cancel")
+    def upload_cancel(job: UploadTarget):
+        return uploads.cancel(job.target)
+
     @app.get("/api/setup")
     def setup():
         return pipeline.discovery.report()
@@ -356,7 +431,58 @@ def create_app():
 
     @app.get("/api/drivestudio")
     def drivestudio_overview():
-        return {"options": drivestudio.options(), "runs": drivestudio.runs()}
+        return {"options": drivestudio.options(), "runs": drivestudio.runs(), "videos": drivestudio.videos()}
+
+    @app.get("/api/videos")
+    def list_videos():
+        return {"videos": drivestudio.videos()}
+
+    @app.post("/api/videos/compare")
+    def compare_videos(job: VideoCompareJob):
+        return drivestudio.compare_videos(job.video_a, job.video_b, job.layout)
+
+    @app.get("/api/colab/sessions")
+    def colab_sessions():
+        return colab.sessions()
+
+    @app.post("/api/colab/sessions")
+    def colab_new(job: ColabNew):
+        return colab.create(job.session, job.gpu or None)
+
+    @app.get("/api/colab/url")
+    def colab_url(session: str):
+        return colab.url(session)
+
+    @app.get("/api/colab/drive")
+    def colab_drive(session: str):
+        return colab.drive_status(session)
+
+    @app.post("/api/colab/drive/mount")
+    def colab_mount(job: ColabSession):
+        return colab.mount(job.session)
+
+    @app.get("/api/colab/drive/mount")
+    def colab_mount_status(session: str):
+        return colab.mount_status(session)
+
+    @app.post("/api/colab/drive/confirm")
+    def colab_confirm(job: ColabSession):
+        return colab.confirm_mount(job.session)
+
+    @app.get("/api/colab/browse")
+    def colab_browse(session: str, path: str = ""):
+        return colab.browse(session, path)
+
+    @app.get("/api/colab/find")
+    def colab_find(session: str):
+        return colab.find(session)
+
+    @app.post("/api/colab/sync")
+    def colab_sync(job: DriveSyncJob):
+        cfg = job.model_dump()
+        if not cfg["dest"]:
+            cfg.pop("dest")
+        return pipeline.sync_drive(cfg)
 
     @app.post("/api/drivestudio/prepare")
     def drivestudio_prepare(job: PrepareJob):

@@ -120,3 +120,19 @@ def test_outputs_route(ws, monkeypatch):
         assert client.get("/api/outputs/eval/abc/nope.png").status_code == 400
         setup = client.get("/api/setup").json()
         assert setup["nurec"]["ok"] and "evaluations" in setup
+
+
+def test_sync_drive_validates_and_launches(ws, monkeypatch):
+    fake_colab = ws / "fake-colab"
+    fake_colab.write_text("")
+    manager = PipelineManager(ws)
+    monkeypatch.setattr(Discovery, "colab_bin", property(lambda self: str(fake_colab)))
+    seen = {}
+    monkeypatch.setattr(manager, "_start", lambda kind, out, steps, env, info: seen.update(kind=kind, steps=steps, info=info) or {"job_id": "0" * 32})
+    manager.sync_drive({"mode": "dataset", "drive_path": "/content/drive/MyDrive/datasets/kitti360_full",
+                        "sequence": "2013_05_28_drive_0003_sync", "session": "fisheye-lab"})
+    assert seen["kind"] == "drive_sync"
+    assert seen["info"]["dest"] == "kitti360"
+    for bad in ({"drive_path": "/etc/passwd"}, {"drive_path": "/content/drive/../x"}, {"dest": "../escape"}, {"sequence": "bad"}):
+        with pytest.raises(ValueError):
+            manager.sync_drive({"mode": "dataset", "drive_path": "/content/drive/MyDrive/datasets/kitti360_full", **bad})

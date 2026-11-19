@@ -11,11 +11,13 @@ import json
 import os
 import re
 import shutil
+import sys
 import subprocess
 import threading
 import uuid
 from pathlib import Path
 
+from .dataset_profiles import PROFILES, detect, detect_folder
 from .reconstruction import _stop, _tail
 
 TOOLS = Path(__file__).resolve().parent.parent / "tools"
@@ -27,7 +29,7 @@ KITTI_CAMERAS = {
 }
 SEQUENCE = re.compile(r"2013_05_28_drive_\d{4}_sync")
 MODEL_FILES = {"pa-front": "pa_front", "pa-multiview": "pa_multiview", "pq-front": "pq_road"}
-ARTIFACTS = {".png", ".json", ".ply"}
+ARTIFACTS = {".png", ".json", ".ply", ".mp4"}
 # rectify120: what Instant NuRec takes; ftheta / opencv keep the full fisheye (3DGUT, gsplat)
 FISHEYE_MODELS = ("rectify120", "ftheta", "opencv")
 
@@ -70,6 +72,14 @@ class Discovery:
     @property
     def nurec_python(self) -> Path:
         return self.nurec_repo / ".venv" / "bin" / "python"
+
+    @property
+    def colab_bin(self) -> str | None:
+        found = shutil.which("colab")
+        if found:
+            return found
+        local = Path.home() / ".local" / "bin" / "colab"
+        return str(local) if local.is_file() else None
 
     @property
     def gsplat_python(self) -> Path | None:
@@ -136,7 +146,8 @@ class Discovery:
             except (OSError, ValueError):
                 continue
             out.append({"path": self.rel(metrics.parent), "metrics": scores, **info,
-                        "images": sorted(p.name for p in metrics.parent.glob("*.png"))})
+                        "images": sorted(p.name for p in metrics.parent.glob("*.png")),
+                "videos": sorted(p.name for p in metrics.parent.glob("*.mp4"))})
         return out
 
     def output_file(self, relative: str) -> Path:
@@ -146,9 +157,43 @@ class Discovery:
             raise ValueError("invalid output path")
         root = (self.workspace / "outputs").resolve()
         path = (root / relative).resolve()
-        if not path.is_relative_to(root) or path.suffix.lower() not in {".png", ".json", ".ply"} or not path.is_file():
+        if not path.is_relative_to(root) or path.suffix.lower() not in {".png", ".json", ".ply", ".mp4"} or not path.is_file():
             raise ValueError("unknown output file")
         return path
+
+    def split_files(self) -> list[str]:
+        """Scene lists shipped with DriveStudio (data/*.txt), usable as --split_file."""
+        return sorted(self.rel(p) for p in (self.workspace / "data").glob("*.txt"))
+
+    def local_datasets(self) -> dict:
+        """Raw folders of every non-KITTI-360 profile and every preprocessed scene ready for training."""
+        raw = []
+        for key, prof in PROFILES.items():
+            if key == "kitti360":
+                continue
+            path = self.workspace / prof["raw"]
+            if not path.is_dir():
+                continue
+            names = sorted(p.name for p in path.iterdir() if not p.name.startswith("."))
+            sample = []
+            for sub in names[:20]:
+                if (path / sub).is_dir():
+                    sample += [f"{sub}/{n}" for n in sorted(os.listdir(path / sub))[:50]]
+            raw.append({"dataset": key, "label": prof["label"], "path": prof["raw"], "entries": len(names),
+                        "preview": names[:8], "detected": detect_folder(names[:200], sample) == key,
+                        "partial": sum(1 for _ in path.rglob("*.part")) if len(names) < 5000 else 0})
+        processed = []
+        data = self.workspace / "data"
+        if data.is_dir():
+            for scene in sorted(list(data.glob("*/processed*/[0-9][0-9][0-9]")) + list(data.glob("*/processed*/*/[0-9][0-9][0-9]"))):
+                if not (scene / "images").is_dir():
+                    continue
+                parts = scene.relative_to(data).parts
+                processed.append({"dataset": parts[0], "label": PROFILES.get(parts[0], {}).get("label", parts[0]),
+                                  "data_root": self.rel(scene.parent), "scene": scene.name,
+                                  "sky_masks": (scene / "sky_masks").is_dir(),
+                                  "objects": (scene / "instances").is_dir() or (scene / "objects").is_dir()})
+        return {"raw": raw, "processed": processed}
 
     def report(self) -> dict:
         nurec_ok = (self.nurec_repo / "run_inference.py").is_file() and self.nurec_python.is_file()
@@ -158,6 +203,7 @@ class Discovery:
                       "python": self.rel(self.nurec_python) if self.nurec_python.is_file() else None,
                       "checkpoints": self.checkpoints() if nurec_ok else {}},
             "gsplat": {"ok": self.gsplat_python is not None, "cuda_home": _cuda_home()},
+            "colab": {"ok": self.colab_bin is not None, "bin": self.colab_bin},
             "gpus": _gpus(),
             "datasets": self.datasets(),
             "clips": self.clips(),
@@ -300,6 +346,67 @@ class PipelineManager:
             "data_root": self.discovery.rel(processed), "objects": objects,
             "dataset_config": "kitti360/ncore_3cams_objects" if objects else "kitti360/ncore_3cams"})
 
+    def preprocess(self, cfg: dict, venv: Path) -> dict:
+        """DriveStudio datasets/preprocess.py (+ optional SegFormer sky masks) for one raw dataset folder."""
+        allowed = {"dataset", "split", "scene_ids", "split_file", "start_idx", "num_scenes", "workers", "sky_masks"}
+        if not isinstance(cfg, dict) or set(cfg) - allowed:
+            raise ValueError("unknown preprocess fields")
+        key = cfg.get("dataset")
+        prof = PROFILES.get(key)
+        if not prof or "preprocess" not in prof:
+            raise ValueError("dataset này không tiền xử lý bằng DriveStudio preprocess.py")
+        preset = prof["preprocess"]
+        py = Path(venv) / "bin" / "python"
+        if not py.is_file():
+            raise ValueError(f"DriveStudio+ environment not found at {venv}")
+        raw = self.workspace / prof["raw"]
+        if not raw.is_dir() or not any(raw.iterdir()):
+            raise ValueError(f"{prof['raw']} chưa có dữ liệu")
+        target = self.workspace / preset["target"]
+        split = str(cfg.get("split") or preset.get("split") or "")
+        if split and not re.fullmatch(r"[A-Za-z0-9_.-]{1,40}", split):
+            raise ValueError("invalid split")
+        ids = [int(x) for x in re.split(r"[ ,]+", str(cfg.get("scene_ids") or "").strip()) if x]
+        if len(ids) > 200:
+            raise ValueError("too many scene ids")
+        split_file = str(cfg.get("split_file") or "")
+        if split_file and split_file not in self.discovery.split_files():
+            raise ValueError("unknown split file")
+        start, num = cfg.get("start_idx", 0), cfg.get("num_scenes", 0)
+        workers = cfg.get("workers", 8)
+        if type(start) is not int or type(num) is not int or type(workers) is not int or start < 0 or num < 0 \
+                or not 1 <= workers <= 64:
+            raise ValueError("invalid start_idx / num_scenes / workers")
+        if ids:
+            select = ["--scene_ids", *map(str, ids)]
+        elif split_file:
+            select = ["--split_file", str(self.workspace / split_file)]
+        elif num:
+            select = ["--start_idx", str(start), "--num_scenes", str(num)]
+        elif preset.get("scene_ids"):
+            select = ["--scene_ids", *preset["scene_ids"].split()]
+        elif preset.get("split_file"):
+            select = ["--split_file", str(self.workspace / preset["split_file"])]
+        else:
+            select = ["--start_idx", str(preset.get("start_idx", 0)), "--num_scenes", str(preset.get("num_scenes", 1))]
+        keys = ["images", "lidar", "calib", "dynamic_masks", "objects"] + ([] if key == "nuscenes" else ["pose"])
+        argv = [str(py), "-u", str(self.workspace / "datasets" / "preprocess.py"), "--data_root", str(raw),
+                "--target_dir", str(target), "--dataset", key, "--workers", str(workers), *select,
+                "--process_keys", *keys]
+        if split:
+            argv += ["--split", split]
+        for opt in ("interpolate_N", "start_frame_idx", "max_frame_limit"):
+            if opt in preset:
+                argv += [f"--{opt}", str(preset[opt])]
+        steps = [("preprocess", argv)]
+        if cfg.get("sky_masks", True):
+            steps.append(("sky masks", [str(py), "-u", str(self.workspace / "datasets" / "tools" / "extract_masks_hf.py"),
+                                        "--data_root", str(target), *select]))
+        env = self._env(None)
+        env["PYTHONPATH"] = str(self.workspace)
+        log_dir = self._new_output("preprocess", f"{key}_{uuid.uuid4().hex[:8]}")
+        return self._start("preprocess", log_dir, steps, env, {"dataset": key, "data_root": preset["target"]})
+
     def evaluate(self, cfg: dict) -> dict:
         allowed = {"ply", "clip", "every", "gpu"}
         if not isinstance(cfg, dict) or set(cfg) - allowed:
@@ -325,6 +432,53 @@ class PipelineManager:
                                str(out / "views.npz"), "--out", str(out)]),
         ]
         return self._start("evaluate", out, steps, env, {"ply": self.discovery.rel(ply), "clip": self.discovery.rel(clip)})
+
+    def sync_drive(self, cfg: dict) -> dict:
+        allowed = {"mode", "drive_path", "sequence", "session", "dest", "dataset", "items"}
+        if not isinstance(cfg, dict) or set(cfg) - allowed:
+            raise ValueError("unknown sync_drive fields")
+        colab = self.discovery.colab_bin
+        if not colab:
+            raise ValueError("colab CLI not found; install google-colab-cli")
+        mode = cfg.get("mode", "dataset")
+        if mode not in ("dataset", "runs", "folder"):
+            raise ValueError("mode must be dataset, runs or folder")
+        items = cfg.get("items") or []
+        if mode == "folder":
+            prof = PROFILES.get(cfg.get("dataset") or "")
+            if not prof or cfg.get("dataset") == "kitti360":
+                raise ValueError("folder mode needs a dataset other than kitti360")
+            if not isinstance(items, list) or len(items) > 200 or any(
+                    not isinstance(i, str) or not i or i.startswith("/") or ".." in i.split("/") or "\\" in i for i in items):
+                raise ValueError("invalid items")
+            cfg["dest"] = prof["raw"]
+        drive_path = str(cfg.get("drive_path") or "").strip()
+        if not drive_path.startswith("/content/drive/") or ".." in Path(drive_path).parts:
+            raise ValueError("drive_path must start with /content/drive/")
+        session = str(cfg.get("session") or "fisheye-lab").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", session):
+            raise ValueError("invalid session name")
+        seq = str(cfg.get("sequence") or "2013_05_28_drive_0003_sync")
+        if mode == "dataset" and not SEQUENCE.fullmatch(seq):
+            raise ValueError("sequence must look like 2013_05_28_drive_0003_sync")
+        dest_rel = str(cfg.get("dest") or ("kitti360" if mode == "dataset" else "fflab-runs")).strip().strip("/")
+        if not dest_rel or chr(92) in dest_rel or ":" in dest_rel or ".." in Path(dest_rel).parts:
+            raise ValueError("invalid destination folder")
+        dest = (self.workspace / dest_rel).resolve()
+        if not dest.is_relative_to(self.workspace) or dest == self.workspace:
+            raise ValueError("destination must be a subfolder inside workspace")
+        dest.mkdir(parents=True, exist_ok=True)
+        py = sys.executable
+        argv = [py, "-u", str(TOOLS / "colab_sync_drive.py"), "--colab", colab, "--session", session,
+                "--mode", mode, "--drive-path", drive_path, "--sequence", seq, "--dest", str(dest)]
+        for item in items if mode == "folder" else []:
+            argv += ["--item", item]
+        env = self._env(None, [Path(colab).parent])
+        env.setdefault("PYTHON_KEYRING_BACKEND", "keyrings.alt.file.PlaintextKeyring")
+        log_dir = self._new_output("drive_sync", uuid.uuid4().hex[:12])
+        return self._start("drive_sync", log_dir, [(f"sync {mode}", argv)], env,
+                           {"mode": mode, "dest": self.discovery.rel(dest), "session": session,
+                            "dataset": cfg.get("dataset") or ("kitti360" if mode == "dataset" else "")})
 
     # ---- runner
     def _start(self, kind, out, steps, env, info):

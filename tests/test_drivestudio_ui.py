@@ -145,3 +145,63 @@ def test_viewer_starts_on_localhost_with_the_final_checkpoint(tmp_path, monkeypa
     with pytest.raises(ValueError, match="no checkpoint"):
         make_run(tmp_path, "r2", LOG)
         runs.viewer_start("r2")
+
+
+def _write_tiny_mp4(path: Path, color: tuple[int, int, int]):
+    import cv2, numpy as np
+    path.parent.mkdir(parents=True, exist_ok=True)
+    w = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 10, (64, 48))
+    for i in range(4):
+        fr = np.full((48, 64, 3), color, dtype=np.uint8)
+        fr[:, i * 8:(i + 1) * 8] = 255
+        w.write(fr)
+    w.release()
+
+
+def test_metrics_and_video_compare_across_methods(tmp_path, monkeypatch):
+    import json, cv2
+    ext_log = LOG + (
+        b"I20261117 08:00:00 root video_utils.py:85] \t  Vehicle-Only PSNR: 21.4000\n"
+        b"I20261117 08:00:00 root video_utils.py:87] \t       Depth RMSE: 1.8500\n"
+        b"I20261117 08:00:00 root video_utils.py:88] \t     Depth AbsRel: 0.0920\n"
+        b"I20261117 08:00:00 root video_utils.py:89] \t     Depth Delta1: 0.8910\n"
+        b"I20261117 08:00:00 root video_utils.py:90] \t       Render FPS: 42.5000\n"
+        b"I20261117 08:00:00 root video_utils.py:91] \t    Peak VRAM GiB: 6.2500\n"
+    )
+    r1 = make_run(tmp_path, "ds_ut", ext_log)
+    _write_tiny_mp4(r1 / "drivestudio" / "ds_ut" / "videos" / "test_set_2000.mp4", (40, 120, 200))
+
+    g_dir = tmp_path / "fflab-runs" / "gut_road1"
+    g_dir.mkdir(parents=True)
+    (g_dir / "metrics.json").write_text(json.dumps({
+        "psnr_per_camera": {"image_00": 18.2, "image_01": 18.2, "image_02": 16.0, "image_03": 16.0},
+        "gaussians": 950000, "steps": 10000, "train_seconds": 215,
+        "config": {"sequence": "2013_05_28_drive_0003_sync"},
+    }))
+    (g_dir / "train.log").write_text("step 10000/10000 loss=0.05 peak_vram=4.50GiB\n")
+    _write_tiny_mp4(g_dir / "fly.mp4", (200, 80, 40))
+
+    monkeypatch.setattr("fisheye_fusion.server.WORKSPACE", tmp_path)
+    from fisheye_fusion.server import create_app
+    client = TestClient(create_app())
+    ov = client.get("/api/drivestudio").json()
+    by_name = {r["name"]: r for r in ov["runs"]}
+    assert by_name["ds_ut"]["metrics"]["Depth RMSE"] == 1.85
+    assert by_name["ds_ut"]["metrics"]["Depth AbsRel"] == 0.092
+    assert by_name["ds_ut"]["metrics"]["Depth Delta1"] == 0.891
+    assert by_name["ds_ut"]["metrics"]["Render FPS"] == 42.5
+    assert by_name["gut_road1"]["backend"] == "3dgut-gsplat"
+    assert by_name["gut_road1"]["metrics"]["Pinhole PSNR"] == pytest.approx(18.2)
+    assert by_name["gut_road1"]["metrics"]["Fisheye PSNR"] == pytest.approx(16.0)
+    assert by_name["gut_road1"]["metrics"]["Peak VRAM GiB"] == pytest.approx(4.5)
+
+    vids = ov["videos"]
+    assert len(vids) == 2
+    comp = client.post("/api/videos/compare", json={"video_a": vids[0]["id"], "video_b": vids[1]["id"], "layout": "hstack"})
+    assert comp.status_code == 200
+    mp4_resp = client.get(comp.json()["url"])
+    assert mp4_resp.status_code == 200 and len(mp4_resp.content) > 200
+    out_mp4 = tmp_path / comp.json()["url"].replace("/api/", "")
+    cap = cv2.VideoCapture(str(out_mp4))
+    assert int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) == 4
+    cap.release()

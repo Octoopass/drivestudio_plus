@@ -1,20 +1,15 @@
-"""Step 2 of evaluating a 3DGS PLY against an NCore clip: render with gsplat (3DGUT) and score.
-
-    <gsplat-python> tools/ncore_eval_render.py scene.ply views.npz --out eval_dir
-
-PSNR is computed over pixels outside the ego mask where the Gaussians are opaque (alpha > 0.9),
-because Instant NuRec's sky is a separate cubemap that a plain PLY render does not include.
-Writes side-by-side PNGs (ground truth | render) and metrics.json.
-"""
+"""Step 2 of evaluating a 3DGS PLY against an NCore clip: render with gsplat (3DGUT) and score."""
 from __future__ import annotations
 
 import argparse
 import json
+import subprocess
+import time
 from pathlib import Path
 
+import cv2
 import numpy as np
 import torch
-import cv2
 from gsplat import rasterization
 
 
@@ -38,6 +33,19 @@ def load_ply(path: Path, device: str):
     return means, quats, scales, opac, colors
 
 
+def ssim_masked(rgb: np.ndarray, gt: np.ndarray, valid: np.ndarray) -> float:
+    if not valid.any():
+        return float("nan")
+    mu1 = cv2.GaussianBlur(rgb, (11, 11), 1.5)
+    mu2 = cv2.GaussianBlur(gt, (11, 11), 1.5)
+    s1 = cv2.GaussianBlur(rgb * rgb, (11, 11), 1.5) - mu1 * mu1
+    s2 = cv2.GaussianBlur(gt * gt, (11, 11), 1.5) - mu2 * mu2
+    s12 = cv2.GaussianBlur(rgb * gt, (11, 11), 1.5) - mu1 * mu2
+    c1, c2 = 0.01**2, 0.03**2
+    smap = ((2 * mu1 * mu2 + c1) * (2 * s12 + c2)) / ((mu1 * mu1 + mu2 * mu2 + c1) * (s1 + s2 + c2))
+    return float(smap.mean(axis=-1)[valid].mean())
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("ply")
@@ -52,6 +60,9 @@ def main():
     print(f"{len(means):,} Gaussians")
     v = np.load(a.views, allow_pickle=True)
     per_cam: dict[str, list[float]] = {}
+    per_cam_ssim: dict[str, list[float]] = {}
+    vid_frames: list[np.ndarray] = []
+    t0 = time.perf_counter()
     for i in range(len(v["camera"])):
         img = v["image"][i]
         h, w = img.shape[:2]
@@ -77,13 +88,43 @@ def main():
         valid = (~mask) & (alpha > 0.9)
         mse = float(((rgb - gt) ** 2)[valid].mean()) if valid.any() else float("nan")
         psnr = -10 * np.log10(mse) if valid.any() else float("nan")
+        ssim_val = ssim_masked(rgb, gt, valid)
         cam = str(v["camera"][i])
         per_cam.setdefault(cam, []).append(psnr)
+        per_cam_ssim.setdefault(cam, []).append(ssim_val)
+        vis = (np.concatenate([gt, rgb], 1) * 255).astype(np.uint8)
+        if cam == str(v["camera"][0]):
+            vid_frames.append(cv2.cvtColor(vis, cv2.COLOR_RGB2BGR))
         if len(per_cam[cam]) <= 3:
-            vis = (np.concatenate([gt, rgb], 1) * 255).astype(np.uint8)
             cv2.imwrite(str(out / f"{cam}_{len(per_cam[cam]) - 1}.png"), cv2.cvtColor(vis, cv2.COLOR_RGB2BGR))
-        print(f"{cam} #{len(per_cam[cam]) - 1}: PSNR {psnr:.2f} dB over {valid.mean() * 100:.0f}% of pixels")
-    metrics = {c: {"psnr_mean": float(np.nanmean(x)), "views": len(x)} for c, x in per_cam.items()}
+        print(f"{cam} #{len(per_cam[cam]) - 1}: PSNR {psnr:.2f} dB SSIM {ssim_val:.3f} over {valid.mean() * 100:.0f}% of pixels")
+    elapsed = max(time.perf_counter() - t0, 1e-6)
+    if vid_frames:
+        vp = out / "eval.mp4"
+        h0, w0 = vid_frames[0].shape[:2]
+        eh, ew = h0 - (h0 % 2), w0 - (w0 % 2)
+        wr = cv2.VideoWriter(str(vp), cv2.VideoWriter_fourcc(*"mp4v"), 6, (ew, eh))
+        for fr in vid_frames:
+            fr2 = cv2.resize(fr, (ew, eh)) if fr.shape[:2] != (eh, ew) else fr
+            wr.write(fr2)
+        wr.release()
+        try:
+            import imageio_ffmpeg
+            tmp = vp.with_suffix(".h264.mp4")
+            if subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y", "-i", str(vp),
+                               "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "21", "-movflags", "+faststart", str(tmp)]).returncode == 0:
+                tmp.replace(vp)
+        except ImportError:
+            pass
+    metrics = {
+        c: {"psnr_mean": float(np.nanmean(x)), "ssim_mean": float(np.nanmean(per_cam_ssim[c])), "views": len(x)}
+        for c, x in per_cam.items()
+    }
+    metrics["_summary"] = {
+        "gaussians": int(len(means)),
+        "render_fps": float(len(v["camera"]) / elapsed),
+        "peak_vram_gib": float(torch.cuda.max_memory_allocated() / 2**30),
+    }
     (out / "metrics.json").write_text(json.dumps(metrics, indent=2))
     print(json.dumps(metrics, indent=2))
 
