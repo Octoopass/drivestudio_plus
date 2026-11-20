@@ -760,5 +760,5 @@
   "scene.rig.generating": "Creating...",
   "scene.rig.forward_motion": "Vehicle heading taken from the driving direction",
   "scene.rig.forward_camera": "The vehicle does not move: heading taken from where {camera} looks",
-  "scene.rig.source_hint": "Poses come from the same loader the trainer uses (reports/rig.json, drive2sim/recon/tools/scene_rig.py), so the layout matches the training data. Heading is measured from the angle between the driven path and a camera's view over the whole scene, to about 2 degrees. Fisheye field of view is the part of the image that is used (within the valid lens model angle)."
+  "scene.rig.source_hint": "Poses come from the same loader the trainer uses (reports/rig.json, drive2sim/recon/tools/scene_rig.py), so the layout matches the training data. Heading is measured from the angle between the driven path and a camera's view over the whole scene, to about 2 degrees. Fisheye field of view is the part of the image where the lens model is valid; training with 3DGUT or 3DGEER also masks beyond 88 degrees per side."
 }

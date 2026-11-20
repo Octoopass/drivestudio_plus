@@ -327,7 +327,7 @@ def rig_scene(args: argparse.Namespace) -> int:
     Raises:
         CommandError: Nếu cảnh không có hoặc không tạo được.
     """
-    workdir = Workdir(args.workdir)
+    workdir = Workdir.from_env(args.workdir)
     scene_dir = workdir.scene_dir(args.scene_id)
     if not (scene_dir / "manifest.yaml").is_file():
         raise CommandError(f"không có cảnh {args.scene_id}")

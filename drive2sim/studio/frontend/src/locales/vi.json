@@ -760,5 +760,5 @@
   "scene.rig.generating": "Đang tạo...",
   "scene.rig.forward_motion": "Hướng xe lấy theo hướng xe chạy",
   "scene.rig.forward_camera": "Xe đứng yên: hướng xe lấy theo hướng nhìn của {camera}",
-  "scene.rig.source_hint": "Pose lấy từ đúng loader mà trainer dùng (reports/rig.json, drive2sim/recon/tools/scene_rig.py), nên sơ đồ khớp với dữ liệu train. Hướng xe đo bằng góc giữa đoạn đường đi được và hướng nhìn camera trên cả cảnh, sai số cỡ 2 độ. Góc nhìn camera mắt cá là phần ảnh được dùng (trong góc mô hình ống kính còn đúng)."
+  "scene.rig.source_hint": "Pose lấy từ đúng loader mà trainer dùng (reports/rig.json, drive2sim/recon/tools/scene_rig.py), nên sơ đồ khớp với dữ liệu train. Hướng xe đo bằng góc giữa đoạn đường đi được và hướng nhìn camera trên cả cảnh, sai số cỡ 2 độ. Góc nhìn camera mắt cá là phần ảnh mà mô hình ống kính còn đúng; khi train, 3DGUT và 3DGEER còn che thêm từ 88 độ mỗi bên."
 }
