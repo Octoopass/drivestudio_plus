@@ -37,6 +37,27 @@ EXECUTOR_STATE_FILES = ("kaggle.json", "colab.json")
 Git = Callable[..., str]
 
 
+def require_main_codebase(approach_id: str, where: str) -> None:
+    """Từ chối đẩy approach chạy bằng codebase ngoài lên Kaggle, Colab.
+
+    Notebook trên Kaggle, Colab chỉ cài môi trường chính (``envs/install_main.sh``); approach như
+    Instant NuRec cần môi trường riêng và dữ liệu gốc, nên chạy trên máy (hoặc notebook riêng
+    của NuRec tải ở Studio).
+
+    Raises:
+        ValueError: Nếu approach không chạy bằng ``drivestudio``.
+    """
+    from drive2sim.engine.approaches import load_approach
+
+    codebase = load_approach(approach_id).codebase
+    if codebase != "drivestudio":
+        raise ValueError(
+            f"approach {approach_id} chạy bằng codebase ngoài ({codebase}), {where} chỉ cài môi "
+            "trường chính: chạy trên máy này, hoặc với Instant NuRec tải notebook NuRec ở trang "
+            "Chạy mới"
+        )
+
+
 class RemoteError(RuntimeError):
     """Lỗi chung khi chuẩn bị chạy run ở máy khác: không đọc được git, commit chưa push."""
 

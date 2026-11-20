@@ -375,6 +375,13 @@ def test_run_lifecycle(client: TestClient) -> None:
     videos = client.get(f"/api/runs/{run_id}/videos").json()["items"]
     assert videos[0]["stage_id"] == "train.toy" and videos[0]["name"] == "videos/test_set.mp4"
     assert client.get(videos[0]["url"]).content == b"mp4"
+    # 3 byte, chưa có hộp moov: coi như đang ghi; bản xem trước trả 409, đường dẫn lạ trả 404
+    assert videos[0]["ready"] is False
+    preview = client.get(videos[0]["preview_url"])
+    assert preview.status_code == 409 and preview.json()["error"]["code"] == "conflict"
+    query = "stage_id=train.toy&name=../../d2s/run.json"
+    bad = client.get(f"/api/runs/{run_id}/videos/preview?{query}")
+    assert bad.status_code == 404
     # test_set.mp4 không theo dạng <bộ>_<bước>_<kênh>: không thành bộ của trình phát so sánh
     assert client.get(f"/api/runs/{run_id}/video_sets").json() == {"items": [], "total": 0}
 
@@ -596,3 +603,25 @@ def test_stop_gpu_process_only_of_given_kind(
     client.delete("/api/gpu-viewer", params={"kind": "frames"})
     client.delete("/api/gpu-viewer")
     assert stopped == [True, True]
+
+
+def test_frame_lidar_falls_back_to_loader_overlays(client: TestClient, tmp_path: Path) -> None:
+    """LiDAR từng khung: dataset cách nhanh chưa đọc được thì dùng ảnh chồng do loader tạo sẵn."""
+    scene_dir = tmp_path / "work" / "data" / SCENE
+    overlays = scene_dir / "reports" / "lidar_overlay"
+    overlays.mkdir(parents=True)
+    (overlays / "003_CAM_FRONT.jpg").write_bytes(b"jpeg")
+    (scene_dir / "reports" / "lidar_check.json").write_text(
+        json.dumps(
+            {
+                "frames": [3],
+                "cameras": [],
+                "overlays": [{"frame": 3, "camera_id": "CAM_FRONT", "file": "003_CAM_FRONT.jpg"}],
+            }
+        )
+    )
+    ok = client.get(f"/api/scenes/{SCENE}/frames/3/lidar?camera=CAM_FRONT")
+    assert ok.status_code == 200 and ok.content == b"jpeg"
+    assert ok.headers["x-d2s-source"] == "loader"
+    missing = client.get(f"/api/scenes/{SCENE}/frames/4/lidar?camera=CAM_FRONT")
+    assert missing.status_code == 400 and "khung 3" in missing.text

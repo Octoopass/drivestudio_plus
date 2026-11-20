@@ -44,6 +44,12 @@ GEER_DIR="${D2S_GEER_DIR:-$HOME/.cache/drive2sim/3dgeer}"
 
 pip() { "$PY" -m pip "$@"; }
 
+# venv tạo bằng uv (uv venv) không có pip: dựng pip bằng ensurepip của thư viện chuẩn trước khi cài.
+if ! "$PY" -m pip --version >/dev/null 2>&1; then
+  echo "$PY chưa có pip (venv tạo bằng uv?): cài pip bằng ensurepip"
+  "$PY" -m ensurepip --upgrade
+fi
+
 # Bước 4, 5, 7, 8 build CUDA: nvcc phải cùng major với CUDA của PyTorch (cu121 → 12.x), nếu không
 # torch báo "The detected CUDA version mismatches". Image Kaggle từ 11/2026 chỉ có nvcc 13.0: khi đó cài
 # CUDA 12.8 riêng (envs/install_cuda.sh, khoảng 3 GB) rồi build bằng bản đó. Chỉ gọi khi thật sự phải

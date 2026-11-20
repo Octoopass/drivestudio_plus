@@ -2,8 +2,8 @@
 // làn stage cập nhật trực tiếp qua SSE; các tab kết quả, metric trong lúc train, stage, video, log,
 // Kaggle, Colab.
 import { Box, Cloud, CloudDownload, CloudUpload, Download, Power, RefreshCw, RotateCcw, Square, Trash2, Zap, Trophy, Plus } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { asApiError, del, post, seg, useApi } from "../api/client";
+import { useRef, useEffect, useMemo, useState } from "react";
+import { asApiError, del, playableUrl, post, seg, useApi } from "../api/client";
 import type { ColabStatus, KaggleStatus, List, ReportRow, RunDetail, RunEvent, RunLog, Splats, Video } from "../api/types";
 import { LineChart, type Point } from "../components/charts";
 import { RunArtifacts } from "../components/RunArtifacts";
@@ -19,6 +19,8 @@ import { useLive } from "../live";
 import { BetterArrow, visibleGroups } from "../metrics";
 import { go, href } from "../router";
 import { runStatus } from "../runStatus";
+import { etaSeconds, trackProgress, type EtaTrack } from "../eta";
+import { clock } from "../components/JobProgress";
 
 type Tab = "result" | "metrics" | "stages" | "artifacts" | "videos" | "logs" | "kaggle" | "colab";
 
@@ -31,14 +33,21 @@ type Tab = "result" | "metrics" | "stages" | "artifacts" | "videos" | "logs" | "
 function useRunEvents(runId: string, onDone: () => void) {
   const [generation, setGeneration] = useState(0);
   const [statuses, setStatuses] = useState<Record<string, string>>({});
-  const [progress, setProgress] = useState<{ stage: string; fraction: number | null; message: string } | null>(null);
+  const [progress, setProgress] = useState<{ stage: string; fraction: number | null; message: string; eta: number | null } | null>(null);
+  const track = useRef<EtaTrack | undefined>(undefined);
   const [metrics, setMetrics] = useState<Record<string, Point[]>>({});
 
   useEffect(() => {
     const source = new EventSource(`/api/runs/${seg(runId)}/events`);
     const read = (handler: (event: RunEvent) => void) => (raw: MessageEvent) => handler({ ...JSON.parse(raw.data), event: raw.type } as RunEvent);
     source.addEventListener("status", read((e) => setStatuses((s) => ({ ...s, [e.stage_id ?? "__run__"]: e.status ?? "" }))));
-    source.addEventListener("progress", read((e) => setProgress({ stage: e.stage_id ?? "", fraction: e.fraction ?? null, message: e.message ?? "" })));
+    source.addEventListener(
+      "progress",
+      read((e) => {
+        track.current = trackProgress(track.current, e.stage_id ?? "", e.fraction);
+        setProgress({ stage: e.stage_id ?? "", fraction: e.fraction ?? null, message: e.message ?? "", eta: etaSeconds(track.current) });
+      }),
+    );
     source.addEventListener(
       "metric",
       read((e) => setMetrics((m) => ({ ...m, [e.name ?? "?"]: [...(m[e.name ?? "?"] ?? []), { x: e.step ?? 0, y: e.value ?? 0 }] }))),
@@ -268,7 +277,9 @@ export function RunPage({ runId }: { runId: string }) {
           cached: s.cache_hit && s.status === "succeeded",
           note:
             s.status === "running" && live.progress?.stage === s.stage_id
-              ? `${live.progress.fraction != null ? `${Math.round(live.progress.fraction * 100)}% ` : ""}${live.progress.message}`
+              ? `${live.progress.fraction != null ? `${Math.round(live.progress.fraction * 100)}% ` : ""}${live.progress.message}${
+                  live.progress.eta != null ? ` · ${t("eta.left", { time: clock(live.progress.eta) })}` : ""
+                }`
               : s.cache_hit && s.status === "succeeded"
                 ? s.reused_duration_s
                   ? t("run.stages.from_cache_time", { time: duration(s.reused_duration_s) })
@@ -481,8 +492,17 @@ export function RunPage({ runId }: { runId: string }) {
                   <div className="videos">
                     {videos.data!.items.map((video) => (
                       <figure key={video.url}>
-                        <video src={video.url} controls preload="none" />
-                        <figcaption>{`${video.stage_id}/${video.name}`}</figcaption>
+                        {video.ready === false ? (
+                          <p className="muted">{t("run.videos.writing")}</p>
+                        ) : (
+                          <video src={playableUrl(video)} controls preload="none" />
+                        )}
+                        <figcaption>
+                          {`${video.stage_id}/${video.name}`}{" "}
+                          <a href={video.url} download>
+                            {t("run.videos.original")}
+                          </a>
+                        </figcaption>
                       </figure>
                     ))}
                   </div>

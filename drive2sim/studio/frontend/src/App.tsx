@@ -10,6 +10,7 @@ import { RunPage } from "./pages/RunPage";
 import { RunsPage } from "./pages/RunsPage";
 import { ScenePage } from "./pages/ScenePage";
 import { ScenesPage } from "./pages/ScenesPage";
+import { LibrariesPage } from "./pages/LibrariesPage";
 import { StoragePage } from "./pages/StoragePage";
 import { useRoute } from "./router";
 
@@ -22,11 +23,22 @@ export function App() {
       {route.page === "overview" && <OverviewPage />}
       {route.page === "scenes" && <ScenesPage />}
       {route.page === "scene" && <ScenePage key={route.sceneId} sceneId={route.sceneId} />}
-      {route.page === "new" && <NewRunPage sceneId={route.sceneId} splitId={route.splitId} />}
+      {route.page === "new" && (
+        <NewRunPage
+          key={JSON.stringify(route)}
+          sceneId={route.sceneId}
+          splitId={route.splitId}
+          approachId={route.approachId}
+          preset={route.preset}
+          executor={route.executor}
+          quick={route.quick}
+        />
+      )}
       {route.page === "runs" && <RunsPage sceneId={route.sceneId} status={route.status} />}
       {route.page === "run" && <RunPage key={route.runId} runId={route.runId} />}
       {route.page === "compare" && <ComparePage sceneId={route.sceneId} splitId={route.splitId} />}
       {route.page === "storage" && <StoragePage />}
+      {route.page === "libraries" && <LibrariesPage />}
       {route.page === "viewer" && (
         <Suspense fallback={<Loading />}>
           <ViewerPage runId={route.runId} />

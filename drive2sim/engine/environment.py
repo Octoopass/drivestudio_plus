@@ -35,14 +35,22 @@ from drive2sim.paths import SMPL_MODEL_NAME, find_smpl_model
 EXPECTED = {"main": {"pytorch": "2.4.1", "cuda": "12.1", "gsplat": "1.5.3"}}
 # Codebase của approach → môi trường cần; codebase không có ở đây (ví dụ approach mẫu) thì không
 # cần môi trường GPU nào.
-CODEBASE_ENV = {"drivestudio": "main"}
+CODEBASE_ENV = {"drivestudio": "main", "external:nurec": "nurec"}
 # Lệnh dựng môi trường chính và cách chạy từ xa, dùng trong câu báo thiếu môi trường.
 INSTALL_STEPS = {
     "main": "conda env create -f envs/main.yml && conda activate drive2sim && "
-    "bash envs/install_main.sh"
+    "bash envs/install_main.sh",
+    "nurec": "bash envs/install_nurec.sh",
 }
 REMOTE_HINT = "hoặc chạy trên GPU của Kaggle, Colab: --executor kaggle hoặc --executor colab"
-_CHECK_LABELS = {"gpu": "GPU NVIDIA", "pytorch": "PyTorch", "cuda": "CUDA của PyTorch"}
+_CHECK_LABELS = {
+    "gpu": "GPU NVIDIA",
+    "pytorch": "PyTorch",
+    "cuda": "CUDA của PyTorch",
+    "nurec_source": "mã nguồn Instant NuRec",
+    "nurec_env": "môi trường Python của Instant NuRec",
+    "nurec_checkpoint": "checkpoint Instant NuRec",
+}
 # Hỏi PyTorch tốn vài giây (tiến trình con), nên giữ kết quả một lúc.
 _CUDA_CACHE_S = 120
 _cuda_cache: dict[str, Any] = {}
@@ -64,7 +72,10 @@ def _level(found: Optional[str], expected: str) -> str:
 
 
 def environment_check(
-    codebase: str, needs_smpl: bool = False, workdir_root: Optional[Path] = None
+    codebase: str,
+    needs_smpl: bool = False,
+    workdir_root: Optional[Path] = None,
+    smpl_optional: bool = False,
 ) -> dict[str, Any]:
     """Bảng kiểm tra môi trường cho một codebase.
 
@@ -73,6 +84,8 @@ def environment_check(
         needs_smpl: Approach có dựng người bằng SMPL không (có stage ``prep.smpl``); khi đó cần
             thêm file mô hình SMPL (``drive2sim.paths.find_smpl_model``).
         workdir_root: Thư mục làm việc, một trong các chỗ tìm file SMPL.
+        smpl_optional: SMPL chỉ có thể cần (tuỳ chọn ``auto`` chưa biết split có người không):
+            thiếu file thì ``warn`` thay vì ``missing``.
 
     Returns:
         ``{"env": tên hoặc None, "file", "install", "level": "ok" | "warn" | "missing",
@@ -91,6 +104,8 @@ def environment_check(
             "checks": [],
             "message": None,
         }
+    if env == "nurec":
+        return _nurec_check()
     expected = EXPECTED[env]
     versions = package_versions()
     gpus = _gpus()
@@ -136,7 +151,7 @@ def environment_check(
         checks.append(
             {
                 "id": "smpl_model",
-                "level": "ok" if model else "missing",
+                "level": "ok" if model else "warn" if smpl_optional else "missing",
                 "found": str(model) if model else None,
                 "expected": SMPL_MODEL_NAME,
             }
@@ -147,6 +162,33 @@ def environment_check(
         "env": env,
         "file": f"envs/{env}.yml",
         "install": f"bash envs/install_{env}.sh",
+        "level": level,
+        "checks": checks,
+    }
+    result["message"] = missing_environment_message(result)
+    return result
+
+
+def _nurec_check() -> dict[str, Any]:
+    """Bảng kiểm tra môi trường của Instant NuRec (``drive2sim/external/nurec``)."""
+    from drive2sim.external import nurec
+
+    gpus = _gpus()
+    checks = [
+        {
+            "id": "gpu",
+            "level": "ok" if gpus else "missing",
+            "found": gpus[0][0] if gpus else None,
+            "expected": None,
+        },
+        *nurec.environment_checks(),
+    ]
+    levels = {check["level"] for check in checks}
+    level = "missing" if "missing" in levels else "warn" if "warn" in levels else "ok"
+    result: dict[str, Any] = {
+        "env": "nurec",
+        "file": str(nurec.nurec_dir()),
+        "install": INSTALL_STEPS["nurec"],
         "level": level,
         "checks": checks,
     }

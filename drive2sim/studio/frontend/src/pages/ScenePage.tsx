@@ -323,6 +323,10 @@ function Frames({ sceneId, numFrames, splits }: { sceneId: string; numFrames: nu
   const [frame, setFrame] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [splitId, setSplitId] = useState(splits[0] ?? "");
+  // Công cụ kiểm tra dữ liệu (frame_tools.py): LiDAR chồng lên ảnh, ảnh toàn cảnh; chỉ khi dừng phát.
+  const [lidar, setLidar] = useState(false);
+  const [panorama, setPanorama] = useState(false);
+  const [toolError, setToolError] = useState<string | null>(null);
   // Ảnh đang hiện: giữ khung cũ tới khi mọi ảnh của khung mới đã tải và giải mã xong, để không bị
   // trống, nhấp nháy giữa hai khung.
   const [shown, setShown] = useState<FrameImages | null>(null);
@@ -412,6 +416,32 @@ function Frames({ sceneId, numFrames, splits }: { sceneId: string; numFrames: nu
           </select>
         </label>
       </div>
+      <div className="row wrap" style={{ gap: 8, alignItems: "center" }}>
+        <span className="small muted">
+          {t("scene.tools.title")}
+          <InfoTip>{t("scene.tools.help")}</InfoTip>
+        </span>
+        <button className={`btn sm${lidar ? " primary" : ""}`} type="button" onClick={() => (setLidar(!lidar), setToolError(null))}>
+          {t("scene.tools.lidar")}
+        </button>
+        <button className={`btn sm${panorama ? " primary" : ""}`} type="button" onClick={() => (setPanorama(!panorama), setToolError(null))}>
+          {t("scene.tools.panorama")}
+        </button>
+        {(lidar || panorama) && playing && <span className="small faint">{t("scene.tools.paused_only")}</span>}
+        {toolError && <span className="small bad-ink">{toolError}</span>}
+      </div>
+      {panorama && !playing && shown && (
+        <figure className="stack" style={{ gap: 4 }}>
+          <img
+            key={`pano-${shown.frame_index}`}
+            src={`/api/scenes/${seg(sceneId)}/frames/${shown.frame_index}/panorama`}
+            alt={t("scene.tools.panorama")}
+            style={{ width: "100%", borderRadius: 8 }}
+            onError={() => setToolError(t("scene.tools.failed"))}
+          />
+          <figcaption className="small muted">{t("scene.tools.panorama_caption")}</figcaption>
+        </figure>
+      )}
       {split.data && (
         <div className="legend">
           <span><i style={{ background: "var(--line-strong)" }} />{t("scene.frames.train")}</span>
@@ -422,7 +452,19 @@ function Frames({ sceneId, numFrames, splits }: { sceneId: string; numFrames: nu
       <div className="frames">
         {(shown?.images ?? []).map((image) => (
           <figure key={image.camera_id}>
-            {image.url ? <img src={image.url} alt={`${image.camera_id}, ${shown?.frame_index}`} /> : <div className="missing">{t("scene.frames.missing")}</div>}
+            {image.url ? (
+              <img
+                src={
+                  lidar && !playing
+                    ? `/api/scenes/${seg(sceneId)}/frames/${shown?.frame_index}/lidar?camera=${seg(image.camera_id)}`
+                    : image.url
+                }
+                alt={`${image.camera_id}, ${shown?.frame_index}`}
+                onError={() => lidar && setToolError(t("scene.tools.failed"))}
+              />
+            ) : (
+              <div className="missing">{t("scene.frames.missing")}</div>
+            )}
             <figcaption>{image.camera_id}</figcaption>
           </figure>
         ))}

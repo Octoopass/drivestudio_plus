@@ -93,8 +93,19 @@ export function useApi<T>(path: string | null, pollMs?: number) {
  * đoạn, rồi video bất kỳ. Thứ tự chữ cái đặt bản đồ sai khác (`..._error_maps.mp4`) lên đầu, nên
  * lấy phần tử đầu tiên sẽ ra bản đồ sai khác thay vì ảnh render.
  */
-export function preferredVideo<V extends { name: string }>(items: V[]): V | undefined {
-  const score = (name: string) =>
-    (/error/i.test(name) ? 10 : 0) + (/rgbs?\.mp4$|_rgbs?_|rgb/i.test(name) ? 0 : 2) + (/test_set/i.test(name) ? 0 : 1);
-  return [...items].sort((a, b) => score(a.name) - score(b.name) || a.name.localeCompare(b.name))[0];
+export function preferredVideo<V extends { name: string; ready?: boolean }>(items: V[]): V | undefined {
+  const score = (v: V) =>
+    (v.ready === false ? 20 : 0) +
+    (/error/i.test(v.name) ? 10 : 0) +
+    (/rgbs?\.mp4$|_rgbs?_|rgb/i.test(v.name) ? 0 : 2) +
+    (/test_set/i.test(v.name) ? 0 : 1);
+  return [...items].sort((a, b) => score(a) - score(b) || a.name.localeCompare(b.name))[0];
+}
+
+/**
+ * Đường dẫn để thẻ `<video>` phát: bản xem trước nếu server có (video ghép nhiều camera có thể rộng
+ * hơn mức H.264 trình duyệt giải mã được), không thì video gốc.
+ */
+export function playableUrl(video: { url: string; preview_url?: string }): string {
+  return video.preview_url ?? video.url;
 }

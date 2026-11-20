@@ -4,6 +4,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "./api/client";
 import type { Job, List, RunEvent } from "./api/types";
+import { etaSeconds, trackProgress, type EtaTrack } from "./eta";
 import { useI18n } from "./i18n";
 import { useToast } from "./components/ui";
 
@@ -11,6 +12,8 @@ export interface RunProgress {
   stage_id: string | null;
   fraction: number | null;
   message: string;
+  /** Giây còn lại ước lượng của stage đang chạy (eta.ts), null khi chưa đủ dữ liệu. */
+  eta: number | null;
 }
 
 interface Live {
@@ -33,6 +36,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
   const [progress, setProgress] = useState<Record<string, RunProgress>>({});
   const [jobs, setJobs] = useState<Job[]>([]);
   const known = useRef<Record<string, string>>({});
+  const tracks = useRef<Record<string, EtaTrack | undefined>>({});
   const openedAt = useRef(Date.now() / 1000);
   const [jobPoll, setJobPoll] = useState(0);
   // Kết nối SSE mở một lần cho cả phiên; đọc `t` qua ref để thông báo theo ngôn ngữ đang chọn,
@@ -50,9 +54,16 @@ export function LiveProvider({ children }: { children: ReactNode }) {
     });
     source.addEventListener("progress", (raw) => {
       const event = read(raw as MessageEvent);
+      const track = trackProgress(tracks.current[event.run_id], event.stage_id ?? "", event.fraction);
+      tracks.current[event.run_id] = track;
       setProgress((p) => ({
         ...p,
-        [event.run_id]: { stage_id: event.stage_id ?? null, fraction: event.fraction ?? null, message: event.message ?? "" },
+        [event.run_id]: {
+          stage_id: event.stage_id ?? null,
+          fraction: event.fraction ?? null,
+          message: event.message ?? "",
+          eta: etaSeconds(track),
+        },
       }));
     });
     source.addEventListener("done", (raw) => {

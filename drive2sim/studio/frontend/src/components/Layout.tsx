@@ -2,10 +2,12 @@
 // Ctrl+B, nhớ trong trình duyệt), thanh trên có đường dẫn trang, nút hoạt động (run đang
 // chạy và việc nền), ô tìm nhanh (Ctrl+K), nút đổi giao diện sáng/tối và ngôn ngữ.
 import {
+  Bot,
   Box,
   Boxes,
   Gauge,
   HardDrive,
+  Package,
   Languages,
   LayoutDashboard,
   ListChecks,
@@ -26,6 +28,7 @@ import { useLive } from "../live";
 import { href, type Page, type Route } from "../router";
 import { runStatus, type RunItem } from "../runStatus";
 import { ActivityDrawer } from "./ActivityDrawer";
+import { AssistantDrawer } from "./AssistantDrawer";
 import { InfoTip } from "./ui";
 import { CommandPalette } from "./CommandPalette";
 
@@ -59,6 +62,7 @@ const MENU: { group: string | null; items: MenuItem[] }[] = [
     items: [
       { key: "nav.menu.viewer", route: { page: "viewer" }, pages: ["viewer"], icon: <Box size={ICON} /> },
       { key: "nav.menu.storage", route: { page: "storage" }, pages: ["storage"], icon: <HardDrive size={ICON} /> },
+      { key: "nav.menu.libraries", route: { page: "libraries" }, pages: ["libraries"], icon: <Package size={ICON} /> },
     ],
   },
 ];
@@ -153,6 +157,7 @@ export function Layout({ route, children }: { route: Route; children: ReactNode 
     return () => window.removeEventListener("keydown", onKey);
   }, []);
   const [activity, setActivity] = useState(false);
+  const [assistant, setAssistant] = useState(false);
   // "Đang chạy" = đang chạy + đang chờ, cùng cách đếm với trang Tổng quan và ngăn Hoạt động.
   const running = useApi<List<RunItem>>(`/api/runs?status=running&_=${live.tick}`);
   const pending = useApi<List<RunItem>>(`/api/runs?status=pending&_=${live.tick}`);
@@ -234,6 +239,10 @@ export function Layout({ route, children }: { route: Route; children: ReactNode 
             <span className="pulse" />
             {busy ? t("nav.activity.busy", { count: busy }) : t("nav.activity.idle")}
           </button>
+          <button className="btn ghost sm" onClick={() => setAssistant(true)} title={t("assistant.title")}>
+            <Bot size={19} />
+            <span className="label">{t("assistant.button")}</span>
+          </button>
           <button className="btn ghost icon" onClick={nextTheme} title={t(`nav.theme.${theme}`)} aria-label={t(`nav.theme.${theme}`)}>
             <ThemeIcon size={20} />
           </button>
@@ -250,6 +259,7 @@ export function Layout({ route, children }: { route: Route; children: ReactNode 
       </div>
       {palette && <CommandPalette onClose={() => setPalette(false)} />}
       {activity && <ActivityDrawer onClose={() => setActivity(false)} />}
+      {assistant && <AssistantDrawer page={route.page} onClose={() => setAssistant(false)} />}
     </div>
   );
 }

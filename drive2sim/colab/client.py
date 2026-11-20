@@ -25,6 +25,8 @@ File này chứa:
   một đoạn Python trên VM (có thử lại), upload và download một file.
 """
 
+import base64
+import hashlib
 import os
 import re
 import subprocess
@@ -42,6 +44,7 @@ Runner = Callable[[Sequence[str], float], "subprocess.CompletedProcess[str]"]
 GPUS = ("T4", "L4", "G4", "A100", "H100")
 INSTALL_HINT = "chưa có lệnh colab; cài bằng: uv tool install google-colab-cli --with keyrings.alt"
 EXEC_RETRY_S = 3.0
+EXEC_DOWNLOAD_S = 600  # đọc một phần 32 MiB qua colab exec: đo 13,5 s, để dư
 
 
 class ColabError(RuntimeError):
@@ -84,6 +87,7 @@ class ColabClient:
     """
 
     def __init__(self, runner: Optional[Runner] = None, binary: str = "colab") -> None:
+        self._contents_api_failed = False  # colab download đã lỗi một lần: dùng colab exec
         self._runner = runner or _run_cli
         self._binary = binary
 
@@ -112,6 +116,21 @@ class ColabClient:
             return None
         match = re.search(r"(\d+\.\d+(?:\.\d+)?)", result.stdout or "")
         return match.group(1) if result.returncode == 0 and match else None
+
+    def latest_version(self) -> Optional[str]:
+        """Bản google-colab-cli mới nhất theo ``colab update`` (chỉ kiểm tra, không cài).
+
+        Lệnh in dạng ``Colab CLI is up to date (version: 0.8.0, latest: 0.8.0).``.
+
+        Returns:
+            Số phiên bản, hoặc ``None`` nếu không hỏi được.
+        """
+        try:
+            result = self._run("update", timeout_s=60)
+        except ColabError:
+            return None
+        match = re.search(r"latest:\s*([0-9][^)\s,]*)", f"{result.stdout}\n{result.stderr}")
+        return match.group(1) if match else None
 
     def sessions(self) -> list[dict[str, str]]:
         """Các phiên đang có trên server (``colab sessions``); cần đăng nhập được.
@@ -162,21 +181,23 @@ class ColabClient:
             "assignments": number("Active assignments"),
         }
 
-    def create_session(self, session: str, gpu: str) -> None:
-        """Tạo phiên Colab có GPU (``colab new -s <tên> --gpu <gpu>``); mất tới vài phút.
+    def create_session(self, session: str, gpu: Optional[str]) -> None:
+        """Tạo phiên Colab (``colab new -s <tên> [--gpu <gpu>]``); mất tới vài phút.
 
         Args:
             session: Tên phiên.
-            gpu: Một trong ``GPUS``.
+            gpu: Một trong ``GPUS``; ``None`` là phiên CPU (đủ để lấy dữ liệu từ Drive).
 
         Raises:
             ColabError: Nếu ``gpu`` lạ, tài khoản không được cấp GPU đó, hoặc Colab hết chỗ.
         """
-        if gpu not in GPUS:
+        if gpu is not None and gpu not in GPUS:
             raise ColabError(f"GPU {gpu} không có trên Colab; chọn một trong {', '.join(GPUS)}")
-        result = self._run("new", "-s", session, "--gpu", gpu, timeout_s=900)
+        extra = ("--gpu", gpu) if gpu else ()
+        result = self._run("new", "-s", session, *extra, timeout_s=900)
         if result.returncode != 0 or "READY" not in f"{result.stdout}{result.stderr}":
-            raise ColabError(f"không tạo được phiên Colab {session} ({gpu}): {_tail(result)}")
+            kind = gpu or "CPU"
+            raise ColabError(f"không tạo được phiên Colab {session} ({kind}): {_tail(result)}")
 
     def stop(self, session: str) -> None:
         """Tắt phiên (``colab stop``), trả VM cho Colab; phiên không còn thì không làm gì.
@@ -254,7 +275,13 @@ class ColabClient:
             raise ColabError(f"upload {local.name} lên Colab lỗi: {_tail(result)}")
 
     def download(self, session: str, remote: str, local: Path) -> None:
-        """Tải một file từ VM về (``colab download``).
+        """Tải một file từ VM về (``colab download``, lỗi thì qua ``colab exec``).
+
+        ``colab download`` đi qua API nội dung của Jupyter sau proxy của Google. Có phiên mà API
+        này trả ``500`` cho mọi file (kể cả vài byte) trong khi ``colab exec`` vẫn chạy (đã gặp
+        với google-colab-cli 0.8.0), nên khi tải lỗi, file được đọc trên VM và in ra dạng base64
+        kèm MD5 (``_download_via_exec``); các lần tải sau trên cùng client đi thẳng đường này.
+        File gửi qua đây là phần đã cắt của executor (``CHUNK_BYTES``), không phải file lớn.
 
         Args:
             session: Tên phiên.
@@ -263,10 +290,46 @@ class ColabClient:
 
         Raises:
             ColabSessionLostError: Nếu phiên đã mất.
-            ColabError: Nếu lệnh lỗi.
+            ColabError: Nếu cả hai đường đều lỗi.
         """
         local.parent.mkdir(parents=True, exist_ok=True)
-        result = self._run("download", "-s", session, remote, str(local), timeout_s=1800)
-        self._raise_if_lost(session, result)
-        if result.returncode != 0 or "Download failed" in result.stdout:
-            raise ColabError(f"tải {remote} từ Colab lỗi: {_tail(result)}")
+        if not self._contents_api_failed:
+            result = self._run("download", "-s", session, remote, str(local), timeout_s=1800)
+            self._raise_if_lost(session, result)
+            if result.returncode == 0 and "Download failed" not in result.stdout:
+                return
+            self._contents_api_failed = True
+            first_error = _tail(result)
+        else:
+            first_error = "đã lỗi ở lần trước"
+        try:
+            self._download_via_exec(session, remote, local)
+        except ColabError as exc:
+            raise ColabError(
+                f"tải {remote} từ Colab lỗi: {first_error}; qua colab exec cũng lỗi: {exc}"
+            ) from exc
+
+    def _download_via_exec(self, session: str, remote: str, local: Path) -> None:
+        """Đọc file trên VM bằng ``colab exec`` (base64 kèm MD5) rồi ghi ra ``local``.
+
+        Raises:
+            ColabError: Nếu không đọc được hoặc dữ liệu nhận về sai MD5.
+        """
+        code = (
+            "import base64, hashlib\n"
+            f"data = open({remote!r}, 'rb').read()\n"
+            "print('D2S_MD5 ' + hashlib.md5(data).hexdigest())\n"
+            "print('D2S_B64 ' + base64.b64encode(data).decode())\n"
+        )
+        output = self.exec_python(session, code, timeout_s=EXEC_DOWNLOAD_S)
+        fields = dict(
+            line.split(" ", 1)
+            for line in output.splitlines()
+            if line.startswith(("D2S_MD5 ", "D2S_B64 "))
+        )
+        if "D2S_MD5" not in fields or "D2S_B64" not in fields:
+            raise ColabError(f"VM không trả nội dung file: {output.strip()[-200:]}")
+        data = base64.b64decode(fields["D2S_B64"].strip())
+        if hashlib.md5(data).hexdigest() != fields["D2S_MD5"].strip():
+            raise ColabError("dữ liệu nhận qua colab exec sai MD5")
+        local.write_bytes(data)

@@ -12,25 +12,42 @@ import { ErrorBox, InfoTip, Note, PageHead, Panel, Segmented, Skeleton } from ".
 import { useI18n } from "../i18n";
 import { lensGroup, lensOf, lensSummary } from "../lens";
 import { go, href } from "../router";
+import { EnvInstall } from "../components/EnvInstall";
 
 // Pinhole lý tưởng của NCore được coi là pinhole OpenCV, như engine (CONTRACTS 4.2).
 const lensModel = (model: string) => (model === "ideal_pinhole" ? "opencv_pinhole" : model);
 
 const show = (value: OptionValue) => (typeof value === "boolean" ? (value ? "true" : "false") : String(value));
 
-export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { sceneId?: string; splitId?: string }) {
+export function NewRunPage({
+  sceneId: initialScene,
+  splitId: initialSplit,
+  approachId: initialApproach,
+  preset: initialPreset,
+  executor: initialExecutor,
+  quick: initialQuick,
+}: {
+  sceneId?: string;
+  splitId?: string;
+  approachId?: string;
+  preset?: string;
+  executor?: "local" | "kaggle" | "colab";
+  quick?: boolean;
+}) {
   const { t } = useI18n();
   const scenes = useApi<List<Manifest>>("/api/scenes");
   const approaches = useApi<List<Approach>>("/api/approaches");
   const [sceneId, setSceneId] = useState(initialScene ?? "");
   const scene = useApi<SceneDetail>(sceneId ? `/api/scenes/${seg(sceneId)}` : null);
   const [splitId, setSplitId] = useState(initialSplit ?? "");
-  const [approachId, setApproachId] = useState("");
+  const [approachId, setApproachId] = useState(initialApproach ?? "");
+  // preset đề xuất (Trợ lý): điền sau khi approach, cảnh và split đã nạp, sau bước về mặc định
+  const [pendingPreset, setPendingPreset] = useState(initialPreset);
   // Chỉ các mục cấu hình người dùng đã chọn khác đi; mục không có ở đây lấy giá trị mặc định của approach.
   // Preset không lưu riêng: bấm preset là điền các mục cấu hình, còn preset đang dùng được suy ra từ các mục cấu hình.
   const [options, setOptions] = useState<Record<string, OptionValue>>({});
-  const [executor, setExecutor] = useState<"local" | "kaggle" | "colab">("local");
-  const [quick, setQuick] = useState(false);
+  const [executor, setExecutor] = useState<"local" | "kaggle" | "colab">(initialExecutor ?? "local");
+  const [quick, setQuick] = useState(Boolean(initialQuick));
   const [kaggleStatus, setKaggleStatus] = useState<KaggleSetupStatus | null>(null);
   const [colabStatus, setColabStatus] = useState<ColabSetupStatus | null>(null);
   const [check, setCheck] = useState<CheckResult | null>(null);
@@ -70,6 +87,12 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
     const name = Object.keys(approach.presets ?? {}).find((n) => !cameraReason(support.presets[n]));
     setOptions(name ? { ...((approach.presets ?? {})[name] as Record<string, OptionValue>) } : {});
   }, [approachId, scene.data, approaches.data, splitId]);
+  useEffect(() => {
+    if (!pendingPreset || !approach || !scene.data || !scene.data.splits.includes(splitId)) return;
+    const values = (approach.presets ?? {})[pendingPreset];
+    if (values) setOptions({ ...(values as Record<string, OptionValue>) });
+    setPendingPreset(undefined);
+  }, [pendingPreset, approach, scene.data, splitId]);
 
   // Kiểm tra lại mỗi khi lựa chọn đổi.
   useEffect(() => {
@@ -451,7 +474,9 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
                   ]}
                 />
               </div>
-              {executor === "local" && approachId && <LocalEnvironment approachId={approachId} />}
+              {executor === "local" && approachId && (
+                <LocalEnvironment approachId={approachId} stages={check?.approach_id === approachId ? check.stages.map((s) => s.stage_id) : null} />
+              )}
               {executor === "kaggle" && <KaggleSetup onStatus={setKaggleStatus} />}
               {executor === "kaggle" && kaggleStatus && !kaggleStatus.ready && <Note kind="warn">{t("kaggle.setup.start_warning")}</Note>}
               {executor === "colab" && <ColabSetup onStatus={setColabStatus} needsSmpl={check?.stages.some((s) => s.stage_id === "prep.smpl")} />}
@@ -483,12 +508,18 @@ interface EnvironmentCheck {
   checks: { id: string; level: "ok" | "warn" | "missing"; found: string | null; expected: string | null }[];
 }
 
-/** Chạy trên máy này: môi trường Python có đúng phiên bản approach cần không (GET .../environment). */
-function LocalEnvironment({ approachId }: { approachId: string }) {
+/** Chạy trên máy này: môi trường Python có đúng phiên bản approach cần không (GET .../environment).
+ * ``stages``: stage của run đã giải (kết quả kiểm tra), để file SMPL chỉ bị đòi khi run thật sự chạy
+ * bước SMPL; chưa có thì server coi SMPL là có thể cần (chỉ cảnh báo). */
+function LocalEnvironment({ approachId, stages }: { approachId: string; stages: string[] | null }) {
   const { t } = useI18n();
-  const env = useApi<EnvironmentCheck>(`/api/approaches/${seg(approachId)}/environment`);
+  const query = stages ? `?stages=${encodeURIComponent(stages.join(","))}` : "";
+  const env = useApi<EnvironmentCheck>(`/api/approaches/${seg(approachId)}/environment${query}`);
   if (!env.data || !env.data.env) return null;
   const data = env.data;
+  // chỉ thiếu file SMPL: script cài không sửa được, nói đúng nguyên nhân và chỗ đặt file
+  const notOk = data.checks.filter((c) => c.level !== "ok");
+  const smplOnly = notOk.length > 0 && notOk.every((c) => c.id === "smpl_model");
   if (data.level === "ok") {
     return (
       <div className="row small muted" style={{ gap: 6 }}>
@@ -500,7 +531,11 @@ function LocalEnvironment({ approachId }: { approachId: string }) {
   return (
     <Note kind="warn">
       <div className="stack" style={{ gap: 6 }}>
-        <b>{t(data.level === "missing" ? "new.env.missing" : "new.env.warn", { env: data.env ?? "" })}</b>
+        <b>
+          {smplOnly
+            ? t(data.level === "missing" ? "new.env.smpl_missing" : "new.env.smpl_maybe")
+            : t(data.level === "missing" ? "new.env.missing" : "new.env.warn", { env: data.env ?? "" })}
+        </b>
         <ul className="env-list">
           {data.checks
             .filter((c) => c.level !== "ok")
@@ -514,10 +549,33 @@ function LocalEnvironment({ approachId }: { approachId: string }) {
               </li>
             ))}
         </ul>
+        {smplOnly ? (
+          <span className="small">{t("new.env.smpl_fix")}</span>
+        ) : (
         <span className="small">
           {t("new.env.install")} <code>{data.install}</code>
-          <InfoTip>{t("new.env.install_hint", { file: data.file ?? "" })}</InfoTip>
+          <InfoTip>{t(data.env === "nurec" ? "new.env.install_hint_nurec" : "new.env.install_hint", { file: data.file ?? "" })}</InfoTip>
         </span>
+        )}
+        {data.env === "nurec" && (
+          <span className="small">
+            {t("new.env.nurec_notebook")}{" "}
+            <a href="/api/environment/nurec/notebook/colab" download>
+              Colab
+            </a>
+            {" · "}
+            <a href="/api/environment/nurec/notebook/kaggle" download>
+              Kaggle
+            </a>
+            <InfoTip>{t("new.env.nurec_notebook_hint")}</InfoTip>
+          </span>
+        )}
+        {/* cài chỉ sửa được gói Python: không hiện khi thiếu GPU, hay khi chỉ thiếu file SMPL */}
+        {data.env &&
+          !data.checks.some((c) => c.id === "gpu" && c.level === "missing") &&
+          data.checks.some((c) => c.level !== "ok" && c.id !== "gpu" && c.id !== "smpl_model") && (
+          <EnvInstall env={data.env} onDone={env.reload} />
+        )}
       </div>
     </Note>
   );

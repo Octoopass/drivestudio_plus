@@ -21,7 +21,8 @@ File này chứa:
 import json
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict
 
 from drive2sim.core import files
@@ -39,6 +40,7 @@ from drive2sim.ingest.images import IMAGE_SUFFIXES
 from drive2sim.ingest.manifest import outdated_output_version
 from drive2sim.ingest.reports import revalidate
 from drive2sim.ingest.validate import validate_scene
+from drive2sim.studio.api import frame_tools
 from drive2sim.studio.api.state import state_of
 
 router = APIRouter(prefix="/api/scenes", tags=["scenes"])
@@ -132,6 +134,52 @@ def get_frame(scene_id: str, frame_index: int, request: Request) -> dict:
         url = f"/files/{workdir.relative(found[0])}" if found else None
         images.append({"camera_id": camera.camera_id, "url": url})
     return {"frame_index": frame_index, "images": images}
+
+
+@router.get("/{scene_id}/frames/{frame_index}/panorama")
+def get_panorama(
+    scene_id: str, frame_index: int, request: Request, width: int = Query(2048, ge=512, le=4096)
+) -> Response:
+    """Ảnh toàn cảnh equirectangular ghép từ mọi camera của một khung (``frame_tools.py``).
+
+    Returns:
+        PNG; header ``X-D2S-Coverage`` là tỉ lệ pixel có ảnh. Cảnh không có calib cố định theo
+        camera, thiếu ảnh: ``400``.
+    """
+    scene = state_of(request).workdir.load_scene(scene_id)
+    png, coverage = frame_tools.panorama(scene.root, scene.manifest, frame_index, width)
+    return Response(png, media_type="image/png", headers={"X-D2S-Coverage": f"{coverage:.4f}"})
+
+
+@router.get("/{scene_id}/frames/{frame_index}/lidar")
+def get_lidar_overlay(scene_id: str, frame_index: int, camera: str, request: Request) -> Response:
+    """Ảnh một camera có điểm LiDAR chiếu lên, tô theo độ sâu (``frame_tools.py``).
+
+    Returns:
+        PNG; header ``X-D2S-Points`` là số điểm vẽ được. LiDAR dạng khác KITTI, camera lạ, thiếu
+        file: ``400``.
+    """
+    scene = state_of(request).workdir.load_scene(scene_id)
+    try:
+        png, points = frame_tools.lidar_overlay(scene.root, scene.manifest, frame_index, camera)
+    except frame_tools.FrameToolError as error:  # gồm môi trường thiếu numpy, OpenCV
+        # Dataset cách nhanh chưa đọc được (calib theo khung, LiDAR dạng khác): dùng ảnh chồng do
+        # loader tạo sẵn ở tab Kiểm tra nếu khung này có.
+        ready = scene.root / "reports" / LIDAR_OVERLAY_DIR / f"{frame_index:03d}_{camera}.jpg"
+        if ready.is_file():
+            return Response(
+                ready.read_bytes(), media_type="image/jpeg", headers={"X-D2S-Source": "loader"}
+            )
+        frames = sorted(
+            {item["frame"] for item in (read_lidar_check(scene.root) or {}).get("overlays", [])}
+        )
+        hint = (
+            f"; ảnh chồng do loader tạo có ở khung {', '.join(map(str, frames))}" if frames else ""
+        )
+        raise HTTPException(status_code=400, detail=f"{error}{hint}") from None
+    return Response(
+        png, media_type="image/png", headers={"X-D2S-Points": str(points), "X-D2S-Source": "fast"}
+    )
 
 
 @router.get("/{scene_id}/splits")

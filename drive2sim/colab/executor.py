@@ -57,7 +57,8 @@ DEFAULT_GPU = "T4"
 REPO_ENV = "D2S_COLAB_REPO"  # đổi repo VM clone (mặc định remote origin)
 # Upload và download đi qua API nội dung của Jupyter, cả file trong một request (base64), nên cắt
 # file lớn thành phần 32 MiB. Giới hạn kích thước request của Colab chưa kiểm tra; 32 MiB là mức
-# an toàn chọn trước, chưa đo.
+# an toàn chọn trước, chưa đo. Download lỗi thì ColabClient đọc phần đó qua colab exec
+# (ColabClient.download).
 CHUNK_BYTES = 32 * 1024 * 1024
 TRANSFER_ATTEMPTS = 3
 LOG_TAIL_LINES = 40
@@ -537,6 +538,7 @@ def push_run(
         raise ColabError(f"GPU {gpu} không có trên Colab; chọn một trong {', '.join(GPUS)}")
     run_dir = workdir.find_run(run_id)
     record = files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
+    remote.require_main_codebase(record.approach.approach_id, "Colab")
     if record.status == "succeeded":
         raise ColabError(f"run {run_id} đã xong; không cần đẩy lại")
     if run_is_active(run_dir):

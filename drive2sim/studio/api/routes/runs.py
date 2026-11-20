@@ -13,7 +13,10 @@ File này chứa:
 - ``POST /api/runs/{run_id}/export``: chạy lại một stage export (như ``d2s export``).
 - ``GET /api/runs/{run_id}/events``, ``GET /api/events``: tiến độ qua Server-Sent Events.
 - ``GET /api/runs/{run_id}/log``: log của engine và phần cuối log của từng stage.
-- ``GET /api/runs/{run_id}/videos``: các video MP4 trong thư mục run, kèm đường dẫn để phát.
+- ``GET /api/runs/{run_id}/videos``: các video MP4 trong thư mục run, kèm đường dẫn để phát, đường
+  dẫn bản xem trước và cờ đã ghi xong.
+- ``GET /api/runs/{run_id}/videos/preview``: bản xem trước trình duyệt phát được của một video
+  (``drive2sim/studio/api/preview.py``).
 - ``GET /api/runs/{run_id}/video_sets``: video đánh giá gom theo bộ (test, full) và kênh (gốc,
   render, sai khác, độ sâu, lớp), kèm khung từng camera nếu có (``engine/videos.py``).
 - ``GET /api/runs/{run_id}/artifacts``: nơi lưu kết quả của từng stage và các file trong đó.
@@ -23,16 +26,17 @@ File này chứa:
 - ``GET /api/runs/{run_id}/render-check``: máy chạy Studio có render được run này bằng GPU không.
 """
 
+import re
 from pathlib import Path
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 
 from drive2sim.core import files
 from drive2sim.core.schema import Preview, RunRecord
-from drive2sim.engine import housekeeping
+from drive2sim.engine import housekeeping, remote
 from drive2sim.engine.approaches import load_approach
 from drive2sim.engine.artifacts import run_artifacts, train_curve
 from drive2sim.engine.densify_info import load_densify_info
@@ -56,6 +60,7 @@ from drive2sim.engine.videos import video_sets
 from drive2sim.engine.workdir import Workdir
 from drive2sim.kaggle import executor as kaggle_executor
 from drive2sim.stages.commands import CAMERAS_FILE
+from drive2sim.studio.api import preview, video_compare
 from drive2sim.studio.api.events import stream_events
 from drive2sim.studio.api.routes import colab, kaggle
 from drive2sim.studio.api.routes.approaches import PlanBody, plan_from_body
@@ -166,6 +171,8 @@ def start_run(body: CreateRunBody, request: Request) -> dict:
     scene, split, plan = plan_from_body(state, body.approach_id, body)
     if body.executor == "local":
         _require_local(request, plan.approach_id, [stage.stage_id for stage in plan.stages])
+    else:
+        remote.require_main_codebase(plan.approach_id, body.executor.capitalize())
     run_dir = create_run(plan, state.workdir, scene, split, executor=body.executor)
     if body.executor == "kaggle":
         kaggle.submit_push(state, run_dir.name)
@@ -393,7 +400,9 @@ def run_videos(run_id: str, request: Request) -> dict:
     """Liệt kê các video MP4 trong thư mục run.
 
     Returns:
-        ``{"items": [{"name", "stage_id", "url"}], "total": n}``; ``url`` phát qua ``/files/``.
+        ``{"items": [{"name", "stage_id", "url", "preview_url", "ready"}], "total": n}``; ``url``
+        là video gốc qua ``/files/``, ``preview_url`` là bản trình duyệt phát được, ``ready`` là
+        ``False`` khi video còn đang được ghi.
     """
     run_dir, _ = _load(request, run_id)
     workdir = state_of(request).workdir
@@ -408,6 +417,11 @@ def run_videos(run_id: str, request: Request) -> dict:
                 "name": path.relative_to(stages_dir / stage_id).as_posix(),
                 "stage_id": stage_id,
                 "url": f"/files/{workdir.relative(path)}",
+                "preview_url": (
+                    f"/api/runs/{run_id}/videos/preview?stage_id={stage_id}"
+                    f"&name={path.relative_to(stages_dir / stage_id).as_posix()}"
+                ),
+                "ready": preview.is_complete(path),
             }
         )
     return {"items": items, "total": len(items)}
@@ -426,6 +440,92 @@ def run_video_sets(run_id: str, request: Request) -> dict:
         run_dir / D2S_DIR / "stages", lambda path: f"/files/{workdir.relative(path)}"
     )
     return {"items": items, "total": len(items)}
+
+
+@router.get("/api/runs/{run_id}/videos/preview")
+def run_video_preview(run_id: str, stage_id: str, name: str, request: Request) -> FileResponse:
+    """Bản xem trước của một video: H.264 rộng tối đa 1920 điểm ảnh, tạo lần đầu rồi dùng lại.
+
+    Returns:
+        File MP4 để phát; ``404`` nếu không có video, ``409`` khi video đang được ghi hoặc
+        ffmpeg lỗi.
+    """
+    run_dir, _ = _load(request, run_id)
+    stage_dir = (run_dir / D2S_DIR / "stages" / stage_id).resolve()
+    source = (stage_dir / name).resolve()
+    stages_dir = (run_dir / D2S_DIR / "stages").resolve()
+    if stages_dir not in stage_dir.parents or stage_dir not in source.parents:
+        raise HTTPException(404, f"không có video {stage_id}/{name}")
+    if source.suffix.lower() != ".mp4" or not source.is_file():
+        raise HTTPException(404, f"không có video {stage_id}/{name}")
+    target = preview.preview_path(run_dir / D2S_DIR, stage_id, name)
+    try:
+        playable = preview.build_preview(source, target)
+    except preview.PreviewError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return FileResponse(playable, media_type="video/mp4")
+
+
+class CompareSide(BaseModel):
+    """Một bên của video ghép: video ``stage_id``/``name`` của run ``run_id``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str
+    stage_id: str
+    name: str
+
+
+class CompareVideosBody(BaseModel):
+    """Thân của ``POST /api/compare/videos``.
+
+    Attributes:
+        a: Bên trên (``vstack``) hoặc bên trái (``hstack``).
+        b: Bên còn lại.
+        layout: ``vstack`` trên dưới, ``hstack`` cạnh nhau.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    a: CompareSide
+    b: CompareSide
+    layout: Literal["vstack", "hstack"] = "vstack"
+
+
+@router.post("/api/compare/videos")
+def compare_videos(body: CompareVideosBody, request: Request) -> dict:
+    """Ghép video của hai run thành một file (``studio/api/video_compare.py``).
+
+    Returns:
+        ``{"url", "name", "layout"}``; ``404`` nếu không có video, ``409`` khi video đang ghi,
+        không có ffmpeg hoặc ffmpeg lỗi, ``400`` khi hai bên là một video.
+    """
+    workdir = state_of(request).workdir
+    sources = []
+    for side in (body.a, body.b):
+        run_dir, _ = _load(request, side.run_id)
+        try:
+            sources.append(
+                video_compare.video_path(run_dir / D2S_DIR / "stages", side.stage_id, side.name)
+            )
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from None
+    try:
+        name = video_compare.compare_video(
+            workdir.root, sources[0], body.a.run_id, sources[1], body.b.run_id, body.layout
+        )
+    except video_compare.CompareError as exc:
+        raise HTTPException(409, str(exc)) from None
+    return {"url": f"/api/compare/videos/{name}", "name": name, "layout": body.layout}
+
+
+@router.get("/api/compare/videos/{name}")
+def compare_video_file(name: str, request: Request) -> FileResponse:
+    """File video ghép đã tạo; ``404`` nếu tên sai dạng hoặc không có."""
+    path = state_of(request).workdir.root / video_compare.COMPARE_DIR / name
+    if not re.match(video_compare.FILE_PATTERN, name) or not path.is_file():
+        raise HTTPException(404, f"không có video ghép {name}")
+    return FileResponse(path, media_type="video/mp4", filename=name)
 
 
 @router.get("/api/runs/{run_id}/splats")

@@ -8,17 +8,22 @@ File này chứa:
 - ``POST /api/sources/ingest``: chọn chuỗi (lỗi chọn trả ``400`` ngay), rồi ingest nền; trả
   ``202`` kèm việc.
 - ``GET /api/jobs``, ``GET /api/jobs/{job_id}``: trạng thái các việc nền (ingest, Kaggle).
+- ``GET /api/sources/uploads``, ``POST /api/sources/uploads``,
+  ``POST /api/sources/uploads/{name}/chunk``, ``DELETE /api/sources/uploads/{name}``: tải dữ liệu
+  gốc từ máy người dùng lên ``uploads/<tên>/`` qua trình duyệt (``studio/api/uploads.py``).
 """
 
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
 from drive2sim.ingest.detect import SourceReport, inspect_source
 from drive2sim.ingest.dispatch import plan_ingest, run_ingest
 from drive2sim.ingest.reports import scene_reports
+from drive2sim.studio.api import uploads
 from drive2sim.studio.api.state import state_of
 
 router = APIRouter(tags=["sources"])
@@ -124,3 +129,81 @@ def get_job(job_id: str, request: Request) -> dict:
     if job is None:
         raise HTTPException(404, f"không có việc {job_id}")
     return job
+
+
+class UploadFile(BaseModel):
+    """Một file trong lần tải: đường dẫn tương đối trong thư mục người dùng chọn và kích thước.
+
+    Attributes:
+        path: Đường dẫn tương đối, dấu ``/``.
+        size: Số byte.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(min_length=1, max_length=1024)
+    size: int = Field(ge=0)
+
+
+class UploadPlanBody(BaseModel):
+    """Thân của ``POST /api/sources/uploads``.
+
+    Attributes:
+        name: Tên lần tải, thành thư mục ``uploads/<tên>/``.
+        files: Các file sẽ gửi.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(pattern=uploads.NAME_PATTERN)
+    files: list[UploadFile] = Field(min_length=1, max_length=50000)
+
+
+@router.get("/api/sources/uploads")
+def list_uploads(request: Request) -> dict:
+    """Các thư mục đã tải lên.
+
+    Returns:
+        ``{"items": [{"name", "path", "path_abs", "files", "size_bytes", "partial"}], "total"}``.
+    """
+    items = uploads.list_uploads(state_of(request).workdir)
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/api/sources/uploads")
+def plan_upload(body: UploadPlanBody, request: Request) -> dict:
+    """Lập kế hoạch tải: file đã có bỏ qua, file dở tải tiếp từ ``offset``.
+
+    Returns:
+        Kết quả ``uploads.plan_upload``; tên, đường dẫn sai hoặc hết chỗ trả ``400``.
+    """
+    files = [f.model_dump() for f in body.files]
+    return uploads.plan_upload(state_of(request).workdir, body.name, files)
+
+
+@router.post("/api/sources/uploads/{name}/chunk")
+async def upload_chunk(name: str, path: str, offset: int, total: int, request: Request) -> dict:
+    """Ghi một khối (thân là byte thô) vào file ``path`` của lần tải ``name``.
+
+    Returns:
+        ``{"path", "offset", "done"}``; khối không nối tiếp phần đã có trả ``409`` (trình duyệt
+        gọi lại ``POST /api/sources/uploads`` để biết vị trí rồi gửi tiếp).
+    """
+    data = await request.body()
+    workdir = state_of(request).workdir
+    try:
+        return await run_in_threadpool(
+            uploads.write_chunk, workdir, name, path, offset, total, data
+        )
+    except uploads.UploadOffsetError as error:
+        raise HTTPException(409, str(error)) from None
+
+
+@router.delete("/api/sources/uploads/{name}")
+def delete_upload(name: str, request: Request) -> dict:
+    """Xoá thư mục ``uploads/<tên>/``.
+
+    Returns:
+        ``{"removed": [...]}``.
+    """
+    return uploads.delete_upload(state_of(request).workdir, name)

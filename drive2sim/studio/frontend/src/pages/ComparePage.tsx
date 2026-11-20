@@ -8,9 +8,9 @@
 // - Biểu đồ: chất lượng theo thời gian train, VRAM, tốc độ render, số Gaussian (nối các run trên
 //   đường Pareto); PSNR theo vùng; phân rã thời gian dựng cảnh; đường cong train.
 // - Video của hai run đặt cạnh nhau, phát đồng bộ.
-import { ArrowDownWideNarrow, ArrowUpNarrowWide, ChevronDown, ChevronsUpDown, ChevronUp, Download, Pause, Play } from "lucide-react";
+import { ArrowDownWideNarrow, ArrowUpNarrowWide, ChevronDown, ChevronsUpDown, ChevronUp, Download, Film, Pause, Play } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, preferredVideo, seg, useApi } from "../api/client";
+import { ApiError, api, asApiError, playableUrl, post, preferredVideo, seg, useApi } from "../api/client";
 import type { List, Manifest, ReportRow, SceneDetail, Video } from "../api/types";
 import { GroupedBarChart, Legend, MultiLineChart, ScatterChart, seriesColor, StackedBarChart, type Point } from "../components/charts";
 import { Exportable } from "../components/figureExport";
@@ -548,6 +548,31 @@ function SideBySide({ rows }: { rows: ReportRow[] }) {
   const runIds = [left, right];
   const refs = useRef<(HTMLVideoElement | null)[]>([]);
   const [playing, setPlaying] = useState(false);
+  // Video đang hiện ở mỗi bên, để ghép đúng hai video đó thành một file.
+  const [chosen, setChosen] = useState<(Video | undefined)[]>([]);
+  const [layout, setLayout] = useState<"vstack" | "hstack">("vstack");
+  const [merged, setMerged] = useState<{ url: string; name: string } | null>(null);
+  const [merging, setMerging] = useState(false);
+  const [mergeError, setMergeError] = useState<ApiError | null>(null);
+  const merge = async () => {
+    const [a, b] = chosen;
+    if (!a || !b) return;
+    setMerging(true);
+    setMergeError(null);
+    try {
+      setMerged(
+        await post<{ url: string; name: string }>("/api/compare/videos", {
+          a: { run_id: left, stage_id: a.stage_id, name: a.name },
+          b: { run_id: right, stage_id: b.stage_id, name: b.name },
+          layout,
+        }),
+      );
+    } catch (err) {
+      setMergeError(asApiError(err));
+    } finally {
+      setMerging(false);
+    }
+  };
   const toggle = () => {
     const videos = refs.current.filter((v): v is HTMLVideoElement => Boolean(v));
     if (playing) videos.forEach((v) => v.pause());
@@ -580,23 +605,69 @@ function SideBySide({ rows }: { rows: ReportRow[] }) {
           {playing ? <Pause size={17} /> : <Play size={17} />}
           {t(playing ? "compare.side.pause" : "compare.side.play")}
         </button>
+        <span className="grow" />
+        <label className="field">
+          <span>
+            {t("compare.merge.layout")}
+            <InfoTip>{t("compare.merge.help")}</InfoTip>
+          </span>
+          <select value={layout} onChange={(e) => setLayout(e.target.value as "vstack" | "hstack")}>
+            <option value="vstack">{t("compare.merge.vstack")}</option>
+            <option value="hstack">{t("compare.merge.hstack")}</option>
+          </select>
+        </label>
+        <button className="btn" onClick={() => void merge()} disabled={merging || !chosen[0] || !chosen[1] || left === right}>
+          <Film size={17} />
+          {t(merging ? "compare.merge.working" : "compare.merge.start")}
+        </button>
       </div>
+      <ErrorBox error={mergeError} />
+      {merged && (
+        <figure className="stack" style={{ gap: 6 }}>
+          <video src={merged.url} controls muted preload="metadata" style={{ width: "100%" }} />
+          <figcaption className="small">
+            <a href={merged.url} download={merged.name}>
+              {t("compare.merge.download")}
+            </a>
+          </figcaption>
+        </figure>
+      )}
       <div className="videos">
         {runIds.map((runId, index) => (
-          <FirstVideo key={`${index}-${runId}`} runId={runId} register={(el) => (refs.current[index] = el)} />
+          <FirstVideo
+            key={`${index}-${runId}`}
+            runId={runId}
+            register={(el) => (refs.current[index] = el)}
+            onVideo={(video) =>
+              setChosen((list) => {
+                const next = [...list];
+                next[index] = video;
+                return next;
+              })
+            }
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function FirstVideo({ runId, register }: { runId: string; register: (el: HTMLVideoElement | null) => void }) {
+function FirstVideo({
+  runId,
+  register,
+  onVideo,
+}: {
+  runId: string;
+  register: (el: HTMLVideoElement | null) => void;
+  onVideo: (video: Video | undefined) => void;
+}) {
   const { t } = useI18n();
   const videos = useApi<List<Video>>(`/api/runs/${seg(runId)}/videos`);
   const video = preferredVideo(videos.data?.items ?? []);
+  useEffect(() => onVideo(video), [video?.stage_id, video?.name]);
   return (
     <figure>
-      {video ? <video ref={register} src={video.url} controls muted preload="metadata" /> : <p className="muted">{t("run.videos.none")}</p>}
+      {video ? <video ref={register} src={playableUrl(video)} controls muted preload="metadata" /> : <p className="muted">{t("run.videos.none")}</p>}
       <figcaption>{runId}</figcaption>
     </figure>
   );

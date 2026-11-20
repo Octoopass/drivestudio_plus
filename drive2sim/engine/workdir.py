@@ -91,6 +91,11 @@ class Workdir:
         """Trả về thư mục ``runs/`` chứa kết quả của mọi run."""
         return self.root / "runs"
 
+    @property
+    def uploads_dir(self) -> Path:
+        """Trả về thư mục ``uploads/`` chứa dữ liệu gốc tải lên qua trình duyệt (Studio)."""
+        return self.root / "uploads"
+
     def scene_dir(self, scene_id: str) -> Path:
         """Trả về thư mục ``data/<scene_id>/`` của một cảnh (có thể chưa tồn tại).
 

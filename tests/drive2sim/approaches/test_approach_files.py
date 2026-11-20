@@ -32,7 +32,12 @@ DRIVESTUDIO_FILES = [
 def test_approach_files_exist() -> None:
     assert "gsplat_3dgut" not in {path.stem for path in APPROACH_FILES}
     assert {path.stem for path in APPROACH_FILES} >= {"omnire", "streetgs"}
-    assert {path.stem for path in DRIVESTUDIO_FILES} == {"omnire", "streetgs"}
+    assert {path.stem for path in DRIVESTUDIO_FILES} == {
+        "omnire",
+        "streetgs",
+        "pvg",
+        "deformablegs",
+    }
 
 
 @pytest.mark.parametrize("path", APPROACH_FILES, ids=lambda path: path.stem)
@@ -66,8 +71,11 @@ def test_allowed_combinations_have_config(path: Path) -> None:
     method = train.params["method"]
     combinations = allowed_combinations(approach)
     assert combinations
+    defaults = {"renderer": "3dgs", "campose": False, "fastgs": False, "fastergs": False}
     for chosen in combinations:
-        key = (method, chosen["renderer"], chosen["campose"], chosen["fastgs"], chosen["fastergs"])
+        # approach không có lựa chọn nào (PVG, DeformableGS) ghi thẳng giá trị trong params
+        value = {k: chosen.get(k, train.params.get(k, default)) for k, default in defaults.items()}
+        key = (method, value["renderer"], value["campose"], value["fastgs"], value["fastergs"])
         assert key in CONFIG_FILES, f"{path.stem}: không có config cho {chosen}"
 
 
