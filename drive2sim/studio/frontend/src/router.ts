@@ -6,7 +6,16 @@ export type Route =
   | { page: "overview" }
   | { page: "scenes" }
   | { page: "scene"; sceneId: string }
-  | { page: "new"; sceneId?: string; splitId?: string }
+  | {
+      page: "new";
+      sceneId?: string;
+      splitId?: string;
+      // điền sẵn từ đề xuất của Trợ lý
+      approachId?: string;
+      preset?: string;
+      executor?: "local" | "kaggle" | "colab";
+      quick?: boolean;
+    }
   | { page: "runs"; sceneId?: string; status?: string }
   | { page: "run"; runId: string }
   | { page: "compare"; sceneId?: string; splitId?: string }
@@ -24,7 +33,15 @@ export function parseRoute(hash: string): Route {
     case "scenes":
       return parts[1] ? { page: "scene", sceneId: parts[1] } : { page: "scenes" };
     case "new":
-      return { page: "new", sceneId: get("scene"), splitId: get("split") };
+      return {
+        page: "new",
+        sceneId: get("scene"),
+        splitId: get("split"),
+        approachId: get("approach"),
+        preset: get("preset"),
+        executor: (["local", "kaggle", "colab"] as const).find((e) => e === get("executor")),
+        quick: get("quick") === "1" || undefined,
+      };
     case "runs":
       return parts[1] ? { page: "run", runId: parts[1] } : { page: "runs", sceneId: get("scene"), status: get("status") };
     case "compare":
@@ -53,7 +70,14 @@ export function href(route: Route): string {
     case "scene":
       return `#/scenes/${enc(route.sceneId)}`;
     case "new":
-      return withQuery("new", { scene: route.sceneId, split: route.splitId });
+      return withQuery("new", {
+        scene: route.sceneId,
+        split: route.splitId,
+        approach: route.approachId,
+        preset: route.preset,
+        executor: route.executor,
+        quick: route.quick ? "1" : undefined,
+      });
     case "runs":
       return withQuery("runs", { scene: route.sceneId, status: route.status });
     case "run":

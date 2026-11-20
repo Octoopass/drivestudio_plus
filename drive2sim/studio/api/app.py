@@ -47,6 +47,7 @@ from drive2sim.studio.api.remote_watch import RemoteWatcher
 from drive2sim.studio.api.reveal import RevealError, reveal
 from drive2sim.studio.api.routes import (
     approaches,
+    assistant,
     cache,
     colab,
     environment,
@@ -289,7 +290,19 @@ def create_app(
             )
         return await call_next(request)
 
-    for module in (sources, scenes, approaches, runs, report, cache, kaggle, colab, environment):
+    routers = (
+        sources,
+        scenes,
+        approaches,
+        runs,
+        report,
+        cache,
+        kaggle,
+        colab,
+        environment,
+        assistant,
+    )
+    for module in routers:
         app.include_router(module.router)
 
     class RevealBody(BaseModel):

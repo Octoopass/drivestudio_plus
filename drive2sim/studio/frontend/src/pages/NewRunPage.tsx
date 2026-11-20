@@ -19,19 +19,35 @@ const lensModel = (model: string) => (model === "ideal_pinhole" ? "opencv_pinhol
 
 const show = (value: OptionValue) => (typeof value === "boolean" ? (value ? "true" : "false") : String(value));
 
-export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { sceneId?: string; splitId?: string }) {
+export function NewRunPage({
+  sceneId: initialScene,
+  splitId: initialSplit,
+  approachId: initialApproach,
+  preset: initialPreset,
+  executor: initialExecutor,
+  quick: initialQuick,
+}: {
+  sceneId?: string;
+  splitId?: string;
+  approachId?: string;
+  preset?: string;
+  executor?: "local" | "kaggle" | "colab";
+  quick?: boolean;
+}) {
   const { t } = useI18n();
   const scenes = useApi<List<Manifest>>("/api/scenes");
   const approaches = useApi<List<Approach>>("/api/approaches");
   const [sceneId, setSceneId] = useState(initialScene ?? "");
   const scene = useApi<SceneDetail>(sceneId ? `/api/scenes/${seg(sceneId)}` : null);
   const [splitId, setSplitId] = useState(initialSplit ?? "");
-  const [approachId, setApproachId] = useState("");
+  const [approachId, setApproachId] = useState(initialApproach ?? "");
+  // preset đề xuất (Trợ lý): điền sau khi approach, cảnh và split đã nạp, sau bước về mặc định
+  const [pendingPreset, setPendingPreset] = useState(initialPreset);
   // Chỉ các mục cấu hình người dùng đã chọn khác đi; mục không có ở đây lấy giá trị mặc định của approach.
   // Preset không lưu riêng: bấm preset là điền các mục cấu hình, còn preset đang dùng được suy ra từ các mục cấu hình.
   const [options, setOptions] = useState<Record<string, OptionValue>>({});
-  const [executor, setExecutor] = useState<"local" | "kaggle" | "colab">("local");
-  const [quick, setQuick] = useState(false);
+  const [executor, setExecutor] = useState<"local" | "kaggle" | "colab">(initialExecutor ?? "local");
+  const [quick, setQuick] = useState(Boolean(initialQuick));
   const [kaggleStatus, setKaggleStatus] = useState<KaggleSetupStatus | null>(null);
   const [colabStatus, setColabStatus] = useState<ColabSetupStatus | null>(null);
   const [check, setCheck] = useState<CheckResult | null>(null);
@@ -71,6 +87,12 @@ export function NewRunPage({ sceneId: initialScene, splitId: initialSplit }: { s
     const name = Object.keys(approach.presets ?? {}).find((n) => !cameraReason(support.presets[n]));
     setOptions(name ? { ...((approach.presets ?? {})[name] as Record<string, OptionValue>) } : {});
   }, [approachId, scene.data, approaches.data, splitId]);
+  useEffect(() => {
+    if (!pendingPreset || !approach || !scene.data || !scene.data.splits.includes(splitId)) return;
+    const values = (approach.presets ?? {})[pendingPreset];
+    if (values) setOptions({ ...(values as Record<string, OptionValue>) });
+    setPendingPreset(undefined);
+  }, [pendingPreset, approach, scene.data, splitId]);
 
   // Kiểm tra lại mỗi khi lựa chọn đổi.
   useEffect(() => {
