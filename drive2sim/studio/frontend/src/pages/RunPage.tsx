@@ -4,9 +4,10 @@
 import { Box, Cloud, CloudDownload, CloudUpload, Download, Power, RefreshCw, RotateCcw, Square, Trash2, Zap, Trophy, Plus } from "lucide-react";
 import { useRef, useEffect, useMemo, useState } from "react";
 import { asApiError, del, playableUrl, post, seg, useApi } from "../api/client";
-import type { ColabStatus, EnvRecord, KaggleStatus, List, ReportRow, RunDetail, RunEvent, RunLog, Splats, Video } from "../api/types";
+import type { ColabStatus, KaggleStatus, List, ReportRow, RunDetail, RunEvent, RunLog, Splats, Video } from "../api/types";
 import { LineChart, type Point } from "../components/charts";
 import { RunArtifacts } from "../components/RunArtifacts";
+import { MachineInfo, machineText } from "../components/RunInfo";
 import { StageRoad } from "../components/StageRoad";
 import { ago, Confirm, count, duration, Empty, ErrorBox, fixed, InfoTip, Loading, Note, PageHead, Status, Tabs, useToast } from "../components/ui";
 import { ConfigText, paramsLabel, useApproaches } from "../components/ConfigText";
@@ -717,37 +718,5 @@ function Stat({ label, value, unit, hint, better }: { label: string; value: stri
         {unit && value !== "–" && <small>{unit}</small>}
       </div>
     </div>
-  );
-}
-
-/** GPU của các máy đã chạy run, ví dụ "Tesla T4 · 15 GB"; "–" khi run chưa chạy. */
-function machineText(env: EnvRecord | null, noGpu: string): string {
-  const machines = env?.machines ?? [];
-  if (!machines.length) return "–";
-  const names = [...new Set(machines.map((m) => (m.gpu ? `${(m.gpu_count ?? 0) > 1 ? `${m.gpu_count}× ` : ""}${m.gpu}` : noGpu)))];
-  return names.join(" + ");
-}
-
-/** Nội dung icon giải thích: cấu hình từng máy đã chạy run và phiên bản gói. */
-function MachineInfo({ env }: { env: EnvRecord }) {
-  const { t, locale } = useI18n();
-  const machines = env.machines ?? [];
-  return (
-    <span className="stack" style={{ gap: 10 }}>
-      {machines.length > 1 && <span>{t("run.machine.several", { count: machines.length })}</span>}
-      {machines.map((m, index) => (
-        <span key={index} className="machine">
-          {machines.length > 1 && <b>{t("run.machine.since", { when: ago(m.first_seen_utc ?? null, locale) })}</b>}
-          <span>GPU: {m.gpu ? `${(m.gpu_count ?? 0) > 1 ? `${m.gpu_count}× ` : ""}${m.gpu}${m.gpu_memory_mb ? `, ${(m.gpu_memory_mb / 1024).toFixed(0)} GB` : ""}` : t("run.facts.no_gpu")}</span>
-          {m.gpu_driver && <span>{t("run.machine.driver")}: {m.gpu_driver}</span>}
-          <span>CPU: {m.cpu ?? "–"}{m.cpu_cores ? `, ${t("run.machine.threads", { count: m.cpu_cores })}` : ""}</span>
-          <span>RAM: {m.ram_gb != null ? `${m.ram_gb} GB` : "–"}</span>
-          {m.os && <span>{t("run.machine.os")}: {m.os}</span>}
-        </span>
-      ))}
-      <span className="muted">
-        Python {env.python}, PyTorch {env.pytorch ?? "–"}, CUDA {env.cuda ?? "–"}, gsplat {env.gsplat ?? "–"}
-      </span>
-    </span>
   );
 }

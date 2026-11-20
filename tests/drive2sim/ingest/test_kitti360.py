@@ -21,7 +21,6 @@ import pytest
 
 from drive2sim.cli.main import main
 from drive2sim.core import files
-from drive2sim.core.camera import MEI_FIT_MAX_ANGLE
 from drive2sim.core.schema import Manifest, ValidationReport
 from drive2sim.engine.workdir import Workdir
 from drive2sim.ingest import kitti360
@@ -223,12 +222,10 @@ def test_ingest_writes_kitti_layout(tmp_path: Path, extracted: bool) -> None:
     ]
     assert manifest.track == "fisheye"  # có camera mắt cá
     # Converter khai báo giới hạn của phép khớp Mei → OpenCV fisheye cho đúng camera mắt cá.
-    assert [c.max_angle for c in manifest.cameras] == [
-        None,
-        None,
-        MEI_FIT_MAX_ANGLE,
-        MEI_FIT_MAX_ANGLE,
-    ]
+    # Converter tính giới hạn từ calib Mei của từng camera mắt cá (sai lệch 0,5 px).
+    limits = [c.max_angle for c in manifest.cameras]
+    assert limits[:2] == [None, None]
+    assert all(limit is not None and limit > 1.45 for limit in limits[2:])
     assert [list(c.resolution) for c in manifest.cameras][::2] == [[1408, 376], [1400, 1400]]
     assert manifest.lidars == ["velodyne"]
     assert manifest.available.lidar is True

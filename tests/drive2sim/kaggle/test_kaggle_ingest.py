@@ -314,8 +314,8 @@ def test_outdated_converter_uses_new_notebook_and_keeps_old_one(
     workdir = Workdir(tmp_path / "work")
     workdir.root.mkdir()
     old_kernel = f"alice/{REQUEST.kernel_name()}"
-    new_kernel = f"alice/{REQUEST.kernel_name(2)}"
-    assert new_kernel == old_kernel + "-c2"
+    new_kernel = f"alice/{REQUEST.kernel_name(manifest_module.KITTI360_OUTPUT_VERSION)}"
+    assert new_kernel == old_kernel + f"-c{manifest_module.KITTI360_OUTPUT_VERSION}"
 
     # Notebook cũ: ingest khi converter KITTI-360 còn ở phiên bản 1 (manifest chưa có trường).
     with monkeypatch.context() as patch:
@@ -326,7 +326,7 @@ def test_outdated_converter_uses_new_notebook_and_keeps_old_one(
     old_notebook = fake.kernels[old_kernel]
 
     # Converter đổi đầu ra: đẩy notebook mới, không đẩy lại notebook cũ (run cũ còn gắn output).
-    fake.manifest = kitti360_manifest(2)
+    fake.manifest = kitti360_manifest(manifest_module.KITTI360_OUTPUT_VERSION)
     messages: list[str] = []
     with pytest.raises(KaggleError, match="converter cũ.*d2s scene delete"):
         ingest.ingest_on_kaggle(
@@ -344,14 +344,17 @@ def test_outdated_converter_uses_new_notebook_and_keeps_old_one(
     shutil.rmtree(scene_dir)
     ingest.ingest_on_kaggle(workdir, REQUEST, client=fake, sleep=lambda s: None)
     assert fake.pushed == [old_kernel, new_kernel]
-    assert workdir.load_scene(SCENE).manifest.source.output_version == 2
+    assert (
+        workdir.load_scene(SCENE).manifest.source.output_version
+        == manifest_module.KITTI360_OUTPUT_VERSION
+    )
     assert [r.kernel for r in ingest.load_scene_refs(scene_dir)] == [new_kernel]
 
 
 def test_fresh_notebook_is_reused_without_suffix(tmp_path: Path, fake: FakeIngestKaggle) -> None:
     workdir = Workdir(tmp_path / "work")
     workdir.root.mkdir()
-    fake.manifest = kitti360_manifest(2)
+    fake.manifest = kitti360_manifest(manifest_module.KITTI360_OUTPUT_VERSION)
     ingest.ingest_on_kaggle(workdir, REQUEST, client=fake, sleep=lambda s: None)
     ingest.ingest_on_kaggle(workdir, REQUEST, client=fake, sleep=lambda s: None)
     assert fake.pushed == [f"alice/{REQUEST.kernel_name()}"]
@@ -363,7 +366,10 @@ def test_new_notebook_still_outdated_is_reported(tmp_path: Path, fake: FakeInges
     fake.manifest = kitti360_manifest(None)  # code đẩy lên chưa có converter mới
     with pytest.raises(KaggleError, match="vẫn ingest bằng converter cũ"):
         ingest.ingest_on_kaggle(workdir, REQUEST, client=fake, sleep=lambda s: None)
-    assert fake.pushed == [f"alice/{REQUEST.kernel_name()}", f"alice/{REQUEST.kernel_name(2)}"]
+    assert fake.pushed == [
+        f"alice/{REQUEST.kernel_name()}",
+        f"alice/{REQUEST.kernel_name(manifest_module.KITTI360_OUTPUT_VERSION)}",
+    ]
 
 
 def test_fetch_scene_files_backfills_pose_for_old_ingest(

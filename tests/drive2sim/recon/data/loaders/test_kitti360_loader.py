@@ -5,7 +5,7 @@ fisheye, hai khung, pose đơn vị) rồi kiểm tra:
 - mô hình ``fisheye`` và ``radial_coeffs`` tới được ``cam_infos``, intrinsics được nhân theo kích
   thước nạp, còn hệ số méo không đổi;
 - pixel ở điểm chính cho tia trùng trục quang, pixel lệch trục có góc tia đúng như
-  ``cv2.fisheye`` tính; pixel có góc lệch quá ``MEI_FIT_MAX_ANGLE`` bị loại khỏi loss;
+  ``cv2.fisheye`` tính; pixel có góc lệch quá giới hạn của camera bị loại khỏi loss;
 - phép chiếu điểm world theo mô hình fisheye;
 - camera pinhole đi đúng đường cũ (tia pinhole của ``CameraData.get_image``);
 - ảnh ghép nhiều camera của KITTI-360.
@@ -84,12 +84,16 @@ def make_scene(root: Path) -> Path:
 
 
 def make_source(
-    scene: Path, undistort: bool = False, fisheye_max_angle: Optional[float] = None
+    scene: Path,
+    undistort: bool = False,
+    fisheye_max_angle: Optional[float] = None,
+    renderer_max_angle: Optional[float] = None,
 ) -> KITTI360PixelSource:
     """Nạp nguồn ảnh của cảnh giả trên CPU: camera pinhole nạp nguyên, fisheye nạp một nửa."""
     config = OmegaConf.create(
         {
             "fisheye_max_angle": fisheye_max_angle,
+            "fisheye_renderer_max_angle": renderer_max_angle,
             "cameras": [0, 1],
             "downscale_when_loading": [1, 2],
             "downscale": 1,
@@ -155,13 +159,13 @@ def test_pixels_beyond_fit_angle_are_excluded_from_loss(source: KITTI360PixelSou
 
 
 def test_fisheye_max_angle_from_config_overrides_default(tmp_path: Path) -> None:
-    # Run thử nới vùng che (data.pixel_source.fisheye_max_angle) dùng được nhiều pixel hơn.
+    # Tham số thử nghiệm (data.pixel_source.fisheye_max_angle) đổi được ngưỡng che mặc định.
     scene = make_scene(tmp_path)
-    narrow = make_source(scene).camera_data[1].get_image(0)[0]["valid_masks"]
-    wide = make_source(scene, fisheye_max_angle=1.55).camera_data[1].get_image(0)[0]
-    angle = torch.acos(wide["viewdirs"][..., 2].clamp(-1, 1))
-    assert int(wide["valid_masks"].sum()) > int(narrow.sum())
-    assert bool((angle[wide["valid_masks"]] <= 1.55 + 1e-6).all())
+    default = make_source(scene).camera_data[1].get_image(0)[0]["valid_masks"]
+    narrow = make_source(scene, fisheye_max_angle=1.2).camera_data[1].get_image(0)[0]
+    angle = torch.acos(narrow["viewdirs"][..., 2].clamp(-1, 1))
+    assert int(narrow["valid_masks"].sum()) < int(default.sum())
+    assert bool((angle[narrow["valid_masks"]] <= 1.2 + 1e-6).all())
 
 
 def test_fisheye_max_angle_from_manifest(tmp_path: Path) -> None:
@@ -172,6 +176,56 @@ def test_fisheye_max_angle_from_manifest(tmp_path: Path) -> None:
     image = make_source(scene).camera_data[1].get_image(0)[0]
     angle = torch.acos(image["viewdirs"][..., 2].clamp(-1, 1))
     assert bool((angle[image["valid_masks"]] <= 1.2 + 1e-6).all())
+
+
+def test_mask_angle_is_smaller_of_lens_and_renderer_limits(tmp_path: Path) -> None:
+    scene = make_scene(tmp_path)
+    manifest = yaml.safe_load((scene / "manifest.yaml").read_text())
+    manifest["cameras"][1]["max_angle"] = 1.3
+    (scene / "manifest.yaml").write_text(yaml.safe_dump(manifest))
+    lens_only = make_source(scene).camera_data[1]
+    assert lens_only.max_angle == 1.3  # 3DGEER: chỉ giới hạn của ống kính, ảnh
+    tighter = make_source(scene, renderer_max_angle=1.2).camera_data[1]
+    assert tighter.max_angle == 1.2  # 3DGUT nhỏ hơn: dùng giới hạn renderer
+    looser = make_source(scene, renderer_max_angle=1.5).camera_data[1]
+    assert looser.max_angle == 1.3
+    forced = make_source(scene, fisheye_max_angle=1.4, renderer_max_angle=1.2).camera_data[1]
+    assert forced.max_angle == 1.4  # tham số thử nghiệm đè lên cả hai
+
+
+def test_scene_without_manifest_limit_keeps_old_limit(tmp_path: Path) -> None:
+    # Cảnh ingest trước khi manifest có max_angle (kitti360_drive0003): không có calib Mei để tính,
+    # giữ giới hạn cũ 1,45 rad cho an toàn.
+    source = make_source(make_scene(tmp_path))
+    assert source.camera_data[1].max_angle == MEI_FIT_MAX_ANGLE
+
+
+def test_dark_border_outside_lens_circle_is_masked(tmp_path: Path) -> None:
+    # Ảnh đen ngoài hình tròn bán kính 13 px quanh điểm chính (ảnh gốc 40x40), ở mọi khung, như
+    # vùng ống kính không chiếu tới; trong hình tròn có một chấm tối (cảnh tối thật) phải giữ.
+    scene = make_scene(tmp_path)
+    v, u = np.mgrid[0:40, 0:40]
+    outside = np.hypot(u + 0.5 - 21.0, v + 0.5 - 21.0) > 13
+    for path in (scene / "images").glob("*_1.png"):
+        image = np.asarray(Image.open(path).convert("RGB")).copy()
+        image[outside] = 0
+        image[20:22, 20:22] = 0
+        Image.fromarray(image).save(path)
+    camera = make_source(scene, fisheye_max_angle=3.0).camera_data[1]
+    assert camera.dark_angle is not None and camera.dark_angle < 3.0
+    assert camera.max_angle == camera.dark_angle
+    image = camera.get_image(0)[0]
+    valid, rgb = image["valid_masks"], image["pixels"]
+    dark = rgb.mean(-1) < 0.05
+    assert bool(valid[10, 10])  # chấm tối ở giữa vẫn được dùng
+    # mọi pixel còn hợp lệ ngoài chấm giữa đều sáng: vùng đen ngoài vòng đã bị che
+    border = torch.ones_like(valid)
+    border[9:12, 9:12] = False
+    assert not bool((valid & dark & border).any())
+
+
+def test_uniform_images_have_no_dark_border(source: KITTI360PixelSource) -> None:
+    assert source.camera_data[1].dark_angle == math.pi
 
 
 def test_fisheye_project_points(source: KITTI360PixelSource) -> None:
@@ -389,3 +443,57 @@ def test_vehicle_mask_survives_reversed_camera_order(tmp_path: Path) -> None:
         expected = np.array(mask.resize((40, 40), Image.Resampling.NEAREST)) > 0
     assert torch.equal(camera.egocar_mask.bool(), torch.from_numpy(expected))
     assert source.camera_data[1].egocar_mask is None
+
+
+def test_pixel_sources_do_not_share_cameras(tmp_path: Path) -> None:
+    first = make_source(make_scene(tmp_path / "a"))
+    second = make_source(make_scene(tmp_path / "b"))
+    assert first.camera_data is not second.camera_data
+    assert first.camera_data[1] is not second.camera_data[1]
+
+
+def test_lidar_points_follow_the_camera_mask_angle() -> None:
+    """Điểm LiDAR được chiếu tới đúng ngưỡng che ``max_angle`` của camera.
+
+    Không truyền ``max_angle`` thì giữ giới hạn 90 độ cũ.
+    """
+    from drive2sim.recon.utils.geometry import project_world_camera
+
+    K = torch.tensor([[400.0, 0, 700], [0, 400.0, 700], [0, 0, 1]])
+    angles = torch.tensor([math.radians(a) for a in (80, 87, 89)])
+    points = torch.stack((4 * angles.sin(), torch.zeros(3), 4 * angles.cos()), -1)
+    pose = torch.eye(4)
+    args = (points, pose, pose, K, 1400, 1400, "fisheye", FISHEYE_COEFFS_02)
+    _, depth, valid = project_world_camera(*args, max_angle=math.radians(88))
+    assert valid.tolist() == [True, True, False]
+    assert torch.allclose(depth, points[:, 2])
+    assert project_world_camera(*args)[2].tolist() == [True, True, True]
+
+
+def test_lidar_points_behind_the_lens_fold_are_rejected(source: KITTI360PixelSource) -> None:
+    """Điểm LiDAR phía sau, quá đỉnh của đa thức ống kính, bị loại.
+
+    Sau đỉnh, bán kính giảm lại: điểm phía sau rơi đúng vào pixel của một điểm trong vùng dùng
+    được, nên phải loại theo góc, không theo pixel.
+    """
+    camera = source.camera_data[1]
+    k = FISHEYE_COEFFS_02
+    theta = torch.linspace(0, math.pi, 100001, dtype=torch.float64)
+    radius = theta * (1 + sum(c * theta ** (2 * i + 2) for i, c in enumerate(k)))
+    peak = int(radius.argmax())
+    edge = float(radius[theta <= camera.max_angle].max())
+    behind = float(theta[peak:][(radius[peak:] - edge * 0.98).abs().argmin()])
+    assert behind > math.pi / 2
+    point = torch.tensor([[5 * math.sin(behind), 0.0, 5 * math.cos(behind)]])
+    pixels, _, valid = camera.project_points(point, 0)
+    inside = 0 <= pixels[0, 0] < camera.WIDTH and 0 <= pixels[0, 1] < camera.HEIGHT
+    assert inside
+    assert valid.tolist() == [False]
+
+
+def test_depth_map_keeps_nearest_point_per_pixel() -> None:
+    from drive2sim.recon.utils.geometry import nearest_depth_map
+
+    pixels = torch.tensor([[1.2, 0.5], [1.7, 0.1], [0.0, 1.0]])
+    depth_map = nearest_depth_map(pixels, torch.tensor([9.0, 3.0, 5.0]), 2, 3)
+    assert depth_map.tolist() == [[0.0, 3.0, 0.0], [5.0, 0.0, 0.0]]

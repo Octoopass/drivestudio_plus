@@ -709,6 +709,9 @@ class ScenePixelSource(abc.ABC):
         self.dataset_name = dataset_name
         self.data_cfg = pixel_data_config
         self.device = device
+        # Dict riêng cho mỗi nguồn ảnh: thuộc tính lớp ``camera_data = {}`` bị mọi nguồn ảnh trong
+        # cùng tiến trình dùng chung, nguồn nạp sau ghi đè camera của nguồn trước.
+        self.camera_data = {}
         self._downscale_factor = 1 / pixel_data_config.downscale
         self._old_downscale_factor = []
 

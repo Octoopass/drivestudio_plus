@@ -62,6 +62,10 @@ REPO_ENV = "D2S_COLAB_REPO"  # đổi repo VM clone (mặc định remote origin
 CHUNK_BYTES = 32 * 1024 * 1024
 TRANSFER_ATTEMPTS = 3
 LOG_TAIL_LINES = 40
+# Job còn chạy mà log không thêm dòng nào quá lâu thì báo là có thể đang kẹt (ví dụ build kẹt nhiều
+# giờ trên VM thiếu RAM). envs/install_main.sh in một dòng tiến độ mỗi phút khi build, nên 30 phút
+# không đổi là bất thường.
+STALL_AFTER_S = 30 * 60
 
 
 @dataclass
@@ -276,8 +280,10 @@ if exit_code is None or more:
 lines = data.decode("utf-8", "replace").splitlines()
 if cfg["offset"] < 0:
     lines = lines[-cfg["tail"]:]
+log_age = time.time() - log.stat().st_mtime if log.exists() else None
 print("@@STATE " + json.dumps({"known": pid_file.exists(), "alive": alive(pid_file),
-                               "exit_code": exit_code, "offset": offset + len(data)}))
+                               "exit_code": exit_code, "offset": offset + len(data),
+                               "log_age_s": log_age}))
 for line in lines:
     print("@@L " + line)
 """
@@ -326,7 +332,7 @@ print("@@OK")
 def _snippet(body: str, config: dict) -> str:
     """Ghép một đoạn mã chạy trên VM: import, ``cfg`` (JSON nhúng sẵn), hàm chung, rồi thân."""
     header = (
-        "import hashlib, json, os, pathlib, shlex, shutil, subprocess, tarfile\n"
+        "import hashlib, json, os, pathlib, shlex, shutil, subprocess, tarfile, time\n"
         f"cfg = json.loads({json.dumps(config)!r})\n"
     )
     return header + _ALIVE + body
@@ -686,7 +692,9 @@ def job_state(workdir: Workdir, run_id: str, client: Optional[ColabClient] = Non
         Nội dung ``colab.json`` cộng ``status`` (``running``, ``succeeded``, ``failed``, ``died``,
         ``lost``, ``stopped`` khi phiên đã tắt sau khi tải về, hoặc ``None`` khi không hỏi
         được), ``exit_code``, ``log_tail`` (tối đa
-        ``LOG_TAIL_LINES`` dòng) và ``status_error`` (lý do không hỏi được, hoặc ``None``).
+        ``LOG_TAIL_LINES`` dòng), ``status_error`` (lý do không hỏi được, hoặc ``None``); khi hỏi
+        được thêm ``log_age_s`` (giây từ lần log đổi gần nhất) và ``stalled`` (job còn chạy mà log
+        đứng yên quá ``STALL_AFTER_S``).
 
     Raises:
         ColabError: Nếu run chưa đẩy lên Colab.
@@ -715,7 +723,14 @@ def job_state(workdir: Workdir, run_id: str, client: Optional[ColabClient] = Non
     if status == "missing":
         _mark_lost(run_dir, state)
         return answer("lost", _lost_message(state, run_id))
-    return answer(status, exit_code=info["exit_code"], log_tail=lines)
+    stalled = status == "running" and (info.get("log_age_s") or 0) > STALL_AFTER_S
+    return answer(
+        status,
+        exit_code=info["exit_code"],
+        log_tail=lines,
+        log_age_s=info.get("log_age_s"),
+        stalled=stalled,
+    )
 
 
 def follow_log(

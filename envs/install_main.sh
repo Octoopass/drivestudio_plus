@@ -76,6 +76,40 @@ ensure_cuda() {
 # commit, hoặc commit của thư mục mã nguồn), bản PyTorch, kiến trúc GPU và bản Python.
 # pip giấu output của bước build ("No available output"), nên ghi đủ log ra file và in phần cuối khi
 # lỗi.
+# Chạy một lệnh build, output vào file log; mỗi BUILD_HEARTBEAT_S giây in một dòng tiến độ (thời gian,
+# RAM còn trống, dòng cuối của log), quá BUILD_TIMEOUT_S thì dừng và trả lỗi. Không có hai việc này
+# thì một build nghẽn (VM Colab 2 CPU, 12 GB, không swap) treo nhiều giờ mà log ngoài không đổi dòng
+# nào (đã gặp: pytorch3d kẹt 7 giờ, 20/11/2026).
+BUILD_TIMEOUT_S="${D2S_BUILD_TIMEOUT_S:-5400}"
+BUILD_HEARTBEAT_S="${D2S_BUILD_HEARTBEAT_S:-60}"
+run_logged() {
+  local log="$1"; shift
+  "$@" >>"$log" 2>&1 &
+  local pid=$! start=$SECONDS last
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 5
+    if (( SECONDS - start >= BUILD_TIMEOUT_S )); then
+      echo "build quá ${BUILD_TIMEOUT_S} giây, dừng"
+      pkill -TERM -P "$pid" 2>/dev/null || true
+      kill -TERM "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      return 124
+    fi
+    if (( (SECONDS - start) % BUILD_HEARTBEAT_S < 5 && SECONDS - start >= 5 )); then
+      last="$(tail -n 1 "$log" 2>/dev/null | cut -c1-120)"
+      echo "  ... $(( (SECONDS - start) / 60 )) phút, RAM trống $(awk '/MemAvailable/ {printf "%.1f", $2/1048576}' /proc/meminfo) GB: $last"
+    fi
+  done
+  wait "$pid"
+}
+
+# Số tiến trình biên dịch song song (ninja của torch.utils.cpp_extension đọc MAX_JOBS): mỗi nvcc của
+# pytorch3d, gsplat cần vài GB, nên lấy theo RAM (khoảng 5 GB mỗi tiến trình), không quá số CPU.
+if [ -z "${MAX_JOBS:-}" ]; then
+  MAX_JOBS="$(awk -v cpus="$(nproc)" '/MemAvailable/ {jobs = int($2 / 1048576 / 5); if (jobs < 1) jobs = 1; if (jobs > cpus) jobs = cpus; print jobs}' /proc/meminfo)"
+  export MAX_JOBS
+fi
+
 build() {
   local spec="$1" log key found dir
   local ident="$spec"
@@ -102,7 +136,8 @@ build() {
   if [ -n "${D2S_WHEEL_CACHE:-}" ]; then
     # Build thành wheel (không kèm phụ thuộc) rồi cài wheel đó, để lưu được cho lần sau.
     mkdir -p "$D2S_WHEEL_CACHE/$key"
-    if ! "$PY" -m pip wheel -v --no-deps -w "$D2S_WHEEL_CACHE/$key" "$@" >"$log" 2>&1 \
+    echo "build $spec (MAX_JOBS=$MAX_JOBS)"
+    if ! run_logged "$log" "$PY" -m pip wheel -v --no-deps -w "$D2S_WHEEL_CACHE/$key" "$@" \
       || ! "$PY" -m pip install "$D2S_WHEEL_CACHE/$key"/*.whl >>"$log" 2>&1; then
       echo "build lỗi: pip wheel $*; 80 dòng cuối của $log:"
       tail -n 80 "$log"
@@ -111,7 +146,8 @@ build() {
     fi
     return 0
   fi
-  if ! "$PY" -m pip install -v "$@" >"$log" 2>&1; then
+  echo "build $spec (MAX_JOBS=$MAX_JOBS)"
+  if ! run_logged "$log" "$PY" -m pip install -v "$@"; then
     echo "build lỗi: pip install $*; 80 dòng cuối của $log:"
     tail -n 80 "$log"
     return 1

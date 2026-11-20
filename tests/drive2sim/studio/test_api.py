@@ -231,7 +231,7 @@ def test_scene_ingested_with_outdated_converter(client: TestClient, tmp_path: Pa
     files.dump(Manifest.model_validate(data), path)
     assert client.get(f"/api/scenes/{SCENE}").json()["converter_outdated"] == {
         "output_version": 1,
-        "current_output_version": 2,
+        "current_output_version": 3,
     }
     checks = client.post(f"/api/scenes/{SCENE}/validate").json()["checks"]
     assert "converter.outdated" in [check["check_id"] for check in checks]

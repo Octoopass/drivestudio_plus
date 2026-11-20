@@ -680,9 +680,7 @@
   "viewer.launch.file_title": "Or open a splat file from this computer",
   "viewer.launch.open_file": "Open file",
   "viewer.launch.back": "Choose another source",
-  "viewer.panel.title": "Controls",
-  "viewer.panel.collapse": "Collapse controls",
-  "viewer.panel.expand": "Show controls",
+  "viewer.panel.collapse": "Collapse",
   "viewer.hud.fullscreen": "Full screen",
   "viewer.hud.exit_fullscreen": "Exit full screen",
   "viewer.hud.preparing": "Loading run details…",
@@ -828,5 +826,14 @@
   "densify.source": "Read from the train stage's config.yaml (command-line overrides included).",
   "viewer.field.fov": "Focal length",
   "viewer.field.fov_hint": "Focal length of the browser's pinhole camera (experimental), in pixels of the selected camera's training image size (the unit of K in cameras.json; KITTI-360 image_02: 700×700, source focal length 208 px), with the matching vertical field of view: f = (height / 2) / tan(angle / 2). A long focal length is a narrow view (zoomed in), a short one a wide view. With \"Use the source camera's focal length\" checked, the browser uses the selected camera's focal length and principal point (K), as before the slider existed: a pinhole camera then matches the source image and the video, while a fisheye camera (KITTI-360 image_02, image_03) gives about 119° with stretched edges, because the browser can only draw pinhole. Uncheck it or drag the slider for a pinhole camera with your own focal length, centred principal point, same position and direction. The range is the same for every camera: 10° to 170° vertical field of view. The exact image overlay uses the same focal length.",
-  "viewer.fov.native": "Use the source camera's focal length"
+  "viewer.fov.native": "Use the source camera's focal length",
+  "viewer.panel.controls": "Controls",
+  "viewer.panel.info": "Info",
+  "viewer.panel.rail": "Side bar",
+  "viewer.info.config": "Configuration",
+  "viewer.info.results": "Measurements",
+  "viewer.info.open_run": "Open run page",
+  "viewer.hud.fps": "{fps} FPS",
+  "viewer.hud.fps_idle": "FPS: idle",
+  "viewer.hud.fps_hint": "Frames the browser drew in the last second. The viewer only redraws when the view changes (camera moves, playback), so there is no FPS while idle."
 }

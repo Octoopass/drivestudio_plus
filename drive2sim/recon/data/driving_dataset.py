@@ -14,7 +14,7 @@ from drive2sim.recon.data.base.scene_dataset import ModelType
 from drive2sim.recon.data.base.scene_dataset import SceneDataset
 from drive2sim.recon.data.base.split_wrapper import SplitWrapper
 from drive2sim.recon.utils.visualization import get_layout
-from drive2sim.recon.utils.geometry import transform_points
+from drive2sim.recon.utils.geometry import nearest_depth_map, transform_points
 from drive2sim.recon.utils.camera import get_interp_novel_trajectories
 from drive2sim.recon.utils.misc import export_points_to_ply, import_str
 
@@ -705,12 +705,9 @@ class DrivingDataset(SceneDataset):
                     )  # (num_pts, )
                 depth = depth[valid_mask]
                 _cam_points = cam_points[valid_mask]
-                depth_map = torch.zeros(
-                    cam.HEIGHT, cam.WIDTH
+                depth_map = nearest_depth_map(
+                    _cam_points, depth.squeeze(-1), cam.HEIGHT, cam.WIDTH
                 ).to(self.device)
-                depth_map[
-                    _cam_points[:, 1].long(), _cam_points[:, 0].long()
-                ] = depth.squeeze(-1)
                 lidar_depth_maps.append(depth_map)
                 
                 # used to filter out the lidar points that are visible from the camera

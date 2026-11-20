@@ -119,6 +119,12 @@ def status(args: argparse.Namespace) -> int:
     lines = [f"{data['job']} trên phiên {data['session']}: {data['status'] or 'không rõ'}"]
     if data["status_error"]:
         lines.append(data["status_error"])
+    if data.get("stalled"):
+        minutes = int(data["log_age_s"] // 60)
+        lines.append(
+            f"cảnh báo: log không đổi {minutes} phút, job có thể đang kẹt; xem log, nếu kẹt thì "
+            f"d2s colab stop {args.run_id} rồi đẩy lại"
+        )
     lines.extend(data["log_tail"])
     emit(args, data, "\n".join(lines))
     return 0

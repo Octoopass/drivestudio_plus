@@ -277,7 +277,7 @@ def test_validate_warns_about_outdated_converter(tmp_path: Path) -> None:
     report = validate_scene(scene_dir, Manifest.model_validate(data))
     check = next(c for c in report.checks if c.check_id == "converter.outdated")
     assert check.severity == "warning" and "converter kitti360 cũ" in check.message
-    assert check.details == {"output_version": 1, "current_output_version": 2}
+    assert check.details == {"output_version": 1, "current_output_version": 3}
     assert report.summary.errors == 0 and report.summary.warnings == 1
 
 

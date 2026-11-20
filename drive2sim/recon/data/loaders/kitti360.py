@@ -15,9 +15,10 @@ CONTRACTS mục 2). Khác KITTI gốc ở ba chỗ, nên loader này kế thừa
 - Camera mắt cá được giữ nguyên ảnh gốc: tia của từng pixel tính bằng ``camera_model_rays`` với
   mô hình ``fisheye`` và ``radial_coeffs``, ``cam_infos`` mang ``camera_model``,
   ``radial_coeffs`` để trainer (``drive2sim/recon/trainers/base.py``) gọi renderer UT hoặc GEER.
-  Pixel có tia lệch trục quá ``MEI_FIT_MAX_ANGLE`` (``drive2sim/core/camera.py``, giới hạn của
-  phép khớp Mei sang OpenCV fisheye) bị đánh dấu không hợp lệ (``egocar_masks``,
-  ``valid_masks``), nên không góp vào loss, giống mask ``invalid_masks`` của PhysicalAI.
+  Pixel có tia lệch trục quá ``max_angle`` của camera (góc nhỏ hơn giữa vùng ảnh còn nội dung,
+  mô hình ống kính còn đúng, ``cameras[].max_angle`` của manifest, và giới hạn của renderer:
+  3DGUT 88 độ) và pixel thân xe bị đánh dấu không hợp lệ (``egocar_masks``, ``valid_masks``), nên
+  không góp vào loss, giống mask ``invalid_masks`` của PhysicalAI.
 
 File này chứa:
 - ``KITTI360CameraData``: một camera KITTI-360 (pinhole hoặc fisheye).
@@ -31,6 +32,7 @@ Quy ước pixel: giống loader KITTI, ``cx``, ``cy`` trong file
 intrinsics được dùng nguyên (không cộng 0,5); tâm pixel ``i`` nằm ở toạ độ ``i + 0.5``.
 """
 
+import math
 import os
 from pathlib import Path
 
@@ -46,7 +48,11 @@ from drive2sim.core.camera import MEI_FIT_MAX_ANGLE
 from drive2sim.core.files import load
 from drive2sim.core.schema import Manifest
 from drive2sim.recon.data.loaders.kitti import KITTICameraData, KITTIPixelSource
-from drive2sim.recon.utils.geometry import camera_model_rays, project_world_camera
+from drive2sim.recon.utils.geometry import (
+    camera_model_rays,
+    dark_border_angle,
+    project_world_camera,
+)
 
 MANIFEST_FILE = "manifest.yaml"
 # Mô hình camera trong manifest → mô hình camera trainer DriveStudio nhận (recon/trainers/base.py).
@@ -68,12 +74,20 @@ class KITTI360CameraData(KITTICameraData):
             thu nhỏ ảnh), dạng tensor ``(4,)``; ``None`` với camera pinhole.
     """
 
-    def __init__(self, fisheye_max_angle: Optional[float] = None, **kwargs: object) -> None:
+    def __init__(
+        self,
+        fisheye_max_angle: Optional[float] = None,
+        fisheye_renderer_max_angle: Optional[float] = None,
+        **kwargs: object,
+    ) -> None:
         """Đọc mô hình và độ phân giải của camera từ manifest rồi nạp dữ liệu như KITTI.
 
         Args:
-            fisheye_max_angle: Góc lệch trục lớn nhất (rad) của pixel được dùng, đè lên giá trị
-                của manifest (``data.pixel_source.fisheye_max_angle``, để thử ngưỡng khác).
+            fisheye_max_angle: Góc lệch trục lớn nhất (rad) của pixel được dùng, thay cho giới
+                hạn của mô hình ống kính và của renderer (``data.pixel_source.fisheye_max_angle``,
+                để thử ngưỡng khác); vùng đen dò từ ảnh vẫn bị che.
+            fisheye_renderer_max_angle: Giới hạn của renderer (``data.pixel_source.
+                fisheye_renderer_max_angle``, stage train đặt cho 3DGUT); ``None`` là không có.
             **kwargs: Tham số của ``CameraData`` (``data_path``, ``cam_id``, ...); ``cam_id`` là
                 chỉ số camera trong cảnh, cũng là vị trí của camera trong ``manifest.cameras``.
 
@@ -90,15 +104,17 @@ class KITTI360CameraData(KITTICameraData):
             raise ValueError(f"{camera.camera_id}: loader KITTI-360 không đọc được {camera.model}")
         self.camera_model = TRAINER_CAMERA_MODELS[camera.model]
         self.radial_coeffs = None
-        # Ngưỡng che theo góc: config của run, rồi max_angle converter khai báo trong manifest,
-        # rồi giới hạn khớp Mei của KITTI-360 (cảnh ingest trước khi manifest có trường này).
-        self.max_angle = float(
-            fisheye_max_angle
-            if fisheye_max_angle is not None
-            else camera.max_angle
-            if camera.max_angle is not None
-            else MEI_FIT_MAX_ANGLE
-        )
+        # Ngưỡng che theo góc = nhỏ nhất của: góc mô hình ống kính còn đúng (cameras[].max_angle,
+        # converter tính từ calib của từng camera; cảnh ingest trước khi manifest có trường này
+        # dùng miền khớp MEI_FIT_MAX_ANGLE), giới hạn của renderer, và góc bắt đầu vùng đen dò từ
+        # ảnh (sau khi nạp ảnh, bên dưới). Tham số thử nghiệm thay hai giới hạn đầu.
+        lens_limit = camera.max_angle if camera.max_angle is not None else MEI_FIT_MAX_ANGLE
+        if fisheye_max_angle is not None:
+            self.max_angle = float(fisheye_max_angle)
+        elif fisheye_renderer_max_angle is not None:
+            self.max_angle = float(min(lens_limit, fisheye_renderer_max_angle))
+        else:
+            self.max_angle = float(lens_limit)
         self._ray_cache = {}
         width, height = camera.resolution
         # CameraData đọc camera_metadata thay cho DATASETS_CONFIG; original_size là (cao, rộng).
@@ -108,6 +124,20 @@ class KITTI360CameraData(KITTICameraData):
             "egocar_visible": camera.camera_id in ("image_02", "image_03"),
         }
         super().__init__(**kwargs)
+        self.dark_angle = None
+        if self.camera_model == "fisheye" and self.images is not None:
+            rays, valid = camera_model_rays(
+                self.HEIGHT,
+                self.WIDTH,
+                self.intrinsics[0],
+                "fisheye",
+                self.radial_coeffs,
+                fisheye_max_angle=math.pi,
+            )
+            theta = torch.acos(rays[..., 2].clamp(-1, 1))
+            self.dark_angle = dark_border_angle(self.images, theta, valid)
+            self.max_angle = min(self.max_angle, self.dark_angle)
+            self._ray_cache.clear()
 
     def load_egocar_mask(self) -> None:
         """Nạp mask thân xe cố định theo tên camera trong manifest.
@@ -188,8 +218,8 @@ class KITTI360CameraData(KITTICameraData):
         """Tính tia đơn vị trong hệ camera của mọi pixel fisheye và mask pixel hợp lệ.
 
         Tia lấy từ ``camera_model_rays`` (giải ngược ``theta_d = theta·(1 + k1·θ² + ... + k4·θ⁸)``).
-        Pixel hợp lệ khi giải ngược hội tụ và góc tia ``theta`` không vượt ``MEI_FIT_MAX_ANGLE``:
-        ngoài góc đó đa thức OpenCV fisheye không còn khớp mô hình Mei gốc. Kết quả được nhớ theo
+        Pixel hợp lệ khi giải ngược hội tụ và góc tia ``theta`` không vượt ``self.max_angle``
+        (``__init__``). Kết quả được nhớ theo
         kích thước ảnh, vì intrinsics không đổi theo khung.
 
         Args:
@@ -204,9 +234,13 @@ class KITTI360CameraData(KITTICameraData):
         key = (height, width)
         if key not in self._ray_cache:
             rays, valid = camera_model_rays(
-                height, width, intrinsics, "fisheye", self.radial_coeffs
+                height,
+                width,
+                intrinsics,
+                "fisheye",
+                self.radial_coeffs,
+                fisheye_max_angle=self.max_angle,
             )
-            valid &= rays[..., 2] >= float(np.cos(self.max_angle))
             self._ray_cache[key] = rays, valid
         return self._ray_cache[key]
 
@@ -268,6 +302,7 @@ class KITTI360CameraData(KITTICameraData):
             self.HEIGHT,
             self.camera_model,
             self.radial_coeffs,
+            max_angle=self.max_angle if self.camera_model == "fisheye" else None,
         )
         if self.camera_model == "fisheye":
             _, region = self.camera_rays(intrinsics, self.HEIGHT, self.WIDTH)
@@ -290,5 +325,8 @@ class KITTI360PixelSource(KITTIPixelSource):
 
     def extra_camera_kwargs(self) -> dict:
         """Ngưỡng góc của camera mắt cá đặt trong config (``fisheye_max_angle``), nếu có."""
-        return {"fisheye_max_angle": self.data_cfg.get("fisheye_max_angle", None)}
+        return {
+            "fisheye_max_angle": self.data_cfg.get("fisheye_max_angle", None),
+            "fisheye_renderer_max_angle": self.data_cfg.get("fisheye_renderer_max_angle", None),
+        }
     SMPL_CAMERA_LIST = AVAILABLE_CAM_LIST

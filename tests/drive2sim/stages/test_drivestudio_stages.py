@@ -15,6 +15,7 @@ Máy test không có GPU nên không chạy DriveStudio thật. File này kiểm
 """
 
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -137,7 +138,19 @@ def test_build_command_translates_split(tmp_path: Path) -> None:
     every = TrainDrivestudioParams(method="omnire", renderer="3dgeer", refine_interval=100)
     every_command = build_command(every, split, manifest, view_root, output_dir)
     assert option(every_command, "trainer.gaussian_ctrl_general_cfg.refine_interval") == "100"
-    assert not any("fisheye_max_angle" in part for part in command)  # theo manifest
+    # 3DGUT, 3DGEER không vẽ được tia từ 90 độ trở ra: stage đặt giới hạn của renderer.
+    ut = TrainDrivestudioParams(method="omnire", renderer="3dgut")
+    ut_command = build_command(ut, split, manifest, view_root, output_dir)
+    assert option(ut_command, "data.pixel_source.fisheye_renderer_max_angle") == str(
+        drivestudio.RENDERER_MAX_ANGLE
+    )
+    assert drivestudio.RENDERER_MAX_ANGLE < math.pi / 2
+    geer = TrainDrivestudioParams(method="omnire", renderer="3dgeer")
+    geer_command = build_command(geer, split, manifest, view_root, output_dir)
+    assert option(geer_command, "data.pixel_source.fisheye_renderer_max_angle") == str(
+        drivestudio.RENDERER_MAX_ANGLE
+    )
+    assert not any("data.pixel_source.fisheye_max_angle" in part for part in command)
     wide = TrainDrivestudioParams(method="omnire", renderer="3dgut", fisheye_max_angle=1.536)
     wide_command = build_command(wide, split, manifest, view_root, output_dir)
     assert option(wide_command, "data.pixel_source.fisheye_max_angle") == "1.536"
