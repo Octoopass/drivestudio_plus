@@ -6,12 +6,13 @@
 //   DriveStudio (viser, POST /api/runs/{id}/gpu-viewer) và trang nhúng nó; viewer vẽ từ checkpoint
 //   bằng renderer gốc nên đủ mọi phần của model.
 // File kéo thả (.ply, .spz, .splat, .ksplat, .sog) chỉ đọc trong trình duyệt, không gửi lên server.
-import { ArrowLeft, Box, CheckCircle2, ChevronLeft, Crosshair, FileUp, Maximize2, Minimize2, Pause, Play, Power, SlidersHorizontal, XCircle, Video as VideoIcon } from "lucide-react";
+import { ArrowLeft, Box, CheckCircle2, Crosshair, FileUp, Info, Maximize2, Minimize2, Pause, Play, Power, SlidersHorizontal, XCircle, Video as VideoIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, asApiError, del, post, preferredVideo, seg, useApi, type ApiError } from "../api/client";
 import type { ActorPoses, List, RunRecord, Splats, Video } from "../api/types";
 import { ErrorBox, InfoTip, Note, PageHead, Segmented } from "../components/ui";
 import { RoadScene } from "../components/Illustration";
+import { RunInfo } from "../components/RunInfo";
 import { useI18n } from "../i18n";
 import { go } from "../router";
 import { useExactFrame } from "../viewer/useExactFrame";
@@ -48,14 +49,18 @@ const PREVIEW_SCHEMA = "d2s-preview/0.2";
 /** Chờ xuất lại gói tối đa bao lâu, hỏi lại mỗi bao lâu (ms). */
 const REEXPORT_TIMEOUT_MS = 10 * 60 * 1000;
 const REEXPORT_POLL_MS = 3000;
-// Bảng điều khiển thu gọn hay mở, nhớ theo trình duyệt (chỉ là tiện lợi; lỗi bộ nhớ thì bỏ qua).
+// Thanh bên: các tab xếp dọc thành icon; tab đang mở (hoặc thu gọn) nhớ theo trình duyệt (chỉ là
+// tiện lợi; lỗi bộ nhớ thì bỏ qua). Giá trị cũ "open" là tab điều khiển.
 const PANEL_KEY = "d2s.viewer.panel";
+type PanelTab = "controls" | "info";
+type PanelState = PanelTab | "closed";
 
-function readPanelOpen(): boolean {
+function readPanel(): PanelState {
   try {
-    return window.localStorage.getItem(PANEL_KEY) !== "closed";
+    const value = window.localStorage.getItem(PANEL_KEY);
+    return value === "closed" || value === "info" ? value : "controls";
   } catch {
-    return true;
+    return "controls";
   }
 }
 
@@ -116,7 +121,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
   // Màn chọn nguồn: run đang chọn và file đã kéo vào, chưa mở cho tới khi bấm nút.
   const [pickRun, setPickRun] = useState<string>("");
   const [pickFile, setPickFile] = useState<File | null>(null);
-  const [panelOpen, setPanelOpen] = useState(readPanelOpen);
+  const [panel, setPanel] = useState<PanelState>(readPanel);
   const [fullscreen, setFullscreen] = useState(false);
   const full = useRef<HTMLDivElement>(null);
   // Đang xem (màn hình lớn) khi đã chọn run (qua URL) hoặc đã mở file; còn lại là màn chọn nguồn.
@@ -147,14 +152,16 @@ export function ViewerPage({ runId }: { runId?: string }) {
     if (document.fullscreenElement) void document.exitFullscreen();
     else void full.current?.requestFullscreen?.();
   };
-  const togglePanel = () =>
-    setPanelOpen((open) => {
+  // Bấm icon của tab đang mở thì thu gọn, icon khác thì mở tab đó.
+  const pickPanel = (tab: PanelTab) =>
+    setPanel((current) => {
+      const next: PanelState = current === tab ? "closed" : tab;
       try {
-        window.localStorage.setItem(PANEL_KEY, open ? "closed" : "open");
+        window.localStorage.setItem(PANEL_KEY, next);
       } catch {
         // bộ nhớ trình duyệt bị chặn: chỉ không nhớ được lựa chọn
       }
-      return !open;
+      return next;
     });
 
   // Chọn sẵn mode tốt nhất mà run có: gói xem trước, rồi cảnh tĩnh, rồi video, cuối cùng Render GPU
@@ -520,6 +527,12 @@ export function ViewerPage({ runId }: { runId?: string }) {
 
   // Màn 2: xem. Cảnh chiếm cả vùng nội dung; mọi thanh phụ nằm nổi, trong suốt, bên trong cảnh.
   const title = source === "file" && file ? file.name : runId;
+  // Tab "Thông tin" chỉ có khi đang xem một run (file kéo thả không có cấu hình, kết quả đo).
+  const panelTabs: { tab: PanelTab; icon: typeof Info }[] = [
+    { tab: "controls", icon: SlidersHorizontal },
+    ...(runId ? [{ tab: "info" as PanelTab, icon: Info }] : []),
+  ];
+  const activePanel: PanelTab | null = panel === "closed" ? null : panelTabs.some((item) => item.tab === panel) ? panel : "controls";
   return (
     <div
       ref={full}
@@ -600,15 +613,27 @@ export function ViewerPage({ runId }: { runId?: string }) {
         </div>
       )}
 
-      {panelOpen ? (
-        <aside className="vpanel glass" aria-label={t("viewer.panel.title")}>
+      <nav className="vrail glass" aria-label={t("viewer.panel.rail")}>
+        {panelTabs.map(({ tab, icon: Icon }) => (
+          <button
+            key={tab}
+            type="button"
+            className={`btn icon sm ghost${activePanel === tab ? " active" : ""}`}
+            aria-pressed={activePanel === tab}
+            aria-label={t(`viewer.panel.${tab}`)}
+            title={t(activePanel === tab ? "viewer.panel.collapse" : `viewer.panel.${tab}`)}
+            onClick={() => pickPanel(tab)}
+          >
+            <Icon size={18} />
+          </button>
+        ))}
+      </nav>
+      {activePanel && (
+        <aside className="vpanel glass" aria-label={t(`viewer.panel.${activePanel}`)}>
           <header>
-            <SlidersHorizontal size={16} />
-            <b>{t("viewer.panel.title")}</b>
-            <button className="btn icon sm ghost" onClick={togglePanel} aria-label={t("viewer.panel.collapse")} title={t("viewer.panel.collapse")}>
-              <ChevronLeft size={17} />
-            </button>
+            <b>{t(`viewer.panel.${activePanel}`)}</b>
           </header>
+          {activePanel === "controls" && (
           <div className="vpanel-body">
             <ErrorBox error={splats.error} />
             {runId && splats.data && (
@@ -747,12 +772,13 @@ export function ViewerPage({ runId }: { runId?: string }) {
               </>
             )}
           </div>
+          )}
+          {activePanel === "info" && runId && (
+            <div className="vpanel-body">
+              <RunInfo runId={runId} />
+            </div>
+          )}
         </aside>
-      ) : (
-        <button className="btn sm glass vpanel-open" onClick={togglePanel} aria-label={t("viewer.panel.expand")}>
-          <SlidersHorizontal size={16} />
-          {t("viewer.panel.title")}
-        </button>
       )}
 
       {error && (

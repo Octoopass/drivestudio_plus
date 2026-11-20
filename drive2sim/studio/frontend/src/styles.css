@@ -530,11 +530,27 @@ pre.log {
 .vbar-left { left: 12px; padding: 4px; max-width: min(560px, calc(100% - 24px)); }
 .vbar-right { right: 12px; flex-wrap: wrap; justify-content: flex-end; max-width: 50%; }
 .vtitle { min-width: 0; padding: 0 6px; font-size: 13.5px; }
-.vpanel { position: absolute; z-index: 4; left: 12px; top: 64px; width: 330px; max-width: calc(100% - 24px); max-height: calc(100% - 152px); display: flex; flex-direction: column; overflow: hidden; }
+/* Thanh bên: icon các tab xếp dọc; bảng của tab đang mở nằm ngay bên phải. */
+.vrail { position: absolute; z-index: 4; left: 12px; top: 64px; display: flex; flex-direction: column; gap: 4px; padding: 4px; }
+.vrail .btn { color: var(--muted); }
+.vrail .btn.active { color: var(--text); background: rgba(255, 255, 255, 0.16); }
+.vpanel { position: absolute; z-index: 4; left: 64px; top: 64px; width: 330px; max-width: calc(100% - 76px); max-height: calc(100% - 152px); display: flex; flex-direction: column; overflow: hidden; }
 .vpanel header { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 14px; border-bottom: 1px solid var(--line); }
 .vpanel header b { flex: 1; }
 .vpanel-body { padding: 14px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
-.vpanel-open { position: absolute; z-index: 4; left: 12px; top: 64px; }
+.run-info { display: flex; flex-direction: column; gap: 18px; }
+.run-info section { display: flex; flex-direction: column; gap: 10px; }
+.run-info h4 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--faint); }
+.info-list { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0; font-size: 13.5px; }
+.info-list dt { color: var(--muted); }
+.info-list dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.info-list .info-pair { display: contents; }
+.info-list.stacked { grid-template-columns: 1fr; gap: 2px; }
+.info-list.stacked dd { margin-bottom: 8px; }
+.info-list dd.num { text-align: right; font-variant-numeric: tabular-nums; }
+.info-group { display: flex; flex-direction: column; gap: 6px; }
+.run-info table { font-size: 13px; }
+.run-info .btn { align-self: flex-start; }
 .mode-list.compact { grid-template-columns: 1fr 1fr; }
 .mode-list.compact button { padding: 7px 10px; }
 .mode-list.compact .small { display: none; }
