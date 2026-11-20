@@ -49,7 +49,7 @@ from drive2sim.stages.scene_view import DRIVESTUDIO_DATASETS, VIEW_SCENE, build_
 # train.py ghi cùng mỗi checkpoint: thời gian train, VRAM, số Gaussian.
 TRAIN_STATS_FILE = "train_stats.json"
 
-Method = Literal["omnire", "streetgs", "pvg", "deformablegs"]
+Method = Literal["omnire", "streetgs", "pvg", "deformablegs", "beziergs"]
 Renderer = Literal["3dgs", "3dgut", "3dgeer"]
 
 # Tổ hợp (method, renderer, campose, fastgs, fastergs) → file config có sẵn. Chỉ liệt kê tổ hợp đã
@@ -83,6 +83,7 @@ CONFIG_FILES: dict[tuple[str, str, bool, bool, bool], str] = {
     ("streetgs", "3dgeer", False, True, True): "streetgs_geer_fastgs_fastergs.yaml",
     ("pvg", "3dgs", True, False, False): "pvg.yaml",
     ("deformablegs", "3dgs", True, False, False): "deformablegs.yaml",
+    ("beziergs", "3dgs", False, False, False): "beziergs.yaml",
 }
 # Bản OmniRe cho nhiều camera (hơn 3): 40k iteration, chọn ảnh theo sai số, ngưỡng densify thấp
 # hơn; chỉ có cho tổ hợp gốc của paper (3DGS, CamPose, không FastGS, Faster-GS).
@@ -114,7 +115,8 @@ class TrainDrivestudioParams(BaseModel):
     """Tham số của stage ``train.drivestudio``.
 
     Attributes:
-        method: Method của DriveStudio: ``omnire``, ``streetgs``, ``pvg`` hoặc ``deformablegs``.
+        method: Method của DriveStudio: ``omnire``, ``streetgs``, ``pvg``, ``deformablegs`` hoặc
+            ``beziergs`` (``docs/methods/beziergs.md``).
         renderer: ``3dgs``, ``3dgut`` hoặc ``3dgeer``.
         campose: Có tối ưu pose camera (node ``CamPose``) không.
         fastgs: Có dùng luật densify kiểu FastGS không.

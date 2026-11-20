@@ -37,6 +37,7 @@ def test_approach_files_exist() -> None:
         "streetgs",
         "pvg",
         "deformablegs",
+        "beziergs",
     }
 
 
