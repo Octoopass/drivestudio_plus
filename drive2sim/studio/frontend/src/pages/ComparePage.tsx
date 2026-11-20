@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, preferredVideo, seg, useApi } from "../api/client";
 import type { List, Manifest, ReportRow, SceneDetail, Video } from "../api/types";
 import { GroupedBarChart, Legend, MultiLineChart, ScatterChart, seriesColor, StackedBarChart, type Point } from "../components/charts";
+import { Exportable } from "../components/figureExport";
 import { count, duration, Empty, ErrorBox, InfoTip, Loading, PageHead, Panel, Segmented, Tabs } from "../components/ui";
 import { ConfigText } from "../components/ConfigText";
 import { useI18n } from "../i18n";
@@ -147,6 +148,13 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
   // chạy thử ít bước vừa nhanh vừa kém nên làm lệch đường Pareto.
   const chartIters = Math.max(-1, ...rows.map((r) => r.num_iters ?? -1));
   const chartRows = rows.filter((r) => (r.num_iters ?? -1) === chartIters);
+  // Dòng nguồn ghi dưới hình xuất: cảnh, split, số iteration, ngày xuất.
+  const figureSource = t("figure.source", {
+    scene: currentScene,
+    splits: splits.join(", "),
+    iters: count(chartIters),
+    date: new Date().toISOString().slice(0, 10),
+  });
   // Bảng có run train trên nhiều GPU: cảnh báo một lần ở thanh trên bảng.
   const gpus = [...new Set(rows.map((r) => r.gpu).filter((g): g is string => !!g))];
   const mixedGpu = gpus.length > 1;
@@ -350,7 +358,7 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
       {chartRows.length > 0 && chartRows.length < rows.length && (
         <p className="small faint">{t("compare.charts.only_iters", { count: count(chartIters) })}</p>
       )}
-      {chartRows.length > 0 && <Charts rows={chartRows} splits={splits} grouped={grouped} gpus={gpus} />}
+      {chartRows.length > 0 && <Charts rows={chartRows} splits={splits} grouped={grouped} gpus={gpus} source={figureSource} />}
 
       {rows.length > 1 && (
         <Panel title={t("compare.side.title")} info={t("compare.side.info")}>
@@ -366,11 +374,15 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
 // đường Pareto) và có dấu cảnh báo ở biểu đồ đo trên ảnh; gom theo split thì màu theo split, mỗi
 // split một đường Pareto, cột và đường cong ghi kèm split. Bảng trộn nhiều GPU thì biểu đồ có trục
 // thời gian, VRAM hay FPS có dấu cảnh báo.
-function Charts({ rows: sorted, splits, grouped, gpus }: { rows: ReportRow[]; splits: string[]; grouped: boolean; gpus: string[] }) {
+function Charts({ rows: sorted, splits, grouped, gpus, source }: { rows: ReportRow[]; splits: string[]; grouped: boolean; gpus: string[]; source: string }) {
   const { t } = useI18n();
   const rows = grouped ? [...sorted].sort((a, b) => a.split_id.localeCompare(b.split_id)) : sorted;
   const splitWarn = splits.length > 1 && !grouped ? <WarnMark text={t("compare.chart.mixed_split", { splits: splits.join(", ") })} /> : null;
   const gpuWarn = gpus.length > 1 ? <WarnMark text={t("compare.chart.mixed_gpu", { gpus: gpus.join(", ") })} /> : null;
+  // Cảnh báo dạng chữ cho hình xuất (SPEC 8D): giữ nguyên ý của dấu tam giác trên trang.
+  const splitNote = splits.length > 1 && !grouped ? t("compare.chart.mixed_split", { splits: splits.join(", ") }) : null;
+  const gpuNote = gpus.length > 1 ? t("compare.chart.mixed_gpu", { gpus: gpus.join(", ") }) : null;
+  const notes = (...items: (string | null | false)[]) => items.filter((x): x is string => Boolean(x));
   const titled = (key: string, ...marks: ReactNode[]) => (
     <span className="row" style={{ gap: 6 }}>
       {t(key)}
@@ -412,14 +424,22 @@ function Charts({ rows: sorted, splits, grouped, gpus }: { rows: ReportRow[]; sp
           <Panel key={plot.key} title={titled(`compare.chart.${plot.key}`, splitWarn, plot.hardware && gpuWarn)} info={t("compare.chart.pareto_hint")}>
             {plot.points.length ? (
               <>
-                <ScatterChart
-                  points={plot.points}
-                  label={t(`compare.chart.${plot.key}`)}
-                  xLabel={plot.xLabel}
-                  xBetter={plot.xBetter}
-                  groups={grouped ? splits : undefined}
-                  frontByGroup={grouped}
-                />
+                <Exportable
+                  info={{
+                    title: t(`compare.chart.${plot.key}`),
+                    notes: notes(splitNote, plot.hardware && gpuNote, t("compare.chart.pareto_hint")),
+                    source,
+                    legend: grouped ? splits.map((name, i) => ({ name, color: seriesColor(i) })) : [],
+                  }}>
+                  <ScatterChart
+                    points={plot.points}
+                    label={t(`compare.chart.${plot.key}`)}
+                    xLabel={plot.xLabel}
+                    xBetter={plot.xBetter}
+                    groups={grouped ? splits : undefined}
+                    frontByGroup={grouped}
+                  />
+                </Exportable>
                 {grouped && <Legend items={splits.map((name, i) => ({ name, color: seriesColor(i) }))} />}
               </>
             ) : (
@@ -430,7 +450,15 @@ function Charts({ rows: sorted, splits, grouped, gpus }: { rows: ReportRow[]; sp
         <Panel title={titled("compare.chart.regions", splitWarn)} info={t("compare.chart.regions_hint")}>
           {regionGroups.length ? (
             <>
-              <GroupedBarChart groups={regionGroups} seriesNames={regionSeries} label={t("compare.chart.regions")} unit="dB" />
+              <Exportable
+                info={{
+                  title: t("compare.chart.regions"),
+                  notes: notes(splitNote),
+                  source,
+                  legend: regionSeries.map((name, i) => ({ name, color: seriesColor(i) })),
+                }}>
+                <GroupedBarChart groups={regionGroups} seriesNames={regionSeries} label={t("compare.chart.regions")} unit="dB" />
+              </Exportable>
               <Legend items={regionSeries.map((name, i) => ({ name, color: seriesColor(i) }))} />
             </>
           ) : (
@@ -440,7 +468,15 @@ function Charts({ rows: sorted, splits, grouped, gpus }: { rows: ReportRow[]; sp
         <Panel title={titled("compare.chart.breakdown", gpuWarn)} info={t("compare.chart.breakdown_hint")}>
           {timeRows.length ? (
             <>
-              <StackedBarChart rows={timeRows} partNames={TIME_PARTS.map((p) => t(`compare.chart.part.${p}`))} label={t("compare.chart.breakdown")} format={(s) => duration(s)} />
+              <Exportable
+                info={{
+                  title: t("compare.chart.breakdown"),
+                  notes: notes(gpuNote),
+                  source,
+                  legend: TIME_PARTS.map((p, i) => ({ name: t(`compare.chart.part.${p}`), color: seriesColor(i) })),
+                }}>
+                <StackedBarChart rows={timeRows} partNames={TIME_PARTS.map((p) => t(`compare.chart.part.${p}`))} label={t("compare.chart.breakdown")} format={(s) => duration(s)} />
+              </Exportable>
               <Legend items={TIME_PARTS.map((p, i) => ({ name: t(`compare.chart.part.${p}`), color: seriesColor(i) }))} />
             </>
           ) : (
@@ -448,13 +484,13 @@ function Charts({ rows: sorted, splits, grouped, gpus }: { rows: ReportRow[]; sp
           )}
         </Panel>
       </div>
-      <TrainCurves rows={rows} grouped={grouped} warn={splitWarn} />
+      <TrainCurves rows={rows} grouped={grouped} warn={splitWarn} note={splitNote} source={source} />
     </>
   );
 }
 
 /** PSNR trên ảnh train theo bước của nhiều run (tối đa 6), đọc từ metrics.json của từng run. */
-function TrainCurves({ rows, grouped, warn }: { rows: ReportRow[]; grouped: boolean; warn: ReactNode }) {
+function TrainCurves({ rows, grouped, warn, note, source }: { rows: ReportRow[]; grouped: boolean; warn: ReactNode; note: string | null; source: string }) {
   const { t } = useI18n();
   const shown = rows.filter((r) => r.status === "succeeded" || r.status === "running").slice(0, 6);
   const [curves, setCurves] = useState<Record<string, Point[]>>({});
@@ -489,7 +525,15 @@ function TrainCurves({ rows, grouped, warn }: { rows: ReportRow[]; grouped: bool
       info={t("compare.chart.curves_hint")}>
       {/* Biểu đồ vẽ theo viewBox cố định: giới hạn bề rộng để chữ trên trục không phóng quá to. */}
       <div style={{ maxWidth: 820 }}>
-        <MultiLineChart series={series} label={t("compare.chart.curves")} xLabel={t("run.curve.step")} />
+        <Exportable
+          info={{
+            title: t("compare.chart.curves"),
+            notes: note ? [note] : [],
+            source,
+            legend: series.map((s, i) => ({ name: s.name, color: seriesColor(i) })),
+          }}>
+          <MultiLineChart series={series} label={t("compare.chart.curves")} xLabel={t("run.curve.step")} />
+        </Exportable>
       </div>
       <Legend items={series.map((s, i) => ({ name: s.name, color: seriesColor(i) }))} />
     </Panel>

@@ -793,3 +793,7 @@ table.centered td.block-head { text-align: left; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 860px) { .rig-grid { grid-template-columns: 1fr; } }
+
+/* Nút xuất hình dưới biểu đồ (components/figureExport.tsx) */
+.exportable { display: flex; flex-direction: column; gap: 6px; }
+.export-row { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
