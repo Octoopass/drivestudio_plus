@@ -207,7 +207,7 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 
 **Nghiệm thu tầng dữ liệu (sau refactor):**
 1. nuScenes mini đi qua ingest sang dữ liệu chuẩn, có manifest và báo cáo kiểm tra.
-2. Approach `omnire` (preset `paper`) train trên cùng một cảnh bằng đường dữ liệu chuẩn và bằng loader cũ của DriveStudio cho PSNR test chênh không quá một ngưỡng chốt trước.
+2. Đường dữ liệu chuẩn đưa cho model cùng dữ liệu như loader cũ của DriveStudio trên cùng một cảnh. Kiểm bằng cách so từng tensor mà hai loader giữ (pose, intrinsics, ảnh, mask, box, SMPL, LiDAR, độ sâu, chia khung), không bằng PSNR của hai lần train (có yếu tố ngẫu nhiên, tốn giờ GPU, cần ngưỡng): `drive2sim/scripts/data_acceptance.py`. **Đạt 20/11/2026** với nuScenes `scene-0061`, split `front3` (run `28e5`, ref `main`): 74 mảng, 71 giống từng bit; 3 bản đồ độ sâu LiDAR khác ở 25–187 trên khoảng 600 000 pixel, đều do thay đổi cố ý giữ điểm gần nhất (đường mới gần hơn ở mọi pixel đó).
 
 Thứ tự làm thật (`ARCHITECTURE.md` mục 7.4) là bộ khung trước, tầng dữ liệu sau, vì bộ khung bọc được mã DriveStudio hiện có và cho kết quả sớm hơn; hai phần nghiệm thu độc lập nhau.
 
@@ -221,4 +221,4 @@ Thứ tự làm thật (`ARCHITECTURE.md` mục 7.4) là bộ khung trước, t�
 
 1. Định dạng bộ dữ liệu riêng của mentor.
 2. AD stack dùng để chạy thử ở mức L4 (agent có sẵn của CARLA hay planner tự viết) và tiêu chí chấm điểm (va chạm, lệch làn, hoàn thành tuyến hay tiêu chí khác).
-3. Ngưỡng chênh PSNR chấp nhận được ở nghiệm thu tầng dữ liệu.
+3. ~~Ngưỡng chênh PSNR chấp nhận được ở nghiệm thu tầng dữ liệu.~~ Không cần: nghiệm thu so dữ liệu từng bit (mục 13).
