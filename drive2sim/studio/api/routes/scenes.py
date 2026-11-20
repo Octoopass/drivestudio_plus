@@ -16,7 +16,8 @@ File này chứa:
 import json
 from typing import Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict
 
 from drive2sim.core import files
@@ -25,6 +26,7 @@ from drive2sim.engine.workdir import KAGGLE_SCENE_FILE
 from drive2sim.ingest.images import IMAGE_SUFFIXES
 from drive2sim.ingest.manifest import outdated_output_version
 from drive2sim.ingest.validate import validate_scene
+from drive2sim.studio.api import frame_tools
 from drive2sim.studio.api.state import state_of
 
 router = APIRouter(prefix="/api/scenes", tags=["scenes"])
@@ -118,6 +120,34 @@ def get_frame(scene_id: str, frame_index: int, request: Request) -> dict:
         url = f"/files/{workdir.relative(found[0])}" if found else None
         images.append({"camera_id": camera.camera_id, "url": url})
     return {"frame_index": frame_index, "images": images}
+
+
+@router.get("/{scene_id}/frames/{frame_index}/panorama")
+def get_panorama(
+    scene_id: str, frame_index: int, request: Request, width: int = Query(2048, ge=512, le=4096)
+) -> Response:
+    """Ảnh toàn cảnh equirectangular ghép từ mọi camera của một khung (``frame_tools.py``).
+
+    Returns:
+        PNG; header ``X-D2S-Coverage`` là tỉ lệ pixel có ảnh. Cảnh không có calib cố định theo
+        camera, thiếu ảnh: ``400``.
+    """
+    scene = state_of(request).workdir.load_scene(scene_id)
+    png, coverage = frame_tools.panorama(scene.root, scene.manifest, frame_index, width)
+    return Response(png, media_type="image/png", headers={"X-D2S-Coverage": f"{coverage:.4f}"})
+
+
+@router.get("/{scene_id}/frames/{frame_index}/lidar")
+def get_lidar_overlay(scene_id: str, frame_index: int, camera: str, request: Request) -> Response:
+    """Ảnh một camera có điểm LiDAR chiếu lên, tô theo độ sâu (``frame_tools.py``).
+
+    Returns:
+        PNG; header ``X-D2S-Points`` là số điểm vẽ được. LiDAR dạng khác KITTI, camera lạ, thiếu
+        file: ``400``.
+    """
+    scene = state_of(request).workdir.load_scene(scene_id)
+    png, points = frame_tools.lidar_overlay(scene.root, scene.manifest, frame_index, camera)
+    return Response(png, media_type="image/png", headers={"X-D2S-Points": str(points)})
 
 
 @router.get("/{scene_id}/splits")
