@@ -32,8 +32,10 @@ from drive2sim.engine.machine import _gpus
 from drive2sim.paths import PACKAGE_DIR
 
 REPO_DIR = PACKAGE_DIR.parent
-SCRIPTS = {"main": "envs/install_main.sh"}
-PYTHON = {"main": (3, 10)}  # envs/main.yml
+SCRIPTS = {"main": "envs/install_main.sh", "nurec": "envs/install_nurec.sh"}
+# Python mà Studio phải chạy bằng: môi trường chính cài vào chính Python đó (envs/main.yml);
+# NuRec dựng venv riêng bằng uv, nên Python của Studio chỉ chạy script cài.
+PYTHON: dict[str, Optional[tuple]] = {"main": (3, 10), "nurec": None}
 STEP = re.compile(r"^=== \d\d:\d\d:\d\d (\d+)/(\d+) (.*)$")
 LOG_TAIL = 6000
 
@@ -98,7 +100,7 @@ class InstallFlow:
                 "mới cài được môi trường"
             )
         want = PYTHON[env]
-        if tuple(self._python_version) != want:
+        if want is not None and tuple(self._python_version) != want:
             have = ".".join(map(str, self._python_version))
             raise ValueError(
                 f"Studio đang chạy bằng Python {have} ({self._python}), môi trường {env} cần "
@@ -166,8 +168,11 @@ class InstallFlow:
         with self._lock:
             state = "cancelled" if self._cancelled else "succeeded" if code == 0 else "failed"
             self._state.update(state=state, finished_at=time.time())
-        # PyTorch vừa đổi: bảng kiểm tra môi trường phải hỏi lại, không dùng kết quả đã nhớ
+        # PyTorch, NuRec vừa đổi: bảng kiểm tra môi trường phải hỏi lại, không dùng kết quả đã nhớ
         environment._cuda_cache.clear()
+        from drive2sim.external import nurec
+
+        nurec.clear_cache()
 
     def cancel(self) -> dict:
         """Dừng lần cài đang chạy (cả nhóm tiến trình: pip, nvcc...)."""

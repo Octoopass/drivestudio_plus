@@ -54,7 +54,8 @@ export function EnvInstall({ env, onDone }: { env: string; onDone?: () => void }
   }, [running, onDone]);
 
   const start = async (fromStep: number) => {
-    if (!window.confirm(t("env.install.confirm", { env, python: install?.python ?? "" }))) return;
+    const key = env === "nurec" ? "env.install.confirm_nurec" : "env.install.confirm";
+    if (!window.confirm(t(key, { env, python: install?.python ?? "" }))) return;
     setError(null);
     try {
       setInstall(await post<Install>("/api/environment/install", { env, from_step: fromStep }));

@@ -606,6 +606,8 @@ def push_runs(
     username = client.username()
     commit, repo_url = code_source(branch)
     prepared = [_prepare(client, workdir, run_id, username, rerun) for run_id in run_ids]
+    for one in prepared:
+        remote.require_main_codebase(one.record.approach.approach_id, "Kaggle")
     if len(prepared) == 1:
         one = prepared[0]
         defaults = {

@@ -1,0 +1,84 @@
+# Approach Instant NuRec: dựng cảnh bằng mô hình feed-forward của NVIDIA (không train theo cảnh),
+# chạy trong môi trường riêng (drive2sim/external/nurec, cài bằng envs/install_nurec.sh). Định dạng
+# file: CONTRACTS mục 4.1.
+#
+# Đường dữ liệu: prep.ncore chuyển đoạn khung của split sang clip NCore V4 (hiện chỉ cảnh KITTI-360,
+# converter của Fisheye Fusion Lab), train.nurec chạy run_inference.py, eval.ncore chấm PLY trên
+# khung test bằng gsplat, export.nurec_ply đổi PLY sang hệ world của cảnh.
+schema_version: d2s-approach/0.3
+approach_id: nurec
+name: "Instant NuRec"
+version: 0.1.0
+codebase: external:nurec
+level: L1
+requires:
+  camera_models: [opencv_pinhole, opencv_fisheye, ftheta]
+  cuboids: none
+  split_strategies: [every_nth_frame]
+
+groups:
+  core:
+    label: "Mô hình"
+    help: "Model Instant NuRec đã phát hành dùng để dựng cảnh, và cách đưa camera mắt cá vào model."
+  detail:
+    label: "Chi tiết"
+    help: "Số Gaussian và có dựng vật chuyển động không."
+
+options:
+  model:
+    # pq-front: NuRec cố định nó vào camera camera_front_wide_120fov, clip KITTI-360 không có
+    choices: [pa-multiview, pa-front]
+    default: pa-multiview
+    group: core
+    label: "Model"
+    help: "Model phát hành của NVIDIA (checkpoint tải ở bước cài)."
+    labels: ["PA multiview", "PA front"]
+    descriptions:
+      - "Ba camera ngữ cảnh: trước (image_00) và hai camera mắt cá (image_02, image_03) đã resample về F-theta 120°."
+      - "Một camera trước (image_00)."
+  fisheye_model:
+    choices: [rectify120, ftheta]
+    default: rectify120
+    group: core
+    label: "Camera mắt cá"
+    help: "Cách đưa camera mắt cá của KITTI-360 vào clip NCore."
+    labels: ["Resample 120°", "F-theta đầy đủ"]
+    descriptions:
+      - "Resample về camera F-theta 120° của NVIDIA, cùng pose: loại camera model multiview đã học."
+      - "Giữ cả vòng mắt cá dưới dạng F-theta (model chưa học loại này)."
+  n_gaussians:
+    choices: [200000, 500000, 1000000]
+    default: 500000
+    group: detail
+    label: "Số Gaussian"
+    help: "Số Gaussian mỗi đoạn thời gian của cảnh."
+    labels: ["200 nghìn", "500 nghìn", "1 triệu"]
+  include_dynamic:
+    choices: [false, true]
+    default: false
+    group: detail
+    label: "Vật chuyển động"
+    help: "Dựng cả xe, người chuyển động."
+    labels: ["Tắt", "Bật"]
+
+presets:
+  front: {model: pa-front}
+  dynamic: {include_dynamic: true}
+  dense: {n_gaussians: 1000000}
+
+preset_help:
+  front: "Model PA front, một camera trước."
+  dynamic: "PA multiview, dựng cả vật chuyển động."
+  dense: "PA multiview, 1 triệu Gaussian mỗi đoạn."
+
+stages:
+  - stage: prep.ncore
+    params:
+      fisheye_model: "${options.fisheye_model}"
+  - stage: train.nurec
+    params:
+      model: "${options.model}"
+      n_gaussians: "${options.n_gaussians}"
+      include_dynamic: "${options.include_dynamic}"
+  - {stage: eval.ncore}
+  - {stage: export.nurec_ply}

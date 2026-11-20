@@ -33,7 +33,7 @@ from pydantic import BaseModel, ConfigDict
 
 from drive2sim.core import files
 from drive2sim.core.schema import Preview, RunRecord
-from drive2sim.engine import housekeeping
+from drive2sim.engine import housekeeping, remote
 from drive2sim.engine.approaches import load_approach
 from drive2sim.engine.artifacts import run_artifacts, train_curve
 from drive2sim.engine.densify_info import load_densify_info
@@ -167,6 +167,8 @@ def start_run(body: CreateRunBody, request: Request) -> dict:
     scene, split, plan = plan_from_body(state, body.approach_id, body)
     if body.executor == "local":
         _require_local(request, plan.approach_id, [stage.stage_id for stage in plan.stages])
+    else:
+        remote.require_main_codebase(plan.approach_id, body.executor.capitalize())
     run_dir = create_run(plan, state.workdir, scene, split, executor=body.executor)
     if body.executor == "kaggle":
         kaggle.submit_push(state, run_dir.name)

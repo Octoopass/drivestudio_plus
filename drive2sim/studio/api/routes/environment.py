@@ -7,11 +7,14 @@ File này chứa:
 - ``GET /api/environment/install``: trạng thái lần cài (bước, log cuối, kết quả).
 - ``POST /api/environment/install``: bắt đầu cài, hoặc cài tiếp từ một bước.
 - ``POST /api/environment/install/cancel``: dừng lần cài đang chạy.
+- ``GET /api/environment/nurec/notebook/{platform}``: notebook Instant NuRec cho Colab hoặc Kaggle
+  (``drive2sim/external/nurec/tools/nurec_notebook.py``, như Fisheye Fusion Lab).
 """
 
 from typing import Literal
 
 from fastapi import APIRouter, Request
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from drive2sim.engine.env_install import InstallFlow
@@ -30,7 +33,7 @@ class InstallBody(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    env: Literal["main"] = "main"
+    env: Literal["main", "nurec"] = "main"
     from_step: int = Field(1, ge=1, le=20)
 
 
@@ -58,3 +61,19 @@ def install_start(body: InstallBody, request: Request) -> dict:
 def install_cancel(request: Request) -> dict:
     """Dừng lần cài đang chạy (cài tiếp sau bằng ``from_step``)."""
     return install_flow(request).cancel()
+
+
+@router.get("/nurec/notebook/{platform}")
+def nurec_notebook(platform: Literal["colab", "kaggle"]) -> Response:
+    """Notebook chạy Instant NuRec trên Colab hoặc Kaggle (tải về, mở trên nền tảng đó).
+
+    Returns:
+        File ``.ipynb``.
+    """
+    from drive2sim.external.nurec.tools.nurec_notebook import make_nurec_notebook
+
+    return Response(
+        make_nurec_notebook(platform),
+        media_type="application/x-ipynb+json",
+        headers={"Content-Disposition": f'attachment; filename="instant-nurec-{platform}.ipynb"'},
+    )

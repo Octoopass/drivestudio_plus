@@ -539,8 +539,21 @@ function LocalEnvironment({ approachId }: { approachId: string }) {
         </ul>
         <span className="small">
           {t("new.env.install")} <code>{data.install}</code>
-          <InfoTip>{t("new.env.install_hint", { file: data.file ?? "" })}</InfoTip>
+          <InfoTip>{t(data.env === "nurec" ? "new.env.install_hint_nurec" : "new.env.install_hint", { file: data.file ?? "" })}</InfoTip>
         </span>
+        {data.env === "nurec" && (
+          <span className="small">
+            {t("new.env.nurec_notebook")}{" "}
+            <a href="/api/environment/nurec/notebook/colab" download>
+              Colab
+            </a>
+            {" · "}
+            <a href="/api/environment/nurec/notebook/kaggle" download>
+              Kaggle
+            </a>
+            <InfoTip>{t("new.env.nurec_notebook_hint")}</InfoTip>
+          </span>
+        )}
         {/* cài chỉ sửa được gói Python: không hiện khi thiếu GPU, hay khi chỉ thiếu file SMPL */}
         {data.env &&
           !data.checks.some((c) => c.id === "gpu" && c.level === "missing") &&

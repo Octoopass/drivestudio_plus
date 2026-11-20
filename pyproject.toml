@@ -36,7 +36,11 @@ pythonpath = ["."]
 line-length = 99
 target-version = "py39"
 # Mã cũ lấy từ DriveStudio và mã bên thứ ba chưa theo chuẩn này (AGENTS.md mục 4).
-extend-exclude = ["drive2sim/recon", "third_party", "drive2sim/kaggle/templates"]
+# drive2sim/external/nurec/tools: script chạy bằng Python 3.11 của môi trường Instant NuRec, lấy từ
+# Fisheye Fusion Lab.
+extend-exclude = [
+    "drive2sim/recon", "third_party", "drive2sim/kaggle/templates", "drive2sim/external/nurec/tools",
+]
 
 [tool.ruff.lint]
 # E/W: PEP 8; F: lỗi logic; I: thứ tự import; N: đặt tên PEP 8; ANN: chú thích kiểu;

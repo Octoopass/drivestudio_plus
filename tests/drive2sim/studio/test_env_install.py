@@ -56,7 +56,7 @@ def test_preflight_refuses(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="Python 3.10"):
         flow(tmp_path, python_version=(3, 12)).start()
     with pytest.raises(ValueError, match="không có môi trường"):
-        flow(tmp_path).start("nurec")
+        flow(tmp_path).start("no-such-env")
     missing = env_install.InstallFlow(
         tmp_path / "logs", repo=tmp_path / "none", python_version=(3, 10)
     )

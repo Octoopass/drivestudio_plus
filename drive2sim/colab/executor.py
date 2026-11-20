@@ -532,6 +532,7 @@ def push_run(
         raise ColabError(f"GPU {gpu} không có trên Colab; chọn một trong {', '.join(GPUS)}")
     run_dir = workdir.find_run(run_id)
     record = files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
+    remote.require_main_codebase(record.approach.approach_id, "Colab")
     if record.status == "succeeded":
         raise ColabError(f"run {run_id} đã xong; không cần đẩy lại")
     if run_is_active(run_dir):

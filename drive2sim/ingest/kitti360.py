@@ -676,6 +676,11 @@ def ingest_kitti360(
         ],
     )
     files.dump(manifest, scene_dir / "manifest.yaml")
+    # Thư mục gốc cho prep.ncore (Instant NuRec): converter NCore đọc thẳng dữ liệu gốc.
+    (scene_dir / "raw_source.json").write_text(
+        json.dumps({"raw_dir": str(Path(raw_dir).resolve()), "sequence": sequence}, indent=2)
+        + "\n"
+    )
     report = validate_scene(scene_dir, manifest)
     checks = [*report.checks, *extra_checks, *box_checks]
     report = ValidationReport(
