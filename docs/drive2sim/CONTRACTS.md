@@ -53,6 +53,7 @@ data/<scene_id>/
 ├── manifest.yaml                # tool ghi khi ingest
 ├── splits/<split_id>.json
 ├── reports/validation.json
+├── reports/rig.json            # sơ đồ camera, quỹ đạo xe (mục 3.3)
 └── kaggle_scene.json            # chỉ có khi cảnh ingest trên Kaggle (mục 9.4)
 ```
 
@@ -151,6 +152,25 @@ Approach khai báo các `strategy` mà codebase của nó hỗ trợ (`requires.
 `severity` lấy một trong: `error` (không chạy được), `warning`, `info`.
 
 `converter.outdated` (`warning`): cảnh được ingest bằng converter cũ (mục 2.2), `details` là `{"output_version", "current_output_version"}`; cảnh vẫn chạy được.
+
+### 3.3 `reports/rig.json`
+
+Sơ đồ camera trên xe và quỹ đạo xe, nhìn từ trên xuống, cho Studio (SPEC mục 8A). Ghi bởi `drive2sim/recon/tools/scene_rig.py` (cần PyTorch): nó dựng `DrivingDataset` của DriveStudio ở chế độ viewer (đọc pose, calib, không đọc ảnh, LiDAR) và lấy pose camera, intrinsics mà loader của dataset đưa cho trainer, **không** tự đọc file pose của từng dataset (mỗi dataset lưu khác nhau), nên sơ đồ đúng bằng dữ liệu train và chạy được với cảnh ingest trên Kaggle. `d2s scene ingest` (và ingest trong Studio) ghi nó sau khi ingest; lỗi ở bước này chỉ là cảnh báo. Cảnh có trước: `d2s scene rig <scene_id>` hoặc nút tạo ở tab Camera của trang cảnh. Notebook ingest trên Kaggle chạy `d2s scene ingest`, và file nằm trong `reports/` nên được tải về cùng file nhỏ (mục 9.4).
+
+Hệ toạ độ: `x` tới, `y` trái, `z` lên, mét; gốc là tâm các camera ở khung đầu. Trục lên là trung bình hướng lên (`-Y` của camera OpenCV) của mọi camera ở mọi khung. Trục tới là hướng xe chạy: trung bình (trên vòng tròn) góc giữa mỗi đoạn đường dài hơn 0,3 m và hướng nhìn của camera tham chiếu (`timeline.reference_sensor` nếu là camera, không thì camera đầu), nên đúng cả khi cảnh không có camera nhìn thẳng phía trước; sai số cỡ 2 độ (cảnh thật: camera trước nuScenes −1,2 độ, KITTI-360 `image_00` 1,8 độ). Xe đứng yên thì lấy hướng camera tham chiếu (`forward_source: "camera"`).
+
+```json
+{
+  "version": 1, "scene_id": "nuscenes_scene-0061",
+  "frame": "x forward, y left, z up (m); origin: camera centre at frame 0",
+  "reference_camera": "CAM_FRONT", "forward_source": "motion",
+  "cameras": [{"camera_id": "CAM_FRONT", "model": "opencv_pinhole", "position_m": [0.75, -0.01, -0.05],
+               "yaw_deg": -1.2, "pitch_deg": -2.2, "hfov_deg": 64.6}],
+  "trajectory": [{"frame": 0, "x": 0.0, "y": 0.0, "z": 0.0, "yaw_deg": 0.0}]
+}
+```
+
+`yaw_deg` dương là sang trái; vị trí camera tính so với tâm các camera ở khung đầu. `hfov_deg`: pinhole từ tiêu cự; mắt cá, F-theta là góc giữa hai pixel hợp lệ xa nhất trên hàng giữa ảnh theo tia của loader (camera mắt cá KITTI-360: trong góc che của loader, ví dụ 191,8 độ với `image_02` của cảnh ghi `max_angle`). `trajectory`: tâm các camera và hướng xe theo từng khung.
 
 ## 4. Approach
 
@@ -805,6 +825,7 @@ Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dà
 | `d2s scene validate <scene_id>` | Kiểm tra lại, ghi `validation.json`; cảnh ingest bằng converter cũ có mục cảnh báo `converter.outdated` (mục 3.2) |
 | `d2s scene list` / `d2s scene show <scene_id>` | Liệt kê cảnh; xem manifest và báo cáo |
 | `d2s scene delete <scene_id>` | Xoá dữ liệu chuẩn, split, cache và run của cảnh; hỏi xác nhận |
+| `d2s scene rig <scene_id>` | Ghi `reports/rig.json` (mục 3.3) cho cảnh đã ingest; cần PyTorch |
 | `d2s split create <scene_id> --strategy every_nth_frame:8 [--cameras <id,...>] [--frame-range <đầu>,<cuối>] [--split <split_id>]` | Tạo split; mặc định mọi camera và cả cảnh, tên theo mục 10.1 |
 | `d2s split list <scene_id>` / `d2s split show <scene_id> <split_id>` / `d2s split delete <scene_id> <split_id>` | Liệt kê, xem, xoá split |
 | `d2s approach list` / `d2s approach show <approach_id>` | Liệt kê approach; xem mục cấu hình, preset, ràng buộc |
@@ -888,6 +909,7 @@ Route đã có (`drive2sim/studio/api/routes/`):
 | Route | Việc | Tương ứng CLI |
 |---|---|---|
 | `GET /api/scenes`, `GET /api/scenes/{scene_id}` | Liệt kê cảnh; manifest, `validation` (báo cáo kiểm tra hoặc `null`), `splits` (danh sách `split_id`), `split_cameras` (camera của từng split, `{split_id: [camera_id]}`; giao diện hiện loại ống kính và xét approach theo camera của split, như engine), `kaggle` (danh sách notebook nạp cảnh trong `kaggle_scene.json` khi cảnh được nạp trên Kaggle, máy không có ảnh; ngược lại `null`), `converter_outdated` (`{"output_version", "current_output_version"}` khi cảnh được ingest bằng converter cũ, mục 2.2; ngược lại `null`) | `scene list`, `scene show` |
+| `GET /api/scenes/{scene_id}/rig`, `POST` cùng đường dẫn | `{"rig": nội dung reports/rig.json | null}`; `POST` tạo lại file (vài chục giây, `500` kèm log khi lỗi) | `scene rig` |
 | `GET /api/scenes/{scene_id}/frames/{frame_index}` | `{"frame_index", "images": [{"camera_id", "url"}]}` cho lưới ảnh đồng bộ; `url` là `null` khi thiếu ảnh | |
 | `GET`, `POST /api/scenes/{scene_id}/splits`, `GET .../splits/{split_id}` | Liệt kê, tạo, xem split; thân của `POST`: `strategy`, `cameras`, `frame_range`, `split_id` | `split list`, `split create`, `split show` |
 | `GET /api/approaches`, `GET /api/approaches/{approach_id}` | Đọc file approach | `approach list`, `approach show` |

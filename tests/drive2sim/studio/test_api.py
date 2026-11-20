@@ -199,6 +199,8 @@ def test_scenes_and_splits(client: TestClient) -> None:
     # Cảnh mẫu có cả pinhole lẫn mắt cá: tên ghi loại ống kính của camera đã chọn.
     assert split_id == "every4_pinhole1"
     assert client.get(f"/api/scenes/{SCENE}").json()["split_cameras"] == {split_id: ["CAM_FRONT"]}
+    # chưa có sơ đồ camera; file có thì trả nguyên nội dung
+    assert client.get(f"/api/scenes/{SCENE}/rig").json() == {"rig": None}
     assert client.get(f"/api/scenes/{SCENE}/splits").json()["total"] == 1
     assert client.get(f"/api/scenes/{SCENE}/splits/{split_id}").json()["strategy"]
 
@@ -373,6 +375,8 @@ def test_run_lifecycle(client: TestClient) -> None:
     videos = client.get(f"/api/runs/{run_id}/videos").json()["items"]
     assert videos[0]["stage_id"] == "train.toy" and videos[0]["name"] == "videos/test_set.mp4"
     assert client.get(videos[0]["url"]).content == b"mp4"
+    # test_set.mp4 không theo dạng <bộ>_<bước>_<kênh>: không thành bộ của trình phát so sánh
+    assert client.get(f"/api/runs/{run_id}/video_sets").json() == {"items": [], "total": 0}
 
     with client.stream("GET", f"/api/runs/{run_id}/events") as stream:
         text = "".join(stream.iter_text())

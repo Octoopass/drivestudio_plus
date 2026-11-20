@@ -773,3 +773,23 @@ table.centered td.block-head { text-align: left; }
 .vc-swatch { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-left: 8px; }
 @media (max-width: 720px) { .vc-grid { grid-template-columns: 1fr !important; } }
 .vc-others { margin-top: 18px; } .vc-others summary { cursor: pointer; color: var(--muted); margin-bottom: 10px; }
+
+/* Sơ đồ camera và quỹ đạo xe (components/SceneRig.tsx) */
+.rig-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 18px; align-items: start; }
+.rig-figure { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.rig-figure svg { width: 100%; max-height: 460px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.rig-car { fill: none; stroke: var(--line-strong); stroke-width: 0.05; }
+.rig-arrow { fill: var(--line-strong); }
+.rig-fov { fill: var(--accent); fill-opacity: 0.16; stroke: var(--accent); stroke-width: 0.025; }
+.rig-fov.fisheye { fill: #d9822b; stroke: #d9822b; }
+.rig-cam { fill: var(--text); }
+.rig-label { fill: var(--text); font-size: 0.3px; font-family: var(--font-dense); }
+.rig-path { fill: none; stroke: var(--accent); stroke-linejoin: round; stroke-linecap: round; }
+.rig-start { fill: var(--panel); stroke: var(--accent); stroke-width: 0.3%; }
+.rig-end { fill: var(--accent); }
+.rig-now { fill: #d9822b; stroke: var(--panel); stroke-width: 0.2%; }
+.rig-heading { stroke: #d9822b; stroke-linecap: round; }
+.rig-scale { stroke: var(--text); }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (max-width: 860px) { .rig-grid { grid-template-columns: 1fr; } }

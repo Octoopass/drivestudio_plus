@@ -9,6 +9,8 @@ File này chứa:
 - ``GET /api/scenes/{scene_id}/splits``, ``GET .../splits/{split_id}``: đọc split.
 - ``POST /api/scenes/{scene_id}/splits``: tạo split (như ``d2s split create``).
 - ``POST /api/scenes/{scene_id}/validate``: kiểm tra lại cảnh, ghi ``reports/validation.json``.
+- ``GET /api/scenes/{scene_id}/rig``: sơ đồ camera và quỹ đạo xe (``reports/rig.json``) hoặc
+  ``null``; ``POST`` cùng đường dẫn tạo lại file đó (``engine/rig.py``, cần PyTorch).
 - ``DELETE /api/scenes/{scene_id}``: xoá cảnh cùng split, cache, run của nó.
 - ``DELETE /api/scenes/{scene_id}/splits/{split_id}``: xoá split (còn run dùng thì ``409``).
 """
@@ -16,11 +18,12 @@ File này chứa:
 import json
 from typing import Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 
 from drive2sim.core import files
 from drive2sim.engine import housekeeping, scenes
+from drive2sim.engine.rig import RigError, generate_rig, read_rig
 from drive2sim.engine.workdir import KAGGLE_SCENE_FILE
 from drive2sim.ingest.images import IMAGE_SUFFIXES
 from drive2sim.ingest.manifest import outdated_output_version
@@ -155,6 +158,31 @@ def create_split(scene_id: str, body: CreateSplitBody, request: Request) -> dict
         split_id=body.split_id,
     )
     return split.model_dump(mode="json")
+
+
+@router.get("/{scene_id}/rig")
+def rig(scene_id: str, request: Request) -> dict:
+    """Sơ đồ camera và quỹ đạo xe của cảnh.
+
+    Returns:
+        ``{"rig": nội dung reports/rig.json | null}``.
+    """
+    scene = state_of(request).workdir.load_scene(scene_id)
+    return {"rig": read_rig(scene.root)}
+
+
+@router.post("/{scene_id}/rig")
+def make_rig(scene_id: str, request: Request) -> dict:
+    """Tạo lại ``reports/rig.json`` (như ``d2s scene rig``); vài chục giây.
+
+    Raises:
+        HTTPException: ``500`` kèm phần cuối log nếu không tạo được (thiếu PyTorch, thiếu pose).
+    """
+    scene = state_of(request).workdir.load_scene(scene_id)
+    try:
+        return {"rig": generate_rig(scene.root)}
+    except RigError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from None
 
 
 @router.post("/{scene_id}/validate")

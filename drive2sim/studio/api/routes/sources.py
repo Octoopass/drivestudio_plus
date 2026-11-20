@@ -16,6 +16,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from drive2sim.engine.rig import RigError, generate_rig
 from drive2sim.ingest.detect import SourceReport, inspect_source
 from drive2sim.ingest.dispatch import plan_ingest, run_ingest
 from drive2sim.studio.api.state import state_of
@@ -97,6 +98,11 @@ def ingest(body: IngestBody, request: Request) -> dict:
             scene_id=body.scene_id,
             interpolate_n=body.interpolate_n,
         )
+        # Sơ đồ camera; lỗi không làm hỏng cảnh vừa ingest (trang cảnh có nút tạo lại).
+        try:
+            generate_rig(scene_dir)
+        except RigError:
+            pass
         return scene_dir.name
 
     return state.jobs.submit("ingest", f"{target.dataset} {target.sequence}", work)

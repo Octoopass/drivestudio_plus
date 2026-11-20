@@ -9,6 +9,7 @@ File này chứa:
 
 - ``validate_scene``: kiểm tra lại một cảnh, ghi ``reports/validation.json``.
 - ``delete_scene``: xoá cảnh cùng split, cache và run của nó, sau khi hỏi xác nhận.
+- ``rig_scene``: tạo ``reports/rig.json`` (sơ đồ camera, quỹ đạo xe) cho một cảnh.
 """
 
 import argparse
@@ -19,6 +20,7 @@ from drive2sim.cli.output import CommandError, UsageError, confirm, emit, format
 from drive2sim.core import files
 from drive2sim.core.schema import Manifest
 from drive2sim.engine import housekeeping, scenes
+from drive2sim.engine.rig import RigError, generate_rig
 from drive2sim.engine.workdir import Workdir
 from drive2sim.ingest import kitti360
 from drive2sim.ingest.detect import inspect_source
@@ -56,6 +58,11 @@ def register(
     delete = actions.add_parser("delete", parents=[common], help="xoá cảnh, split, cache và run")
     delete.add_argument("scene_id")
     delete.set_defaults(handler=delete_scene)
+    rig = actions.add_parser(
+        "rig", parents=[common], help="tạo sơ đồ camera và quỹ đạo xe (reports/rig.json)"
+    )
+    rig.add_argument("scene_id")
+    rig.set_defaults(handler=rig_scene)
 
 
 # Tuỳ chọn của scene ingest, theo thứ tự in ra lệnh (``ingest_arguments``): tên cờ, tên thuộc tính.
@@ -241,6 +248,11 @@ def ingest_scene(args: argparse.Namespace) -> int:
     except IngestError as error:
         raise CommandError(str(error)) from None
     info(args, f"đã ghi {workdir.relative(scene_dir)}")
+    # Sơ đồ camera cho Studio; lỗi ở đây không làm hỏng cảnh vừa ingest (tạo lại bằng scene rig).
+    try:
+        generate_rig(scene_dir)
+    except RigError as error:
+        info(args, f"cảnh báo: {error}; tạo lại bằng d2s scene rig {scene_dir.name}")
     manifest = files.load(scene_dir / "manifest.yaml", Manifest)
     report_data = json.loads((scene_dir / "reports" / "validation.json").read_text("utf-8"))
     summary = report_data["summary"]
@@ -301,4 +313,32 @@ def delete_scene(args: argparse.Namespace) -> int:
     confirm(args, f"Xoá cảnh {args.scene_id} cùng mọi split, cache và run của nó?", targets)
     removed = housekeeping.delete_scene(workdir, args.scene_id)
     emit(args, {"removed": removed}, f"đã xoá {', '.join(removed)}")
+    return 0
+
+
+def rig_scene(args: argparse.Namespace) -> int:
+    """Tạo ``reports/rig.json`` của một cảnh (cảnh ingest trước khi có file này).
+
+    Cảnh ingest trên Kaggle chỉ cần pose, calib trên máy (``d2s kaggle scene-files``).
+
+    Returns:
+        Mã thoát ``0``.
+
+    Raises:
+        CommandError: Nếu cảnh không có hoặc không tạo được.
+    """
+    workdir = Workdir(args.workdir)
+    scene_dir = workdir.scene_dir(args.scene_id)
+    if not (scene_dir / "manifest.yaml").is_file():
+        raise CommandError(f"không có cảnh {args.scene_id}")
+    try:
+        rig = generate_rig(scene_dir)
+    except RigError as error:
+        raise CommandError(str(error)) from None
+    emit(
+        args,
+        rig,
+        f"đã ghi {workdir.relative(scene_dir / 'reports' / 'rig.json')}: "
+        f"{len(rig['cameras'])} camera, {len(rig['trajectory'])} khung",
+    )
     return 0

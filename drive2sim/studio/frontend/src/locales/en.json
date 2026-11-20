@@ -747,5 +747,18 @@
   "video.channel.rgb_sky_blend": "Sky (blended)",
   "video.channel.rgb_sky": "Sky",
   "video.channel.lidar_on_images": "LiDAR on images",
-  "video.others": "Other videos"
+  "video.others": "Other videos",
+  "scene.rig.diagram": "Camera layout seen from above",
+  "scene.rig.diagram_caption": "The vehicle faces up. Wedges show each camera's horizontal field of view (teal: pinhole, orange: fisheye); the body outline is estimated from the camera positions, not the real size.",
+  "scene.rig.trajectory": "Vehicle trajectory seen from above",
+  "scene.rig.frame": "Frame on the trajectory",
+  "scene.rig.trajectory_caption": "Hollow circle: first frame; square: last frame; orange dot and line: vehicle position and heading at the selected frame. Distance {length} m, height change {climb} m.",
+  "scene.rig.none": "No camera layout yet",
+  "scene.rig.none_hint": "The scene was ingested before this feature. Creating it needs PyTorch (Studio started from the drive2sim environment) and takes a few dozen seconds.",
+  "scene.rig.generate": "Create layout",
+  "scene.rig.regenerate": "Recreate",
+  "scene.rig.generating": "Creating...",
+  "scene.rig.forward_motion": "Vehicle heading taken from the driving direction",
+  "scene.rig.forward_camera": "The vehicle does not move: heading taken from where {camera} looks",
+  "scene.rig.source_hint": "Poses come from the same loader the trainer uses (reports/rig.json, drive2sim/recon/tools/scene_rig.py), so the layout matches the training data. Heading is measured from the angle between the driven path and a camera's view over the whole scene, to about 2 degrees. Fisheye field of view is the part of the image that is used (within the valid lens model angle)."
 }
