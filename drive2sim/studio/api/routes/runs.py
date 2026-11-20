@@ -24,6 +24,7 @@ File này chứa:
 - ``GET /api/runs/{run_id}/render-check``: máy chạy Studio có render được run này bằng GPU không.
 """
 
+import re
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -56,7 +57,7 @@ from drive2sim.engine.run import (
 from drive2sim.engine.workdir import Workdir
 from drive2sim.kaggle import executor as kaggle_executor
 from drive2sim.stages.commands import CAMERAS_FILE
-from drive2sim.studio.api import preview
+from drive2sim.studio.api import preview, video_compare
 from drive2sim.studio.api.events import stream_events
 from drive2sim.studio.api.routes import colab, kaggle
 from drive2sim.studio.api.routes.approaches import PlanBody, plan_from_body
@@ -445,6 +446,68 @@ def run_video_preview(run_id: str, stage_id: str, name: str, request: Request) -
     except preview.PreviewError as exc:
         raise HTTPException(409, str(exc)) from exc
     return FileResponse(playable, media_type="video/mp4")
+
+
+class CompareSide(BaseModel):
+    """Một bên của video ghép: video ``stage_id``/``name`` của run ``run_id``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str
+    stage_id: str
+    name: str
+
+
+class CompareVideosBody(BaseModel):
+    """Thân của ``POST /api/compare/videos``.
+
+    Attributes:
+        a: Bên trên (``vstack``) hoặc bên trái (``hstack``).
+        b: Bên còn lại.
+        layout: ``vstack`` trên dưới, ``hstack`` cạnh nhau.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    a: CompareSide
+    b: CompareSide
+    layout: Literal["vstack", "hstack"] = "vstack"
+
+
+@router.post("/api/compare/videos")
+def compare_videos(body: CompareVideosBody, request: Request) -> dict:
+    """Ghép video của hai run thành một file (``studio/api/video_compare.py``).
+
+    Returns:
+        ``{"url", "name", "layout"}``; ``404`` nếu không có video, ``409`` khi video đang ghi,
+        không có ffmpeg hoặc ffmpeg lỗi, ``400`` khi hai bên là một video.
+    """
+    workdir = state_of(request).workdir
+    sources = []
+    for side in (body.a, body.b):
+        run_dir, _ = _load(request, side.run_id)
+        try:
+            sources.append(
+                video_compare.video_path(run_dir / D2S_DIR / "stages", side.stage_id, side.name)
+            )
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from None
+    try:
+        name = video_compare.compare_video(
+            workdir.root, sources[0], body.a.run_id, sources[1], body.b.run_id, body.layout
+        )
+    except video_compare.CompareError as exc:
+        raise HTTPException(409, str(exc)) from None
+    return {"url": f"/api/compare/videos/{name}", "name": name, "layout": body.layout}
+
+
+@router.get("/api/compare/videos/{name}")
+def compare_video_file(name: str, request: Request) -> FileResponse:
+    """File video ghép đã tạo; ``404`` nếu tên sai dạng hoặc không có."""
+    path = state_of(request).workdir.root / video_compare.COMPARE_DIR / name
+    if not re.match(video_compare.FILE_PATTERN, name) or not path.is_file():
+        raise HTTPException(404, f"không có video ghép {name}")
+    return FileResponse(path, media_type="video/mp4", filename=name)
 
 
 @router.get("/api/runs/{run_id}/splats")
