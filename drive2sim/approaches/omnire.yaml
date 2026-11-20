@@ -45,6 +45,16 @@ options:
       - "Cách vẽ gốc của 3D Gaussian Splatting, cho camera pinhole."
       - "Renderer của NVIDIA (3D Gaussian Unscented Transform): vẽ được cho camera có độ méo ống kính lớn. Không dùng cùng CamPose. Ngưỡng densify chưa chỉnh riêng cho 3DGUT."
       - "Renderer của Bosch Research (docs/methods/3dgeer.md): chiếu chính xác cho camera góc rộng và mắt cá. Không dùng cùng CamPose."
+  extended_cam:
+    choices: [false, true]
+    default: false
+    group: core
+    label: "Nhiều camera"
+    help: "Bản cấu hình OmniRe của DriveStudio cho cảnh có hơn 3 camera (omnire_extended_cam.yaml)."
+    labels: ["Tắt", "Bật"]
+    descriptions:
+      - "Cấu hình thường của OmniRe."
+      - "40000 iteration, chọn ảnh train theo sai số (cache_buffer_freq), ngưỡng densify thấp hơn. Chỉ với 3DGS, bật CamPose, tắt FastGS, Faster-GS."
   campose:
     choices: [false, true]
     default: false
@@ -101,6 +111,21 @@ retired_options:
     labels: ["Theo gradient (gốc)", "MCMC"]
 
 constraints:
+  - when: {extended_cam: true}
+    forbid: {renderer: 3dgut}
+    reason: "config nhiều camera chỉ có cho renderer 3DGS"
+  - when: {extended_cam: true}
+    forbid: {renderer: 3dgeer}
+    reason: "config nhiều camera chỉ có cho renderer 3DGS"
+  - when: {extended_cam: true}
+    forbid: {campose: false}
+    reason: "config nhiều camera bật CamPose"
+  - when: {extended_cam: true}
+    forbid: {fastgs: true}
+    reason: "chưa có config nhiều camera kèm FastGS"
+  - when: {extended_cam: true}
+    forbid: {fastergs: true}
+    reason: "chưa có config nhiều camera kèm Faster-GS"
   - when: {renderer: 3dgeer}
     forbid: {campose: true}
     reason: "3DGEER không tối ưu được pose camera"
@@ -112,6 +137,7 @@ constraints:
     reason: "config FastGS của OmniRe tắt CamPose"
 
 presets:
+  extended_cam: {extended_cam: true, campose: true}
   paper: {campose: true}       # omnire.yaml gốc của DriveStudio
   ut: {renderer: 3dgut}
   geer: {renderer: 3dgeer}
@@ -119,6 +145,7 @@ presets:
   fastergs: {fastergs: true}
 
 preset_help:
+  extended_cam: "Cấu hình OmniRe của DriveStudio cho hơn 3 camera: 3DGS, CamPose, 40000 iteration."
   paper: "Cấu hình gốc của DriveStudio (omnire.yaml): 3DGS, bật CamPose."
   ut: "Renderer 3DGUT, tắt CamPose."
   geer: "Renderer 3DGEER, tắt CamPose."
@@ -135,6 +162,7 @@ stages:
       campose: "${options.campose}"
       fastgs: "${options.fastgs}"
       fastergs: "${options.fastergs}"
+      extended_cam: "${options.extended_cam}"
   - {stage: eval.standard}
   - {stage: export.ply_world}
   - {stage: export.preview}

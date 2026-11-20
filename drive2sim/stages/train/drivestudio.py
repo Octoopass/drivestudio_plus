@@ -84,6 +84,10 @@ CONFIG_FILES: dict[tuple[str, str, bool, bool, bool], str] = {
     ("pvg", "3dgs", True, False, False): "pvg.yaml",
     ("deformablegs", "3dgs", True, False, False): "deformablegs.yaml",
 }
+# Bản OmniRe cho nhiều camera (hơn 3): 40k iteration, chọn ảnh theo sai số, ngưỡng densify thấp
+# hơn; chỉ có cho tổ hợp gốc của paper (3DGS, CamPose, không FastGS, Faster-GS).
+EXTENDED_CAM_KEY = ("omnire", "3dgs", True, False, False)
+EXTENDED_CAM_FILE = "omnire_extended_cam.yaml"
 RESUME_CHECKPOINT = "checkpoint_resume.pth"
 # Trainer densify 3DGUT theo gradient tương đương pixel (ut_densify=screen)
 SCREEN_GRAD_TRAINER = "drive2sim.recon.trainers.screen_grad.ScreenGradMultiTrainer"
@@ -137,6 +141,8 @@ class TrainDrivestudioParams(BaseModel):
         densify_stats: Ghi phân bố của đại lượng densify ở mỗi lần refine vào
             ``densify_stats.jsonl`` (``drive2sim/recon/utils/densify_stats.py``), để chỉnh ngưỡng
             densify theo renderer (``docs/methods/densify_3dgut.md``). Chỉ đọc, không đổi kết quả.
+        extended_cam: Dùng config OmniRe cho nhiều camera (``omnire_extended_cam.yaml``); chỉ
+            với tổ hợp ``EXTENDED_CAM_KEY``.
         preload_device: Nơi giữ ảnh, mask, lidar đã nạp (``data.preload_device``). Mặc định
             ``cpu``: mỗi bước chỉ chuyển ảnh đang dùng lên GPU (train.py đã làm), nên tiết kiệm vài
             GB GPU mà kết quả như ``cuda``. OmniRe 3 camera trên T4 16 GB hết bộ nhớ ở bước ~8800
@@ -162,6 +168,7 @@ class TrainDrivestudioParams(BaseModel):
     densify: Literal["default", "mcmc"] = "default"
     densify_stats: bool = False
     preload_device: Literal["cpu", "cuda"] = "cpu"
+    extended_cam: bool = False
 
     @field_validator("profile_at", mode="before")
     @classmethod
@@ -177,6 +184,11 @@ class TrainDrivestudioParams(BaseModel):
             ValueError: Nếu chưa có file config cho tổ hợp này (thông báo liệt kê các tổ hợp có),
                 hoặc file config và các tầng ``extends`` của nó không đọc được.
         """
+        if self.extended_cam and self.config_key != EXTENDED_CAM_KEY:
+            raise ValueError(
+                "extended_cam chỉ có cho OmniRe, renderer 3dgs, bật CamPose, tắt FastGS và "
+                "Faster-GS (omnire_extended_cam.yaml)"
+            )
         if self.config_key not in CONFIG_FILES:
             available = ", ".join(
                 f"{m}/{r}/campose={c}/fastgs={f}/fastergs={g}"
@@ -202,7 +214,8 @@ class TrainDrivestudioParams(BaseModel):
     @property
     def config_file(self) -> Path:
         """Trả về đường dẫn file config method ứng với tham số."""
-        return paths.CONFIGS_DIR / "methods" / CONFIG_FILES[self.config_key]
+        name = EXTENDED_CAM_FILE if self.extended_cam else CONFIG_FILES[self.config_key]
+        return paths.CONFIGS_DIR / "methods" / name
 
 
 def _format_value(value: object) -> str:
@@ -401,6 +414,16 @@ def build_command(
     return command
 
 
+def has_dynamic_masks(scene_root: Path, extra: dict[str, Path]) -> bool:
+    """Cảnh có mask vật động không: ``dynamic_masks/`` của cảnh, hoặc mask tinh của SegFormer.
+
+    Args:
+        scene_root: Thư mục cảnh.
+        extra: Mục ghép thêm vào cảnh ảo (``view_extras``).
+    """
+    return (scene_root / "dynamic_masks").is_dir() or "fine_dynamic_masks" in extra
+
+
 def write_method_config(params: TrainDrivestudioParams, output_dir: Path) -> Path:
     """Gộp ``extends`` của config method rồi ghi bản đầy đủ vào thư mục stage.
 
@@ -463,6 +486,15 @@ class TrainDrivestudioStage(Stage):
         """
         assert isinstance(params, TrainDrivestudioParams)
         extra = view_extras(inputs)
+        # Cảnh không có box 3D (PVG, DeformableGS trên KITTI-360 không box): không có box, mask
+        # vật động; loader DriveStudio phải bỏ hai bước đọc đó thay vì lỗi thiếu file.
+        overrides = dict(params.overrides)
+        if not has_dynamic_masks(ctx.scene.root, extra):
+            overrides.setdefault("data.pixel_source.load_dynamic_mask", False)
+        if not (ctx.scene.root / "instances" / "instances_info.json").is_file():
+            overrides.setdefault("data.pixel_source.load_objects", False)
+        if overrides != params.overrides:
+            params = params.model_copy(update={"overrides": overrides})
         view_root = ctx.output_dir / VIEW_DIR
         build_view(ctx.scene.root, view_root, exclude=(*MASK_ENTRIES, SMPL_ENTRY), extra=extra)
         command = build_command(

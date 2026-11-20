@@ -52,6 +52,7 @@ from drive2sim.studio.api.routes import (
     colab,
     environment,
     kaggle,
+    libraries,
     report,
     runs,
     scenes,
@@ -301,6 +302,7 @@ def create_app(
         colab,
         environment,
         assistant,
+        libraries,
     )
     for module in routers:
         app.include_router(module.router)

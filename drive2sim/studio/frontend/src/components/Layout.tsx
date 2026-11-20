@@ -7,6 +7,7 @@ import {
   Boxes,
   Gauge,
   HardDrive,
+  Package,
   Languages,
   LayoutDashboard,
   ListChecks,
@@ -61,6 +62,7 @@ const MENU: { group: string | null; items: MenuItem[] }[] = [
     items: [
       { key: "nav.menu.viewer", route: { page: "viewer" }, pages: ["viewer"], icon: <Box size={ICON} /> },
       { key: "nav.menu.storage", route: { page: "storage" }, pages: ["storage"], icon: <HardDrive size={ICON} /> },
+      { key: "nav.menu.libraries", route: { page: "libraries" }, pages: ["libraries"], icon: <Package size={ICON} /> },
     ],
   },
 ];

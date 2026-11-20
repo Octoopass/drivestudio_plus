@@ -20,7 +20,8 @@ export type Route =
   | { page: "run"; runId: string }
   | { page: "compare"; sceneId?: string; splitId?: string }
   | { page: "viewer"; runId?: string }
-  | { page: "storage" };
+  | { page: "storage" }
+  | { page: "libraries" };
 
 export type Page = Route["page"];
 
@@ -50,6 +51,8 @@ export function parseRoute(hash: string): Route {
       return { page: "viewer", runId: get("run") };
     case "storage":
       return { page: "storage" };
+    case "libraries":
+      return { page: "libraries" };
     default:
       return { page: "overview" };
   }
@@ -88,6 +91,8 @@ export function href(route: Route): string {
       return withQuery("viewer", { run: route.runId });
     case "storage":
       return "#/storage";
+    case "libraries":
+      return "#/libraries";
     default:
       return "#/";
   }

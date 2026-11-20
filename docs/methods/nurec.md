@@ -34,4 +34,13 @@ Cảnh `kitti360_0005_nurec`: KITTI-360 `2013_05_28_drive_0005_sync`, 120 khung 
 | `max_chunks=1` (như mặc định cũ) | 1 | 458 987 | 10 s | 11,9 | 0,38 | 0,14 |
 | tự tính (`7`) | 7 | 454 703 | 20,5 s | 13,1 | 0,42 | 0,30 |
 
-Với một đoạn, 8/14 khung test của camera trước không có Gaussian nào (vùng dựng phủ 0%), nên số đoạn nay tự tính. Ảnh render khớp hình học với ảnh thật (đường, dãy nhà, hàng rào cùng chỗ) nhưng mờ và lệch tỉ lệ; PSNR thấp. Nghi do dữ liệu thưa (mỗi mẫu 18 ảnh của NuRec trải 9 giây thay vì khoảng 1,8 giây ở 10 Hz), **chưa kiểm**: không có mốc so sánh vì Street Gaussians và OmniRe cần box 3D mà cảnh này không có. Cần thử lại trên chuỗi KITTI-360 có đủ khung 10 Hz.
+Với một đoạn, 8/14 khung test của camera trước không có Gaussian nào (vùng dựng phủ 0%), nên số đoạn nay tự tính. Ảnh render khớp hình học với ảnh thật (đường, dãy nhà, hàng rào cùng chỗ) nhưng mờ.
+
+Mốc so sánh trên cùng cảnh, split `every8_pinhole` (hai camera pinhole `image_00`, `image_01`; 212 ảnh train, 28 ảnh test), vì Street Gaussians và OmniRe cần box 3D mà cảnh này không có:
+
+| Approach | PSNR | SSIM | LPIPS | Thời gian | Gaussian |
+|---|---|---|---|---|---|
+| PVG, thử nhanh (3000 iteration) | 13,8 | 0,35 | 0,73 | 167 s train | 2 217 749 |
+| Instant NuRec `pa-multiview` (1 camera ngữ cảnh) | 14,7 | 0,41 | 0,41 | 11 s | 494 125 |
+
+PVG train riêng cho cảnh cũng chỉ đạt khoảng 14 dB, nên PSNR thấp đến từ dữ liệu (ảnh cách nhau 0,5 giây, khung test xa khung train), không phải từ bản chuyển NuRec. Hai cách đo không giống hệt: `eval.standard` chấm ở nửa độ phân giải, cả ảnh; `eval.ncore` ở độ phân giải gốc, vùng hợp lệ. Cần thử lại trên chuỗi KITTI-360 có đủ khung 10 Hz.

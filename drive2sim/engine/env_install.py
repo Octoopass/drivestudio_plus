@@ -13,7 +13,8 @@ gsplat-geer, nvdiffrast, pytorch3d), trong lúc đó ingest và tải Drive vẫ
 
 File này chứa:
 - ``SCRIPTS``, ``PYTHON``: script và bản Python của từng môi trường.
-- ``InstallFlow``: một lần cài đang chạy hoặc vừa xong (Studio giữ một bản).
+- ``InstallFlow``: một lần cài đang chạy hoặc vừa xong (Studio giữ một bản); cài môi trường
+  (``start``) hoặc một lệnh của bảng thư viện (``start_command``, ``libraries.py``).
 """
 
 import os
@@ -66,6 +67,11 @@ class InstallFlow:
         self._state: dict[str, Any] = {"state": "idle"}
         self._log = ""
         self._cancelled = False
+
+    @property
+    def python(self) -> str:
+        """Python mà các lệnh cài (pip) dùng: Python đang chạy Studio."""
+        return self._python
 
     def view(self) -> dict:
         """Trạng thái lần cài.
@@ -129,9 +135,25 @@ class InstallFlow:
         if running:
             return self.view()
         script = self.preflight(env)
+        command = ["bash", str(script), "--python", self._python, "--from", str(int(from_step))]
+        return self._launch(env, command, int(from_step))
+
+    def start_command(self, name: str, command: list[str]) -> dict:
+        """Chạy một lệnh cài (bảng thư viện) như một lần cài: log, dừng được, mỗi lúc một việc.
+
+        Args:
+            name: Tên mục (``env`` trong trạng thái, tên file log ``install-<name>.log``).
+            command: Lệnh cài.
+        """
+        with self._lock:
+            running = self._process is not None and self._process.poll() is None
+        if running:
+            return self.view()
+        return self._launch(name, command, 1)
+
+    def _launch(self, env: str, command: list[str], from_step: int) -> dict:
         self._log_dir.mkdir(parents=True, exist_ok=True)
         log_path = self._log_dir / f"install-{env}.log"
-        command = ["bash", str(script), "--python", self._python, "--from", str(int(from_step))]
         env_vars = dict(os.environ, PYTHONUNBUFFERED="1")
         with self._lock:
             self._process = self._popen(
@@ -141,7 +163,7 @@ class InstallFlow:
             now = time.time()
             self._state = {
                 "state": "running", "env": env, "step": None, "steps": None, "label": None,
-                "from_step": int(from_step), "started_at": now, "step_started_at": now,
+                "from_step": from_step, "started_at": now, "step_started_at": now,
                 "finished_at": None, "log_path": str(log_path),
             }  # fmt: skip
             self._log = ""

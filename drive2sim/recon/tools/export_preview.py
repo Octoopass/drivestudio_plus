@@ -249,7 +249,8 @@ def main() -> None:
     rigid_actors: list[str] = []
     track_ids: list[str] = []
     poses: list[list] = []
-    if "RigidNodes" in models:
+    # drive2sim: cảnh không có box (PVG, DeformableGS) có node RigidNodes rỗng, không có Gaussian
+    if "RigidNodes" in models and "_means" in models["RigidNodes"]:
         state = models["RigidNodes"]
         gaussians = gaussians_from_state(state)
         owner = state["points_ids"][:, 0].long()

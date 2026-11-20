@@ -10,6 +10,7 @@ import { RunPage } from "./pages/RunPage";
 import { RunsPage } from "./pages/RunsPage";
 import { ScenePage } from "./pages/ScenePage";
 import { ScenesPage } from "./pages/ScenesPage";
+import { LibrariesPage } from "./pages/LibrariesPage";
 import { StoragePage } from "./pages/StoragePage";
 import { useRoute } from "./router";
 
@@ -37,6 +38,7 @@ export function App() {
       {route.page === "run" && <RunPage key={route.runId} runId={route.runId} />}
       {route.page === "compare" && <ComparePage sceneId={route.sceneId} splitId={route.splitId} />}
       {route.page === "storage" && <StoragePage />}
+      {route.page === "libraries" && <LibrariesPage />}
       {route.page === "viewer" && (
         <Suspense fallback={<Loading />}>
           <ViewerPage runId={route.runId} />

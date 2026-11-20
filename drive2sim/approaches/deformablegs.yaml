@@ -1,0 +1,27 @@
+# Approach DeformableGS: dựng cảnh bằng trainer DriveStudio với method DeformableGS (Deformable 3D Gaussians: một mạng biến dạng theo thời gian cho cả cảnh). Không dùng
+# box 3D, nên chạy được trên cảnh không có box. Định dạng file: CONTRACTS mục 4.1.
+#
+# DriveStudio chỉ có một config cho method này (drive2sim/configs/methods/deformablegs.yaml): renderer 3DGS,
+# bật CamPose (bảng CONFIG_FILES trong drive2sim/stages/train/drivestudio.py).
+schema_version: d2s-approach/0.3
+approach_id: deformablegs
+name: "DeformableGS"
+version: 0.1.0
+codebase: drivestudio
+level: L1
+requires:
+  camera_models: [opencv_pinhole]
+  cuboids: none
+  split_strategies: [every_nth_frame]
+
+stages:
+  # dynamic: false: mask vật động tinh cần box 3D (dynamic_masks/), hai method này dành cho cảnh không có box
+  - {stage: prep.masks_segformer, params: {dynamic: false}}
+  - stage: train.drivestudio
+    params:
+      method: deformablegs
+      renderer: 3dgs
+      campose: true
+  - {stage: eval.standard}
+  - {stage: export.ply_world}
+  - {stage: export.preview}
