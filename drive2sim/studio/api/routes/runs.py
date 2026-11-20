@@ -14,6 +14,8 @@ File này chứa:
 - ``GET /api/runs/{run_id}/events``, ``GET /api/events``: tiến độ qua Server-Sent Events.
 - ``GET /api/runs/{run_id}/log``: log của engine và phần cuối log của từng stage.
 - ``GET /api/runs/{run_id}/videos``: các video MP4 trong thư mục run, kèm đường dẫn để phát.
+- ``GET /api/runs/{run_id}/video_sets``: video đánh giá gom theo bộ (test, full) và kênh (gốc,
+  render, sai khác, độ sâu, lớp), kèm khung từng camera nếu có (``engine/videos.py``).
 - ``GET /api/runs/{run_id}/artifacts``: nơi lưu kết quả của từng stage và các file trong đó.
 - ``GET /api/runs/{run_id}/curve``: đường cong train (PSNR, loss, số Gaussian theo bước).
 - ``GET /api/runs/{run_id}/splats``: file Gaussian xem được trong trình duyệt (gói xem trước,
@@ -50,6 +52,7 @@ from drive2sim.engine.run import (
     reset_stage,
     run_is_active,
 )
+from drive2sim.engine.videos import video_sets
 from drive2sim.engine.workdir import Workdir
 from drive2sim.kaggle import executor as kaggle_executor
 from drive2sim.stages.commands import CAMERAS_FILE
@@ -407,6 +410,21 @@ def run_videos(run_id: str, request: Request) -> dict:
                 "url": f"/files/{workdir.relative(path)}",
             }
         )
+    return {"items": items, "total": len(items)}
+
+
+@router.get("/api/runs/{run_id}/video_sets")
+def run_video_sets(run_id: str, request: Request) -> dict:
+    """Video đánh giá của run, gom theo bộ và kênh cho trình phát so sánh.
+
+    Returns:
+        ``{"items": [...], "total": n}`` theo ``engine.videos.video_sets``.
+    """
+    run_dir, _ = _load(request, run_id)
+    workdir = state_of(request).workdir
+    items = video_sets(
+        run_dir / D2S_DIR / "stages", lambda path: f"/files/{workdir.relative(path)}"
+    )
     return {"items": items, "total": len(items)}
 
 

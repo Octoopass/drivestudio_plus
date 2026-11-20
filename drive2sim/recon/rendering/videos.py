@@ -5,6 +5,9 @@ import numpy as np
 import os
 import logging
 import imageio
+import json
+
+import matplotlib
 
 import torch
 from torch import Tensor
@@ -19,6 +22,95 @@ from drive2sim.recon.utils.visualization import (
 )
 
 logger = logging.getLogger()
+
+# drive2sim: error maps (rgb_error_maps) and their legend. Error is the mean absolute difference
+# over RGB of the 8-bit render and ground truth; ERROR_MAP_MAX and above take the top colour of
+# ERROR_MAP_CMAP. The scale is the same for every frame, camera and run so maps can be compared;
+# pixels left out of the metrics (valid_masks: fisheye rim, ego car) are drawn in
+# INVALID_PIXEL_GREY so they do not read as "no error".
+ERROR_MAP_MAX = 0.25
+ERROR_MAP_CMAP = "inferno"
+INVALID_PIXEL_GREY = 0.35
+# Range and curve of depth_visualizer (utils/visualization.py), written next to the videos for the
+# legend.
+DEPTH_RANGE_M = (4.0, 120.0)
+VIDEO_LAYOUT_SUFFIX = "_layout.json"
+
+
+def error_map_image(rgb: np.ndarray, gt: np.ndarray, valid: Optional[np.ndarray]) -> np.ndarray:
+    """drive2sim: colour error map (H, W, 3) in [0, 1] of one rendered image.
+
+    Args:
+        rgb: Rendered image (H, W, 3) in [0, 1].
+        gt: Ground truth (H, W, 3) in [0, 1].
+        valid: Boolean (H, W) of pixels used by the metrics, or None for all.
+    """
+    error = np.abs(rgb.astype(np.float32) - gt.astype(np.float32)).mean(-1)
+    colours = matplotlib.colormaps[ERROR_MAP_CMAP](np.clip(error / ERROR_MAP_MAX, 0, 1))[..., :3]
+    colours = colours.astype(np.float32)
+    if valid is not None:
+        colours[~valid] = INVALID_PIXEL_GREY
+    return colours
+
+
+def tile_boxes(layout: Callable, shapes: List[tuple], cam_names: List[str]) -> List[dict]:
+    """drive2sim: where each camera lands in the tiled frame that ``layout`` builds.
+
+    Lays out one probe image per camera (ones for that camera, zeros elsewhere) and takes the
+    bounding box of the lit pixels, so any dataset layout works, including ones that resize tiles.
+
+    Args:
+        layout: Dataset layout function (``utils/visualization.get_layout``).
+        shapes: ``(height, width)`` of each camera's image, in ``cam_names`` order.
+        cam_names: Camera names in the order passed to ``layout``.
+
+    Returns:
+        ``[{"name", "x", "y", "width", "height"}]`` in pixels of the tiled frame, for cameras
+        that appear in it.
+    """
+    boxes = []
+    for index, name in enumerate(cam_names):
+        probes = [
+            np.full((h, w, 3), 1.0 if j == index else 0.0, dtype=np.float32)
+            for j, (h, w) in enumerate(shapes)
+        ]
+        lit = layout(probes, cam_names)[..., 0] > 0.5
+        if not lit.any():
+            continue
+        rows, cols = np.nonzero(lit.any(1))[0], np.nonzero(lit.any(0))[0]
+        boxes.append(
+            {
+                "name": str(name),
+                "x": int(cols[0]),
+                "y": int(rows[0]),
+                "width": int(cols[-1] - cols[0] + 1),
+                "height": int(rows[-1] - rows[0] + 1),
+            }
+        )
+    return boxes
+
+
+def write_video_layout(
+    save_pth: str, layout: Callable, frames: List[np.ndarray], cam_names: List[str], fps: int
+) -> None:
+    """drive2sim: write ``<video>_layout.json`` next to the separate videos of one render set.
+
+    Studio reads it to crop one camera out of the tiled videos and to draw the legends; it holds
+    the tiled frame size, each camera's box, fps and the error and depth scales.
+    """
+    tiled = layout(frames, cam_names)
+    data = {
+        "width": int(tiled.shape[1]),
+        "height": int(tiled.shape[0]),
+        "fps": fps,
+        "cameras": tile_boxes(layout, [frame.shape[:2] for frame in frames], cam_names),
+        "error_map": {"max": ERROR_MAP_MAX, "cmap": ERROR_MAP_CMAP, "invalid_grey": INVALID_PIXEL_GREY},
+        "depth": {"min_m": DEPTH_RANGE_M[0], "max_m": DEPTH_RANGE_M[1], "curve": "log", "cmap": "turbo"},
+    }
+    path = os.path.splitext(save_pth)[0] + VIDEO_LAYOUT_SUFFIX
+    with open(path, "w") as f:
+        json.dump(data, f)
+
 
 def get_numpy(x: Tensor) -> np.ndarray:
     return x.squeeze().cpu().numpy()
@@ -275,13 +367,17 @@ def render(
                 ] + green_background * (1 - results["Dynamic_opacity"])
                 Dynamic_rgbs.append(get_numpy(Dynamic_rgb))
             if compute_error_map:
-                # cal mean squared error
-                error_map = (rgb - image_infos["pixels"]) ** 2
-                error_map = error_map.mean(dim=-1, keepdim=True)
-                # scale
-                error_map = (error_map - error_map.min()) / (error_map.max() - error_map.min())
-                error_map = error_map.repeat_interleave(3, dim=-1)
-                error_maps.append(get_numpy(error_map))
+                # drive2sim: fixed colour scale for every frame and run, invalid pixels in grey
+                # (error_map_image); DriveStudio rescaled each frame to its own min and max.
+                error_maps.append(
+                    error_map_image(
+                        get_numpy(rgb),
+                        get_numpy(image_infos["pixels"]),
+                        get_numpy(image_infos["valid_masks"]).astype(bool)
+                        if "valid_masks" in image_infos
+                        else None,
+                    )
+                )
             if "rgb_sky_blend" in results:
                 rgb_sky_blend.append(get_numpy(results["rgb_sky_blend"]))
             if "rgb_sky" in results:
@@ -462,7 +558,8 @@ def render(
 
     if save_video_kwargs is not None:
         for writer in stream_writers.values():
-            writer.close()
+            if hasattr(writer, "close"):
+                writer.close()
         if save_video_kwargs.get("verbose", True):
             logger.info(f"saved video to {save_video_kwargs['save_pth']}")
 
@@ -577,6 +674,10 @@ def save_videos(
                     for frame, opacity in zip(frames, render_results[opacity_key])
                 ]
             frame = to8b(layout(frames, render_results["cam_names"]))
+            if save_seperate_video and frame_idx == 0 and "layout_written" not in writers:
+                # drive2sim: camera boxes in the tiled frame, for Studio's video player
+                writers["layout_written"] = True
+                write_video_layout(save_pth, layout, frames, render_results["cam_names"], fps)
             if save_seperate_video:
                 output_key = key
                 output_path = save_pth.replace(".mp4", f"_{key}.mp4")

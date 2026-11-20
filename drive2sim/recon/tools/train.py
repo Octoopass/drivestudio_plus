@@ -462,12 +462,19 @@ def main(args):
     logger.info("Training done!")
 
     eval_started = time.perf_counter()
+    # drive2sim: the final videos also hold the error map and rendered depth, for Studio's
+    # video player (ground truth, render, error, depth and node layers of the same frames).
+    final_keys = list(render_keys)
+    if "rgb_error_maps" not in final_keys:
+        final_keys.insert(final_keys.index("rgbs") + 1, "rgb_error_maps")
+    if "depths" not in final_keys:
+        final_keys.append("depths")
     do_evaluation(
         step=step,
         cfg=cfg,
         trainer=trainer,
         dataset=dataset,
-        render_keys=render_keys,
+        render_keys=final_keys,
         args=args,
     )
     # drive2sim: time of the final evaluation (test renders, metrics, videos), so the stage time

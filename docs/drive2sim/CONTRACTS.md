@@ -394,11 +394,15 @@ Gốc thư mục run chỉ có `d2s/`, nên file của tool không trùng tên v
 | `_SMPLNodes_rgbs` | Chỉ người |
 | `_DeformableNodes_rgbs` | Chỉ vật biến dạng |
 | `_Dynamic_rgbs` | Mọi vật chuyển động (xe, người, vật biến dạng) |
+| `_rgb_error_maps` | Sai khác giữa ảnh render (8 bit) và ảnh thật: trung bình trị tuyệt đối trên ba kênh màu, thang màu `inferno` **cố định** từ 0 tới `ERROR_MAP_MAX` = 0,25 (64/255) cho mọi khung, camera và run; điểm ảnh không tính metric (`valid_masks`: rìa mắt cá, thân xe) tô xám 0,35. Từ 20/11/2026; DriveStudio chuẩn hoá mỗi khung theo min, max riêng nên không so được giữa các khung |
+| `_depths` | Độ sâu model vẽ ra, thang `turbo` theo log từ 4 tới 120 m (`depth_visualizer`), cố định cho mọi khung. Từ 20/11/2026; renderer 3DGUT, 3DGEER chỉ vẽ độ sâu khi train có depth loss |
+
+**`<bộ>_<bước>_layout.json`** (từ 20/11/2026, `write_video_layout` trong `drive2sim/recon/rendering/videos.py`) nằm cạnh video của mỗi bộ: `width`, `height` (khung ghép, pixel), `fps`, `cameras` (`[{"name", "x", "y", "width", "height"}]`: khung của từng camera trong khung ghép, tìm bằng cách cho hàm ghép của dataset ghép ảnh dò, nên đúng với mọi bố cục, kể cả bố cục đổi cỡ ảnh như KITTI-360), `error_map` (`max`, `cmap`, `invalid_grey`) và `depth` (`min_m`, `max_m`, `curve`, `cmap`) để vẽ chú thích. Video MP4 bị imageio đổi cỡ cho chia hết 16 (ví dụ khung ghép 2399×449 thành video 2400×464), nên người đọc cắt camera theo **tỉ lệ** của khung ghép, không theo pixel của video. Run train trước đó tạo bù bằng `python -m drive2sim.scripts.video_layouts [<run_id> ...]` (đọc `cameras.json`, `config.yaml`); fps của bộ test là `TEST_VIDEO_FPS` = 2 (`recon/tools/eval.py`), bộ full là `render.fps`.
 
 - **`full_set` trông đẹp hơn thực tế.** Khoảng 90 % khung trong đó model đã thấy lúc train, nên gần như "học thuộc".
 - **Muốn biết model tốt đến đâu, xem `test_set`.** Đặt `test_set_..._rgbs` cạnh `test_set_..._gt_rgbs` để so cùng khung.
 - **`novel` cho thấy chất lượng khi đi lệch khỏi đường xe đã chạy.** Đó là thứ cần cho mô phỏng, nhưng không đo được bằng số vì không có ảnh thật.
-- Danh sách video theo `render_keys` trong `train.py`; bật `render.vis_lidar`, `render.vis_sky`, `render.vis_error` trong config thì có thêm `lidar_on_images`, `rgb_sky_blend`/`rgb_sky`, `rgb_error_maps`. Đường đi `novel` theo `render.render_novel.traj_types` (`front_center_interp`, `s_curve`, `three_key_poses`, `drive2sim/recon/utils/camera.py`).
+- Danh sách video theo `render_keys` trong `train.py`; đánh giá cuối luôn thêm `rgb_error_maps` và `depths` (từ 20/11/2026); bật `render.vis_lidar`, `render.vis_sky`, `render.vis_error` trong config thì có thêm `lidar_on_images`, `rgb_sky_blend`/`rgb_sky`, `rgb_error_maps`. Đường đi `novel` theo `render.render_novel.traj_types` (`front_center_interp`, `s_curve`, `three_key_poses`, `drive2sim/recon/utils/camera.py`).
 
 Huỷ run (`d2s run cancel`, `POST /api/runs/{run_id}/cancel`) chỉ ghi file `cancel`, nên huỷ được từ tiến trình khác. Engine kiểm tra file này trước mỗi stage; stage đang chạy một tiến trình con thì kiểm tra mỗi giây, gửi SIGTERM cho cả nhóm tiến trình, chờ 10 giây rồi SIGKILL. Stage bị huỷ có trạng thái `cancelled` và chạy tiếp được bằng `run resume`. Run có trạng thái `running` mà không có tiến trình nào giữ `pid` (máy tắt giữa chừng) thì lệnh huỷ đổi ngay sang `cancelled`.
 
@@ -894,6 +898,7 @@ Route đã có (`drive2sim/studio/api/routes/`):
 | `GET /api/runs/{run_id}/events`, `GET /api/events` | Sự kiện SSE (mục 11.4) | |
 | `GET /api/runs/{run_id}/log` | `{"engine": <d2s/log.txt>, "stages": {stage_id: <200 dòng cuối log.txt>}}` | |
 | `GET /api/runs/{run_id}/videos` | Video MP4 trong thư mục run: `{"name", "stage_id", "url"}` | |
+| `GET /api/runs/{run_id}/video_sets` | Video đánh giá gom theo bộ: `{"id", "stage_id", "set" (test_set, full_set), "step", "postfix", "channels" (kênh → url, theo thứ tự `CHANNELS`), "layout" (nội dung `layout.json` hoặc null)}` (`drive2sim/engine/videos.py`) | |
 | `GET /api/runs/{run_id}/artifacts` | Nơi lưu kết quả của từng stage: `{"run_dir", "run_dir_abs", "files" (file của tool trong `d2s/`), "stages": [{"stage_id", "status", "location": "run" \| "cache", "path", "path_abs", "size_bytes", "files": [{"name", "is_dir", "size_bytes", "path"}]}]}`; `path` tương đối với thư mục làm việc. Run chạy trên Kaggle sau `kaggle pull` cũng nằm ở đây (mục 9.2) | |
 | `GET /api/runs/{run_id}/curve` | Đường cong train đọc từ `metrics.json` của stage `train.*` (mục 6.1): `{"stage_id", "series": {"psnr", "loss", "gaussians": [[bước, giá trị], ...]}}`; PSNR trên ảnh train, tổng các loss, tổng số Gaussian; tối đa 400 điểm mỗi đường | |
 | `POST /api/reveal` | Thân: `path` (tương đối với thư mục làm việc). Mở thư mục đó (với file: thư mục chứa file) trong trình quản lý file của máy chạy Studio; đường dẫn ra ngoài thư mục làm việc, không tồn tại, hoặc máy không có giao diện đồ hoạ thì `409` kèm lý do | |

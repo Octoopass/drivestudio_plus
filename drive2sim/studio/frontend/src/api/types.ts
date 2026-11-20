@@ -112,6 +112,36 @@ export interface Video {
   url: string;
 }
 
+/** Khung của một camera trong khung ghép của video đánh giá (pixel của khung ghép). */
+export interface VideoTile {
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** ``<bộ>_<bước>_layout.json`` cạnh video đánh giá (recon/rendering/videos.write_video_layout). */
+export interface VideoLayout {
+  width: number;
+  height: number;
+  fps: number;
+  cameras: VideoTile[];
+  error_map?: { max: number; cmap: string; invalid_grey: number };
+  depth?: { min_m: number; max_m: number; curve: string; cmap: string };
+}
+
+/** Một bộ video đánh giá: cùng khung hình, mỗi kênh một video (engine/videos.py). */
+export interface VideoSet {
+  id: string;
+  stage_id: string;
+  set: "test_set" | "full_set";
+  step: number;
+  postfix: string | null;
+  channels: Record<string, string>;
+  layout: VideoLayout | null;
+}
+
 export interface ReportRow {
   run_id: string;
   scene_id: string;

@@ -745,3 +745,31 @@ table.centered th, table.centered td, table.centered th.num, table.centered td.n
 table.centered th .th-metric, table.centered th.num .th-metric { justify-content: center; }
 table.centered td .row { justify-content: center; }
 table.centered td.block-head { text-align: left; }
+
+/* Trình phát so sánh video đánh giá (components/VideoCompare.tsx) */
+.vc { display: flex; flex-direction: column; gap: 12px; outline: none; }
+.vc-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.vc-field { display: flex; flex-direction: column; gap: 4px; }
+.vc-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.vc-chips button { border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); border-radius: 999px; padding: 4px 11px; font-size: 14px; cursor: pointer; }
+.vc-chips button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+.vc-stage { width: 100%; }
+.vc-tile { position: relative; overflow: hidden; background: #000; border-radius: 8px; width: 100%; }
+.vc-full { display: block; width: 100%; height: auto; }
+.vc-crop { position: absolute; max-width: none; object-fit: fill; }
+.vc-wipe { position: relative; cursor: ew-resize; touch-action: none; user-select: none; border-radius: 8px; overflow: hidden; }
+.vc-divider { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5); pointer-events: none; }
+.vc-tag { position: absolute; top: 8px; padding: 2px 8px; border-radius: 6px; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 13px; pointer-events: none; }
+.vc-tag-left { left: 8px; }
+.vc-tag-right { right: 8px; }
+.vc-grid { display: grid; gap: 10px; }
+.vc-grid figure { margin: 0; }
+.vc-caption { font-size: 14px; color: var(--muted); margin-bottom: 4px; }
+.vc-transport { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.vc-seek { flex: 1 1 200px; min-width: 120px; }
+.vc-legends { display: flex; flex-wrap: wrap; gap: 18px; }
+.vc-legend { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.vc-bar { display: inline-block; width: 140px; height: 10px; border-radius: 3px; }
+.vc-swatch { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-left: 8px; }
+@media (max-width: 720px) { .vc-grid { grid-template-columns: 1fr !important; } }
+.vc-others { margin-top: 18px; } .vc-others summary { cursor: pointer; color: var(--muted); margin-bottom: 10px; }
