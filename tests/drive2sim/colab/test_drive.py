@@ -166,3 +166,101 @@ def test_drive_routes_and_job_progress(
         assert done["result"].endswith("uploads/kitti")
         assert done["progress"]["done"] == done["progress"]["total"] == 10246
         assert done["started_at"] is not None
+
+
+def make_kitti360(root: Path) -> None:
+    """Gốc KITTI-360 giả trên Drive: calib, pose, hai chuỗi, kèm thư mục không liên quan."""
+    (root / "calibration").mkdir(parents=True)
+    (root / "calibration" / "calib_cam_to_pose.txt").write_text("calib")
+    (root / "data_poses.zip").write_bytes(b"z" * 10)
+    for seq in ("2013_05_28_drive_0003_sync", "2013_05_28_drive_0005_sync"):
+        for cam in range(4):
+            (root / "data_2d_raw").mkdir(exist_ok=True)
+            (root / "data_2d_raw" / f"{seq}_image_0{cam}.tar").write_bytes(b"i" * 100)
+        (root / "data_3d_raw").mkdir(exist_ok=True)
+        (root / "data_3d_raw" / f"{seq}.tar").write_bytes(b"l" * 50)
+    (root / "checkpoints").mkdir()
+    (root / "checkpoints" / "big.pth").write_bytes(b"c" * 70)
+
+
+def test_inspect_detects_dataset_and_subfolders(my_drive: Path) -> None:
+    make_kitti360(my_drive / "datasets" / "k360")
+    inner = drive.inspect(FakeVM(), "s", "datasets/k360")
+    report = inner["report"]
+    assert report["dataset"] == "kitti360" and report["has_lidar"] is True
+    assert report["versions"][""] == ["2013_05_28_drive_0003_sync", "2013_05_28_drive_0005_sync"]
+    assert report["path"] == "datasets/k360" and report["inventory"] == []
+    assert inner["sequence_bytes"]["2013_05_28_drive_0005_sync"] == 4 * 100 + 50
+    assert "calibration/" in inner["pull_sets"]["2013_05_28_drive_0005_sync"]
+    # thư mục cha: không phải dataset, nhưng báo thư mục con có dataset bằng đường dẫn trên Drive
+    outer = drive.inspect(FakeVM(), "s", "")
+    assert outer["report"]["dataset"] is None
+    child = {"path": "datasets/k360", "dataset": "kitti360", "relation": "child"}
+    assert child in outer["report"]["candidates"]
+    assert all("d2s_drive_" not in note for note in outer["report"]["notes"])
+    assert drive.inspect(FakeVM(), "s", "missing")["report"] is None
+
+
+def test_inspect_reads_nuscenes_tables(my_drive: Path) -> None:
+    root = my_drive / "nus"
+    (root / "v1.0-mini").mkdir(parents=True)
+    (root / "v1.0-mini" / "scene.json").write_text('[{"name": "scene-0061"}]')
+    (root / "v1.0-mini" / "sensor.json").write_text(
+        '[{"channel": "CAM_FRONT", "modality": "camera"},'
+        ' {"channel": "LIDAR_TOP", "modality": "lidar"}]'
+    )
+    (root / "v1.0-mini" / "sample_annotation.json").write_text('[{"token": "a"}]')
+    report = drive.inspect(FakeVM(), "s", "nus")["report"]
+    assert report["dataset"] == "nuscenes" and report["versions"] == {"v1.0-mini": ["scene-0061"]}
+    assert report["cameras"] == ["CAM_FRONT"] and report["has_cuboids"] is True
+    # thiếu sweeps/; lỗi ghi đường dẫn trên Drive, không phải thư mục tạm
+    assert report["errors"] and "MyDrive/nus" in report["errors"][0]
+
+
+def test_pull_one_kitti360_sequence(my_drive: Path, tmp_path: Path) -> None:
+    make_kitti360(my_drive / "k360")
+    sets = drive.inspect(FakeVM(), "s", "k360")["pull_sets"]
+    target = tmp_path / "work" / "uploads" / "k360"
+    result = drive.pull_folder(
+        FakeVM(), "s", "k360", target, include=sets["2013_05_28_drive_0005_sync"]
+    )
+    got = sorted(p.relative_to(target).as_posix() for p in target.rglob("*") if p.is_file())
+    assert got == [
+        "calibration/calib_cam_to_pose.txt",
+        "data_2d_raw/2013_05_28_drive_0005_sync_image_00.tar",
+        "data_2d_raw/2013_05_28_drive_0005_sync_image_01.tar",
+        "data_2d_raw/2013_05_28_drive_0005_sync_image_02.tar",
+        "data_2d_raw/2013_05_28_drive_0005_sync_image_03.tar",
+        "data_3d_raw/2013_05_28_drive_0005_sync.tar",
+        "data_poses.zip",
+    ]
+    assert result["bytes"] == 5 + 10 + 4 * 100 + 50
+    picked = drive.pull_folder(FakeVM(), "s", "k360", tmp_path / "p", include=["checkpoints/"])
+    assert picked["files"] == 1
+    with pytest.raises(ValueError, match="không file nào"):
+        drive.pull_folder(FakeVM(), "s", "k360", tmp_path / "q", include=["nothing/"])
+    with pytest.raises(ValueError):
+        drive.pull_folder(FakeVM(), "s", "k360", tmp_path / "q", include=["../x"])
+
+
+def test_inspect_route(my_drive: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from drive2sim.studio.api.routes import colab as colab_routes
+
+    make_kitti360(my_drive / "k360")
+    monkeypatch.setattr(colab_routes, "ColabClient", FakeVM)
+    app = create_app(Workdir(tmp_path / "work"), registry=StageRegistry(), frontend_dir=None)
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        found = client.get("/api/colab/drive/inspect", params={"path": "k360"})
+        assert found.status_code == 200 and found.json()["report"]["dataset"] == "kitti360"
+        bad = client.post(
+            "/api/colab/drive/pull", json={"path": "k360", "name": "k", "include": ["../etc"]}
+        )
+        assert bad.status_code == 400
+        job = client.post(
+            "/api/colab/drive/pull",
+            json={"path": "k360", "name": "k", "include": ["checkpoints/"]},
+        )
+        assert job.status_code == 202
+        app.state.studio.jobs.wait_idle()
+        done = client.get(f"/api/jobs/{job.json()['job_id']}").json()
+        assert done["status"] == "succeeded" and done["progress"]["total"] == 70

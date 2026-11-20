@@ -400,6 +400,34 @@ def find_sequences(raw_dir: Path) -> list[str]:
     return sorted(names)
 
 
+def sequence_prefixes(sequence: str) -> list[str]:
+    """Tiền tố đường dẫn (tương đối gốc KITTI-360) của các file converter đọc cho một chuỗi.
+
+    Dùng để chỉ tải một chuỗi từ Google Drive thay vì cả bộ: calib, pose của mọi chuỗi (một file
+    zip nhỏ), ảnh bốn camera và LiDAR của chuỗi đó, ở dạng ``.tar`` hoặc thư mục đã giải nén.
+
+    Args:
+        sequence: Tên chuỗi, ví dụ ``2013_05_28_drive_0005_sync``.
+
+    Returns:
+        Các tiền tố; một file thuộc chuỗi khi đường dẫn tương đối của nó bắt đầu bằng một tiền tố.
+
+    Raises:
+        ValueError: Nếu tên chuỗi sai dạng.
+    """
+    if not SEQUENCE_RE.fullmatch(sequence):
+        raise ValueError(f"tên chuỗi KITTI-360 không hợp lệ: {sequence}")
+    return [
+        "calibration/",
+        "data_poses.zip",
+        f"data_poses/{sequence}/",
+        f"data_2d_raw/{sequence}_",
+        f"data_2d_raw/{sequence}/",
+        f"data_3d_raw/{sequence}.tar",
+        f"data_3d_raw/{sequence}/",
+    ]
+
+
 def has_lidar(raw_dir: Path, sequence: str) -> bool:
     """Cho biết nguồn có LiDAR Velodyne của chuỗi không (thư mục hoặc ``.tar``)."""
     return (raw_dir / "data_3d_raw" / f"{sequence}.tar").is_file() or (

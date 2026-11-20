@@ -196,10 +196,14 @@ class DrivePullBody(DriveSessionBody):
     Attributes:
         path: Thư mục hoặc file trong ``MyDrive``.
         name: Thư mục đích ``uploads/<tên>/`` trong thư mục làm việc.
+        include: Chỉ tải file có đường dẫn bắt đầu bằng một trong các tiền tố này (một chuỗi
+            KITTI-360: ``pull_sets`` của ``/drive/inspect``; mục đã chọn: ``"<thư mục>/"``,
+            ``"<file>"``); rỗng là tải hết.
     """
 
     path: str = Field(min_length=1, max_length=1024)
     name: str = Field(pattern=uploads.NAME_PATTERN)
+    include: list[str] = Field(default_factory=list, max_length=200)
 
 
 def _mount(request: Request) -> drive.MountFlow:
@@ -276,6 +280,17 @@ def drive_browse(session: str = "d2s-drive", path: str = "") -> dict:
     return drive.browse(ColabClient(), body.session, path)
 
 
+@router.get("/drive/inspect")
+def drive_inspect(session: str = "d2s-drive", path: str = "") -> dict:
+    """Nhận dạng dataset ở một thư mục trong ``MyDrive`` (``drive.inspect``).
+
+    Returns:
+        ``{"path", "mounted", "exists", "truncated", "report", "sequence_bytes", "pull_sets"}``.
+    """
+    body = DriveSessionBody(session=session)
+    return drive.inspect(ColabClient(), body.session, path)
+
+
 @router.post("/drive/pull", status_code=202)
 def drive_pull(body: DrivePullBody, request: Request) -> dict:
     """Tải một thư mục trên Drive về ``uploads/<tên>/`` ở nền (việc ``drive_pull``, có tiến độ).
@@ -284,15 +299,19 @@ def drive_pull(body: DrivePullBody, request: Request) -> dict:
     """
     state = state_of(request)
     drive.safe_drive_path(body.path)
+    for prefix in body.include:
+        drive.safe_drive_path(prefix)
     target = state.workdir.uploads_dir / body.name
 
     def work() -> str:
         result = drive.pull_folder(
-            ColabClient(), body.session, body.path, target, progress=state.jobs.report
-        )
+            ColabClient(), body.session, body.path, target, progress=state.jobs.report,
+            include=body.include,
+        )  # fmt: skip
         return result["path_abs"]
 
-    return state.jobs.submit("drive_pull", f"Drive: {body.path} → uploads/{body.name}", work)
+    what = f"{body.path} ({len(body.include)} mục chọn)" if body.include else body.path
+    return state.jobs.submit("drive_pull", f"Drive: {what} → uploads/{body.name}", work)
 
 
 @router.get("/{run_id}")
