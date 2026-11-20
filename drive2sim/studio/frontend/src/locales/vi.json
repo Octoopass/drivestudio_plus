@@ -706,5 +706,8 @@
   "viewer.panel.rail": "Thanh bên",
   "viewer.info.config": "Cấu hình",
   "viewer.info.results": "Kết quả đo",
-  "viewer.info.open_run": "Mở trang run"
+  "viewer.info.open_run": "Mở trang run",
+  "viewer.hud.fps": "{fps} FPS",
+  "viewer.hud.fps_idle": "FPS: đứng yên",
+  "viewer.hud.fps_hint": "Số khung trình duyệt vẽ trong 1 giây gần nhất. Viewer chỉ vẽ lại khi cảnh thay đổi (xoay camera, phát), nên khi đứng yên không có FPS."
 }

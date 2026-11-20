@@ -307,6 +307,16 @@ export class SplatViewer {
     this.renderer.setAnimationLoop(() => this.frame());
   }
 
+  // Mốc thời gian của các lần vẽ trong khoảng 1 giây gần nhất, để đếm FPS thật (``renderRate``).
+  private renderTimes: number[] = [];
+
+  /** Số khung đã vẽ trong 1 giây gần nhất; ``idle`` khi viewer đang không vẽ lại (cảnh đứng yên). */
+  renderRate(): { fps: number; idle: boolean } {
+    const now = performance.now();
+    while (this.renderTimes.length && now - this.renderTimes[0] > 1000) this.renderTimes.shift();
+    return { fps: this.renderTimes.length, idle: now > this.renderUntil };
+  }
+
   /** Yêu cầu vẽ lại trong 0,8 giây tới. */
   invalidate(): void {
     this.renderUntil = performance.now() + 800;
@@ -319,7 +329,9 @@ export class SplatViewer {
     // camera gốc (xe nghiêng, đường dốc), nếu không ảnh lệch vài điểm ảnh so với render gốc.
     this.camera.quaternion.multiply(this.roll);
     this.stepFlight();
-    if (performance.now() > this.renderUntil) return;
+    const now = performance.now();
+    if (now > this.renderUntil) return;
+    this.renderTimes.push(now);
     this.camera.updateMatrixWorld();
     if (!this.lastView.equals(this.camera.matrixWorld) || !this.lastProjection.equals(this.camera.projectionMatrix)) {
       this.lastView.copy(this.camera.matrixWorld);

@@ -526,6 +526,7 @@ pre.log {
 }
 .btn.glass:hover:not(:disabled) { background: rgba(30, 38, 50, 0.75); }
 .tag.glass { border-radius: 1256px; padding: 3px 12px; box-shadow: none; }
+.tag.fps { font-variant-numeric: tabular-nums; min-width: 72px; justify-content: center; }
 .vbar { position: absolute; top: 12px; z-index: 4; display: flex; align-items: center; gap: 8px; }
 .vbar-left { left: 12px; padding: 4px; max-width: min(560px, calc(100% - 24px)); }
 .vbar-right { right: 12px; flex-wrap: wrap; justify-content: flex-end; max-width: 50%; }

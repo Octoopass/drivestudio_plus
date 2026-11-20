@@ -118,6 +118,8 @@ export function ViewerPage({ runId }: { runId?: string }) {
   const [playing, setPlaying] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [webgl, setWebgl] = useState(true);
+  // FPS thật của viewer trong trình duyệt, đọc mỗi nửa giây.
+  const [rate, setRate] = useState<{ fps: number; idle: boolean } | null>(null);
   // Màn chọn nguồn: run đang chọn và file đã kéo vào, chưa mở cho tới khi bấm nút.
   const [pickRun, setPickRun] = useState<string>("");
   const [pickFile, setPickFile] = useState<File | null>(null);
@@ -266,6 +268,11 @@ export function ViewerPage({ runId }: { runId?: string }) {
   }, [source, file, splats.data]);
 
   useEffect(() => viewer.current?.setUpAxis(up), [up]);
+  useEffect(() => {
+    if (!immersive) return;
+    const timer = window.setInterval(() => setRate(viewer.current?.renderRate() ?? null), 500);
+    return () => window.clearInterval(timer);
+  }, [immersive]);
   // Bậc màu đọc qua ref khi tải xong: người dùng có thể đổi trong lúc file lớn đang tải.
   const shRef = useRef(sh);
   shRef.current = sh;
@@ -590,6 +597,11 @@ export function ViewerPage({ runId }: { runId?: string }) {
         <div className="vbar vbar-right">
           {progress !== null && <span className="tag glass">{t("viewer.hud.loading", { percent: Math.round(progress * 100) })}</span>}
           {count !== null && <span className="tag glass">{t("viewer.hud.count", { count: count.toLocaleString() })}</span>}
+          {count !== null && rate && (
+            <span className="tag glass fps" title={t("viewer.hud.fps_hint")}>
+              {rate.idle ? t("viewer.hud.fps_idle") : t("viewer.hud.fps", { fps: rate.fps })}
+            </span>
+          )}
           {poses && <span className="tag glass">{t("viewer.hud.actors", { count: poses.track_ids.length })}</span>}
           {source === "preview" && ["loading", "rendering", "ready"].includes(exact.state) && (
             <span className="tag glass" title={t("viewer.exact.hint")}>

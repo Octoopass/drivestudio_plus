@@ -706,5 +706,8 @@
   "viewer.panel.rail": "Side bar",
   "viewer.info.config": "Configuration",
   "viewer.info.results": "Measurements",
-  "viewer.info.open_run": "Open run page"
+  "viewer.info.open_run": "Open run page",
+  "viewer.hud.fps": "{fps} FPS",
+  "viewer.hud.fps_idle": "FPS: idle",
+  "viewer.hud.fps_hint": "Frames the browser drew in the last second. The viewer only redraws when the view changes (camera moves, playback), so there is no FPS while idle."
 }
