@@ -766,7 +766,7 @@
   "figure.png_hint": "PNG độ phân giải gấp đôi",
   "figure.source": "drive2sim · cảnh {scene} · split {splits} · {iters} iteration · xuất ngày {date}",
   "scene.lidar.title": "LiDAR chồng lên ảnh",
-  "scene.lidar.hint": "Điểm LiDAR (tô màu theo độ sâu: đỏ gần, xanh xa) vẽ lên ảnh camera bằng đúng phép chiếu khi train. Calib đúng thì điểm nằm khít lên vật (xe, cột, mép tường); lệch thì điểm trượt khỏi vật. Báo cáo tự cảnh báo lỗi lớn (camera gần như không có điểm, độ sâu vô lý, camera nghiêng bất thường); lệch nhỏ vài pixel cần xem ảnh. Không phải bước duyệt.",
+  "scene.lidar.hint": "Điểm LiDAR (tô màu theo độ sâu: đỏ gần, xanh xa) vẽ lên ảnh camera bằng đúng phép chiếu khi train. Calib đúng thì điểm nằm khít lên vật (xe, cột, mép tường); lệch thì điểm trượt khỏi vật. Báo cáo tự cảnh báo lỗi lớn (camera gần như không có điểm, độ sâu vô lý, camera nghiêng bất thường). Lệch nhỏ vài pixel và calib hai camera bị đổi chỗ cho nhau thì chỉ thấy khi xem ảnh. Không phải bước duyệt.",
   "scene.lidar.run": "Chiếu LiDAR",
   "scene.lidar.rerun": "Chiếu lại",
   "scene.lidar.running": "Đang chiếu...",

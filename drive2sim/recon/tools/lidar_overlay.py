@@ -9,8 +9,9 @@ sai hình mà không báo lỗi. File này làm hai việc, trên vài khung cá
   phải bước duyệt: ingest, train không chờ ai xem.
 - **Số liệu** ``reports/lidar_check.json``: số điểm LiDAR rơi vào từng camera mỗi khung, mật độ
   trên ảnh và độ sâu trung vị. ``ingest/validate.py`` (``projection_checks``) đọc file này và
-  cảnh báo lỗi lớn: camera gần như không có điểm (nhầm camera, sai hướng, sai extrinsics), độ sâu
-  vô lý (sai đơn vị). Lệch vài pixel thì không bắt được: đã thử đo bằng gradient ảnh tại mép độ
+  cảnh báo lỗi lớn: camera gần như không có điểm (extrinsics sai hướng, sai vị trí, sai đơn vị), độ
+  sâu vô lý. Calib hai camera bị đổi chỗ cho nhau thì không bắt được (vẫn thấy LiDAR), phải xem ảnh
+  chồng. Lệch vài pixel cũng không bắt được: đã thử đo bằng gradient ảnh tại mép độ
   sâu (tỉ số cạnh, Levinson & Thrun 2013) và không tìm lại được độ lệch cố ý đưa vào
   (``docs/drive2sim/ARCHITECTURE.md`` mục 7.1).
 

@@ -766,7 +766,7 @@
   "figure.png_hint": "PNG at twice the resolution",
   "figure.source": "drive2sim · scene {scene} · split {splits} · {iters} iterations · exported {date}",
   "scene.lidar.title": "LiDAR on images",
-  "scene.lidar.hint": "LiDAR points (coloured by depth: red near, blue far) drawn on the camera images with the same projection as training. With correct calibration they sit on objects (cars, poles, wall edges); otherwise they slide off. The report warns about large errors automatically (a camera with almost no points, implausible depth, an unusually tilted camera); small offsets of a few pixels need a look at the images. Not an approval step.",
+  "scene.lidar.hint": "LiDAR points (coloured by depth: red near, blue far) drawn on the camera images with the same projection as training. With correct calibration they sit on objects (cars, poles, wall edges); otherwise they slide off. The report warns about large errors automatically (a camera with almost no points, implausible depth, an unusually tilted camera). Offsets of a few pixels and two cameras with swapped calibration only show in the images. Not an approval step.",
   "scene.lidar.run": "Project LiDAR",
   "scene.lidar.rerun": "Project again",
   "scene.lidar.running": "Projecting...",

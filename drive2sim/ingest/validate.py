@@ -21,7 +21,10 @@ Các phép kiểm tra, mỗi lỗi gộp theo camera để báo cáo không dài
 - ``projection.not_run`` (thông tin): chưa chiếu LiDAR lên ảnh (chưa có
   ``reports/lidar_check.json``).
 - ``projection.camera_sparse`` (cảnh báo): một camera gần như không có điểm LiDAR so với camera
-  nhiều điểm nhất: dấu hiệu nhầm camera, sai hướng, sai extrinsics.
+  nhiều điểm nhất: dấu hiệu extrinsics sai hướng, sai vị trí, sai đơn vị.
+
+Không bắt được: lệch nhỏ vài pixel, và calib của hai camera bị đổi chỗ cho nhau (cả hai vẫn đứng
+thẳng, vẫn thấy LiDAR); hai lỗi này chỉ thấy khi xem ảnh chồng.
 - ``projection.depth_range`` (cảnh báo): độ sâu trung vị của điểm LiDAR trên ảnh vô lý (dấu hiệu
   sai đơn vị, sai tỉ lệ).
 - ``projection.camera_tilt`` (cảnh báo): camera nghiêng quá ``MAX_CAMERA_TILT_DEG`` so với các
@@ -233,8 +236,8 @@ def projection_checks(scene_dir: Path, manifest: Manifest) -> list[Check]:
                 check_id="projection.camera_sparse",
                 severity="warning",
                 message=f"{camera_id} gần như không có điểm LiDAR ({density:.0f} điểm mỗi "
-                f"megapixel, camera nhiều nhất {densest:.0f}): có thể nhầm camera, sai hướng "
-                "hoặc sai extrinsics; xem ảnh chồng LiDAR ở trang cảnh",
+                f"megapixel, camera nhiều nhất {densest:.0f}): có thể extrinsics sai hướng, sai "
+                "vị trí hoặc sai đơn vị; xem ảnh chồng LiDAR ở trang cảnh",
                 camera_id=camera_id,
                 details={"points_per_megapixel": density, "densest": densest},
             )

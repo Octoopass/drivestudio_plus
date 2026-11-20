@@ -181,7 +181,7 @@ LiDAR chiếu lên ảnh để kiểm tra calib, pose (`drive2sim/recon/tools/li
 - `lidar_overlay/<khung>_<camera>.jpg`: điểm LiDAR tô màu độ sâu (thang của `depth_visualizer`) trên ảnh loader nạp; LiDAR thưa (dưới 40 000 điểm mỗi megapixel) vẽ điểm to ra 1 pixel. Để người xem, **không** phải bước duyệt.
 - `lidar_check.json`: `{"version", "scene_id", "frames", "cameras": [{"camera_id", "frames", "points_per_frame", "points_per_megapixel", "median_depth_m", "p95_depth_m"}], "overlays": [{"frame", "camera_id", "file"}]}`.
 
-`validate_scene` đọc hai file này và `rig.json`: `projection.camera_sparse` (cảnh báo, mật độ dưới 2 % camera nhiều điểm nhất), `projection.depth_range` (cảnh báo, độ sâu trung vị ngoài 1–150 m), `projection.camera_tilt` (cảnh báo, `tilt_deg` của camera quá 60 độ), `projection.done` (thông tin); chưa có `lidar_check.json` thì `projection.not_run`. Lệch nhỏ vài pixel không đo tự động (ARCHITECTURE mục 7.1).
+`validate_scene` đọc hai file này và `rig.json`: `projection.camera_sparse` (cảnh báo, mật độ dưới 2 % camera nhiều điểm nhất), `projection.depth_range` (cảnh báo, độ sâu trung vị ngoài 1–150 m), `projection.camera_tilt` (cảnh báo, `tilt_deg` của camera quá 60 độ), `projection.done` (thông tin); chưa có `lidar_check.json` thì `projection.not_run`. Không bắt được tự động: lệch nhỏ vài pixel, và calib hai camera bị đổi chỗ cho nhau; hai lỗi này chỉ thấy trên ảnh chồng (ARCHITECTURE mục 7.1).
 
 ## 4. Approach
 
