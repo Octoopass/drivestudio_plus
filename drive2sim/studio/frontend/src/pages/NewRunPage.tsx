@@ -541,7 +541,10 @@ function LocalEnvironment({ approachId }: { approachId: string }) {
           {t("new.env.install")} <code>{data.install}</code>
           <InfoTip>{t("new.env.install_hint", { file: data.file ?? "" })}</InfoTip>
         </span>
-        {data.env && !data.checks.some((c) => c.id === "gpu" && c.level === "missing") && (
+        {/* cài chỉ sửa được gói Python: không hiện khi thiếu GPU, hay khi chỉ thiếu file SMPL */}
+        {data.env &&
+          !data.checks.some((c) => c.id === "gpu" && c.level === "missing") &&
+          data.checks.some((c) => c.level !== "ok" && c.id !== "gpu" && c.id !== "smpl_model") && (
           <EnvInstall env={data.env} onDone={env.reload} />
         )}
       </div>
