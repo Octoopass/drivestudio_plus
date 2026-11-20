@@ -72,7 +72,10 @@ def _level(found: Optional[str], expected: str) -> str:
 
 
 def environment_check(
-    codebase: str, needs_smpl: bool = False, workdir_root: Optional[Path] = None
+    codebase: str,
+    needs_smpl: bool = False,
+    workdir_root: Optional[Path] = None,
+    smpl_optional: bool = False,
 ) -> dict[str, Any]:
     """Bảng kiểm tra môi trường cho một codebase.
 
@@ -81,6 +84,8 @@ def environment_check(
         needs_smpl: Approach có dựng người bằng SMPL không (có stage ``prep.smpl``); khi đó cần
             thêm file mô hình SMPL (``drive2sim.paths.find_smpl_model``).
         workdir_root: Thư mục làm việc, một trong các chỗ tìm file SMPL.
+        smpl_optional: SMPL chỉ có thể cần (tuỳ chọn ``auto`` chưa biết split có người không):
+            thiếu file thì ``warn`` thay vì ``missing``.
 
     Returns:
         ``{"env": tên hoặc None, "file", "install", "level": "ok" | "warn" | "missing",
@@ -146,7 +151,7 @@ def environment_check(
         checks.append(
             {
                 "id": "smpl_model",
-                "level": "ok" if model else "missing",
+                "level": "ok" if model else "warn" if smpl_optional else "missing",
                 "found": str(model) if model else None,
                 "expected": SMPL_MODEL_NAME,
             }

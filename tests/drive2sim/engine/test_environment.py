@@ -80,3 +80,17 @@ def test_smpl_model_lookup_and_check(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert paths.find_smpl_model(tmp_path) == other.resolve()
     result = environment.environment_check("drivestudio", needs_smpl=True, workdir_root=tmp_path)
     assert result["level"] == "ok"
+
+
+def test_smpl_optional_is_only_a_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SMPL chỉ có thể cần (chưa giải stage): thiếu file là warn; chắc chắn cần: missing."""
+    from drive2sim import paths
+
+    monkeypatch.setattr(environment, "find_smpl_model", lambda root=None: None)
+    monkeypatch.setattr(paths, "find_smpl_model", lambda root=None: None)
+    maybe = environment.environment_check("drivestudio", needs_smpl=True, smpl_optional=True)
+    sure = environment.environment_check("drivestudio", needs_smpl=True)
+    pick = {c["id"]: c["level"] for c in maybe["checks"]}
+    assert pick["smpl_model"] == "warn"
+    assert {c["id"]: c["level"] for c in sure["checks"]}["smpl_model"] == "missing"
+    assert sure["level"] == "missing"

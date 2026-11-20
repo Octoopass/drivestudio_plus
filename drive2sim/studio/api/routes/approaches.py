@@ -115,18 +115,28 @@ def get_approach(approach_id: str) -> dict:
 
 
 @router.get("/{approach_id}/environment")
-def environment(approach_id: str, request: Request) -> dict:
+def environment(approach_id: str, request: Request, stages: Optional[str] = None) -> dict:
     """Máy chạy Studio có đúng môi trường Python mà approach cần để chạy trên máy này không.
+
+    Args:
+        approach_id: Approach cần kiểm.
+        request: Request, để lấy thư mục làm việc (chỗ tìm file SMPL).
+        stages: Stage của run đã giải theo cảnh, split và cấu hình (``stages`` của
+            ``POST .../check``), cách nhau bởi dấu phẩy. Có thì file SMPL chỉ cần khi trong đó
+            có stage làm ra SMPL, như lúc tạo run; không có thì xét mọi stage approach có thể
+            chạy và thiếu SMPL chỉ là ``warn`` (``auto`` bỏ bước SMPL khi split không có người).
 
     Returns:
         Bảng kiểm tra theo ``environment_check``: ``ok``, ``warn`` (khác phiên bản, kết quả có
-        thể lệch), ``missing`` (thiếu, run sẽ lỗi), kèm lệnh cài.
+        thể lệch; hoặc SMPL có thể cần), ``missing`` (thiếu, run sẽ lỗi), kèm lệnh cài.
     """
     approach = load_approach(approach_id)
+    chosen = [s for s in (stages or "").split(",") if s]
     return environment_check(
         approach.codebase,
-        needs_smpl=produces_artifact(_possible_stages(approach), "smpl"),
+        needs_smpl=produces_artifact(chosen or _possible_stages(approach), "smpl"),
         workdir_root=state_of(request).workdir.root,
+        smpl_optional=not chosen,
     )
 
 

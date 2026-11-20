@@ -474,7 +474,9 @@ export function NewRunPage({
                   ]}
                 />
               </div>
-              {executor === "local" && approachId && <LocalEnvironment approachId={approachId} />}
+              {executor === "local" && approachId && (
+                <LocalEnvironment approachId={approachId} stages={check?.approach_id === approachId ? check.stages.map((s) => s.stage_id) : null} />
+              )}
               {executor === "kaggle" && <KaggleSetup onStatus={setKaggleStatus} />}
               {executor === "kaggle" && kaggleStatus && !kaggleStatus.ready && <Note kind="warn">{t("kaggle.setup.start_warning")}</Note>}
               {executor === "colab" && <ColabSetup onStatus={setColabStatus} needsSmpl={check?.stages.some((s) => s.stage_id === "prep.smpl")} />}
@@ -506,12 +508,18 @@ interface EnvironmentCheck {
   checks: { id: string; level: "ok" | "warn" | "missing"; found: string | null; expected: string | null }[];
 }
 
-/** Chạy trên máy này: môi trường Python có đúng phiên bản approach cần không (GET .../environment). */
-function LocalEnvironment({ approachId }: { approachId: string }) {
+/** Chạy trên máy này: môi trường Python có đúng phiên bản approach cần không (GET .../environment).
+ * ``stages``: stage của run đã giải (kết quả kiểm tra), để file SMPL chỉ bị đòi khi run thật sự chạy
+ * bước SMPL; chưa có thì server coi SMPL là có thể cần (chỉ cảnh báo). */
+function LocalEnvironment({ approachId, stages }: { approachId: string; stages: string[] | null }) {
   const { t } = useI18n();
-  const env = useApi<EnvironmentCheck>(`/api/approaches/${seg(approachId)}/environment`);
+  const query = stages ? `?stages=${encodeURIComponent(stages.join(","))}` : "";
+  const env = useApi<EnvironmentCheck>(`/api/approaches/${seg(approachId)}/environment${query}`);
   if (!env.data || !env.data.env) return null;
   const data = env.data;
+  // chỉ thiếu file SMPL: script cài không sửa được, nói đúng nguyên nhân và chỗ đặt file
+  const notOk = data.checks.filter((c) => c.level !== "ok");
+  const smplOnly = notOk.length > 0 && notOk.every((c) => c.id === "smpl_model");
   if (data.level === "ok") {
     return (
       <div className="row small muted" style={{ gap: 6 }}>
@@ -523,7 +531,11 @@ function LocalEnvironment({ approachId }: { approachId: string }) {
   return (
     <Note kind="warn">
       <div className="stack" style={{ gap: 6 }}>
-        <b>{t(data.level === "missing" ? "new.env.missing" : "new.env.warn", { env: data.env ?? "" })}</b>
+        <b>
+          {smplOnly
+            ? t(data.level === "missing" ? "new.env.smpl_missing" : "new.env.smpl_maybe")
+            : t(data.level === "missing" ? "new.env.missing" : "new.env.warn", { env: data.env ?? "" })}
+        </b>
         <ul className="env-list">
           {data.checks
             .filter((c) => c.level !== "ok")
@@ -537,10 +549,14 @@ function LocalEnvironment({ approachId }: { approachId: string }) {
               </li>
             ))}
         </ul>
+        {smplOnly ? (
+          <span className="small">{t("new.env.smpl_fix")}</span>
+        ) : (
         <span className="small">
           {t("new.env.install")} <code>{data.install}</code>
           <InfoTip>{t(data.env === "nurec" ? "new.env.install_hint_nurec" : "new.env.install_hint", { file: data.file ?? "" })}</InfoTip>
         </span>
+        )}
         {data.env === "nurec" && (
           <span className="small">
             {t("new.env.nurec_notebook")}{" "}
