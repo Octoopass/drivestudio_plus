@@ -207,3 +207,12 @@ def test_icc_loss_positive_when_offset_norm_changes_and_zero_without_valid() -> 
     model.set_cur_frame(0)
     model.get_gaussians(fake_camera())
     assert model.icc_loss() == 0
+
+
+def test_no_valid_instances_leaves_empty_node() -> None:
+    one_frame = [False] * (NUM_FRAMES - 1) + [True]
+    model = make_bezier([one_frame])
+    assert model.num_points == 0 and model.num_instances == 0
+    means, offsets, valid = model.means_at(0.5)
+    assert means.shape == offsets.shape == (0, 3) and valid.shape == (0,)
+    assert model.icc_loss() == 0
