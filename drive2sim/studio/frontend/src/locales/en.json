@@ -764,5 +764,20 @@
   "figure.export": "Export figure:",
   "figure.svg_hint": "SVG: stays sharp when scaled, works in LaTeX and Word",
   "figure.png_hint": "PNG at twice the resolution",
-  "figure.source": "drive2sim · scene {scene} · split {splits} · {iters} iterations · exported {date}"
+  "figure.source": "drive2sim · scene {scene} · split {splits} · {iters} iterations · exported {date}",
+  "scene.lidar.title": "LiDAR on images",
+  "scene.lidar.hint": "LiDAR points (coloured by depth: red near, blue far) drawn on the camera images with the same projection as training. With correct calibration they sit on objects (cars, poles, wall edges); otherwise they slide off. The report warns about large errors automatically (a camera with almost no points, implausible depth, an unusually tilted camera); small offsets of a few pixels need a look at the images. Not an approval step.",
+  "scene.lidar.run": "Project LiDAR",
+  "scene.lidar.rerun": "Project again",
+  "scene.lidar.running": "Projecting...",
+  "scene.lidar.none": "LiDAR not projected yet",
+  "scene.lidar.none_hint": "The scene was ingested before this feature. Needs PyTorch, takes a few seconds.",
+  "scene.lidar.none_kaggle": "The scene was ingested on Kaggle before this feature; ingest again so the notebook projects LiDAR.",
+  "scene.lidar.points": "Points per frame",
+  "scene.lidar.density": "Points per megapixel",
+  "scene.lidar.median_depth": "Median depth",
+  "scene.lidar.p95_depth": "p95 depth",
+  "scene.lidar.no_images": "Scene ingested on Kaggle: only the numbers are on this machine, the overlay images are in the ingest notebook's output.",
+  "scene.lidar.frame": "Frame",
+  "scene.lidar.how_to_read": "Click an image to open it full size. Check that points sit on the edges of cars, poles, walls and lane markings; points drifting off objects or lying in the sky mean wrong calibration or pose."
 }

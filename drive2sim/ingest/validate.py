@@ -18,7 +18,18 @@ Các phép kiểm tra, mỗi lỗi gộp theo camera để báo cáo không dài
 - ``pose.missing`` (lỗi): có ``ego_pose/`` nhưng thiếu pose ở một số khung.
 - ``lidar.missing`` (cảnh báo): manifest có LiDAR nhưng thiếu file ở một số khung.
 - ``objects.unreadable`` (lỗi): file ``instances/*.json`` không đọc được.
-- ``projection.not_run`` (thông tin): chưa chiếu LiDAR lên ảnh.
+- ``projection.not_run`` (thông tin): chưa chiếu LiDAR lên ảnh (chưa có
+  ``reports/lidar_check.json``).
+- ``projection.camera_sparse`` (cảnh báo): một camera gần như không có điểm LiDAR so với camera
+  nhiều điểm nhất: dấu hiệu nhầm camera, sai hướng, sai extrinsics.
+- ``projection.depth_range`` (cảnh báo): độ sâu trung vị của điểm LiDAR trên ảnh vô lý (dấu hiệu
+  sai đơn vị, sai tỉ lệ).
+- ``projection.camera_tilt`` (cảnh báo): camera nghiêng quá ``MAX_CAMERA_TILT_DEG`` so với các
+  camera khác (``tilt_deg`` của ``reports/rig.json``): dấu hiệu extrinsics xoay sai. Phép này bắt
+  được lỗi xoay của camera mắt cá: camera mắt cá nhìn rất rộng nên vẫn thấy nhiều điểm LiDAR dù bị
+  khai quay sai.
+- ``projection.done`` (thông tin): đã chiếu LiDAR lên ảnh; lệch nhỏ vài pixel không đo tự động,
+  xem ảnh chồng ở trang cảnh.
 - ``converter.outdated`` (cảnh báo): cảnh được ingest bằng converter cũ (phiên bản đầu ra trong
   manifest khác phiên bản hiện tại, ``outdated_output_version``); cảnh vẫn dùng được.
 """
@@ -168,13 +179,7 @@ def validate_scene(scene_dir: Path, manifest: Manifest) -> ValidationReport:
                 details={"output_version": outdated[0], "current_output_version": outdated[1]},
             )
         )
-    checks.append(
-        _check(
-            "projection.not_run",
-            "info",
-            "chưa chiếu LiDAR lên ảnh; calib và mốc thời gian chưa được kiểm tra hình học",
-        )
-    )
+    checks.extend(projection_checks(scene_dir, manifest))
     return ValidationReport(
         schema_version=SCHEMA_VERSIONS["report"],
         scene_id=manifest.scene_id,
@@ -185,3 +190,92 @@ def validate_scene(scene_dir: Path, manifest: Manifest) -> ValidationReport:
         ),
         checks=checks,
     )
+
+
+# Ngưỡng của projection_checks: camera có mật độ điểm LiDAR (trên ảnh) dưới ngần này lần camera
+# nhiều điểm nhất thì cảnh báo; độ sâu trung vị ngoài khoảng này (mét) thì cảnh báo.
+SPARSE_CAMERA_RATIO = 0.02
+# Camera nghiêng (giữa hướng lên của nó và của xe) quá ngần này độ thì cảnh báo. Camera lái xe
+# thường nghiêng dưới 20 độ; 60 độ chừa chỗ cho camera nhìn chéo xuống.
+MAX_CAMERA_TILT_DEG = 60.0
+DEPTH_RANGE_M = (1.0, 150.0)
+LIDAR_CHECK_FILE = "lidar_check.json"
+
+
+def projection_checks(scene_dir: Path, manifest: Manifest) -> list[Check]:
+    """Kiểm tra thô từ ``reports/lidar_check.json`` (``recon/tools/lidar_overlay.py``).
+
+    Bắt lỗi lớn của calib, pose, đơn vị; lệch vài pixel không đo được tự động (người xem ảnh
+    chồng).
+    """
+    if not manifest.available.lidar:
+        return []
+    try:
+        data = json.loads((scene_dir / "reports" / LIDAR_CHECK_FILE).read_text("utf-8"))
+        cameras = list(data["cameras"])
+        frames = list(data["frames"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return [
+            _check(
+                "projection.not_run",
+                "info",
+                "chưa chiếu LiDAR lên ảnh; calib và mốc thời gian chưa được kiểm tra hình học "
+                f"(d2s scene lidar-check {manifest.scene_id})",
+            )
+        ]
+    checks: list[Check] = []
+    densest = max((c.get("points_per_megapixel") or 0 for c in cameras), default=0)
+    for camera in cameras:
+        camera_id = camera.get("camera_id")
+        density = camera.get("points_per_megapixel") or 0
+        if densest > 0 and density < SPARSE_CAMERA_RATIO * densest:
+            check = Check(
+                check_id="projection.camera_sparse",
+                severity="warning",
+                message=f"{camera_id} gần như không có điểm LiDAR ({density:.0f} điểm mỗi "
+                f"megapixel, camera nhiều nhất {densest:.0f}): có thể nhầm camera, sai hướng "
+                "hoặc sai extrinsics; xem ảnh chồng LiDAR ở trang cảnh",
+                camera_id=camera_id,
+                details={"points_per_megapixel": density, "densest": densest},
+            )
+            checks.append(check)
+        median = camera.get("median_depth_m")
+        if median is not None and not DEPTH_RANGE_M[0] <= median <= DEPTH_RANGE_M[1]:
+            check = Check(
+                check_id="projection.depth_range",
+                severity="warning",
+                message=f"độ sâu trung vị của điểm LiDAR trên ảnh {camera_id} là {median:.2f} m, "
+                f"ngoài {DEPTH_RANGE_M[0]:.0f}–{DEPTH_RANGE_M[1]:.0f} m: có thể sai đơn vị hoặc "
+                "tỉ lệ",
+                camera_id=camera_id,
+                details={"median_depth_m": median},
+            )
+            checks.append(check)
+    try:
+        rig = json.loads((scene_dir / "reports" / "rig.json").read_text("utf-8"))
+        rig_cameras = list(rig["cameras"])
+    except (OSError, ValueError, KeyError, TypeError):
+        rig_cameras = []
+    for camera in rig_cameras:
+        tilt = camera.get("tilt_deg")
+        if tilt is not None and tilt > MAX_CAMERA_TILT_DEG:
+            checks.append(
+                Check(
+                    check_id="projection.camera_tilt",
+                    severity="warning",
+                    message=f"{camera.get('camera_id')} nghiêng {tilt:.0f} độ so với các camera "
+                    f"khác (camera trên xe thường dưới {MAX_CAMERA_TILT_DEG:.0f} độ): có thể "
+                    "extrinsics xoay sai; xem ảnh chồng LiDAR ở trang cảnh",
+                    camera_id=camera.get("camera_id"),
+                    details={"tilt_deg": tilt},
+                )
+            )
+    checks.append(
+        _check(
+            "projection.done",
+            "info",
+            f"đã chiếu LiDAR lên {len(frames)} khung của {len(cameras)} camera; lệch nhỏ vài "
+            "pixel không đo tự động, xem ảnh chồng LiDAR ở trang cảnh",
+        )
+    )
+    return checks

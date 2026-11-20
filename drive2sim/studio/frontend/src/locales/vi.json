@@ -764,5 +764,20 @@
   "figure.export": "Xuất hình:",
   "figure.svg_hint": "SVG: giữ nét khi phóng to, chèn được vào LaTeX, Word",
   "figure.png_hint": "PNG độ phân giải gấp đôi",
-  "figure.source": "drive2sim · cảnh {scene} · split {splits} · {iters} iteration · xuất ngày {date}"
+  "figure.source": "drive2sim · cảnh {scene} · split {splits} · {iters} iteration · xuất ngày {date}",
+  "scene.lidar.title": "LiDAR chồng lên ảnh",
+  "scene.lidar.hint": "Điểm LiDAR (tô màu theo độ sâu: đỏ gần, xanh xa) vẽ lên ảnh camera bằng đúng phép chiếu khi train. Calib đúng thì điểm nằm khít lên vật (xe, cột, mép tường); lệch thì điểm trượt khỏi vật. Báo cáo tự cảnh báo lỗi lớn (camera gần như không có điểm, độ sâu vô lý, camera nghiêng bất thường); lệch nhỏ vài pixel cần xem ảnh. Không phải bước duyệt.",
+  "scene.lidar.run": "Chiếu LiDAR",
+  "scene.lidar.rerun": "Chiếu lại",
+  "scene.lidar.running": "Đang chiếu...",
+  "scene.lidar.none": "Chưa chiếu LiDAR lên ảnh",
+  "scene.lidar.none_hint": "Cảnh ingest trước khi có tính năng này. Cần môi trường có PyTorch, mất vài giây.",
+  "scene.lidar.none_kaggle": "Cảnh ingest trên Kaggle trước khi có tính năng này; ingest lại để notebook chiếu LiDAR.",
+  "scene.lidar.points": "Điểm mỗi khung",
+  "scene.lidar.density": "Điểm mỗi megapixel",
+  "scene.lidar.median_depth": "Độ sâu trung vị",
+  "scene.lidar.p95_depth": "Độ sâu p95",
+  "scene.lidar.no_images": "Cảnh ingest trên Kaggle: máy chỉ có số liệu, ảnh chồng nằm trong output của notebook ingest.",
+  "scene.lidar.frame": "Khung",
+  "scene.lidar.how_to_read": "Bấm vào ảnh để xem cỡ lớn. Xem điểm có nằm khít lên mép xe, cột, tường và vạch đường không; điểm trôi khỏi vật hoặc nằm trên trời là calib, pose sai."
 }

@@ -85,3 +85,27 @@ def test_compute_rig_reads_poses_through_the_dataset_loader(tmp_path) -> None:  
     # mắt cá: góc nhìn trong giới hạn che của loader, rộng hơn pinhole
     assert cameras["image_00"]["hfov_deg"] < cameras["image_02"]["hfov_deg"] <= 360
     assert len(rig["trajectory"]) == 2
+
+
+def test_tilted_camera_does_not_shift_vehicle_up_and_is_reported() -> None:
+    from drive2sim.recon.tools.scene_rig import vehicle_up
+
+    c2ws = _drive({"front": 0.0, "left": math.pi / 2, "right": -math.pi / 2})
+    # camera right bị khai xoay 100 độ quanh trục ngang của nó (nhìn lên trời)
+    a = math.radians(100)
+    tilt = np.array([[1, 0, 0], [0, math.cos(a), -math.sin(a)], [0, math.sin(a), math.cos(a)]])
+    c2ws["right"] = c2ws["right"].copy()
+    c2ws["right"][:, :3, :3] = c2ws["right"][:, :3, :3] @ tilt
+    assert np.allclose(vehicle_up(c2ws), [0, 0, 1], atol=1e-6)
+
+
+def test_overlay_draws_points_on_image() -> None:
+    from drive2sim.recon.tools.lidar_overlay import overlay_image
+
+    image = np.full((20, 30, 3), 0.5, np.float32)
+    depth = np.zeros((20, 30), np.float32)
+    depth[10, 15] = 8.0
+    out = overlay_image(image, depth)
+    assert out.dtype == np.uint8 and out.shape == (20, 30, 3)
+    assert not np.array_equal(out[10, 15], [127, 127, 127])  # điểm được tô màu
+    assert np.array_equal(out[0, 0], [127, 127, 127])  # chỗ không có điểm giữ nguyên ảnh

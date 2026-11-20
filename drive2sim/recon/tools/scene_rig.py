@@ -10,8 +10,9 @@ có pose, calib).
 
 Hệ toạ độ của file (``frame``):
 
-- Trục lên: trung bình hướng "lên" của mọi camera ở mọi khung (``-Y`` của camera OpenCV), vì camera
-  gắn trên xe gần như thẳng đứng; không dựa vào quy ước trục của dataset.
+- Trục lên: hướng "lên" (``-Y`` của camera OpenCV) của camera gần các camera khác nhất
+  (``vehicle_up``), vì camera gắn trên xe gần như thẳng đứng; không dựa vào quy ước trục của dataset,
+  và một camera khai sai hướng không kéo lệch trục này.
 - Gốc: tâm các camera ở khung đầu. Trục tới: hướng xe chạy (``topdown_frame``), nên
   đúng cả khi cảnh không có camera nhìn thẳng phía trước; xe đứng yên cả đoạn thì lấy hướng nhìn
   của camera tham chiếu (``timeline.reference_sensor`` nếu là camera, không thì camera đầu tiên).
@@ -19,7 +20,8 @@ Hệ toạ độ của file (``frame``):
 - ``x`` tới, ``y`` sang trái, ``z`` lên, đơn vị mét.
 
 Nội dung: ``cameras`` (vị trí so với tâm các camera trong hệ của xe ở khung đầu, góc lệch ngang
-``yaw_deg`` và góc ngẩng ``pitch_deg`` của hướng nhìn, góc nhìn ngang ``hfov_deg``), ``trajectory``
+``yaw_deg`` và góc ngẩng ``pitch_deg`` của hướng nhìn, góc nghiêng ``tilt_deg`` giữa hướng lên
+của camera và của xe, góc nhìn ngang ``hfov_deg``), ``trajectory``
 (tâm các camera và hướng xe theo từng khung). Góc nhìn ngang đo trên tia của
 chính loader: pinhole từ tiêu cự, mắt cá và F-theta là góc lớn nhất của pixel hợp lệ trên hàng giữa
 ảnh (camera mắt cá KITTI-360: trong góc mô hình ống kính còn đúng).
@@ -90,6 +92,18 @@ def hfov_deg(camera: Any) -> float:
 MIN_STEP_M = 0.3
 
 
+def vehicle_up(c2ws: dict[str, np.ndarray]) -> np.ndarray:
+    """Hướng lên của xe trong world: hướng lên (``-Y`` OpenCV) của camera gần các camera khác nhất.
+
+    Mỗi camera lấy trung bình hướng lên qua mọi khung, rồi chọn camera có tổng góc tới các camera
+    còn lại nhỏ nhất (medoid), không lấy trung bình: một camera khai sai hướng (ví dụ extrinsics
+    xoay nhầm) không kéo lệch hướng lên của cả xe, và chính nó lộ ra ở ``tilt_deg``.
+    """
+    ups = [_unit((-pose[:, :3, 1]).mean(0)) for pose in c2ws.values()]
+    costs = [sum(math.acos(max(-1.0, min(1.0, float(a @ b)))) for b in ups) for a in ups]
+    return ups[int(np.argmin(costs))]
+
+
 def topdown_frame(c2ws: dict[str, np.ndarray], reference: str) -> tuple[np.ndarray, str]:
     """Ma trận 4x4 đổi world của dataset sang hệ của file (x tới, y trái, z lên).
 
@@ -102,8 +116,7 @@ def topdown_frame(c2ws: dict[str, np.ndarray], reference: str) -> tuple[np.ndarr
     Returns:
         ``(ma trận, nguồn của hướng tới: "motion" hoặc "camera")``.
     """
-    ups = np.concatenate([-pose[:, :3, 1] for pose in c2ws.values()])
-    up = _unit(ups.mean(0))
+    up = vehicle_up(c2ws)
     num_frames = min(len(pose) for pose in c2ws.values())
     centres = np.mean([pose[:num_frames, :3, 3] for pose in c2ws.values()], axis=0)
 
@@ -183,6 +196,10 @@ def compute_rig(scene_dir: Path) -> dict[str, Any]:
     for name, pose in c2ws.items():
         position = to_rig(pose[0, :3, 3])
         yaw, pitch = _angles(rotation @ pose[0, :3, 2])
+        # Góc giữa hướng lên của camera và của xe: camera gắn trên xe gần như đứng thẳng, nên góc
+        # lớn là dấu hiệu khai sai extrinsics (ingest/validate.py, projection.camera_tilt).
+        camera_up = rotation @ _unit((-pose[:, :3, 1]).mean(0))
+        tilt = math.degrees(math.acos(max(-1.0, min(1.0, float(camera_up[2])))))
         rig_cameras.append(
             {
                 "camera_id": name,
@@ -190,6 +207,7 @@ def compute_rig(scene_dir: Path) -> dict[str, Any]:
                 "position_m": [round(float(v), 4) for v in position],
                 "yaw_deg": round(yaw, 3),
                 "pitch_deg": round(pitch, 3),
+                "tilt_deg": round(tilt, 3),
                 "hfov_deg": None if math.isnan(hfovs[name]) else round(hfovs[name], 3),
             }
         )

@@ -11,6 +11,9 @@ File này chứa:
 - ``POST /api/scenes/{scene_id}/validate``: kiểm tra lại cảnh, ghi ``reports/validation.json``.
 - ``GET /api/scenes/{scene_id}/rig``: sơ đồ camera và quỹ đạo xe (``reports/rig.json``) hoặc
   ``null``; ``POST`` cùng đường dẫn tạo lại file đó (``engine/rig.py``, cần PyTorch).
+- ``GET /api/scenes/{scene_id}/lidar``: ảnh chồng LiDAR (url) và số liệu
+  ``reports/lidar_check.json`` hoặc ``null``; ``POST`` cùng đường dẫn chiếu lại và kiểm tra lại
+  cảnh (cần PyTorch, ảnh trên máy).
 - ``DELETE /api/scenes/{scene_id}``: xoá cảnh cùng split, cache, run của nó.
 - ``DELETE /api/scenes/{scene_id}/splits/{split_id}``: xoá split (còn run dùng thì ``409``).
 """
@@ -23,10 +26,18 @@ from pydantic import BaseModel, ConfigDict
 
 from drive2sim.core import files
 from drive2sim.engine import housekeeping, scenes
-from drive2sim.engine.rig import RigError, generate_rig, read_rig
+from drive2sim.engine.rig import (
+    LIDAR_OVERLAY_DIR,
+    RigError,
+    generate_lidar_check,
+    generate_rig,
+    read_lidar_check,
+    read_rig,
+)
 from drive2sim.engine.workdir import KAGGLE_SCENE_FILE
 from drive2sim.ingest.images import IMAGE_SUFFIXES
 from drive2sim.ingest.manifest import outdated_output_version
+from drive2sim.ingest.reports import revalidate
 from drive2sim.ingest.validate import validate_scene
 from drive2sim.studio.api.state import state_of
 
@@ -180,9 +191,56 @@ def make_rig(scene_id: str, request: Request) -> dict:
     """
     scene = state_of(request).workdir.load_scene(scene_id)
     try:
-        return {"rig": generate_rig(scene.root)}
+        rig = generate_rig(scene.root)
     except RigError as error:
         raise HTTPException(status_code=500, detail=str(error)) from None
+    if not (scene.root / KAGGLE_SCENE_FILE).is_file():
+        revalidate(scene.root)  # projection.camera_tilt đọc tilt_deg của rig.json
+    return {"rig": rig}
+
+
+def _lidar_payload(workdir, scene_root) -> dict:  # noqa: ANN001
+    data = read_lidar_check(scene_root)
+    folder = scene_root / "reports" / LIDAR_OVERLAY_DIR
+    overlays = []
+    for item in (data or {}).get("overlays", []):
+        path = folder / str(item.get("file", ""))
+        if path.is_file():
+            overlays.append({**item, "url": f"/files/{workdir.relative(path)}"})
+    return {"check": data, "overlays": overlays}
+
+
+@router.get("/{scene_id}/lidar")
+def lidar(scene_id: str, request: Request) -> dict:
+    """Ảnh chồng LiDAR và số liệu kiểm tra thô của cảnh.
+
+    Returns:
+        ``{"check": nội dung reports/lidar_check.json | null, "overlays": [{"frame",
+        "camera_id", "file", "url"}]}``; cảnh ingest trên Kaggle có ``check`` nhưng không có ảnh.
+    """
+    state = state_of(request)
+    scene = state.workdir.load_scene(scene_id)
+    return _lidar_payload(state.workdir, scene.root)
+
+
+@router.post("/{scene_id}/lidar")
+def make_lidar(scene_id: str, request: Request) -> dict:
+    """Chiếu lại LiDAR lên ảnh (như ``d2s scene lidar-check``) rồi kiểm tra lại cảnh.
+
+    Raises:
+        HTTPException: ``409`` nếu cảnh chỉ có trên Kaggle hoặc không có LiDAR; ``500`` kèm log nếu
+            không chạy được.
+    """
+    state = state_of(request)
+    scene = state.workdir.load_scene(scene_id)
+    if (scene.root / KAGGLE_SCENE_FILE).is_file() or not scene.manifest.available.lidar:
+        raise HTTPException(status_code=409, detail="cảnh không có ảnh hoặc LiDAR trên máy")
+    try:
+        generate_lidar_check(scene.root)
+    except RigError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from None
+    revalidate(scene.root)
+    return _lidar_payload(state.workdir, scene.root)
 
 
 @router.post("/{scene_id}/validate")

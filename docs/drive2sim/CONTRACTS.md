@@ -54,6 +54,8 @@ data/<scene_id>/
 ├── splits/<split_id>.json
 ├── reports/validation.json
 ├── reports/rig.json            # sơ đồ camera, quỹ đạo xe (mục 3.3)
+├── reports/lidar_check.json    # LiDAR chiếu lên ảnh: số liệu (mục 3.4)
+├── reports/lidar_overlay/      # ảnh LiDAR chồng lên ảnh, <khung>_<camera>.jpg (mục 3.4)
 └── kaggle_scene.json            # chỉ có khi cảnh ingest trên Kaggle (mục 9.4)
 ```
 
@@ -171,6 +173,15 @@ Hệ toạ độ: `x` tới, `y` trái, `z` lên, mét; gốc là tâm các came
 ```
 
 `yaw_deg` dương là sang trái; vị trí camera tính so với tâm các camera ở khung đầu. `hfov_deg`: pinhole từ tiêu cự; mắt cá, F-theta là góc giữa hai pixel hợp lệ xa nhất trên hàng giữa ảnh theo tia của loader (camera mắt cá KITTI-360: trong góc che của loader, ví dụ 191,8 độ với `image_02` của cảnh ghi `max_angle`). `trajectory`: tâm các camera và hướng xe theo từng khung.
+
+### 3.4 `reports/lidar_check.json`, `reports/lidar_overlay/`
+
+LiDAR chiếu lên ảnh để kiểm tra calib, pose (`drive2sim/recon/tools/lidar_overlay.py`, cần PyTorch và ảnh trên máy). Phép chiếu là của loader DriveStudio (`lidar_depth_maps`, đúng hình học khi train). Ghi sau ingest cùng `rig.json` (`drive2sim/ingest/reports.py`; notebook ingest trên Kaggle chạy nó, máy tải về `lidar_check.json` cùng file nhỏ, không có ảnh); cảnh có trước: `d2s scene lidar-check <scene_id>` hoặc nút ở tab Kiểm tra. Trên 3 khung (đầu, giữa, cuối):
+
+- `lidar_overlay/<khung>_<camera>.jpg`: điểm LiDAR tô màu độ sâu (thang của `depth_visualizer`) trên ảnh loader nạp; LiDAR thưa (dưới 40 000 điểm mỗi megapixel) vẽ điểm to ra 1 pixel. Để người xem, **không** phải bước duyệt.
+- `lidar_check.json`: `{"version", "scene_id", "frames", "cameras": [{"camera_id", "frames", "points_per_frame", "points_per_megapixel", "median_depth_m", "p95_depth_m"}], "overlays": [{"frame", "camera_id", "file"}]}`.
+
+`validate_scene` đọc hai file này và `rig.json`: `projection.camera_sparse` (cảnh báo, mật độ dưới 2 % camera nhiều điểm nhất), `projection.depth_range` (cảnh báo, độ sâu trung vị ngoài 1–150 m), `projection.camera_tilt` (cảnh báo, `tilt_deg` của camera quá 60 độ), `projection.done` (thông tin); chưa có `lidar_check.json` thì `projection.not_run`. Lệch nhỏ vài pixel không đo tự động (ARCHITECTURE mục 7.1).
 
 ## 4. Approach
 
@@ -825,7 +836,8 @@ Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dà
 | `d2s scene validate <scene_id>` | Kiểm tra lại, ghi `validation.json`; cảnh ingest bằng converter cũ có mục cảnh báo `converter.outdated` (mục 3.2) |
 | `d2s scene list` / `d2s scene show <scene_id>` | Liệt kê cảnh; xem manifest và báo cáo |
 | `d2s scene delete <scene_id>` | Xoá dữ liệu chuẩn, split, cache và run của cảnh; hỏi xác nhận |
-| `d2s scene rig <scene_id>` | Ghi `reports/rig.json` (mục 3.3) cho cảnh đã ingest; cần PyTorch |
+| `d2s scene rig <scene_id>` | Ghi `reports/rig.json` (mục 3.3) cho cảnh đã ingest, rồi kiểm tra lại; cần PyTorch |
+| `d2s scene lidar-check <scene_id>` | Chiếu LiDAR lên ảnh, ghi `reports/lidar_check.json`, `reports/lidar_overlay/` (mục 3.4) rồi kiểm tra lại; mã thoát 1 khi có cảnh báo `projection.*`; cần PyTorch và ảnh trên máy |
 | `d2s split create <scene_id> --strategy every_nth_frame:8 [--cameras <id,...>] [--frame-range <đầu>,<cuối>] [--split <split_id>]` | Tạo split; mặc định mọi camera và cả cảnh, tên theo mục 10.1 |
 | `d2s split list <scene_id>` / `d2s split show <scene_id> <split_id>` / `d2s split delete <scene_id> <split_id>` | Liệt kê, xem, xoá split |
 | `d2s approach list` / `d2s approach show <approach_id>` | Liệt kê approach; xem mục cấu hình, preset, ràng buộc |
@@ -909,6 +921,7 @@ Route đã có (`drive2sim/studio/api/routes/`):
 | Route | Việc | Tương ứng CLI |
 |---|---|---|
 | `GET /api/scenes`, `GET /api/scenes/{scene_id}` | Liệt kê cảnh; manifest, `validation` (báo cáo kiểm tra hoặc `null`), `splits` (danh sách `split_id`), `split_cameras` (camera của từng split, `{split_id: [camera_id]}`; giao diện hiện loại ống kính và xét approach theo camera của split, như engine), `kaggle` (danh sách notebook nạp cảnh trong `kaggle_scene.json` khi cảnh được nạp trên Kaggle, máy không có ảnh; ngược lại `null`), `converter_outdated` (`{"output_version", "current_output_version"}` khi cảnh được ingest bằng converter cũ, mục 2.2; ngược lại `null`) | `scene list`, `scene show` |
+| `GET /api/scenes/{scene_id}/lidar`, `POST` cùng đường dẫn | `{"check": nội dung lidar_check.json | null, "overlays": [{"frame", "camera_id", "file", "url"}]}`; `POST` chiếu lại rồi kiểm tra lại (`409` với cảnh chỉ có trên Kaggle hoặc không có LiDAR) | `scene lidar-check` |
 | `GET /api/scenes/{scene_id}/rig`, `POST` cùng đường dẫn | `{"rig": nội dung reports/rig.json | null}`; `POST` tạo lại file (vài chục giây, `500` kèm log khi lỗi) | `scene rig` |
 | `GET /api/scenes/{scene_id}/frames/{frame_index}` | `{"frame_index", "images": [{"camera_id", "url"}]}` cho lưới ảnh đồng bộ; `url` là `null` khi thiếu ảnh | |
 | `GET`, `POST /api/scenes/{scene_id}/splits`, `GET .../splits/{split_id}` | Liệt kê, tạo, xem split; thân của `POST`: `strategy`, `cameras`, `frame_range`, `split_id` | `split list`, `split create`, `split show` |

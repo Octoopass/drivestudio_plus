@@ -425,3 +425,43 @@ def test_cli_end_to_end(
         "prep.smpl_release",  # scene-0061 có SMPL DriveStudio phát hành: smpl=auto chọn bản đó
         "train.drivestudio",
     ]
+
+
+def test_validate_reads_lidar_projection_and_camera_tilt(tmp_path: Path) -> None:
+    """Kiểm tra thô từ lidar_check.json và rig.json: bật đúng khi có lỗi lớn, im khi đúng."""
+    scene_dir = make_processed_scene(tmp_path)
+    manifest = manifest_for(scene_dir)
+    cameras = [c.camera_id for c in manifest.cameras]
+
+    def write(densities: dict, depths: dict, tilts: dict) -> list:
+        check = {
+            "frames": [0, 5, 9],
+            "cameras": [
+                {
+                    "camera_id": c,
+                    "points_per_megapixel": densities.get(c, 20000),
+                    "median_depth_m": depths.get(c, 10.0),
+                }
+                for c in cameras
+            ],
+        }
+        rig = {"cameras": [{"camera_id": c, "tilt_deg": tilts.get(c, 1.0)} for c in cameras]}
+        (scene_dir / "reports").mkdir(exist_ok=True)
+        (scene_dir / "reports" / "lidar_check.json").write_text(json.dumps(check))
+        (scene_dir / "reports" / "rig.json").write_text(json.dumps(rig))
+        report = validate_scene(scene_dir, manifest)
+        return [(c.check_id, c.camera_id) for c in report.checks if c.severity == "warning"]
+
+    # dữ liệu đúng: không cảnh báo, có mục đã chiếu
+    assert write({}, {}, {}) == []
+    assert "projection.done" in [c.check_id for c in validate_scene(scene_dir, manifest).checks]
+    # một camera gần như không có điểm (nhầm camera, sai hướng), sai đơn vị, camera nghiêng
+    warnings = write({cameras[1]: 0}, {cameras[2]: 9000.0}, {cameras[3]: 100.0})
+    assert warnings == [
+        ("projection.camera_sparse", cameras[1]),
+        ("projection.depth_range", cameras[2]),
+        ("projection.camera_tilt", cameras[3]),
+    ]
+    # file hỏng: coi như chưa chiếu
+    (scene_dir / "reports" / "lidar_check.json").write_text("{bad")
+    assert "projection.not_run" in [c.check_id for c in validate_scene(scene_dir, manifest).checks]
