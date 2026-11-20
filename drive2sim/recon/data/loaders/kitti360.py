@@ -302,6 +302,7 @@ class KITTI360CameraData(KITTICameraData):
             self.HEIGHT,
             self.camera_model,
             self.radial_coeffs,
+            max_angle=self.max_angle if self.camera_model == "fisheye" else None,
         )
         if self.camera_model == "fisheye":
             _, region = self.camera_rays(intrinsics, self.HEIGHT, self.WIDTH)

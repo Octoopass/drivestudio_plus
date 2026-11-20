@@ -99,7 +99,7 @@ Góc θ đo từ trục nhìn sang **một bên**; góc nhìn tổng của một
 |---|---|---|
 | Ống kính vật lý | Mô hình Mei của KITTI-360; ảnh tối dần từ khoảng 98 độ, tối hẳn từ khoảng 101 độ | khoảng 101 độ |
 | Mô hình sau khi chuyển | OpenCV fisheye khớp từ Mei (`core/camera.py`, khớp trên 0–1,45 rad); renderer của gsplat không có mô hình Mei | `image_02` 96,1 độ, `image_03` 92,5 độ (lệch Mei 0,5 px) |
-| Renderer | 3DGUT chiếu điểm mẫu của Gaussian qua ống kính, hỏng khi điểm mẫu ở 90 độ hoặc sau camera; 3DGEER tính theo tia của từng pixel nên không có giới hạn này | 3DGUT 88 độ |
+| Renderer | gsplat (3DGUT `ProjectionUT3DGSFused.cu`, 3DGEER `IntersectGEERTile.cu`) bỏ mọi Gaussian có tâm sau mặt phẳng camera (`z <= near_plane`), nên **cả hai không vẽ được gì từ 90 độ trở ra**; 3DGUT còn chiếu điểm mẫu của Gaussian qua ống kính, hỏng gần 90 độ | 88 độ (cả hai, chừa khoảng an toàn) |
 
 **Mặt nạ khi train và đánh giá** (từ 19/11/2026; trước đó mọi renderer che từ 1,45 rad, 83 độ). Không có con số nào gắn với KITTI-360 hay một camera:
 
@@ -108,26 +108,27 @@ Góc θ đo từ trục nhìn sang **một bên**; góc nhìn tổng của một
 | Ngoài góc mô hình ống kính còn đúng | Converter tính từ calib Mei của **từng camera**: góc lớn nhất mà OpenCV fisheye lệch Mei không quá `FIT_TOLERANCE_PX` = 0,5 px (`fit_valid_angle`), ghi vào `cameras[].max_angle` | che | che |
 | Vùng đen ngoài hình tròn ống kính | Loader dò từ ảnh của **từng camera** (`dark_border_angle`, `recon/utils/geometry.py`): trung vị theo thời gian của từng pixel, rồi trung vị theo vòng góc 0,5 độ; vòng sáng cuối cùng là vòng không tối hơn một nửa vùng giữa ảnh (dưới 60 độ). Dò theo vòng, không theo pixel, vì trong vùng ảnh vẫn có cảnh tối thật (nóc xe, bóng cây: 50 000–100 000 pixel tối trong vùng dưới 96 độ) | che | che |
 | Thân xe | `assets/ego_masks/kitti360/` | che | che |
-| Ngoài 88 độ | Giới hạn của renderer, stage train đặt cho mọi dataset (`UT_MAX_ANGLE` = 1,536 rad) | không | che |
+| Ngoài 88 độ | Giới hạn của renderer, stage train đặt cho mọi dataset (`RENDERER_MAX_ANGLE` = 1,536 rad, `stages/train/drivestudio.py`) | che | che |
 
 Trên cảnh `kitti360_0003_local` (40 khung chuỗi 0003, ảnh 700×700):
 
-| Camera | Mô hình ống kính | Vùng đen từ | 3DGEER dùng tới | Pixel hợp lệ | 3DGUT dùng tới | Pixel hợp lệ |
-|---|---|---|---|---|---|---|
-| `image_02` | 96,1 độ | 101,0 độ | 96,1 độ (192 độ tổng) | 63,5% | 88 độ (176 độ tổng) | 57,0% |
-| `image_03` | 92,5 độ | 101,0 độ | 92,5 độ (185 độ tổng) | 61,0% | 88 độ | 57,5% |
+| Camera | Mô hình ống kính | Vùng đen từ | 3DGUT, 3DGEER dùng tới | Pixel hợp lệ |
+|---|---|---|---|---|
+| `image_02` | 96,1 độ | 101,0 độ | 88 độ (176 độ tổng) | 57,0% |
+| `image_03` | 92,5 độ | 101,0 độ | 88 độ | 57,5% |
 
 Tỉ lệ pixel hợp lệ tính trên ảnh vuông 700×700, gồm cả bốn góc đen và đã trừ thân xe.
 
 - Tham số stage `train.drivestudio.fisheye_max_angle` thay giới hạn mô hình ống kính và renderer để thử nghiệm; vùng đen vẫn bị che.
 - **Cảnh ingest trước converter đầu ra phiên bản 3** (manifest không có `max_angle`, như `kitti360_drive0003`): loader không có calib Mei để tính, nên dùng miền khớp 1,45 rad (83 độ). Validate, Studio báo cảnh cũ; ingest lại để dùng vùng rộng hơn.
 - **Lỗi đã sửa ở commit trước** (`fe206cc`): hàm tia `camera_model_rays` của DriveStudio coi mọi tia fisheye từ 90 độ trở ra là không hợp lệ, nên 3DGEER thực tế vẫn dừng ở 90 độ dù manifest ghi 96 độ. Nay loader KITTI-360 truyền góc của camera vào (`fisheye_max_angle`); video quỹ đạo, viewer vẫn dừng ở 90 độ như cũ, vì ở đó renderer có thể là 3DGUT.
-- **Độ sâu LiDAR chỉ tới 90 độ**: phép chiếu điểm LiDAR (`project_camera_model`) bỏ điểm từ 90 độ trở ra, vì DriveStudio lưu độ sâu theo trục z (âm sau 90 độ). Vành 90 độ tới giới hạn của camera chỉ có giám sát màu, không có độ sâu, và không có điểm LiDAR khởi tạo.
+- **Điểm LiDAR theo cùng ngưỡng che**: loader truyền góc che của camera (`max_angle`) vào phép chiếu (`project_camera_model`), nên điểm LiDAR được chiếu, dùng làm độ sâu và khởi tạo đúng tới góc đó. Phép chiếu còn bỏ điểm quá đỉnh của đa thức ống kính (`image_02` 112,7 độ, `image_03` 108,5 độ): sau đỉnh bán kính giảm lại, điểm phía sau (khoảng 30 000 điểm mỗi khung trên chuỗi 0003) rơi đúng vào pixel của vùng dùng được. Nhiều điểm rơi vào một pixel thì giữ điểm gần nhất (`nearest_depth_map`; DriveStudio giữ điểm bất kỳ, áp dụng mọi dataset). Độ sâu vẫn theo trục z như renderer vẽ.
+- **Run 3DGEER che tới giới hạn ống kính (từ 19/11/2026 tới khi sửa, ví dụ `3586`)**: dải 90–96 độ được train nhưng renderer không vẽ được (opacity 0 ở mọi pixel ngoài 90 độ trên checkpoint `3586`), nên model chỉ vẽ màu trời ở đó; so 3DGEER với 3DGUT bằng run này không công bằng.
 
 Căn cứ:
 - **0,5 px (ngưỡng mô hình ống kính)**: cùng cỡ với sai số đã chấp nhận do bỏ méo tiếp tuyến (tới 0,78 px khi chiếu LiDAR thật). Đổi ra mét ở vành 96 độ của `image_02` (1 px ứng với 0,18 độ): vật cách 10 m lệch ngang khoảng 1,6 cm, cách 20 m khoảng 3,1 cm. Ngưỡng 1 px cho 3,1 cm và 6,2 cm; 2 px cho 6,2 cm và 12,4 cm. Nới ngưỡng thêm ít góc (1 px: `image_02` 99,3 độ, `image_03` 95,5 độ) nhưng vành đó vốn tối dần.
 - **Vùng đen**: trung vị theo vòng trên ảnh gốc chuỗi 0003 (`image_02`): khoảng 110 ở 96–98 độ, 77 ở 98–100 độ, 42 ở 100–102 độ, 25 ở 102–104 độ, 13–19 từ 104 độ; vùng ngoài hình tròn khoảng 4–10, có nhiễu nên không phải 0.
-- **88 độ (3DGUT)**: (1) checkpoint 3DGUT `146b` và 3DGEER `e3e3` (cùng split `every10_fisheye2`, cùng che từ 83 độ) vẽ không che, so với ảnh gốc theo dải góc trên 12 khung `image_02`: hai renderer tụt giống nhau ngoài 83 độ (88–89 độ: 17,4 so với 17,4 dB; 89–90 độ: 16,5 so với 16,6 dB), tức 3DGUT không vẽ hỏng riêng tới 90 độ, phần tụt là do vùng chưa được học. (2) Hai run thử OmniRe + 3DGUT, 1000 bước, cảnh `kitti360_0003_local` (40 khung của chuỗi 0003, hai camera mắt cá), chỉ khác ngưỡng che, đo bằng `drive2sim/scripts/fisheye_angle_bands.py` trên 8 khung test `image_02`:
+- **88 độ**: (1) checkpoint 3DGUT `146b` và 3DGEER `e3e3` (cùng split `every10_fisheye2`, cùng che từ 83 độ) vẽ không che, so với ảnh gốc theo dải góc trên 12 khung `image_02`: hai renderer tụt giống nhau ngoài 83 độ (88–89 độ: 17,4 so với 17,4 dB; 89–90 độ: 16,5 so với 16,6 dB), tức 3DGUT không vẽ hỏng riêng tới 90 độ, phần tụt là do vùng chưa được học. (2) Hai run thử OmniRe + 3DGUT, 1000 bước, cảnh `kitti360_0003_local` (40 khung của chuỗi 0003, hai camera mắt cá), chỉ khác ngưỡng che, đo bằng `drive2sim/scripts/fisheye_angle_bands.py` trên 8 khung test `image_02`:
 
 | Dải góc | Che từ 83 độ (`4ef4`) | Che từ 88 độ (`fe92`) |
 |---|---|---|
@@ -143,8 +144,7 @@ Hệ quả:
 - **Trong vùng dùng được, ảnh vẽ ra không lệch góc** so với camera thật: sai số mô hình ống kính dưới 0,5 px.
 - **Video, ảnh đánh giá của stage train** có cùng khung ảnh, kích thước và tâm ảnh với ảnh gốc (700×700 khi train, thu từ 1400×1400). Renderer vẽ mọi pixel theo OpenCV fisheye khớp từ Mei; pixel ngoài vùng dùng được và pixel thân xe được loader đánh dấu không hợp lệ (`valid_masks`, `recon/data/loaders/kitti360.py`) và bị tô đen ở **cả** ảnh render lẫn ảnh thật dùng để so (`recon/rendering/videos.py`); PSNR, SSIM, LPIPS chỉ tính trên pixel hợp lệ.
 - **Không so PSNR tổng giữa run che khác nhau**: run 3DGUT với 3DGEER, hay run trước với run sau 19/11/2026, đo trên vùng ảnh khác nhau; so theo dải góc bằng `fisheye_angle_bands.py`.
-- Run 3DGUT còn thiếu vành từ 88 độ tới giới hạn của camera. Thuật toán cần nguyên ảnh mắt cá nên dùng 3DGEER.
-- Chưa kiểm chứng bằng train: chất lượng vành 88 độ tới giới hạn của camera với 3DGEER.
+- Run còn thiếu vành từ 88 độ tới giới hạn của camera (khoảng 92–101 độ) với mọi renderer. Muốn dùng vành này phải sửa phép chiếu trong gsplat để không bỏ Gaussian sau mặt phẳng camera.
 - Mặt nạ vật động lúc ingest (`kitti360_boxes.py`, mục 3.1) vẫn coi góc ngoài 1,45 rad là không thấy; vật nằm trong vành từ 83 độ tới giới hạn của camera không có mặt nạ vật động.
 
 ## 6. Đã kiểm tra trên dữ liệu thật

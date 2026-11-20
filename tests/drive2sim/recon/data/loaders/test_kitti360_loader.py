@@ -450,3 +450,50 @@ def test_pixel_sources_do_not_share_cameras(tmp_path: Path) -> None:
     second = make_source(make_scene(tmp_path / "b"))
     assert first.camera_data is not second.camera_data
     assert first.camera_data[1] is not second.camera_data[1]
+
+
+def test_lidar_points_follow_the_camera_mask_angle() -> None:
+    """Điểm LiDAR được chiếu tới đúng ngưỡng che ``max_angle`` của camera.
+
+    Không truyền ``max_angle`` thì giữ giới hạn 90 độ cũ.
+    """
+    from drive2sim.recon.utils.geometry import project_world_camera
+
+    K = torch.tensor([[400.0, 0, 700], [0, 400.0, 700], [0, 0, 1]])
+    angles = torch.tensor([math.radians(a) for a in (80, 87, 89)])
+    points = torch.stack((4 * angles.sin(), torch.zeros(3), 4 * angles.cos()), -1)
+    pose = torch.eye(4)
+    args = (points, pose, pose, K, 1400, 1400, "fisheye", FISHEYE_COEFFS_02)
+    _, depth, valid = project_world_camera(*args, max_angle=math.radians(88))
+    assert valid.tolist() == [True, True, False]
+    assert torch.allclose(depth, points[:, 2])
+    assert project_world_camera(*args)[2].tolist() == [True, True, True]
+
+
+def test_lidar_points_behind_the_lens_fold_are_rejected(source: KITTI360PixelSource) -> None:
+    """Điểm LiDAR phía sau, quá đỉnh của đa thức ống kính, bị loại.
+
+    Sau đỉnh, bán kính giảm lại: điểm phía sau rơi đúng vào pixel của một điểm trong vùng dùng
+    được, nên phải loại theo góc, không theo pixel.
+    """
+    camera = source.camera_data[1]
+    k = FISHEYE_COEFFS_02
+    theta = torch.linspace(0, math.pi, 100001, dtype=torch.float64)
+    radius = theta * (1 + sum(c * theta ** (2 * i + 2) for i, c in enumerate(k)))
+    peak = int(radius.argmax())
+    edge = float(radius[theta <= camera.max_angle].max())
+    behind = float(theta[peak:][(radius[peak:] - edge * 0.98).abs().argmin()])
+    assert behind > math.pi / 2
+    point = torch.tensor([[5 * math.sin(behind), 0.0, 5 * math.cos(behind)]])
+    pixels, _, valid = camera.project_points(point, 0)
+    inside = 0 <= pixels[0, 0] < camera.WIDTH and 0 <= pixels[0, 1] < camera.HEIGHT
+    assert inside
+    assert valid.tolist() == [False]
+
+
+def test_depth_map_keeps_nearest_point_per_pixel() -> None:
+    from drive2sim.recon.utils.geometry import nearest_depth_map
+
+    pixels = torch.tensor([[1.2, 0.5], [1.7, 0.1], [0.0, 1.0]])
+    depth_map = nearest_depth_map(pixels, torch.tensor([9.0, 3.0, 5.0]), 2, 3)
+    assert depth_map.tolist() == [[0.0, 3.0, 0.0], [5.0, 0.0, 0.0]]

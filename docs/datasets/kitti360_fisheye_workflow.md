@@ -8,7 +8,7 @@ Tài liệu này đi theo một ảnh của camera mắt cá `image_02` (chuỗi
 |---|---|---|---|
 | 1. Dữ liệu gốc | Ảnh PNG 1400×1400 | Mô hình **Mei** (ống kính thật) | khoảng 191° theo chiều ngang |
 | 2. Ingest | Chép nguyên ảnh | Khớp Mei sang **OpenCV fisheye** | (chưa che gì) |
-| 3. Nạp dữ liệu | Thu nhỏ 700×700, lập mặt nạ | Tính góc tia của từng pixel | 3DGEER `image_02` **192°**, `image_03` **185°** (che ngoài góc mô hình còn đúng, vùng đen, thân xe); 3DGUT **176°** (che thêm ngoài 88°) |
+| 3. Nạp dữ liệu | Thu nhỏ 700×700, lập mặt nạ | Tính góc tia của từng pixel | 3DGUT, 3DGEER **176°** (che ngoài góc mô hình còn đúng, vùng đen, thân xe và ngoài 88°) |
 | 4. Train | Chỉ dùng pixel hợp lệ | Renderer vẽ qua OpenCV fisheye | như bước 3 |
 | 5. Video, điểm số | Tô đen cùng vùng ở ảnh render và ảnh thật | Như bước 4 | như bước 3 |
 | 6. Xem trên Studio | Trình duyệt vẽ pinhole | Spark chỉ có pinhole | tuỳ góc pinhole |
@@ -87,7 +87,7 @@ Loader: `drive2sim/recon/data/loaders/kitti360.py`.
 1. Đọc ảnh, **thu nhỏ còn 700×700**.
 2. Dùng mô hình OpenCV fisheye để tính hướng tia và góc θ của **từng pixel**.
 3. Lập **mặt nạ hợp lệ** (`valid_masks`). Pixel bị loại khi:
-   - **θ lớn hơn góc dùng được**: góc nhỏ nhất giữa góc mô hình ống kính còn lệch Mei dưới 0,5 px (converter tính từ calib của từng camera, ghi `cameras[].max_angle`), góc bắt đầu vùng đen (loader dò từ ảnh theo vòng góc) và giới hạn của renderer (3DGUT: 88°; 3DGEER: không có);
+   - **θ lớn hơn góc dùng được**: góc nhỏ nhất giữa góc mô hình ống kính còn lệch Mei dưới 0,5 px (converter tính từ calib của từng camera, ghi `cameras[].max_angle`), góc bắt đầu vùng đen (loader dò từ ảnh theo vòng góc) và giới hạn của renderer (3DGUT, 3DGEER: 88°, vì gsplat không vẽ Gaussian có tâm sau mặt phẳng camera);
    - nằm trong **mặt nạ thân xe** `drive2sim/assets/ego_masks/kitti360/image_02.png`.
 
 | | 3DGEER | 3DGUT |
@@ -113,11 +113,11 @@ Cùng ảnh gốc ở bước 2, tô các vùng bị loại theo ngưỡng cũ 8
 
 Phần lớn thân xe vốn đã nằm trong vùng đỏ; mặt nạ thân xe chỉ che thêm phần nóc xe lấn vào trong 83°.
 
-**Vì sao 0,5 px và 88°**: 0,5 px cùng cỡ với sai số đã có do bỏ méo tiếp tuyến; ở vành 96°, vật cách 10 m lệch ngang khoảng 1,6 cm (`kitti360.md` mục 5.1). Renderer **3DGUT** chiếu vài điểm mẫu của mỗi Gaussian qua ống kính, và phép chiếu hỏng khi điểm mẫu ở 90° hoặc sau camera, nên nó dừng ở 88°; run thử 1000 bước cho vùng 83–88° tốt hơn 1,2–2,4 dB so với che từ 83°, vùng trong không đổi (`kitti360.md` mục 5.1).
+**Vì sao 0,5 px và 88°**: 0,5 px cùng cỡ với sai số đã có do bỏ méo tiếp tuyến; ở vành 96°, vật cách 10 m lệch ngang khoảng 1,6 cm (`kitti360.md` mục 5.1). Renderer **3DGUT** chiếu vài điểm mẫu của mỗi Gaussian qua ống kính, và phép chiếu hỏng khi điểm mẫu ở 90° hoặc sau camera, nên nó dừng ở 88°; 3DGEER cũng không vẽ được gì từ 90° trở ra (gsplat bỏ Gaussian có tâm sau mặt phẳng camera) nên cũng dừng ở 88°; run thử 1000 bước cho vùng 83–88° tốt hơn 1,2–2,4 dB so với che từ 83°, vùng trong không đổi (`kitti360.md` mục 5.1).
 
 ## 5. Train
 
-Renderer 3DGUT hoặc 3DGEER vẽ cảnh 3D qua **ống kính OpenCV fisheye** của camera đó, ra ảnh 700×700, rồi so với ảnh thật **chỉ trên pixel hợp lệ**. Pixel bị che (bước 4) không góp vào sai số, nên model không học các vùng đó: 3DGEER học tới góc dùng được của từng camera, 3DGUT tới 88°. Các run tạo trước 19/11/2026 (3DGUT `146b`, `e627`; 3DGEER `e3e3`, `0b27`) được che từ 83° với mọi renderer.
+Renderer 3DGUT hoặc 3DGEER vẽ cảnh 3D qua **ống kính OpenCV fisheye** của camera đó, ra ảnh 700×700, rồi so với ảnh thật **chỉ trên pixel hợp lệ**. Pixel bị che (bước 4) không góp vào sai số, nên model không học các vùng đó: cả 3DGUT và 3DGEER học tới 88°. Các run tạo trước 19/11/2026 (3DGUT `146b`, `e627`; 3DGEER `e3e3`, `0b27`) được che từ 83° với mọi renderer.
 
 ## 6. Video và điểm số
 
@@ -160,7 +160,7 @@ Vấn đề khi trình duyệt dùng tiêu cự của camera mắt cá trong ph�
 
 | | Hiện trạng |
 |---|---|
-| Vùng dùng được | 3DGEER: `image_02` tới 96,1° mỗi bên (192°), `image_03` tới 92,5° (185°); 3DGUT: tới 88° mỗi bên (176°) |
+| Vùng dùng được | 3DGUT, 3DGEER: tới 88° mỗi bên (176°); mô hình ống kính còn đúng tới 96,1° (`image_02`), 92,5° (`image_03`) nhưng renderer không vẽ được từ 90° |
 | Độ chính xác hình học | Ảnh tái dựng đúng vị trí so với camera thật (sai số mô hình ống kính dưới 0,5 px trong vùng dùng được) |
 | Run 3DGUT | Thiếu vành từ 88° tới giới hạn của camera, vì 3DGUT không vẽ được tia từ 90° trở ra |
 | Độ sâu LiDAR | Chỉ tới 90°; vành ngoài 90° chỉ có giám sát màu |

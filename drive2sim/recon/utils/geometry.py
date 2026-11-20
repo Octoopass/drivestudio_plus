@@ -199,8 +199,15 @@ def project_camera_model(
     radial_coeffs=None,
     ftheta_parameters=None,
     tangential_coeffs=None,
+    max_angle=None,
 ):
-    """Project camera-space points to pixel-center coordinates, with validity."""
+    """Project camera-space points to pixel-center coordinates, with validity.
+
+    drive2sim: fisheye points are valid up to ``max_angle`` off axis (radians; ``None`` keeps the
+    old 90 degree limit), and only where the lens polynomial still grows with the angle: past its
+    peak the polynomial folds back, so a point behind the camera would land on the same pixel as a
+    point inside the usable field of view.
+    """
     r = torch.linalg.vector_norm(points[..., :2], dim=-1)
     theta = torch.atan2(r, points[..., 2])
     valid = torch.isfinite(points).all(-1) & (points.norm(dim=-1) > 1e-8)
@@ -217,7 +224,10 @@ def project_camera_model(
         radius = _camera_polynomial(coefficients, theta)
         xy = points[..., :2] * (radius / r.clamp_min(1e-8))[..., None]
         pixels = xy * intrinsics.diagonal()[:2] + intrinsics[:2, 2]
-        return pixels, valid & (theta < np.pi / 2)
+        if max_angle is None:
+            return pixels, valid & (theta < np.pi / 2)
+        slope = _camera_polynomial([i * c for i, c in enumerate(coefficients)][1:], theta)
+        return pixels, valid & (theta <= float(max_angle)) & (slope > 0)
     if camera_model != 'ftheta' or ftheta_parameters is None:
         raise ValueError('Expected pinhole, fisheye, or ftheta with calibration')
     p = ftheta_parameters
@@ -355,14 +365,25 @@ def project_world_camera(
     ftheta_parameters=None,
     shutter_type='GLOBAL',
     tangential_coeffs=None,
+    max_angle=None,
 ):
-    """Project using the same interpolated camera pose as native ray generation."""
+    """Project using the same interpolated camera pose as native ray generation.
+
+    Returns ``(pixels, depth, valid)`` with ``depth`` the ``z`` in the camera frame, as the trainer
+    renders it. drive2sim: ``max_angle`` is passed to ``project_camera_model``.
+    """
     fraction = points.new_full(points.shape[:-1], 0.5 if shutter_type != 'GLOBAL' else 0.0)
     for _ in range(10 if shutter_type != 'GLOBAL' else 1):
         rotation, origin = interpolate_camera_poses(start, end, fraction)
         local = torch.einsum('...ji,...j->...i', rotation, points - origin)
         pixels, valid = project_camera_model(
-            local, intrinsics, camera_model, radial_coeffs, ftheta_parameters, tangential_coeffs
+            local,
+            intrinsics,
+            camera_model,
+            radial_coeffs,
+            ftheta_parameters,
+            tangential_coeffs,
+            max_angle=max_angle,
         )
         fraction = camera_shutter_fraction(pixels, width, height, shutter_type)
     valid &= (
@@ -372,6 +393,24 @@ def project_world_camera(
         & (pixels[..., 1] < height)
     )
     return pixels, local[..., 2], valid
+
+
+def nearest_depth_map(pixels, depth, height, width):
+    """drive2sim: depth map ``(height, width)`` from projected points, 0 where no point lands.
+
+    When several points land on one pixel the nearest wins; DriveStudio's plain indexing kept an
+    arbitrary one, often a point hidden behind a closer surface.
+
+    Args:
+        pixels: Pixel coordinates ``(N, 2)`` as ``(u, v)``, inside the image.
+        depth: Depth of each point ``(N,)``.
+        height: Image height.
+        width: Image width.
+    """
+    flat = pixels[:, 1].long() * width + pixels[:, 0].long()
+    depth_map = torch.full((height * width,), float('inf'), device=depth.device)
+    depth_map = depth_map.scatter_reduce(0, flat, depth.float(), reduce='amin')
+    return torch.where(torch.isinf(depth_map), 0.0, depth_map).view(height, width)
 
 
 def dark_border_angle(
