@@ -171,7 +171,7 @@
   "drive.not_supported": "Detected this dataset, but scene ingest does not support it yet.",
   "drive.candidates": "Datasets in subfolders (click to open):",
   "drive.sequence": "Pull one sequence only",
-  "drive.sequence_help": "Pulls only the files that sequence needs: calibration/, data_poses, the four data_2d_raw/<sequence>_image_0X.tar and the LiDAR data_3d_raw/<sequence>.tar (or the extracted folders). Pulling another sequence into the same uploads/ folder skips the calibration and poses already there.",
+  "drive.sequence_help": "Pulls only the files that sequence needs: calibration/, data_poses, ImageSets-rosa-6class/ (metadata Instant NuRec needs), the four data_2d_raw/<sequence>_image_0X.tar and the LiDAR data_3d_raw/<sequence>.tar (or the extracted folders). Pulling another sequence into the same uploads/ folder skips the calibration and poses already there.",
   "drive.sequence_all": "Whole folder",
   "drive.inspect_truncated": "Large folder: only the first 600 folders were looked at, the result may be incomplete.",
   "drive.pick": "Pull only this item (several allowed)",

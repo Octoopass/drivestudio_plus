@@ -171,7 +171,7 @@
   "drive.not_supported": "Nhận ra dataset này nhưng scene ingest chưa hỗ trợ nó.",
   "drive.candidates": "Có dataset ở thư mục con (bấm để mở):",
   "drive.sequence": "Chỉ tải một chuỗi",
-  "drive.sequence_help": "Chỉ tải file chuỗi đó cần: calibration/, data_poses, bốn file ảnh data_2d_raw/<chuỗi>_image_0X.tar và LiDAR data_3d_raw/<chuỗi>.tar (hoặc các thư mục đã giải nén). Tải thêm chuỗi khác vào cùng thư mục uploads/ thì calib, pose đã có được bỏ qua.",
+  "drive.sequence_help": "Chỉ tải file chuỗi đó cần: calibration/, data_poses, ImageSets-rosa-6class/ (metadata Instant NuRec cần), bốn file ảnh data_2d_raw/<chuỗi>_image_0X.tar và LiDAR data_3d_raw/<chuỗi>.tar (hoặc các thư mục đã giải nén). Tải thêm chuỗi khác vào cùng thư mục uploads/ thì calib, pose đã có được bỏ qua.",
   "drive.sequence_all": "Cả thư mục",
   "drive.inspect_truncated": "Thư mục lớn: chỉ xem 600 thư mục đầu, kết quả có thể thiếu.",
   "drive.pick": "Chỉ tải mục này (chọn được nhiều)",

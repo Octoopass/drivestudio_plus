@@ -173,6 +173,8 @@ def make_kitti360(root: Path) -> None:
     (root / "calibration").mkdir(parents=True)
     (root / "calibration" / "calib_cam_to_pose.txt").write_text("calib")
     (root / "data_poses.zip").write_bytes(b"z" * 10)
+    (root / "ImageSets-rosa-6class").mkdir()
+    (root / "ImageSets-rosa-6class" / "kitti360_rosa_infos_val.pkl").write_bytes(b"m" * 3)
     for seq in ("2013_05_28_drive_0003_sync", "2013_05_28_drive_0005_sync"):
         for cam in range(4):
             (root / "data_2d_raw").mkdir(exist_ok=True)
@@ -226,6 +228,7 @@ def test_pull_one_kitti360_sequence(my_drive: Path, tmp_path: Path) -> None:
     )
     got = sorted(p.relative_to(target).as_posix() for p in target.rglob("*") if p.is_file())
     assert got == [
+        "ImageSets-rosa-6class/kitti360_rosa_infos_val.pkl",
         "calibration/calib_cam_to_pose.txt",
         "data_2d_raw/2013_05_28_drive_0005_sync_image_00.tar",
         "data_2d_raw/2013_05_28_drive_0005_sync_image_01.tar",
@@ -234,7 +237,7 @@ def test_pull_one_kitti360_sequence(my_drive: Path, tmp_path: Path) -> None:
         "data_3d_raw/2013_05_28_drive_0005_sync.tar",
         "data_poses.zip",
     ]
-    assert result["bytes"] == 5 + 10 + 4 * 100 + 50
+    assert result["bytes"] == 5 + 3 + 10 + 4 * 100 + 50  # ROSA: Instant NuRec cần
     picked = drive.pull_folder(FakeVM(), "s", "k360", tmp_path / "p", include=["checkpoints/"])
     assert picked["files"] == 1
     with pytest.raises(ValueError, match="không file nào"):
