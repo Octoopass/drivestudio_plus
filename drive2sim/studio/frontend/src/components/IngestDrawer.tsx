@@ -1,6 +1,7 @@
 // Thêm cảnh từ dữ liệu gốc (như `d2s source inspect` rồi `d2s scene ingest`): nhập đường dẫn thư
 // mục trên máy chạy Studio, xem tool nhận ra gì, chọn phiên bản và chuỗi, rồi ingest ở nền. Kết quả
-// hiện trong ngăn "Hoạt động" và thông báo nổi khi xong.
+// hiện trong ngăn "Hoạt động" và thông báo nổi khi xong. Dữ liệu nằm trên máy người dùng (Studio
+// chạy trên máy khác) thì tải lên trước bằng UploadSource, xong thì xem thư mục đã tải.
 import { FolderOpen, FolderSearch } from "lucide-react";
 import { useMemo, useState } from "react";
 import { asApiError, post, type ApiError } from "../api/client";
@@ -8,6 +9,7 @@ import type { Job, SourceReport } from "../api/types";
 import { useI18n } from "../i18n";
 import { useLive } from "../live";
 import { Drawer, ErrorBox, InfoTip, Note, useToast, yesNo } from "./ui";
+import { UploadSource } from "./UploadSource";
 
 const PATH_KEY = "d2s.ingest.path";
 
@@ -149,6 +151,12 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
           {t("ingest.action.inspect")}
         </button>
       </form>
+      <UploadSource
+        onUploaded={(uploaded) => {
+          setPath(uploaded);
+          void inspect(uploaded);
+        }}
+      />
       <ErrorBox error={error} />
 
       {report && (
