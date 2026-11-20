@@ -49,6 +49,7 @@ from drive2sim.studio.api.routes import (
     approaches,
     cache,
     colab,
+    environment,
     kaggle,
     report,
     runs,
@@ -253,6 +254,9 @@ def create_app(
         for watcher in watchers:
             watcher.stop()
         gpu_viewers.stop()
+        if hasattr(app.state, "env_install"):
+            # cài dở bị dừng; mở lại Studio rồi cài tiếp từ bước đó
+            app.state.env_install.cancel()
         app.state.studio.queue.shutdown()
         app.state.studio.jobs.shutdown()
 
@@ -285,7 +289,7 @@ def create_app(
             )
         return await call_next(request)
 
-    for module in (sources, scenes, approaches, runs, report, cache, kaggle, colab):
+    for module in (sources, scenes, approaches, runs, report, cache, kaggle, colab, environment):
         app.include_router(module.router)
 
     class RevealBody(BaseModel):

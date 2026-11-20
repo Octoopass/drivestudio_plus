@@ -12,6 +12,7 @@ import { ErrorBox, InfoTip, Note, PageHead, Panel, Segmented, Skeleton } from ".
 import { useI18n } from "../i18n";
 import { lensGroup, lensOf, lensSummary } from "../lens";
 import { go, href } from "../router";
+import { EnvInstall } from "../components/EnvInstall";
 
 // Pinhole lý tưởng của NCore được coi là pinhole OpenCV, như engine (CONTRACTS 4.2).
 const lensModel = (model: string) => (model === "ideal_pinhole" ? "opencv_pinhole" : model);
@@ -518,6 +519,9 @@ function LocalEnvironment({ approachId }: { approachId: string }) {
           {t("new.env.install")} <code>{data.install}</code>
           <InfoTip>{t("new.env.install_hint", { file: data.file ?? "" })}</InfoTip>
         </span>
+        {data.env && !data.checks.some((c) => c.id === "gpu" && c.level === "missing") && (
+          <EnvInstall env={data.env} onDone={env.reload} />
+        )}
       </div>
     </Note>
   );
