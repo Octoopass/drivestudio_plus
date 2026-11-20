@@ -181,21 +181,23 @@ class ColabClient:
             "assignments": number("Active assignments"),
         }
 
-    def create_session(self, session: str, gpu: str) -> None:
-        """Tạo phiên Colab có GPU (``colab new -s <tên> --gpu <gpu>``); mất tới vài phút.
+    def create_session(self, session: str, gpu: Optional[str]) -> None:
+        """Tạo phiên Colab (``colab new -s <tên> [--gpu <gpu>]``); mất tới vài phút.
 
         Args:
             session: Tên phiên.
-            gpu: Một trong ``GPUS``.
+            gpu: Một trong ``GPUS``; ``None`` là phiên CPU (đủ để lấy dữ liệu từ Drive).
 
         Raises:
             ColabError: Nếu ``gpu`` lạ, tài khoản không được cấp GPU đó, hoặc Colab hết chỗ.
         """
-        if gpu not in GPUS:
+        if gpu is not None and gpu not in GPUS:
             raise ColabError(f"GPU {gpu} không có trên Colab; chọn một trong {', '.join(GPUS)}")
-        result = self._run("new", "-s", session, "--gpu", gpu, timeout_s=900)
+        extra = ("--gpu", gpu) if gpu else ()
+        result = self._run("new", "-s", session, *extra, timeout_s=900)
         if result.returncode != 0 or "READY" not in f"{result.stdout}{result.stderr}":
-            raise ColabError(f"không tạo được phiên Colab {session} ({gpu}): {_tail(result)}")
+            kind = gpu or "CPU"
+            raise ColabError(f"không tạo được phiên Colab {session} ({kind}): {_tail(result)}")
 
     def stop(self, session: str) -> None:
         """Tắt phiên (``colab stop``), trả VM cho Colab; phiên không còn thì không làm gì.

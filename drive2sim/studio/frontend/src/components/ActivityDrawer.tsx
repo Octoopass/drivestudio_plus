@@ -5,12 +5,16 @@
 // xem ở tab Kaggle/Colab của trang run.
 import { Square } from "lucide-react";
 import { asApiError, post, seg, useApi } from "../api/client";
-import type { List } from "../api/types";
+import type { Job, List } from "../api/types";
 import { useI18n } from "../i18n";
 import { useLive } from "../live";
 import { href } from "../router";
 import { runStatus, type RunItem } from "../runStatus";
 import { ago, Drawer, Empty, Status, useToast } from "./ui";
+import { JobProgress } from "./JobProgress";
+
+// việc có kết quả là cảnh hoặc run để mở; drive_pull trả thư mục, colab_session không trả gì
+const LINKED = new Set<Job["kind"]>(["ingest", "kaggle_push", "kaggle_pull", "colab_push", "colab_pull"]);
 
 export function ActivityDrawer({ onClose }: { onClose: () => void }) {
   const { t, locale } = useI18n();
@@ -93,13 +97,9 @@ export function ActivityDrawer({ onClose }: { onClose: () => void }) {
               <div className="small faint">
                 {t(`activity.kind.${job.kind}`)}, {ago(job.created_at, locale)}
               </div>
-              {(job.status === "queued" || job.status === "running") && (
-                <div className="progress indeterminate" style={{ marginTop: 10 }}>
-                  <i />
-                </div>
-              )}
+              <JobProgress job={job} />
               {job.error && <div className="small" style={{ color: "var(--stop)", marginTop: 8 }}>{job.error}</div>}
-              {job.status === "succeeded" && job.result && (
+              {job.status === "succeeded" && job.result && LINKED.has(job.kind) && (
                 <a
                   className="small"
                   onClick={onClose}

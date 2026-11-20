@@ -19,6 +19,8 @@ File này chứa:
   mã xác thực).
 - ``GET /api/colab/cli``, ``POST /api/colab/cli/update``: phiên bản google-colab-cli và cập nhật
   (việc nền ``colab_update``).
+- ``/api/colab/drive/...``: lấy dữ liệu gốc từ Google Drive qua một phiên Colab CPU (phiên, mount
+  có bước đồng ý của Google, duyệt thư mục, tải về ``uploads/<tên>/``; ``colab/drive.py``).
 """
 
 from collections.abc import Callable
@@ -27,9 +29,10 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from drive2sim.colab import accounts, executor, setup
-from drive2sim.colab.client import ColabError
+from drive2sim.colab import accounts, drive, executor, setup
+from drive2sim.colab.client import ColabClient, ColabError
 from drive2sim.engine.workdir import Workdir
+from drive2sim.studio.api import uploads
 from drive2sim.studio.api.jobs import RunQueue
 from drive2sim.studio.api.state import StudioState, state_of
 
@@ -173,6 +176,123 @@ def cli_update(request: Request) -> dict:
         return None
 
     return state_of(request).jobs.submit("colab_update", "cập nhật google-colab-cli", work)
+
+
+class DriveSessionBody(BaseModel):
+    """Phiên Colab dùng để đọc Drive.
+
+    Attributes:
+        session: Tên phiên; chưa có thì ``POST /api/colab/drive/session`` tạo phiên CPU.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    session: str = Field(default="d2s-drive", pattern=drive.SESSION_PATTERN)
+
+
+class DrivePullBody(DriveSessionBody):
+    """Thân của ``POST /api/colab/drive/pull``.
+
+    Attributes:
+        path: Thư mục hoặc file trong ``MyDrive``.
+        name: Thư mục đích ``uploads/<tên>/`` trong thư mục làm việc.
+    """
+
+    path: str = Field(min_length=1, max_length=1024)
+    name: str = Field(pattern=uploads.NAME_PATTERN)
+
+
+def _mount(request: Request) -> drive.MountFlow:
+    """Lần mount Drive của Studio: một bản cho cả app, tạo khi cần."""
+    app_state = request.app.state
+    if not hasattr(app_state, "colab_mount"):
+        app_state.colab_mount = drive.MountFlow()
+    return app_state.colab_mount
+
+
+@router.get("/drive/sessions")
+def drive_sessions() -> dict:
+    """Các phiên Colab đang có (``colab sessions``).
+
+    Returns:
+        ``{"sessions": [{"name", "hardware"}]}``.
+    """
+    return {"sessions": ColabClient().sessions()}
+
+
+@router.post("/drive/session", status_code=202)
+def drive_session(body: DriveSessionBody, request: Request) -> dict:
+    """Tạo phiên CPU để đọc Drive ở nền (việc ``colab_session``); phiên đã có thì không tạo lại."""
+
+    def work() -> None:
+        client = ColabClient()
+        if not any(item["name"] == body.session for item in client.sessions()):
+            client.create_session(body.session, None)
+        return None
+
+    label = f"tạo phiên Colab {body.session} (CPU)"
+    return state_of(request).jobs.submit("colab_session", label, work)
+
+
+@router.post("/drive/session/stop")
+def drive_session_stop(body: DriveSessionBody) -> dict:
+    """Tắt phiên đọc Drive (trả VM cho Colab)."""
+    ColabClient().stop(body.session)
+    return {"session": body.session, "stopped": True}
+
+
+@router.get("/drive/mount")
+def drive_mount_status(request: Request) -> dict:
+    """Trạng thái lần mount Drive: ``{"state", "session", "url", "log"}``."""
+    return _mount(request).view()
+
+
+@router.post("/drive/mount")
+def drive_mount(body: DriveSessionBody, request: Request) -> dict:
+    """Mount Drive vào phiên; ``needs_consent`` kèm ``url`` trang cấp quyền của Google."""
+    return _mount(request).start(body.session)
+
+
+@router.post("/drive/mount/confirm")
+def drive_mount_confirm(request: Request) -> dict:
+    """Người dùng đã đồng ý trên trang Google: cho ``colab drivemount`` đi tiếp."""
+    return _mount(request).confirm()
+
+
+@router.post("/drive/mount/cancel")
+def drive_mount_cancel(request: Request) -> dict:
+    """Dừng lần mount đang chạy."""
+    return _mount(request).cancel()
+
+
+@router.get("/drive/browse")
+def drive_browse(session: str = "d2s-drive", path: str = "") -> dict:
+    """Liệt kê một thư mục trong ``MyDrive``.
+
+    Returns:
+        ``{"path", "mounted", "exists", "dirs", "files": [[tên, byte]], "truncated"}``.
+    """
+    body = DriveSessionBody(session=session)
+    return drive.browse(ColabClient(), body.session, path)
+
+
+@router.post("/drive/pull", status_code=202)
+def drive_pull(body: DrivePullBody, request: Request) -> dict:
+    """Tải một thư mục trên Drive về ``uploads/<tên>/`` ở nền (việc ``drive_pull``, có tiến độ).
+
+    Kết quả của việc là đường dẫn tuyệt đối của thư mục đích, để ô nạp cảnh xem thư mục đó.
+    """
+    state = state_of(request)
+    drive.safe_drive_path(body.path)
+    target = state.workdir.uploads_dir / body.name
+
+    def work() -> str:
+        result = drive.pull_folder(
+            ColabClient(), body.session, body.path, target, progress=state.jobs.report
+        )
+        return result["path_abs"]
+
+    return state.jobs.submit("drive_pull", f"Drive: {body.path} → uploads/{body.name}", work)
 
 
 @router.get("/{run_id}")

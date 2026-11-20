@@ -9,7 +9,8 @@ Tiến trình Studio không nạp model: các stage bọc DriveStudio chạy scr
 
 File này chứa:
 - ``RunQueue``: nhận run cần chạy, chạy bằng ``execute_run``, chuyển sự kiện tới ``EventBroker``.
-- ``BackgroundJobs``: chạy việc nền dài (ingest, Kaggle) ở luồng riêng, giữ trạng thái từng việc.
+- ``BackgroundJobs``: chạy việc nền dài (ingest, Kaggle) ở luồng riêng, giữ trạng thái từng việc;
+  việc nào biết tiến độ (tải từ Drive) thì báo qua ``BackgroundJobs.report``.
 """
 
 import logging
@@ -168,16 +169,18 @@ class BackgroundJobs:
         self._lock = threading.Lock()
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="d2s-ingest")
         self._stopping = threading.Event()
+        self._local = threading.local()
 
     def submit(self, kind: str, label: str, work: Callable[[], Optional[str]]) -> dict:
         """Xếp một việc vào hàng đợi.
 
         Args:
             kind: Loại việc: ``ingest``, ``kaggle_push``, ``kaggle_pull``, ``colab_push``,
-                ``colab_pull``, ``colab_update``.
+                ``colab_pull``, ``colab_update``, ``colab_session``, ``drive_pull``.
             label: Mô tả ngắn hiện trên giao diện, ví dụ ``nuscenes scene-0061``.
-            work: Hàm làm việc, trả về ``scene_id`` hoặc ``run_id`` liên quan (để giao diện mở);
-                lỗi gì thì việc thành ``failed`` kèm thông báo lỗi.
+            work: Hàm làm việc, trả về ``scene_id`` hoặc ``run_id`` liên quan (để giao diện mở;
+                ``drive_pull`` trả thư mục đã tải); lỗi gì thì việc thành ``failed`` kèm thông báo
+                lỗi. Trong ``work`` gọi ``report`` để báo tiến độ.
 
         Returns:
             Trạng thái ban đầu của việc (``queued``).
@@ -190,7 +193,9 @@ class BackgroundJobs:
             "status": "queued",
             "result": None,
             "error": None,
+            "progress": None,
             "created_at": time.time(),
+            "started_at": None,
             "finished_at": None,
         }
         with self._lock:
@@ -200,7 +205,8 @@ class BackgroundJobs:
 
     def _run(self, job_id: str, work: Callable[[], Optional[str]]) -> None:
         """Chạy một việc và ghi kết quả vào trạng thái."""
-        self._update(job_id, status="running")
+        self._update(job_id, status="running", started_at=time.time())
+        self._local.job_id = job_id
         try:
             result = work()
         except Exception as error:
@@ -214,6 +220,27 @@ class BackgroundJobs:
             self._update(job_id, status="failed", error=message, finished_at=time.time())
         else:
             self._update(job_id, status="succeeded", result=result, finished_at=time.time())
+        finally:
+            self._local.job_id = None
+
+    def report(self, done: float, total: float, detail: str = "") -> None:
+        """Báo tiến độ của việc đang chạy trên luồng hiện tại (gọi trong ``work``).
+
+        Args:
+            done: Phần đã xong (byte, số file...).
+            total: Tổng; giao diện tính phần trăm và thời gian còn lại từ ``started_at``.
+            detail: Mô tả ngắn phần đang làm, ví dụ tên file.
+        """
+        job_id = getattr(self._local, "job_id", None)
+        if not job_id:
+            return
+        with self._lock:
+            job = self._jobs[job_id]
+            # ``first``: phần đã có lúc bắt đầu (tải tiếp), để tốc độ chỉ tính phần làm lần này
+            first = job["progress"]["first"] if job["progress"] else done
+            job["progress"] = {
+                "done": done, "total": total, "detail": detail, "at": time.time(), "first": first,
+            }  # fmt: skip
 
     def _update(self, job_id: str, **changes: object) -> None:
         with self._lock:

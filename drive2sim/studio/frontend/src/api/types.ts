@@ -173,15 +173,18 @@ export interface RunEvent {
   level?: string;
 }
 
-/** Việc nền của Studio: ingest, đẩy và tải Kaggle, Colab (GET /api/jobs). */
+/** Việc nền của Studio: ingest, đẩy và tải Kaggle, Colab, Drive (GET /api/jobs). */
 export interface Job {
   job_id: string;
-  kind: "ingest" | "kaggle_push" | "kaggle_pull" | "colab_push" | "colab_pull" | "colab_update";
+  kind: "ingest" | "kaggle_push" | "kaggle_pull" | "colab_push" | "colab_pull" | "colab_update" | "colab_session" | "drive_pull";
   label: string;
   status: "queued" | "running" | "succeeded" | "failed";
   result: string | null;
   error: string | null;
+  /** Việc biết tiến độ (drive_pull, theo byte); first là phần đã có lúc bắt đầu. */
+  progress?: { done: number; total: number; detail: string; at: number; first?: number } | null;
   created_at: number;
+  started_at?: number | null;
   finished_at: number | null;
 }
 
