@@ -981,3 +981,4 @@ Mã lỗi của worker (mục 9.1) và của run (mục 6.2) dùng cùng bảng,
 - Khi client kết nối, server gửi ngay một `status` cho trạng thái hiện tại rồi mới phát tiếp, để giao diện mở muộn vẫn đúng.
 - Mỗi sự kiện có `id:` tăng dần trong một run; client gửi `Last-Event-ID` để nhận lại những gì bỏ lỡ (server giữ 1000 sự kiện gần nhất trong bộ nhớ, ngoài ra có `d2s/log.txt`).
 - Nhịp `: keepalive` mỗi 15 giây để kết nối không bị proxy hoặc port forward cắt.
+- Studio ước lượng thời gian còn lại của stage đang chạy từ chuỗi `progress` của stage đó (lần báo đầu và lần mới nhất của `fraction`, `frontend/src/eta.ts`), không cần trường riêng; vì vậy `fraction` nên tăng đều theo khối lượng việc (ví dụ bước train đã xong / tổng bước).

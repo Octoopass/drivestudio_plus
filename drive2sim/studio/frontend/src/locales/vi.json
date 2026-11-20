@@ -152,6 +152,7 @@
   "drive.target": "Lưu vào uploads/",
   "drive.pull": "Tải {path} về",
   "job.progress": "{done} / {total} ({pct}%) · {rate} · còn khoảng {left}",
+  "eta.left": "còn khoảng {time}",
   "activity.kind.colab_update": "cập nhật Colab CLI",
   "activity.kind.colab_session": "tạo phiên Colab",
   "activity.kind.drive_pull": "tải từ Drive",

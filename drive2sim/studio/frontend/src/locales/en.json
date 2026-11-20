@@ -152,6 +152,7 @@
   "drive.target": "Save into uploads/",
   "drive.pull": "Download {path}",
   "job.progress": "{done} / {total} ({pct}%) · {rate} · about {left} left",
+  "eta.left": "about {time} left",
   "activity.kind.colab_update": "update Colab CLI",
   "activity.kind.colab_session": "create Colab session",
   "activity.kind.drive_pull": "pull from Drive",

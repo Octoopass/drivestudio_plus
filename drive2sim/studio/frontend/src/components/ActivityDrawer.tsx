@@ -11,7 +11,7 @@ import { useLive } from "../live";
 import { href } from "../router";
 import { runStatus, type RunItem } from "../runStatus";
 import { ago, Drawer, Empty, Status, useToast } from "./ui";
-import { JobProgress } from "./JobProgress";
+import { clock, JobProgress } from "./JobProgress";
 
 // việc có kết quả là cảnh hoặc run để mở; drive_pull trả thư mục, colab_session không trả gì
 const LINKED = new Set<Job["kind"]>(["ingest", "kaggle_push", "kaggle_pull", "colab_push", "colab_pull"]);
@@ -58,6 +58,7 @@ export function ActivityDrawer({ onClose }: { onClose: () => void }) {
                 <div className="stack" style={{ gap: 6, marginTop: 10 }}>
                   <div className="small muted ellipsis">
                     {progress.stage_id} {progress.message}
+                    {progress.eta != null && ` · ${t("eta.left", { time: clock(progress.eta) })}`}
                   </div>
                   <div className={`progress${progress.fraction == null ? " indeterminate" : ""}`}>
                     <i style={{ width: `${Math.round((progress.fraction ?? 0) * 100)}%` }} />
