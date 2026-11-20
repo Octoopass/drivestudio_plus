@@ -386,3 +386,32 @@ def test_stopped_session_is_not_polled(setup: tuple[Workdir, FakeColab, Path]) -
     executor.stop_session(workdir, RUN_ID, client=fake)
     fake.lose()  # mọi lệnh tới VM giờ sẽ báo mất phiên
     assert executor.job_state(workdir, RUN_ID, client=fake)["status"] == "stopped"
+
+
+def test_running_job_with_idle_log_is_reported_stalled(
+    setup: tuple[Workdir, FakeColab, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workdir, fake, vm = setup
+    state = executor.push_run(workdir, RUN_ID, client=fake)
+    wait_job(workdir, fake)
+    # Giả một job còn chạy (pid của chính tiến trình test) mà log đã 2 giờ không đổi, như build
+    # pytorch3d kẹt trên VM thiếu RAM.
+    jobs = vm / "jobs"
+    (jobs / f"{state.job}.exit").unlink()
+    (jobs / f"{state.job}.pid").write_text(str(os.getpid()))
+    log = jobs / f"{state.job}.log"
+    fresh = executor.job_state(workdir, RUN_ID, client=fake)
+    assert fresh["status"] == "running" and not fresh["stalled"]  # log vừa ghi: không cảnh báo
+    old = time.time() - 2 * 3600
+    os.utime(log, (old, old))
+    data = executor.job_state(workdir, RUN_ID, client=fake)
+    assert data["status"] == "running" and data["stalled"]
+    assert data["log_age_s"] > executor.STALL_AFTER_S
+
+    monkeypatch.setattr(executor, "job_state", lambda *a, **k: data)
+    assert main(["colab", "status", RUN_ID, "--workdir", str(workdir.root)]) == 0
+    assert "log không đổi 120 phút" in capsys.readouterr().out
+
+    monkeypatch.undo()
