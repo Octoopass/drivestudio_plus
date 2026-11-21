@@ -341,7 +341,8 @@ def plan_cache_keys(
             elif isinstance(source, int):
                 input_keys.append(keys[source])
             else:
-                input_keys.append(input_key_for_split(split.split_id))
+                content = split if registry.get(stage.stage_id).split_content_key else None
+                input_keys.append(input_key_for_split(split.split_id, content))
         key = None
         if stage.cacheable and None not in input_keys:
             key = identifiers.make_cache_key(
@@ -506,11 +507,12 @@ class _Runner:
             }
         )
 
-    def input_key(self, kind: str) -> str:
+    def input_key(self, kind: str, split_content_key: bool) -> str:
         """Tạo khoá cache cho đầu vào ``"scene"`` hoặc ``"split"`` của run này.
 
         Args:
             kind: ``"scene"`` hoặc ``"split"``.
+            split_content_key: Băm nội dung split khi stage cần từng cặp ảnh.
 
         Returns:
             Khoá do ``input_key_for_scene`` hoặc ``input_key_for_split`` tạo.
@@ -519,7 +521,7 @@ class _Runner:
             return input_key_for_scene(
                 self.scene.scene_id, self.scene.manifest.source.converter_version
             )
-        return input_key_for_split(self.split.split_id)
+        return input_key_for_split(self.split.split_id, self.split if split_content_key else None)
 
     def write_artifact(
         self,
@@ -703,7 +705,7 @@ class _Runner:
                     inputs[input_name] = source_dir
                     input_keys.append(source_key)
                 else:
-                    input_keys.append(self.input_key(str(source)))
+                    input_keys.append(self.input_key(str(source), cls.split_content_key))
 
             started = time.monotonic()
             _peak_vram_mb()  # đặt lại bộ đếm VRAM trước stage

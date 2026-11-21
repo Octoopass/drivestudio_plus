@@ -21,12 +21,15 @@ không ghi cùng một khoá cùng lúc.
 ``run.py`` dùng file này khi chạy một stage có ``cacheable = True``.
 """
 
+import hashlib
+import json
 import os
 import shutil
 from pathlib import Path
 from typing import Optional
 
 from drive2sim.core import identifiers
+from drive2sim.core.schema import Split
 
 PARTIAL_SUFFIX = ".partial"
 OWNER_FILE = ".owner"  # pid của tiến trình đang ghi, đặt trong thư mục .partial
@@ -58,15 +61,19 @@ def input_key_for_scene(scene_id: str, converter_version: str) -> str:
     return f"scene:{scene_id}@{converter_version}"
 
 
-def input_key_for_split(split_id: str) -> str:
+def input_key_for_split(split_id: str, content: Optional[Split] = None) -> str:
     """Tạo khoá đại diện cho một split, dùng khi stage nhận đầu vào ``"split"``.
 
     Args:
         split_id: Định danh split.
+        content: Khi stage phụ thuộc từng cặp ảnh, băm cả nội dung và thứ tự camera.
 
     Returns:
         Khoá dạng ``"split:<split_id>"``, ví dụ ``"split:every8_allcams"``.
     """
+    if content is not None:
+        data = json.dumps(content.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+        return f"split:{split_id}:{hashlib.sha256(data.encode()).hexdigest()}"
     return f"split:{split_id}"
 
 

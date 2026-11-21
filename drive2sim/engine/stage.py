@@ -161,6 +161,7 @@ class Stage(ABC):
         Params: Lớp Pydantic mô tả tham số; nên đặt ``extra="forbid"`` như ``NoParams``.
     """
 
+    split_content_key: ClassVar[bool] = False
     stage_id: ClassVar[str] = ""
     version: ClassVar[str] = ""
     cacheable: ClassVar[bool] = False

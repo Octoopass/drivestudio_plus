@@ -363,6 +363,7 @@ Riêng `train.*`: chạy tiếp bằng `checkpoint_resume.pth` (model, optimizer
 | `scene_subset` | Kết quả của `prep.select`: danh sách camera, đoạn khung, độ phân giải đã chọn |
 | `masks` | Thư mục có `sky_masks/<khung>_<camera>.png` và (khi `dynamic` bật) `fine_dynamic_masks/{all,human,vehicle}/<khung>_<camera>.png`, đúng tên DriveStudio. Do `prep.masks_segformer` ghi |
 | `smpl` | Thư mục có `humanpose/smpl.pkl` (định dạng của `drive2sim/recon/preprocess/smpl/run.py`) cùng file trung gian trong `humanpose/temp/`, `humanpose/postprocess/`. Do `prep.smpl` ghi |
+| `xsim_scene` | Index `scene.json` v1. Trường `camera_indices` ánh xạ camera được chọn sang chỉ số file ingest. `source_frames` và `relative_time_us` đánh số từ đầu đoạn của split, `time_origin_us` là timestamp đầu đoạn. `split` giữ nguyên các cặp ảnh, `split_key` chứa SHA-256 của split JSON chuẩn hoá. LiDAR chỉ dùng các khung train với timestamp cấp sweep. |
 | `ncore_clip` | Clip NCore V4 của đoạn khung trong split (Instant NuRec đọc): file `<sequence_id>.json` và các store `.itar` do converter ghi, cùng `clip.json` (`clip`, `frame_ids` của clip, `scene_frame_ids`, `scene_frames`, `sensors` (`camera_id` → tên sensor NCore), `fisheye_model`, `lidar`). Do `prep.ncore` ghi |
 | `depth_prior` | Depth metric theo camera và khung, mỗi ảnh một file `.npy` `float32`, mét; kèm tên model trong `artifact.json` |
 | `points_init` | `points_init.npz`: `points` `float32[M,3]` trong hệ `world`, `colors` `uint8[M,3]`, `track_ids` (tuỳ chọn) |
