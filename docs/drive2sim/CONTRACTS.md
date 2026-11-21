@@ -481,7 +481,7 @@ Huỷ run (`d2s run cancel`, `POST /api/runs/{run_id}/cancel`) chỉ ghi file `c
 
 ### 6.3 `summary.json`
 
-Tóm tắt metric theo protocol của SPEC mục 9, do `eval.standard` ghi vào thư mục của nó: `d2s/stages/eval.standard/summary.json`.
+Tóm tắt metric theo protocol của SPEC mục 9, do stage đánh giá ghi vào `d2s/stages/<eval.stage>/summary.json`. Studio và report lấy stage `eval.*` thành công cuối cùng theo thứ tự pipeline trong `run.json`. Stage đang chạy lại chưa được dùng, kể cả khi còn file từ lần chạy trước. Run cũ thiếu danh sách stage dùng vị trí của `eval.standard`.
 
 ```json
 {

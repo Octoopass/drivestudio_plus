@@ -217,7 +217,7 @@ def get_run(run_id: str, request: Request) -> dict:
     của stage train (``densify_info``), ``null`` khi train chưa bắt đầu.
     """
     run_dir, record = _load(request, run_id)
-    summary = load_summary(run_dir)
+    summary = load_summary(run_dir, record)
     data = record.model_dump(mode="json")
     data["train_params"] = train_params(record)
     data["remote"] = _remote(state_of(request).workdir, record)

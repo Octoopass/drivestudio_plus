@@ -31,6 +31,7 @@ from drive2sim.core.schema import (
     Manifest,
     RunRecord,
     Split,
+    StageRecord,
 )
 from drive2sim.engine.cache import CacheBusyError, CacheStore
 from drive2sim.engine.registry import StageRegistry
@@ -42,6 +43,7 @@ from drive2sim.engine.run import (
     request_cancel,
     reset_stage,
     run_is_active,
+    summary_path,
 )
 from drive2sim.engine.stage import Stage, StageContext
 from drive2sim.engine.workdir import Workdir, WorkdirError
@@ -469,3 +471,22 @@ def test_execute_run_stops_viewer_gpu_process_first(workdir: Workdir) -> None:
         assert any(e.get("event") == "log" and marker in e.get("message", "") for e in events)
     finally:
         process.kill()
+
+
+def test_summary_follows_successful_eval_order(workdir: Workdir) -> None:
+    run_dir = new_run(workdir, make_registry())
+    record_path = run_dir / "d2s" / "run.json"
+    record = files.load(record_path, RunRecord)
+    stages = run_dir / "d2s" / "stages"
+    assert summary_path(run_dir) is None
+    record.stages.extend(
+        [
+            StageRecord(stage_id="eval.standard", status="succeeded"),
+            StageRecord(stage_id="eval.xsim", status="running"),
+        ]
+    )
+    files.dump(record, record_path)
+    assert summary_path(run_dir) == stages / "eval.standard" / "summary.json"
+    record.stages[-1].status = "succeeded"
+    files.dump(record, record_path)
+    assert summary_path(run_dir) == stages / "eval.xsim" / "summary.json"

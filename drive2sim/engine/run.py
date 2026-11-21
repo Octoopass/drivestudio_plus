@@ -930,25 +930,41 @@ def list_runs(workdir: Workdir, scene_id: Optional[str] = None) -> list[RunRecor
     return sorted(records, key=lambda record: record.run_id, reverse=True)
 
 
-def summary_path(run_dir: Path) -> Path:
-    """Trả về đường dẫn ``summary.json`` của một run (CONTRACTS mục 6.3).
+def summary_path(run_dir: Path, record: Optional[RunRecord] = None) -> Optional[Path]:
+    """Chọn báo cáo của stage eval thành công cuối cùng theo thứ tự pipeline.
 
-    ``eval.standard`` ghi file này vào thư mục của nó: ``d2s/stages/eval.standard/summary.json``.
+    Args:
+        run_dir: Thư mục run cần đọc.
+        record: Bản ghi đã đọc nếu nơi gọi đang có.
+
+    Returns:
+        Đường dẫn dự kiến của báo cáo hoặc None nếu chưa có eval thành công.
+        Run cũ thiếu danh sách stage dùng vị trí lịch sử của eval.standard.
     """
-    return Path(run_dir) / D2S_DIR / "stages" / "eval.standard" / "summary.json"
+    directory = Path(run_dir) / D2S_DIR
+    record_path = directory / RUN_FILE
+    if record is None and record_path.is_file():
+        record = files.load(record_path, RunRecord)
+    if record and record.stages:
+        for stage in reversed(record.stages):
+            if stage.stage_id.startswith("eval.") and stage.status == "succeeded":
+                return directory / "stages" / stage.stage_id / "summary.json"
+        return None
+    return directory / "stages" / "eval.standard" / "summary.json"
 
 
-def load_summary(run_dir: Path) -> Optional[Summary]:
+def load_summary(run_dir: Path, record: Optional[RunRecord] = None) -> Optional[Summary]:
     """Đọc ``summary.json`` của một run nếu đã có.
 
     Args:
         run_dir: Thư mục run.
+        record: Bản ghi dùng để chọn stage trong cùng lần đọc của Studio hoặc report.
 
     Returns:
         Kết quả đánh giá, hoặc ``None`` nếu run chưa tới bước đánh giá.
     """
-    path = summary_path(run_dir)
-    return files.load(path, Summary) if path.is_file() else None
+    path = summary_path(run_dir, record)
+    return files.load(path, Summary) if path is not None and path.is_file() else None
 
 
 def load_env(run_dir: Path) -> Optional[EnvRecord]:

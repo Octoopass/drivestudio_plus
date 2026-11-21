@@ -616,6 +616,8 @@ Trong `train.drivestudio`, tổ hợp scene graph, renderer và luật densify v
 
 ### 4.4 Tầng tái dựng (DriveStudio)
 
+Studio và report dùng chung `engine.run.load_summary` để chọn stage đánh giá từ bản ghi run theo CONTRACTS mục 6.3.
+
 Stage `train.drivestudio` train bằng trainer trong `drive2sim/recon/trainers/` với config method và config dataset có sẵn của dataset gốc (`drive2sim/configs/datasets/<dataset>/<k>cams.yaml`), đọc thẳng `data/<scene_id>/` (DriveStudio nhận `data.scene_idx` dạng chuỗi: `data_root/<scene_idx>`). Sau refactor: trainer nhận `points_init` từ stage `init.*`; đánh giá do `eval.standard` gọi, không còn chạy ở cuối `drive2sim/recon/tools/train.py`.
 
 ### 4.5 engine và approaches
