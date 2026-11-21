@@ -114,7 +114,7 @@ Camera mắt cá KITTI-360 dùng mask thân xe cố định đi kèm package, ch
 Yêu cầu riêng cho chế độ Kaggle:
 
 - Tool tự upload dữ liệu lên Kaggle dưới dạng dataset private, tự sinh notebook, đẩy lên và ra lệnh chạy qua Kaggle API. Người dùng chỉ cần cài API token một lần.
-- Studio hiện trạng thái job và log; khi job xong, tool tự tải kết quả về.
+- Studio hiện trạng thái job và log; khi job xong, tool tự tải kết quả về. Output được gói để tránh tải từng file cache nhỏ; notebook cũ hoặc gói lỗi vẫn tải file rời (CONTRACTS mục 9.2).
 - Kết quả được lưu sau từng bước, kể cả checkpoint giữa chừng. Khi một phiên Kaggle hết giờ, lần chạy sau tiếp tục từ chỗ dở.
 - Bật Studio ngay trong phiên Kaggle qua tunnel chỉ là tính năng phụ, không bảo đảm hoạt động.
 

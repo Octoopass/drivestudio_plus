@@ -248,6 +248,22 @@ NCore vẫn dùng ở hai chỗ: là **một nguồn vào** (PhysicalAI, CARLA g
 
 Approach trainer tĩnh riêng đã được gỡ. Run cũ và metric của nó vẫn giữ trên đĩa; code đọc kết quả theo định dạng chung vẫn được giữ, nhưng stage đã gỡ không thể chạy tiếp. Renderer 3DGUT và thư viện gsplat-geer vẫn là thành phần của trainer chung. Hồi quy train KITTI-360 chờ người dùng review code trước.
 
+**Gói output Kaggle (21/11/2026).** Ô cuối notebook gọi `kaggle/packing.py`: gói
+`runs/` thành `d2s-pack/runs.tar`, mỗi mục cache thành một tar riêng, bỏ cache `.partial`.
+`pull_run` tải gói trước, bỏ gói cache đã có trên máy, bung rồi dùng `remote.merge_output`
+như cũ. Khi gói lỗi, xoá toàn bộ gói đã tạo; không có gói thì tải file rời để tương thích
+notebook cũ. Không thêm lệnh CLI công khai hay đổi định dạng run, cache.
+
+**Lý do và ưu điểm.** Log tải run `82bc` ghi nhận 11.570 file mask (51 MB) mất 2 giờ 15 phút
+vì Kaggle CLI tải từng file. Gói tar giảm số lượt tải xuống còn vài file. Giữ file rời để
+notebook sau vẫn đọc trực tiếp output làm input; tách tar theo mục cache để bỏ qua cache đã có.
+
+**Nhược điểm và phương án khác.** Giữ cả tar và file rời làm output chiếm thêm dung lượng gần
+bằng tổng run và cache, đồng thời cần chỗ cho tar và dữ liệu đã bung trên máy. Đây là chi phí
+của cách gói đã được người dùng cho phép trong phiên Claude; không đổi gì thì tiếp tục tải
+hàng nghìn file nhỏ. Tar không nén tránh thêm thời gian nén checkpoint và ảnh. Chưa chạy bước
+gói trên notebook Kaggle thật; test local kiểm đường tải gói, tải file rời và dọn gói khi lỗi.
+
 ### 2.9 Môi trường
 
 **Khái niệm.** Một conda env hoặc venv chứa đúng phiên bản Python, PyTorch, CUDA và thư viện.
@@ -472,7 +488,7 @@ drivestudio_plus/                          branch drive2sim
 │   ├── stages/                            commands.py, scene_view.py; prep/masks_segformer.py, prep/smpl.py, train/drivestudio.py, eval/standard.py, export/ply_world.py, export/preview.py (đã có); init/, render/ (khung)
 │   ├── engine/                            stage.py, registry.py, resolve.py, approaches.py, workdir.py, scenes.py, cache.py, run.py, report.py, housekeeping.py (xoá, dọn cache), pack.py (gói bàn giao), remote.py (phần chung của executor Kaggle và Colab: kiểm tra commit, ghép output tải về)
 │   ├── approaches/                        omnire.yaml, streetgs.yaml
-│   ├── kaggle/                            client.py, bundle.py, executor.py, ingest.py (ingest trên Kaggle), names.py (tên notebook và dataset, CONTRACTS mục 10.1), setup.py, templates/run.ipynb, templates/ingest.ipynb
+│   ├── kaggle/                            client.py, bundle.py, executor.py, packing.py (gói output), ingest.py (ingest trên Kaggle), names.py (tên notebook và dataset, CONTRACTS mục 10.1), setup.py, templates/run.ipynb, templates/ingest.ipynb
 │   ├── colab/                             client.py, executor.py, setup.py, accounts.py, account_helper.py, drive.py, templates/job.sh (mục 2.16)
 │   ├── sim/                   (khung)     renderer.py (L2), actors.py (L3), server/ (L4; protos/ từ NuRec)
 │   ├── studio/                            api/ (app.py, state.py, events.py, jobs.py, kaggle_watch.py, colab_watch.py, remote_watch.py, routes/<nhóm>.py); frontend/ (Vite + React: src/pages/, src/components/, src/viewer/ (Spark), src/live.tsx, src/locales/, src/api/generated/, dist/ đã build); viz/ (khung)
@@ -518,6 +534,7 @@ Chạy script bằng `python -m`, ví dụ `python -m drive2sim.recon.tools.trai
 | Lệnh CLI mới | `drive2sim/cli/<nhóm>.py` | hàm `<hành_động>` | Theo CONTRACTS mục 10.4 |
 | API cho Studio | `drive2sim/studio/api/routes/<nhóm>.py` | đường dẫn `/api/<nhóm số nhiều>/...`, verb, lỗi và sự kiện theo CONTRACTS mục 11 | `app.py` |
 | Màn hình Studio | `drive2sim/studio/frontend/src/pages/` | `PascalCase.tsx`; chuỗi giao diện trong `src/locales/vi.json`, `en.json` (CONTRACTS mục 10.6) | Router của frontend |
+| Gói output notebook Kaggle | `drive2sim/kaggle/packing.py` | `pack_output`, `unpack_output`, `pack_file_pattern` | Ô cuối notebook và `executor.pull_run`; CONTRACTS 9.2 |
 | Mẫu notebook Kaggle | `drive2sim/kaggle/templates/` | `<tên>.ipynb` | `bundle.py` |
 | Script job chạy trên VM Colab | `drive2sim/colab/templates/` | `job.sh` | `colab/executor.py` |
 | Phần dùng chung của các executor chạy ở máy khác | `drive2sim/engine/remote.py` | | Kaggle và Colab gọi |
@@ -714,6 +731,7 @@ chạy cả các test đó, 496 test đạt, không bỏ qua test nào.
 | Việc | Trạng thái | Commit |
 |---|---|---|
 | Bàn giao `d2s pack`, ingest và môi trường thân thiện, SMPL theo split | Code và test local hoàn tất; chưa nghiệm thu train GPU cho thay đổi loader; gói 11 run thật đã ghi trên USB và kiểm đủ 15.708 mã băm sau giải nén; Studio đọc 11 run, đã render thử một frame bằng GPU có sẵn | |
+| Kaggle: gói output thành tar theo run và mục cache | Code và test local hoàn tất; có đường tải file rời cho notebook cũ và khi gói lỗi; chưa chạy bước gói trên Kaggle thật | |
 | Docs thiết kế (SPEC, ARCHITECTURE, CONTRACTS) | Xong, cập nhật theo từng quyết định | |
 | Di chuyển mã DriveStudio vào `drive2sim/recon/` (ba lượt) | Xong; kiểm tra tĩnh đạt; chưa chạy thật | `7a7c121`, `726b3ba`, `9f35aff` |
 | Sửa chạy tiếp khi train | Xong trong code; chưa chạy thật | `7851701` |

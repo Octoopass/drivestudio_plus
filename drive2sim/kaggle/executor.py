@@ -48,7 +48,7 @@ from drive2sim.engine.run import (
     run_is_active,
 )
 from drive2sim.engine.workdir import Workdir
-from drive2sim.kaggle import names
+from drive2sim.kaggle import names, packing
 from drive2sim.kaggle.bundle import write_bundle
 from drive2sim.kaggle.client import KaggleClient, KaggleError
 
@@ -795,9 +795,10 @@ def wheel_kernel(client: KaggleClient, workdir: Workdir, username: str) -> Optio
 def pull_run(workdir: Workdir, run_id: str, client: Optional[KaggleClient] = None) -> RunRecord:
     """Tải output của notebook và ghép vào thư mục làm việc.
 
-    Ghép ``d2s/`` của run theo ``_merge_d2s``: bản Kaggle thắng ở mọi stage nó có, stage chỉ có
-    trên máy được giữ lại. Chép thêm các kết quả cache mà máy chưa có; cache đã có không tải lại
-    (``skip_local_cache``).
+    Tải các gói ``d2s-pack/`` (``packing``) nếu notebook có, không thì tải từng file rời. Ghép
+    ``d2s/`` của run theo ``_merge_d2s``: bản Kaggle thắng ở mọi stage nó có, stage chỉ có trên
+    máy được giữ lại. Chép thêm các kết quả cache mà máy chưa có; cache đã có không tải lại
+    (``packing.pack_file_pattern``, ``skip_local_cache``).
 
     Returns:
         ``run.json`` sau khi ghép.
@@ -818,7 +819,11 @@ def pull_run(workdir: Workdir, run_id: str, client: Optional[KaggleClient] = Non
         raise KaggleError(reason)
     with tempfile.TemporaryDirectory(dir=_staging(workdir)) as folder:
         output = Path(folder)
-        client.kernel_output(state.kernel, output, skip_local_cache(workdir))
+        # Notebook mới gói output vào d2s-pack/ (packing.pack_output): tải vài file lớn thay vì
+        # hàng nghìn file nhỏ. Notebook cũ không có gói thì tải file rời như trước.
+        client.kernel_output(state.kernel, output, packing.pack_file_pattern(workdir.cache_dir))
+        if not packing.unpack_output(output):
+            client.kernel_output(state.kernel, output, skip_local_cache(workdir))
         try:
             remote.merge_output(workdir, run_dir, output)
         except FileNotFoundError:

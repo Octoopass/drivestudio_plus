@@ -10,10 +10,12 @@
 - lệnh CLI ``d2s kaggle status`` và lỗi ``kaggle_failed``.
 """
 
+import io
 import json
 import re
 import shutil
 import subprocess
+import tarfile
 from pathlib import Path
 from typing import Optional
 
@@ -25,7 +27,7 @@ from drive2sim.core.schema import SCHEMA_VERSIONS, Manifest, RunRecord, Split
 from drive2sim.engine.run import D2S_DIR, RUN_FILE
 from drive2sim.engine.workdir import Workdir
 from drive2sim.kaggle import client as client_module
-from drive2sim.kaggle import executor
+from drive2sim.kaggle import executor, packing
 from drive2sim.kaggle.bundle import materialize, read_bundle
 from drive2sim.kaggle.client import KaggleClient, KaggleError
 from tests.drive2sim.samples import MANIFEST, SPLIT
@@ -134,8 +136,13 @@ def notebook_bundle(fake: FakeKaggle, kernel: str) -> dict:
     return next(iter(bundles.values()))
 
 
-def fake_kaggle_run(fake: FakeKaggle, kernel: str, status: str, prev: Optional[str]) -> Path:
-    """Giả notebook chạy: dựng thư mục làm việc từ gói, ghi kết quả vào output của notebook."""
+def fake_kaggle_run(
+    fake: FakeKaggle, kernel: str, status: str, prev: Optional[str], pack: bool = False
+) -> Path:
+    """Giả notebook chạy: dựng thư mục làm việc từ gói, ghi kết quả vào output của notebook.
+
+    ``pack``: như notebook mới, gói thêm output vào ``d2s-pack/`` (file rời vẫn giữ).
+    """
     bundle_dir = fake.root / "bundle"
     shutil.rmtree(bundle_dir, ignore_errors=True)
     bundle_dir.mkdir()
@@ -155,6 +162,8 @@ def fake_kaggle_run(fake: FakeKaggle, kernel: str, status: str, prev: Optional[s
     shutil.rmtree(output, ignore_errors=True)
     for part in ("runs", "cache"):
         shutil.copytree(working.root / part, output / part)
+    if pack:
+        packing.pack_output(output)
     return run_dir
 
 
@@ -697,8 +706,10 @@ def test_push_two_runs_share_one_notebook_and_one_pull(
     calls = []
     original = fake.kernel_output
     monkeypatch.setattr(fake, "kernel_output", lambda *a: calls.append(a) or original(*a))
+    pack_pattern = packing.pack_file_pattern(workdir.cache_dir)
     assert executor.pull_run(workdir, RUN_ID, client=fake).status == "succeeded"
-    assert len(calls) == 1
+    # Một lần thử gói d2s-pack/ (notebook này không có), rồi một lần tải file rời cho cả hai run.
+    assert [call[2] == pack_pattern for call in calls] == [True, False]
     other = files.load(workdir.find_run(second) / D2S_DIR / RUN_FILE, RunRecord)
     assert other.status == "succeeded"
     assert executor.load_state(workdir.find_run(second)).pulled_utc is not None
@@ -752,3 +763,51 @@ def test_rerun_needs_known_stage_and_previous_push(
         executor.push_runs(workdir, [RUN_ID], client=fake, rerun=[record.stages[-1].stage_id])
     with pytest.raises(KaggleError, match="không có stage"):
         executor.push_runs(workdir, [RUN_ID], client=fake, rerun=["nope.stage"])
+
+
+def test_pull_downloads_packs_instead_of_loose_files(
+    setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("D2S_KAGGLE_SMPL_DATASET", "alice/smpl-model")
+    workdir, fake = setup
+    state = executor.push_run(workdir, RUN_ID, client=fake)
+    fake_kaggle_run(fake, state.kernel, "succeeded", None, pack=True)
+    output = fake.root / "output" / state.kernel.split("/")[1]
+    assert (output / packing.PACK_DIR / packing.RUNS_ARCHIVE).is_file()
+    assert (output / packing.PACK_DIR / "cache" / SCENE / f"{CACHE_KEY}.tar").is_file()
+    assert (output / "cache" / SCENE / CACHE_KEY).is_dir()  # file rời giữ cho notebook sau
+    downloaded: list[str] = []
+    original = fake.kernel_output
+
+    def spy(slug: str, destination: Path, file_pattern: Optional[str] = None) -> None:
+        before = set(destination.rglob("*")) if destination.exists() else set()
+        original(slug, destination, file_pattern)
+        downloaded.extend(p.name for p in set(destination.rglob("*")) - before if p.is_file())
+
+    monkeypatch.setattr(fake, "kernel_output", spy)
+    record = executor.pull_run(workdir, RUN_ID, client=fake)
+    assert record.status == "succeeded"
+    assert downloaded and all(name.endswith(".tar") for name in downloaded)  # chỉ tải gói
+    assert (workdir.cache_dir / SCENE / CACHE_KEY / "artifact.json").is_file()
+    assert not list(workdir.root.rglob(packing.PACK_DIR))
+
+
+def test_pack_pattern_skips_local_cache_and_unpack_rejects_escape(tmp_path: Path) -> None:
+    cache = tmp_path / "cache"
+    (cache / "s1" / "a@1").mkdir(parents=True)
+    pattern = packing.pack_file_pattern(cache)
+    assert re.search(pattern, "d2s-pack/runs.tar")
+    assert re.search(pattern, "d2s-pack/cache/s1/b@2.tar")
+    assert not re.search(pattern, "d2s-pack/cache/s1/a@1.tar")  # máy đã có mục này
+    assert not re.search(pattern, "cache/s1/b@2/sky_masks/0_0.png")  # file rời không tải
+    assert re.search(packing.pack_file_pattern(tmp_path / "none"), "d2s-pack/runs.tar")
+
+    bad = tmp_path / "out" / packing.PACK_DIR / packing.RUNS_ARCHIVE
+    bad.parent.mkdir(parents=True)
+    with tarfile.open(bad, "w") as archive:
+        info = tarfile.TarInfo("../evil")
+        info.size = 1
+        archive.addfile(info, io.BytesIO(b"x"))
+    with pytest.raises(ValueError, match="ra ngoài"):
+        packing.unpack_output(tmp_path / "out")
+    assert not (tmp_path / "evil").exists()
