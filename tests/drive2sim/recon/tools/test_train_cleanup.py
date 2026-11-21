@@ -32,3 +32,14 @@ def test_only_step_checkpoints_are_removed(tmp_path: Path) -> None:
         "metrics.json",
         "model.pth",
     ]
+
+
+def test_intermediate_eval_steps() -> None:
+    from omegaconf import OmegaConf
+
+    from drive2sim.recon.tools.train import intermediate_eval_steps
+
+    assert intermediate_eval_steps(OmegaConf.create({"logging": {}}), 30000) == {15000}
+    assert intermediate_eval_steps(OmegaConf.create({"logging": {"eval_at": []}}), 30000) == set()
+    cfg = OmegaConf.create({"logging": {"eval_at": [0, 5000, 30000, 40000]}})
+    assert intermediate_eval_steps(cfg, 30000) == {5000}  # bước 0 và bước cuối không đo giữa chừng

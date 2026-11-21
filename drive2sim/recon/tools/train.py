@@ -113,6 +113,55 @@ def setup(args):
 RESUME_CHECKPOINT = "checkpoint_resume.pth"
 
 
+STEP_METRICS_DIR = "metrics_steps"
+
+
+def intermediate_eval_steps(cfg, num_iters: int) -> set:
+    """drive2sim: steps for a mid-training test evaluation.
+
+    ``logging.eval_at`` (list of steps; empty list turns it off); not set: half way, the step the
+    17/11/2026 study evaluated from kept checkpoints (docs/experiments/run_plan.md).
+    """
+    steps = cfg.logging.get("eval_at", None)
+    if steps is None:
+        steps = [num_iters // 2]
+    return {int(s) for s in steps if 0 < int(s) < num_iters}
+
+
+def evaluate_at_step(cfg, trainer, dataset, step: int, train_time_s: float) -> str:
+    """drive2sim: test metrics and Gaussian counts of the model at ``step``, without videos.
+
+    Same protocol as the final evaluation (render_images: 8-bit render, valid_masks, per camera),
+    written to ``<log_dir>/metrics_steps/test_<step>.json``. A separate folder so eval.standard,
+    which reads the newest ``metrics/images_test_*.json``, never takes it for the final metrics.
+
+    Returns:
+        Path of the file written ("" when the split has no test images).
+    """
+    if dataset.test_image_set is None:
+        return ""
+    with torch.no_grad():
+        results = render_images(trainer=trainer, dataset=dataset.test_image_set, compute_metrics=True)
+    keys = ("psnr", "ssim", "lpips", "occupied_psnr", "masked_psnr", "human_psnr", "vehicle_psnr")
+    per_node = {k: int(v) for k, v in trainer.get_gaussian_count().items()}
+    record = {
+        "step": int(step),
+        "num_iters": int(trainer.num_iters),
+        "train_time_s": round(float(train_time_s), 3),
+        **{k: float(results[k]) for k in keys if k in results},
+        "per_camera": results.get("per_camera", {}),
+        "num_gaussians": sum(per_node.values()),
+        "gaussians_per_node": per_node,
+    }
+    folder = os.path.join(cfg.log_dir, STEP_METRICS_DIR)
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, f"test_{step}.json")
+    with open(path, "w") as f:
+        json.dump(record, f, indent=2, default=float)
+    logger.info(f"step {step}: test PSNR {record.get('psnr', -1):.3f}, saved {path}")
+    return path
+
+
 def remove_step_checkpoints(log_dir: str) -> list:
     """drive2sim: delete the periodic ``checkpoint_<step>.pth`` once training and evaluation are done.
 
@@ -313,6 +362,9 @@ def main(args):
     #     args=args,
     # )
 
+    # drive2sim: steps with a mid-training test evaluation (logging.eval_at; default half way)
+    eval_steps = intermediate_eval_steps(cfg, trainer.num_iters)
+
     # drive2sim: optional GPU profile of a few steps (logging.profile_at); off by default
     step_profiler = StepProfiler(
         cfg.logging.get("profile_at", []) or [], cfg.logging.get("profile_steps", 30), cfg.log_dir
@@ -480,6 +532,13 @@ def main(args):
                     fps=cfg.render.fps,
                 )
             logger.info("Done caching rgb error maps")
+
+        # drive2sim: test metrics at intermediate steps (evaluate_at_step), instead of keeping
+        # the step's checkpoint to evaluate it later.
+        if step in eval_steps and step != trainer.num_iters:
+            eval_step_started = time.perf_counter()
+            evaluate_at_step(cfg, trainer, dataset, step, train_time_s)
+            add_eval_time(cfg.log_dir, time.perf_counter() - eval_step_started)
             
     
     logger.info("Training done!")

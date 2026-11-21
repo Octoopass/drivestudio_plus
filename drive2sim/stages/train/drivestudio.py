@@ -155,10 +155,13 @@ class TrainDrivestudioParams(BaseModel):
             densify theo renderer (``docs/methods/densify_3dgut.md``). Chỉ đọc, không đổi kết quả.
         extended_cam: Dùng config OmniRe cho nhiều camera (``omnire_extended_cam.yaml``); chỉ
             với tổ hợp ``EXTENDED_CAM_KEY``.
-        keep_step_checkpoints: Giữ ``checkpoint_<bước>.pth`` (lưu giữa chừng) sau khi train xong,
-            để đo chất lượng hay số Gaussian ở bước giữa. Mặc định train.py xoá chúng (chỉ giữ
-            ``checkpoint_final.pth``): không gì khác đọc chúng, và mỗi file nặng ngang model
-            cuối, nên output Kaggle, Colab nhỏ đi gần một nửa.
+        keep_step_checkpoints: Giữ ``checkpoint_<bước>.pth`` (lưu giữa chừng) sau khi train xong.
+            Mặc định train.py xoá chúng (chỉ giữ ``checkpoint_final.pth``): không gì khác đọc
+            chúng, mỗi file nặng ngang model cuối, nên output Kaggle, Colab nhỏ đi gần một nửa.
+            Muốn biết chất lượng ở bước giữa thì dùng ``eval_at`` thay vì giữ checkpoint.
+        eval_at: Các bước đo chất lượng test giữa chừng (``logging.eval_at``): ngay tại bước đó
+            train.py đo PSNR, SSIM, LPIPS (cùng protocol với lần đánh giá cuối, không video) và số
+            Gaussian, ghi ``metrics_steps/test_<bước>.json``. Bỏ trống: nửa số bước; ``[]``: tắt.
         preload_device: Nơi giữ ảnh, mask, lidar đã nạp (``data.preload_device``). Mặc định
             ``cpu``: mỗi bước chỉ chuyển ảnh đang dùng lên GPU (train.py đã làm), nên tiết kiệm vài
             GB GPU mà kết quả như ``cuda``. OmniRe 3 camera trên T4 16 GB hết bộ nhớ ở bước ~8800
@@ -185,6 +188,7 @@ class TrainDrivestudioParams(BaseModel):
     densify_stats: bool = False
     preload_device: Literal["cpu", "cuda"] = "cpu"
     keep_step_checkpoints: bool = False
+    eval_at: Optional[list[int]] = None
     extended_cam: bool = False
 
     @field_validator("profile_at", mode="before")
@@ -432,6 +436,8 @@ def build_command(
         options["trainer.densify_stats.enabled"] = True
     if params.keep_step_checkpoints:
         options["logging.keep_step_checkpoints"] = True
+    if params.eval_at is not None:
+        options["logging.eval_at"] = list(params.eval_at)
     options.update(params.overrides)
     command += [f"{key}={_format_value(value)}" for key, value in options.items()]
     return command
