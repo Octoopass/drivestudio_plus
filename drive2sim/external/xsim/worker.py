@@ -72,7 +72,9 @@ def _train(job: JobSpec, root: Path, out: Path) -> int:
 
 def _evaluate(job: JobSpec, root: Path, out: Path) -> int:
     """Nạp đúng checkpoint của run, vẽ test và xuất summary dùng cho Studio."""
+    from heapq import merge
     from importlib.metadata import version
+    from tempfile import TemporaryDirectory
 
     import torch
     from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
@@ -81,6 +83,7 @@ def _evaluate(job: JobSpec, root: Path, out: Path) -> int:
     from drive2sim.external.xsim.evaluation import render_pairs
     from drive2sim.external.xsim.provider import KittiScene
     from drive2sim.external.xsim.scoring import score_pairs
+    from drive2sim.external.xsim.videos import write_videos
 
     model = root / job.inputs["model"]
     original = files.load(model / "job.json", JobSpec)
@@ -105,13 +108,34 @@ def _evaluate(job: JobSpec, root: Path, out: Path) -> int:
     )
     names = {index: name for name, index in clip["camera_indices"].items()}
     metric = LearnedPerceptualImagePatchSimilarity(net_type="alex", normalize=True).eval().cuda()
-    with torch.no_grad():
-        overall, per_camera = score_pairs(
+    test = {tuple(pair) for pair in clip["split"]["test"]}
+    train = {tuple(pair) for pair in clip["split"]["train"]}
+    cameras = {}
+    for name in clip["split"]["cameras"]:
+        sensor = clip["camera_indices"][name]
+        if sensor not in subset.camera_ids:
+            continue
+        h, w = subset.dataset.camera_masks[sensor].shape
+        cameras[sensor] = (name, w, h)
+    first = clip["split"]["frame_range"][0]
+    timestamps = {
+        first + i: (source, clip["time_origin_us"] + clip["relative_time_us"][i])
+        for i, source in enumerate(clip["source_frames"])
+    }
+    with torch.no_grad(), TemporaryDirectory(dir=out) as temporary:
+        pairs = merge(
+            render_pairs(subset.dataset.scene, subset, nodes, params.downscale, "cuda"),
             render_pairs(provider, subset, nodes, params.downscale, "cuda"),
-            {tuple(pair) for pair in clip["split"]["test"]},
-            names,
-            metric,
+            key=lambda pair: pair[:2],
         )
+        rendered = write_videos(
+            pairs, Path(temporary), params.num_iters, cameras, train, test, timestamps
+        )
+        overall, per_camera = score_pairs(rendered, test, names, metric)
+        folder = out / "videos"
+        folder.mkdir(exist_ok=True)
+        for artifact in Path(temporary).iterdir():
+            artifact.replace(folder / artifact.name)
     files.dump(
         Summary(
             schema_version=SCHEMA_VERSIONS["summary"],

@@ -29,6 +29,6 @@ fi
 "$python_bin" -m pip install --no-build-isolation ./third_party/pytoast
 "$python_bin" -m pip install --no-build-isolation ./third_party/xsimgs
 "$python_bin" -m pip install --no-build-isolation -r requirements.txt
-"$python_bin" -m pip install scikit-image
+"$python_bin" -m pip install scikit-image imageio-ffmpeg
 "$python_bin" -m pip install -e . "$root"
 "$python_bin" -c 'import torch, toast, xsimgs._C, xsim; assert torch.cuda.is_available(), "Worker chưa thấy GPU CUDA"'

@@ -677,7 +677,7 @@ d2s-worker --job job.json --result result.json
 - `stage_id` và `params` chỉ có khi `kind` là `stage`. `inputs` ánh xạ tên đầu vào của stage sang đường dẫn.
 - `env` là tên file môi trường trong `envs/` (không có đuôi `.yml`).
 - Mọi đường dẫn tương đối với `D2S_WORKDIR` (mục 10.3).
-- Stage `train.xsim` dùng interpreter trong `D2S_XSIM_PYTHON`, mặc định dùng môi trường conda `drive2sim-xsim`. Worker ghi `checkpoint.pt` vào thư mục model và báo VRAM qua `result.json`. Stage `eval.xsim` dùng cùng interpreter và trả artifact `report` loại `eval_report` chứa `summary.json`.
+- Stage `train.xsim` dùng interpreter trong `D2S_XSIM_PYTHON`, mặc định dùng môi trường conda `drive2sim-xsim`. Worker ghi `checkpoint.pt` vào thư mục model và báo VRAM qua `result.json`. Stage `eval.xsim` dùng cùng interpreter và trả artifact `report` loại `eval_report` chứa `summary.json`. Trong `videos/`, hai bộ `full_set` và `test_set` có các kênh `rgbs` và `gt_rgbs` cùng layout. Trường `frames` trong layout ghi frame ingest, frame nguồn, timestamp microsecond và camera có ảnh. Ô đen biểu thị camera thiếu tại thời điểm đó. Chỉ các cặp test có thật được chuyển vào scorer. Tốc độ phát là 10 khung/giây.
 
 `result.json` do worker ghi khi xong, kể cả khi thất bại:
 
