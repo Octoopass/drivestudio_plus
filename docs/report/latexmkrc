@@ -1,1 +1,2 @@
 $pdf_mode = 4;  # lualatex (needed for Vietnamese fonts)
+$out_dir = 'build';  # PDF và file phụ vào build/ (đã nằm trong .gitignore)
