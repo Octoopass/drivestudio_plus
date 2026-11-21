@@ -65,6 +65,7 @@ class StageContext(Protocol):
         split: Split train/test của run.
     """
 
+    run_id: str
     output_dir: Path
     scene: Scene
     split: Split

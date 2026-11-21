@@ -165,6 +165,8 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 
 ## 9. Đánh giá
 
+Với XSIM, worker train lưu checkpoint theo chu kỳ để có thể tiếp tục một run bị gián đoạn. Phần train native còn chờ kiểm chứng trên GPU.
+
 Khi pipeline có nhiều bước đánh giá, bảng so sánh hiển thị kết quả của bước đánh giá thành công cuối cùng theo thứ tự pipeline.
 
 - Cùng split, cùng độ phân giải, đo trên ảnh 8 bit.

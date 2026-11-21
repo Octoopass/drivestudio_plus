@@ -311,6 +311,7 @@ class Stage(ABC):                      # lớp gốc; lớp con khai báo thuộ
         """Ghi đầu ra vào ctx.output_dir và trả về đường dẫn của từng đầu ra."""
 
 class StageContext(Protocol):
+    run_id: str
     output_dir: Path
     scene: Scene                       # thư mục dữ liệu chuẩn + manifest
     split: Split
@@ -676,6 +677,7 @@ d2s-worker --job job.json --result result.json
 - `stage_id` và `params` chỉ có khi `kind` là `stage`. `inputs` ánh xạ tên đầu vào của stage sang đường dẫn.
 - `env` là tên file môi trường trong `envs/` (không có đuôi `.yml`).
 - Mọi đường dẫn tương đối với `D2S_WORKDIR` (mục 10.3).
+- Stage `train.xsim` dùng interpreter trong `D2S_XSIM_PYTHON`, mặc định dùng môi trường conda `drive2sim-xsim`. Worker ghi `checkpoint.pt` vào thư mục model và báo VRAM qua `result.json`.
 
 `result.json` do worker ghi khi xong, kể cả khi thất bại:
 

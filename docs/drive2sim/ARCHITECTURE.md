@@ -605,6 +605,7 @@ Bảng gồm cả stage đã có và stage theo thiết kế đích; cột Trạ
 | `eval.ncore` | Đã có | Chấm PLY trên khung test của split: xuất view từ clip NCore, vẽ bằng gsplat, PSNR, SSIM, LPIPS → `summary.json` | không | `tools/ncore_eval_export.py`, `ncore_eval_render.py` |
 | `export.nurec_ply` | Đã có | PLY của NuRec đổi từ hệ world của clip NCore sang hệ world của DriveStudio | không | `drive2sim/external/nurec/ply.py` |
 | `train.external` | Chưa có (NuRec dùng `train.nurec`) | Worker chung cho codebase ngoài | không | Chưa có |
+| `train.xsim` | Đã nối stage và worker, chưa chạy thật trên GPU | Train trên clip KITTI-360 và masks trong môi trường XSIM riêng | có | `external/xsim/worker.py`, `training.py` |
 | `eval.standard` | Đã có (chỉ đọc metric do `train.py` ghi) | Đánh giá theo protocol chung (SPEC mục 9) | không | `drive2sim/recon/tools/eval.py` (`do_evaluation`) |
 | `render.videos` | Chưa có (video do `train.py` ghi) | Video ảnh gốc, ảnh render, sai khác theo camera | không | `drive2sim/recon/rendering/videos.py` |
 | `export.ply_world` | Đã có | PLY 3DGS trong hệ world | không | `drive2sim/recon/tools/export_ply.py` |
