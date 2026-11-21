@@ -62,6 +62,9 @@ function WarnMark({ text }: { text: string }) {
 // Nhóm stage cho biểu đồ phân rã thời gian, theo tiền tố stage_id.
 const TIME_PARTS = ["prep", "train", "eval", "export"] as const;
 
+// Giá trị của ô chọn cảnh (và tham số scene của URL) cho "Tất cả cảnh".
+const ALL_SCENES = "*";
+
 export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; splitId?: string }) {
   const { t } = useI18n();
   const scenes = useApi<List<Manifest>>("/api/scenes");
@@ -70,13 +73,16 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
   // (mặc định).
   const report = useApi<List<ReportRow>>("/api/report");
   const latest = (report.data?.items ?? []).filter(isComparable).reduce<ReportRow | undefined>((a, r) => (!a || r.run_id > a.run_id ? r : a), undefined);
-  const currentScene = sceneId || latest?.scene_id || scenes.data?.items[0]?.scene_id || "";
+  // "Tất cả cảnh" (ALL_SCENES): mọi cảnh trên một trang; metric hai cảnh khác nhau không so được
+  // (khác dữ liệu, khác ảnh test), nên bảng chia khối theo cảnh và biểu đồ tách màu, Pareto theo cảnh.
+  const allScenes = sceneId === ALL_SCENES;
+  const currentScene = allScenes ? "" : sceneId || latest?.scene_id || scenes.data?.items[0]?.scene_id || "";
   const scene = useApi<SceneDetail>(currentScene ? `/api/scenes/${seg(currentScene)}` : null);
-  const currentSplit = splitId;
+  const currentSplit = allScenes ? "" : splitId;
   const query = new URLSearchParams();
   if (currentScene) query.set("scene_id", currentScene);
   if (currentSplit) query.set("split_id", currentSplit);
-  const inView = (r: ReportRow) => r.scene_id === currentScene && (!currentSplit || r.split_id === currentSplit);
+  const inView = (r: ReportRow) => (allScenes || r.scene_id === currentScene) && (!currentSplit || r.split_id === currentSplit);
   // Một bảng, chọn nhóm metric bằng tab (nhớ trong trình duyệt). Mỗi nhóm có cột sắp xếp mặc định;
   // chiều mặc định là "tốt nhất trước" (theo hướng tốt hơn của cột).
   const [groupId, setGroupId] = useState<string>(() => readPref(TAB_KEY, "summary"));
@@ -87,7 +93,7 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
 
   // Chỉ run đã xong và train đầy đủ: run đang chạy, lỗi, huỷ hay chạy thử nhanh không có metric
   // so được với các run còn lại.
-  const comparable = useMemo(() => (report.data?.items ?? []).filter((r) => inView(r) && isComparable(r)), [report.data, currentScene, currentSplit]);
+  const comparable = useMemo(() => (report.data?.items ?? []).filter((r) => inView(r) && isComparable(r)), [report.data, currentScene, currentSplit, allScenes]);
   const groups = comparable.length ? [SUMMARY_GROUP, ...visibleGroups(comparable)] : [];
   const group = groups.find((g) => g.id === groupId) ?? groups[0];
   const sortable = group ? group.metrics.filter((m) => !m.text) : [];
@@ -125,7 +131,7 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
   // xếp hạng vô nghĩa, nên tách khối; khối nhiều iteration hơn đứng trước. Xếp hạng, in đậm số
   // tốt nhất làm trong từng khối.
   const blocks = useMemo(() => {
-    const keyOf = (r: ReportRow) => [grouped ? r.split_id : "", r.num_iters ?? -1, r.train_resolution ?? ""] as const;
+    const keyOf = (r: ReportRow) => [allScenes ? r.scene_id : "", grouped ? r.split_id : "", r.num_iters ?? -1, r.train_resolution ?? ""] as const;
     const found = new Map<string, { key: ReturnType<typeof keyOf>; rows: ReportRow[] }>();
     for (const row of rows) {
       const key = keyOf(row);
@@ -134,12 +140,15 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
       found.get(id)!.rows.push(row);
     }
     return [...found.entries()]
-      .sort(([, a], [, b]) => a.key[0].localeCompare(b.key[0]) || b.key[1] - a.key[1] || a.key[2].localeCompare(b.key[2]))
-      .map(([id, block]) => ({ id, split: block.key[0], rows: block.rows, sample: block.rows[0] }));
-  }, [rows, grouped]);
+      .sort(([, a], [, b]) => a.key[0].localeCompare(b.key[0]) || a.key[1].localeCompare(b.key[1]) || b.key[2] - a.key[2] || a.key[3].localeCompare(b.key[3]))
+      .map(([id, block]) => ({ id, scene: block.key[0], split: block.key[1], rows: block.rows, sample: block.rows[0] }));
+  }, [rows, grouped, allScenes]);
   // Bảng trộn nhiều split mà không gom: cột metric đo trên ảnh test (chất lượng ảnh, theo vùng) có
   // dấu cảnh báo, vì hai split khác nhau đánh giá trên các khung test khác nhau.
-  const mixedSplit = splits.length > 1 && !grouped;
+  // Mọi cảnh: chỉ tính trộn khi một cảnh có nhiều split (hai cảnh vốn có split riêng, đã tách khối).
+  const splitsPerScene = new Map<string, Set<string>>();
+  for (const r of rows) splitsPerScene.set(r.scene_id, (splitsPerScene.get(r.scene_id) ?? new Set()).add(r.split_id));
+  const mixedSplit = !grouped && [...splitsPerScene.values()].some((set) => set.size > 1);
   const chooseBySplit = (value: boolean) => {
     setBySplit(value);
     writePref(BY_SPLIT_KEY, value ? "1" : "0");
@@ -148,9 +157,12 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
   // chạy thử ít bước vừa nhanh vừa kém nên làm lệch đường Pareto.
   const chartIters = Math.max(-1, ...rows.map((r) => r.num_iters ?? -1));
   const chartRows = rows.filter((r) => (r.num_iters ?? -1) === chartIters);
+  // Mọi cảnh: biểu đồ gom theo "cảnh · split" (màu, đường Pareto riêng), không trộn hai cảnh.
+  const chartView = allScenes ? chartRows.map((r) => ({ ...r, split_id: `${r.scene_id} · ${r.split_id}` })) : chartRows;
+  const chartSplits = allScenes ? [...new Set(chartView.map((r) => r.split_id))].sort() : splits;
   // Dòng nguồn ghi dưới hình xuất: cảnh, split, số iteration, ngày xuất.
   const figureSource = t("figure.source", {
-    scene: currentScene,
+    scene: allScenes ? t("compare.field.all_scenes") : currentScene,
     splits: splits.join(", "),
     iters: count(chartIters),
     date: new Date().toISOString().slice(0, 10),
@@ -177,7 +189,8 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
       <div className="row wrap">
         <label className="field">
           <span>{t("compare.field.scene")}</span>
-          <select value={currentScene} disabled={!scenes.data?.items.length} onChange={(e) => go({ page: "compare", sceneId: e.target.value })}>
+          <select value={allScenes ? ALL_SCENES : currentScene} disabled={!scenes.data?.items.length} onChange={(e) => go({ page: "compare", sceneId: e.target.value })}>
+            <option value={ALL_SCENES}>{t("compare.field.all_scenes")}</option>
             {(scenes.data?.items ?? []).map((m) => (
               <option key={m.scene_id}>{m.scene_id}</option>
             ))}
@@ -185,7 +198,7 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
         </label>
         <label className="field">
           <span>{t("compare.field.split")}</span>
-          <select value={currentSplit} disabled={!scene.data?.splits.length} onChange={(e) => go({ page: "compare", sceneId: currentScene, splitId: e.target.value || undefined })}>
+          <select value={currentSplit} disabled={allScenes || !scene.data?.splits.length} title={allScenes ? t("compare.field.split_per_scene") : undefined} onChange={(e) => go({ page: "compare", sceneId: currentScene, splitId: e.target.value || undefined })}>
             <option value="">{t("compare.field.all_splits")}</option>
             {(scene.data?.splits ?? []).map((id) => (
               <option key={id}>{id}</option>
@@ -196,7 +209,7 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
 
       <ErrorBox error={report.error} />
       {(!scenes.data || !report.data) && !report.error && !scenes.error && <Loading rows={4} />}
-      {((scenes.data && !currentScene) || (report.data && rows.length === 0)) && (
+      {((scenes.data && !currentScene && !allScenes) || (report.data && rows.length === 0)) && (
         <section className="panel">
           <Empty title={t("compare.empty.title")}>
             <p>{t("compare.empty.text")}</p>
@@ -312,6 +325,11 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
               <tbody key={block.id}>
                 <tr className="group-row">
                   <td className="block-head" colSpan={(!currentSplit && !grouped ? 4 : 3) + group.metrics.length}>
+                    {allScenes && (
+                      <>
+                        {t("compare.field.scene")} <b>{block.scene}</b> ·{" "}
+                      </>
+                    )}
                     {grouped && (
                       <>
                         {t("compare.table.split")} <b>{block.split}</b> ·{" "}
@@ -358,12 +376,12 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
       {chartRows.length > 0 && chartRows.length < rows.length && (
         <p className="small faint">{t("compare.charts.only_iters", { count: count(chartIters) })}</p>
       )}
-      {chartRows.length > 0 && <Charts rows={chartRows} splits={splits} grouped={grouped} gpus={gpus} source={figureSource} />}
+      {chartRows.length > 0 && <Charts rows={chartView} splits={chartSplits} grouped={grouped || allScenes} gpus={gpus} source={figureSource} />}
 
       {rows.length > 1 && (
         <Panel title={t("compare.side.title")} info={t("compare.side.info")}>
           {/* key: đổi cảnh hoặc split thì chọn lại hai run, không giữ run của cảnh cũ. */}
-          <SideBySide key={`${currentScene}/${currentSplit}`} rows={rows} />
+          <SideBySide key={`${allScenes ? ALL_SCENES : currentScene}/${currentSplit}`} rows={rows} />
         </Panel>
       )}
     </div>

@@ -923,5 +923,7 @@
   "scene.lidar.p95_depth": "Độ sâu p95",
   "scene.lidar.no_images": "Cảnh ingest trên Kaggle: máy chỉ có số liệu, ảnh chồng nằm trong output của notebook ingest.",
   "scene.lidar.frame": "Khung",
-  "scene.lidar.how_to_read": "Bấm vào ảnh để xem cỡ lớn. Xem điểm có nằm khít lên mép xe, cột, tường và vạch đường không; điểm trôi khỏi vật hoặc nằm trên trời là calib, pose sai."
+  "scene.lidar.how_to_read": "Bấm vào ảnh để xem cỡ lớn. Xem điểm có nằm khít lên mép xe, cột, tường và vạch đường không; điểm trôi khỏi vật hoặc nằm trên trời là calib, pose sai.",
+  "compare.field.all_scenes": "Tất cả cảnh",
+  "compare.field.split_per_scene": "Mỗi cảnh có split riêng: chọn một cảnh để lọc theo split"
 }

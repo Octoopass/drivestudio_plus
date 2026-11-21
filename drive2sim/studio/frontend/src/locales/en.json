@@ -923,5 +923,7 @@
   "scene.lidar.p95_depth": "p95 depth",
   "scene.lidar.no_images": "Scene ingested on Kaggle: only the numbers are on this machine, the overlay images are in the ingest notebook's output.",
   "scene.lidar.frame": "Frame",
-  "scene.lidar.how_to_read": "Click an image to open it full size. Check that points sit on the edges of cars, poles, walls and lane markings; points drifting off objects or lying in the sky mean wrong calibration or pose."
+  "scene.lidar.how_to_read": "Click an image to open it full size. Check that points sit on the edges of cars, poles, walls and lane markings; points drifting off objects or lying in the sky mean wrong calibration or pose.",
+  "compare.field.all_scenes": "All scenes",
+  "compare.field.split_per_scene": "Each scene has its own splits: pick one scene to filter by split"
 }
