@@ -1,2 +1,5 @@
 $pdf_mode = 4;  # lualatex (needed for Vietnamese fonts)
+# fontspec cần LuaLaTeX: kể cả khi được gọi với -pdf (công thức mặc định của LaTeX Workshop
+# trong VS Code) vẫn chạy lualatex thay cho pdflatex.
+$pdflatex = 'lualatex %O %S';
 $out_dir = 'build';  # PDF và file phụ vào build/ (đã nằm trong .gitignore)
