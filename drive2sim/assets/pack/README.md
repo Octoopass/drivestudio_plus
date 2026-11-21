@@ -15,7 +15,7 @@ uv venv ~/.venvs/drive2sim
 uv pip install --python ~/.venvs/drive2sim/bin/python './drive2sim-0.1.0-py3-none-any.whl[studio]'
 ```
 
-Chạy hai lệnh trên từ thư mục chứa file wheel. Nếu tên wheel bạn nhận khác, thay đúng tên đó. Bạn cũng có thể cài từ mã nguồn theo [README của dự án](https://github.com/Octoopass/drivestudio_plus/tree/drive2sim).
+Chạy hai lệnh trên từ thư mục chứa file wheel. Nếu tên wheel bạn nhận khác, thay đúng tên đó. Bạn cũng có thể cài từ mã nguồn theo [README của dự án](https://github.com/thaianh20021/drive2sim).
 
 Tiếp theo, giải nén dữ liệu vào một **thư mục làm việc** trống. Tool sẽ đọc cảnh và kết quả bên trong thư mục này. Trong ví dụ dưới đây, `results.tar` là tên minh hoạ: thay bằng tên tar bạn thực sự nhận, chẳng hạn `results-nuscenes-11runs.tar`.
 
@@ -145,7 +145,7 @@ Open the address printed by Studio. **Runs** lists the experiments, **Compare** 
 
 The **browser preview** uses exported 3D data for camera movement and motion playback without an NVIDIA GPU or CUDA environment. **Video** plays images already rendered from the recorded cameras; its viewpoint cannot be rotated. **GPU rendering** loads the learned scene and generates new images with its renderer, requiring the GPU environment with PyTorch, CUDA and the rendering libraries.
 
-For GPU rendering, re-export or training, install the GPU environment described in the [repository README](https://github.com/Octoopass/drivestudio_plus/tree/drive2sim), then install the supplied wheel into that environment. Once it is installed, for a conda environment named `drive2sim`, run:
+For GPU rendering, re-export or training, install the GPU environment described in the [repository README](https://github.com/thaianh20021/drive2sim), then install the supplied wheel into that environment. Once it is installed, for a conda environment named `drive2sim`, run:
 
 ```bash
 conda activate drive2sim
