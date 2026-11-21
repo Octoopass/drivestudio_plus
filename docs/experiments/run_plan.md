@@ -155,6 +155,9 @@ của `f8a6` ra PSNR 25,0063, khớp `summary.json` gốc. Cột "cuối" lấy 
     khoảng 0,2 dB thì dùng 15.000 bước cho các đợt 3DGUT, 3DGEER sau, kể cả KITTI-360.
 - Sau khi đo, các `checkpoint_15000.pth` trên máy đã xoá (17/11/2026) để giải phóng ổ đĩa;
   output notebook Kaggle của các run vẫn còn.
+- Từ 21/11/2026 không cần giữ checkpoint để đo kiểu này nữa: `train.py` đo test ngay tại nửa
+  số bước (tham số `eval_at` chọn bước khác) và ghi `metrics_steps/test_<bước>.json`; checkpoint
+  theo bước bị xoá khi train xong. Đã thử trên máy (`211c`) và Kaggle (`e554`).
 
 ### Vì sao PSNR dừng ở khoảng 25 dù train đủ 30.000 bước
 
