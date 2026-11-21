@@ -113,3 +113,31 @@ def test_remove_stray_tests_package_installed_by_a_dependency(tmp_path: Path) ->
     (tmp_path / "gmplot-1.4.1.dist-info" / "RECORD").write_text("gmplot/__init__.py,sha256=x,1\n")
     assert libraries.remove_stray_packages(tmp_path) == []
     assert (tmp_path / "tests").exists()
+
+
+def test_pip_command_falls_back_to_uv(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(libraries, "_has_pip", lambda python: False)
+    monkeypatch.setattr(libraries, "_which", lambda name: "/bin/uv" if name == "uv" else None)
+    assert libraries.pip_command("/v/python", "install") == [
+        "/bin/uv", "pip", "install", "--python", "/v/python",
+    ]  # fmt: skip
+    monkeypatch.setattr(libraries, "_has_pip", lambda python: True)
+    assert libraries.pip_command("/v/python", "freeze") == ["/v/python", "-m", "pip", "freeze"]
+
+
+def test_install_main_pins_the_humans4d_submodule_commit() -> None:
+    """Cài từ gói nén (không .git) clone 4D-Humans đúng commit mà repo ghim."""
+    import re
+    import shutil
+    import subprocess
+
+    root = Path(__file__).resolve().parents[3]
+    script = (root / "envs" / "install_main.sh").read_text(encoding="utf-8")
+    pinned = re.search(r'HUMANS4D_COMMIT="([0-9a-f]{40})"', script).group(1)
+    if not shutil.which("git") or not (root / ".git").exists():
+        pytest.skip("cần git và bản clone")
+    tree = subprocess.run(
+        ["git", "-C", str(root), "ls-tree", "HEAD", "third_party/Humans4D"],
+        capture_output=True, text=True, check=True,
+    ).stdout.split()  # fmt: skip
+    assert tree[2] == pinned

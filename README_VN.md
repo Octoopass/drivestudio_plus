@@ -83,6 +83,13 @@ Run có ảnh mắt cá cần chọn `renderer=3dgut` hoặc `renderer=3dgeer`; 
 
 ## Cài đặt và bắt đầu sử dụng
 
+**Một lệnh.** `npx github:thaianh20021/drive2sim` (Node.js 18+) tải mã nguồn và cài mọi thứ vào
+`~/.drive2sim`; `npx github:thaianh20021/drive2sim start` bật Studio ở nền trên máy chủ không màn
+hình. Không có Node.js: `bash envs/install.sh` (Linux, macOS) hoặc
+`powershell -ExecutionPolicy Bypass -File envs\install.ps1` (Windows). Linux có GPU NVIDIA được cài
+đủ môi trường train; macOS, Windows và Linux không GPU cài Studio + CLI, chạy run trên Kaggle hoặc
+Colab. Chi tiết: [docs/install.md](docs/install.md). Các bước cài tay bên dưới vẫn dùng được.
+
 Tải mã nguồn trước. Các lệnh bên dưới được chạy từ thư mục `drivestudio_plus` vừa tải:
 
 ```bash

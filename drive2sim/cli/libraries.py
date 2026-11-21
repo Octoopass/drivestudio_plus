@@ -38,6 +38,7 @@ def register(
     install = actions.add_parser("install", parents=[common], help="cài một số mục hoặc tất cả")
     install.add_argument("items", nargs="*", help="id mục (xem d2s libraries list)")
     install.add_argument("--all", action="store_true", help="mọi mục còn thiếu, như Studio")
+    install.add_argument("--skip", default="", help="id mục bỏ qua, cách nhau bằng dấu phẩy")
     install.set_defaults(handler=install_items)
 
 
@@ -62,7 +63,8 @@ def install_items(args: argparse.Namespace) -> int:
     Raises:
         UsageError: Không chọn mục nào, hoặc id lạ.
     """
-    ids = libraries.bulk_ids() if args.all else list(args.items)
+    skip = {i for i in args.skip.split(",") if i}
+    ids = [i for i in (libraries.bulk_ids() if args.all else list(args.items)) if i not in skip]
     if not ids:
         raise UsageError("chọn mục cần cài hoặc --all (xem d2s libraries list)")
     unknown = [i for i in ids if i not in libraries.BY_ID]

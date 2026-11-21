@@ -78,6 +78,14 @@ A run containing fisheye images must select `renderer=3dgut` or `renderer=3dgeer
 
 ## Installation and first use
 
+**One command.** `npx github:thaianh20021/drive2sim` (Node.js 18+) fetches the source and installs
+everything into `~/.drive2sim`; `npx github:thaianh20021/drive2sim start` runs Studio in the
+background on a headless server. Without Node.js: `bash envs/install.sh` (Linux, macOS) or
+`powershell -ExecutionPolicy Bypass -File envs\install.ps1` (Windows). Linux with an NVIDIA GPU
+gets the full training environment; macOS, Windows and GPU-less Linux get Studio and the CLI and
+run on Kaggle or Colab. See [docs/install.md](docs/install.md) (Vietnamese). The manual steps
+below remain valid.
+
 Clone the source first. Run the commands below from the resulting `drivestudio_plus` folder:
 
 ```bash

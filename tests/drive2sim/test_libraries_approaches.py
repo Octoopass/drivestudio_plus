@@ -51,6 +51,7 @@ def test_catalog_and_install_plans(monkeypatch: pytest.MonkeyPatch) -> None:
     assert libraries.install_plan("renderers") == ("env", "main", 4)
     assert libraries.install_plan("env-nurec") == ("env", "nurec", 1)
     monkeypatch.setattr(libraries, "pip_constraints", lambda python, path=None: Path("c.txt"))
+    monkeypatch.setattr(libraries, "_has_pip", lambda python: True)
     # pip không đổi phiên bản gói đã có: chạy với file ràng buộc
     assert libraries.install_plan("sdk-kitti", "py")[1] == [
         "py", "-m", "pip", "install", "-c", "c.txt", "pykitti",
@@ -109,6 +110,7 @@ def test_libraries_routes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
         libraries, "item_status", lambda item: {"status": "missing", "found": None}
     )
     monkeypatch.setattr(libraries, "pip_constraints", lambda python, path=None: Path("c.txt"))
+    monkeypatch.setattr(libraries, "_has_pip", lambda python: True)
     app = create_app(Workdir(tmp_path), registry=StageRegistry(), frontend_dir=None)
     app.state.env_install = Flow()
     with TestClient(app, base_url="http://127.0.0.1") as client:

@@ -263,7 +263,7 @@ def install_plan(item_id: str, python: str = sys.executable) -> Plan:
         return ("env", plan[1], plan[2])
     if kind == "pip":
         constraints = pip_constraints(python)
-        return ("command", [python, "-m", "pip", "install", "-c", str(constraints), *plan[1]])
+        return ("command", [*pip_command(python, "install"), "-c", str(constraints), *plan[1]])
     if kind == "hf":
         code = (
             "from transformers import SegformerForSemanticSegmentation as M; "
@@ -276,6 +276,28 @@ def install_plan(item_id: str, python: str = sys.executable) -> Plan:
             raise ValueError("chưa có uv: cài mục uv trước")
         return ("command", [uv, "tool", "install", "--upgrade", *plan[1]])
     raise ValueError(f"kiểu cài lạ: {kind}")
+
+
+def _has_pip(python: str) -> bool:
+    try:
+        done = subprocess.run([python, "-m", "pip", "--version"], capture_output=True, check=False)
+    except OSError:
+        return False
+    return done.returncode == 0
+
+
+def pip_command(python: str, action: str) -> list[str]:
+    """Đầu lệnh pip cho ``python``, ví dụ ``[python, "-m", "pip", "install"]``.
+
+    Venv tạo bằng ``uv venv`` (không ``--seed``) không có pip: khi đó dùng
+    ``uv pip <action> --python <python>`` nếu có uv; không có cả hai thì vẫn trả lệnh pip, để lỗi
+    "No module named pip" hiện trong log.
+    """
+    if not _has_pip(python):
+        uv = _which("uv")
+        if uv:
+            return [uv, "pip", action, "--python", python]
+    return [python, "-m", "pip", action]
 
 
 def pip_constraints(python: str, path: Optional[Path] = None) -> Path:
@@ -293,11 +315,9 @@ def pip_constraints(python: str, path: Optional[Path] = None) -> Path:
     """
     path = path or Path.home() / ".cache" / "drive2sim" / "pip-constraints.txt"
     path.parent.mkdir(parents=True, exist_ok=True)
+    command = [*pip_command(python, "freeze"), "--exclude-editable"]
     try:
-        frozen = subprocess.run(
-            [python, "-m", "pip", "freeze", "--exclude-editable"],
-            capture_output=True, text=True, check=False,
-        ).stdout  # fmt: skip
+        frozen = subprocess.run(command, capture_output=True, text=True, check=False).stdout
     except OSError:  # không chạy được Python đó: không ghim gì, lệnh pip sau sẽ báo lỗi rõ hơn
         frozen = ""
     pins = [line for line in frozen.splitlines() if "==" in line and " @ " not in line]
