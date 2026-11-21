@@ -647,6 +647,9 @@ class ActorEditor(Protocol):           # L3
 
 ### 9.1 Worker
 
+Script envs/install_xsim.sh nhận đường dẫn interpreter và thư mục checkout dành riêng cho XSIM trên máy thực thi.
+
+
 Dùng cho codebase ngoài (môi trường riêng) và cho tiến trình render của viewer và server:
 
 ```

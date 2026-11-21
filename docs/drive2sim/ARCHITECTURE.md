@@ -840,6 +840,9 @@ Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiề
 
 ## 9. License
 
+XSIM và xsimgs dùng Apache-2.0. Checkout XSIM giữ THIRD_PARTY_LICENSES.md cho mã kế thừa gsplat, 3DGUT và OmniRe. Quyền sử dụng weights SMPL được quản lý riêng.
+
+
 - Repo: MIT (DriveStudio) cộng AGPL-3.0 (patch Bosch, FastGS dựa trên patch), nên phần thêm vào cũng phân phối theo AGPL.
 - gsplat-geer đi kèm `3dgs-license.txt` của Inria (phi thương mại).
 - `drive2sim/recon/tools/export_ply.py` dùng `plyfile` (GPLv3+).
