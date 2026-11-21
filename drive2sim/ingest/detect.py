@@ -242,8 +242,9 @@ def _detect_kitti360(root: Path, report: SourceReport) -> bool:
     """Nhận ra KITTI-360: ``calibration/calib_cam_to_pose.txt`` cùng ảnh trong ``data_2d_raw/``.
 
     Chuỗi lấy từ tên thư mục hoặc file ``.tar`` trong ``data_2d_raw/`` (``<chuỗi>_image_0X.tar``).
-    Không đọc file ``.pkl`` nào (ví dụ ``ImageSets-rosa-6class/``): đó là pickle từ nguồn bên
-    thứ ba, đọc có thể chạy mã tuỳ ý; converter chỉ dùng file chính thức.
+    Có box 3D khi có box chính thức (``data_3d_bboxes``) hoặc metadata ROSA
+    (``ImageSets-rosa-6class/``); ở đây chỉ xem file có không, không mở pickle (converter đọc nó
+    bằng unpickler chỉ cho mảng numpy, ``kitti360_boxes``).
 
     Args:
         root: Thư mục nguồn.
@@ -261,13 +262,15 @@ def _detect_kitti360(root: Path, report: SourceReport) -> bool:
     report.versions[""] = sequences
     report.cameras = list(kitti360.CAMERAS)
     report.has_lidar = any(kitti360.has_lidar(root, sequence) for sequence in sequences)
-    report.has_cuboids = False
-    if (root / "data_3d_bboxes").exists():
-        report.notes.append("có data_3d_bboxes nhưng converter chưa đọc box 3D")
-    if any(root.glob("*/*.pkl")) or any(root.glob("*.pkl")):
+    official = (root / "data_3d_bboxes").is_dir() or (root / "data_3d_bboxes.zip").is_file()
+    rosa = any((root / "ImageSets-rosa-6class" / name).is_file() for name in (
+        "kitti360_rosa_infos_train.pkl", "kitti360_rosa_infos_val.pkl"
+    ))  # fmt: skip
+    report.has_cuboids = official or rosa
+    if rosa and not official:
         report.notes.append(
-            "bỏ qua các file .pkl: converter không đọc pickle từ nguồn bên ngoài, chỉ đọc "
-            "calibration/, data_poses và dữ liệu thô"
+            "box 3D lấy từ metadata ROSA (ImageSets-rosa-6class/), đọc bằng unpickler chỉ cho "
+            "mảng numpy; chuỗi không có trong ROSA thì cảnh không có box"
         )
     return True
 

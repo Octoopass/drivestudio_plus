@@ -18,11 +18,20 @@ trailer, motorcycle, bus, caravan, train (cùng các nhãn tĩnh như building, 
 nhãn ``pedestrian``. Trên chuỗi 0003: mọi box xe có trục x dài nhất (chiều dài), z là chiều cao; 2
 trong 1144 box có ma trận lật (định thức âm), được sửa bằng cách đổi chiều trục y.
 
-File này chứa ``CLASS_MAP``, ``Box``, ``box_xml_text``, ``read_boxes``, ``build_instances``,
-``project_rect``, ``dynamic_mask_rects``.
+Khi chuỗi không có box chính thức, box lấy từ metadata ROSA (``ImageSets-rosa-6class/
+kitti360_rosa_infos_{train,val}.pkl``, bộ box 6 lớp mà Fisheye Fusion Lab và converter NCore của
+Instant NuRec dùng): mỗi mục là một lần quét LiDAR (``frame_id``, ``lidar_path`` có tên chuỗi), mỗi
+box là ``bbox_3d = [x, y, z, dài, rộng, cao, yaw]`` trong hệ Velodyne của lần quét đó, z ở tâm hình
+học, yaw quanh +z, ``instance_token`` giữ nguyên qua các khung (``read_rosa_items``,
+``rosa_boxes``). File là pickle: đọc bằng ``core.safe_pickle.load_numpy_pickle``, chỉ cho dựng mảng
+numpy, kiểu nào khác thì từ chối, nên file lạ không chạy được mã.
+
+File này chứa ``CLASS_MAP``, ``Box``, ``box_xml_text``, ``read_boxes``, ``read_rosa_items``,
+``rosa_boxes``, ``build_instances``, ``project_rect``, ``dynamic_mask_rects``.
 """
 
 import math
+import pickle
 import xml.etree.ElementTree as ElementTree
 import zipfile
 from collections.abc import Sequence
@@ -31,6 +40,7 @@ from pathlib import Path
 from typing import Optional
 
 from drive2sim.core.camera import MEI_FIT_MAX_ANGLE, fisheye_radius
+from drive2sim.core.safe_pickle import load_numpy_pickle
 
 Matrix = list[list[float]]
 
@@ -56,6 +66,17 @@ MASK_GROUPS = {
     "vehicle": {"Car", "Van", "Truck", "Tram"},
 }
 BOX_DIR = "data_3d_bboxes"
+ROSA_DIR = "ImageSets-rosa-6class"
+ROSA_FILES = ("kitti360_rosa_infos_train.pkl", "kitti360_rosa_infos_val.pkl")
+# Lớp ROSA (metainfo["classes"]) → lớp của loader KITTI, như CLASS_MAP.
+ROSA_CLASS_MAP = {
+    "car": "Car",
+    "truck": "Truck",
+    "trailer": "Truck",
+    "motorcycle": "Cyclist",
+    "bicycle": "Cyclist",
+    "pedestrian": "Pedestrian",
+}
 
 
 @dataclass(frozen=True)
@@ -63,7 +84,8 @@ class Box:
     """Một box trong file XML, đã tách phép quay khỏi kích thước.
 
     Attributes:
-        key: (``semanticId``, ``instanceId``): cùng một vật qua các khung.
+        key: (``semanticId``, ``instanceId``): cùng một vật qua các khung; với box ROSA là
+            (``-1``, số thứ tự của ``instance_token``).
         class_name: Lớp của loader KITTI (``CLASS_MAP``).
         frames: Các số hiệu khung gốc mà box có mặt (một khung với vật chuyển động).
         rotation: Phép quay 3×3 box → world của chuỗi (trục x là chiều dài).
@@ -157,6 +179,75 @@ def _pose(rotation: Matrix, center: Sequence[float]) -> Matrix:
 
 def _matmul(a: Matrix, b: Matrix) -> Matrix:
     return [[sum(a[i][k] * b[k][j] for k in range(4)) for j in range(4)] for i in range(4)]
+
+
+def read_rosa_items(raw_dir: Path, sequence: str) -> Optional[list[dict]]:
+    """Các mục (lần quét LiDAR) của ``sequence`` trong metadata ROSA.
+
+    Returns:
+        Danh sách mục, rỗng nếu chuỗi không có trong file; ``None`` nếu không có file ROSA.
+
+    Raises:
+        ValueError: Nếu file không đọc được: không phải pickle, sai cấu trúc, hoặc tham chiếu kiểu
+            ngoài mảng numpy (``UnsafePickleError``).
+    """
+    paths = [
+        raw_dir / ROSA_DIR / name for name in ROSA_FILES if (raw_dir / ROSA_DIR / name).is_file()
+    ]
+    if not paths:
+        return None
+    marker = f"/{sequence}/"
+    items: list[dict] = []
+    for path in paths:
+        try:
+            with path.open("rb") as stream:
+                data = load_numpy_pickle(stream)
+            classes = list(data.get("metainfo", {}).get("classes", ROSA_CLASS_MAP))
+            for item in data["data_list"]:
+                if marker in str(item.get("lidar_path", "")):
+                    items.append({**item, "classes": classes})
+        except (pickle.UnpicklingError, EOFError, AttributeError, KeyError, TypeError) as error:
+            raise ValueError(f"không đọc được {path.name}: {error}") from None
+    return items
+
+
+def rosa_boxes(items: Sequence[dict], velo_to_global: dict[int, Matrix]) -> list[Box]:
+    """Box ROSA của các khung có trong ``velo_to_global``, đưa sang world của chuỗi.
+
+    Args:
+        items: Mục của ``read_rosa_items``.
+        velo_to_global: Velodyne → world của chuỗi theo số hiệu khung gốc (pose · Velodyne → pose).
+
+    Returns:
+        Mỗi box một ``Box`` có một khung; lớp ngoài ``ROSA_CLASS_MAP`` bị bỏ.
+    """
+    tokens: dict[str, int] = {}
+    boxes = []
+    for item in items:
+        frame = int(item["frame_id"])
+        if frame not in velo_to_global:
+            continue
+        for instance in item.get("instances", []):
+            label = item["classes"][int(instance["bbox_label_3d"])]
+            class_name = ROSA_CLASS_MAP.get(label)
+            if class_name is None:
+                continue
+            x, y, z, length, width, height, yaw = (float(v) for v in instance["bbox_3d"])
+            c, s = math.cos(yaw), math.sin(yaw)
+            in_velo = [[c, -s, 0.0, x], [s, c, 0.0, y], [0.0, 0.0, 1.0, z], [0.0, 0.0, 0.0, 1.0]]
+            pose = _matmul(velo_to_global[frame], in_velo)
+            token = str(instance["instance_token"])
+            boxes.append(
+                Box(
+                    key=(-1, tokens.setdefault(token, len(tokens))),
+                    class_name=class_name,
+                    frames=(frame,),
+                    rotation=[row[:3] for row in pose[:3]],
+                    center=[row[3] for row in pose[:3]],
+                    size=[length, width, height],
+                )
+            )
+    return boxes
 
 
 def build_instances(

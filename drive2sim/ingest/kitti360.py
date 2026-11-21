@@ -20,8 +20,9 @@ Dữ liệu chỉ lấy từ file chính thức của KITTI-360 (quy ước củ
 - ``data_2d_raw``, ``data_3d_raw``: file ``.tar`` đọc thẳng bằng ``tarfile`` hoặc thư mục đã giải
   nén; không bao giờ giải nén vào thư mục nguồn.
 
-**Không bao giờ đọc file ``.pkl``** (ví dụ ``ImageSets-rosa-6class/``): đó là file pickle từ một
-bản sao bên thứ ba, ``pickle.load`` chạy được mã tuỳ ý.
+File ``.pkl`` duy nhất được đọc là metadata ROSA (``ImageSets-rosa-6class/``, box 3D khi chuỗi
+không có ``data_3d_bboxes``), qua ``core.safe_pickle.load_numpy_pickle`` (chỉ dựng mảng numpy):
+``pickle.load`` thường chạy được mã tuỳ ý của file từ bản sao bên thứ ba.
 
 File này chứa:
 - ``DATASET``, ``CAMERAS``, ``LIDAR_ID``: tên dataset, camera và LiDAR ghi vào manifest.
@@ -683,6 +684,7 @@ def ingest_kitti360(
             frames,
             ego_poses,
             world_from_global,
+            absolute,
             [extrinsics[camera] for camera in cameras],
             models,
             intrinsic_values,
@@ -745,31 +747,44 @@ def _write_boxes(
     frames: list[int],
     ego_poses: list[Matrix],
     world_from_global: Matrix,
+    velo_to_global: dict[int, Matrix],
     cam_to_ego: list[Matrix],
     models: list[str],
     intrinsic_values: list[list[float]],
 ) -> list[Check]:
-    """Ghi ``instances/`` và ``dynamic_masks/{all,human,vehicle}/`` từ box 3D chính thức.
+    """Ghi ``instances/`` và ``dynamic_masks/{all,human,vehicle}/`` từ box 3D.
 
-    Định dạng như script KITTI của DriveStudio (``kitti360_boxes``). Nguồn không có box của chuỗi
-    thì không ghi gì và báo cảnh báo: OmniRe và Street GS cần box
-    (``requires.cuboids``) nên bị khoá với cảnh đó.
+    Định dạng như script KITTI của DriveStudio (``kitti360_boxes``). Nguồn box: box chính thức
+    (``data_3d_bboxes``) nếu có, không thì metadata ROSA (``ImageSets-rosa-6class/``, box theo từng
+    lần quét LiDAR, đặt vào world bằng ``velo_to_global`` của khung đó). Không có cả hai thì không
+    ghi gì và báo cảnh báo: OmniRe và Street GS cần box (``requires.cuboids``) nên bị khoá.
 
     Returns:
         Các phép kiểm tra thêm vào báo cáo.
     """
     text = kitti360_boxes.box_xml_text(raw_dir, sequence)
-    if text is None:
-        return [
-            _check(
-                "boxes.missing",
-                "warning",
-                f"không có box 3D của {sequence} ({kitti360_boxes.BOX_DIR}.zip hoặc "
-                f"{kitti360_boxes.BOX_DIR}/train/{sequence}.xml); cảnh không có xe, người riêng",
-                {},
-            )
-        ]
-    boxes = kitti360_boxes.read_boxes(text)
+    source = kitti360_boxes.BOX_DIR
+    if text is not None:
+        boxes = kitti360_boxes.read_boxes(text)
+    else:
+        source = kitti360_boxes.ROSA_DIR
+        try:
+            items = kitti360_boxes.read_rosa_items(raw_dir, sequence)
+        except ValueError as error:
+            return [_check("boxes.missing", "warning", f"bỏ qua box ROSA: {error}", {})]
+        boxes = kitti360_boxes.rosa_boxes(items or [], velo_to_global)
+        if not boxes:
+            return [
+                _check(
+                    "boxes.missing",
+                    "warning",
+                    f"không có box 3D của {sequence} ({kitti360_boxes.BOX_DIR}.zip, "
+                    f"{kitti360_boxes.BOX_DIR}/train/{sequence}.xml, hay box ROSA trong "
+                    f"{kitti360_boxes.ROSA_DIR}/ cho các khung đã chọn); cảnh không có xe, "
+                    "người riêng",
+                    {},
+                )
+            ]
     info, frame_instances = kitti360_boxes.build_instances(boxes, frames, world_from_global)
     (scene_dir / "instances").mkdir(parents=True, exist_ok=True)
     (scene_dir / "instances" / "instances_info.json").write_text(json.dumps(info, indent=1))
@@ -803,6 +818,7 @@ def _write_boxes(
             "info",
             f"{len(info)} vật có box trong cảnh",
             {
+                "source": source,
                 "classes": classes,
                 "frames_with_boxes": sum(bool(v) for v in frame_instances.values()),
             },

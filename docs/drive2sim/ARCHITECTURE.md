@@ -548,7 +548,7 @@ Schema Pydantic v2 cho manifest, split, artifact, approach (stage, mục cấu h
 |---|---|
 | nuScenes, Waymo, Argoverse 2, KITTI, nuPlan, PandaSet | Gọi script tiền xử lý có sẵn (`python -m drive2sim.recon.preprocess.run --dataset <dataset>`), rồi sinh `manifest.yaml` từ thư mục kết quả |
 | NCore (PhysicalAI; CARLA khi có) | Đường PhysicalAI có sẵn (`drive2sim/recon/preprocess/physicalai/`); với CARLA phải bỏ các chỗ gắn cứng 7 camera và F-theta (mục 7.2) |
-| KITTI-360 | Tự viết (`drive2sim/ingest/kitti360.py`), ghi theo khung KITTI: đọc calib, `poses.txt` chính thức, đọc thẳng file `.tar` hoặc thư mục đã giải nén; không đọc `.pkl` (`docs/datasets/kitti360.md`) |
+| KITTI-360 | Tự viết (`drive2sim/ingest/kitti360.py`), ghi theo khung KITTI: đọc calib, `poses.txt` chính thức, đọc thẳng file `.tar` hoặc thư mục đã giải nén; box 3D từ `data_3d_bboxes` hoặc, khi không có, metadata ROSA `ImageSets-rosa-6class/*.pkl` (như Fisheye Fusion Lab) đọc bằng `core/safe_pickle.py: load_numpy_pickle` (chỉ mảng numpy) (`docs/datasets/kitti360.md`) |
 | Ảnh kèm pose (COLMAP) | Tự viết, ghi theo khung thư mục của một dataset có sẵn |
 | Dữ liệu mentor | Tự viết khi biết định dạng, ghi theo khung thư mục của một dataset có sẵn |
 
