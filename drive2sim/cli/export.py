@@ -1,7 +1,9 @@
 """Nhóm lệnh ``d2s export``: chạy lại stage xuất kết quả cho một run đã train.
 
 ``d2s export ply <run_id>`` chạy lại ``export.ply_world``; ``d2s export preview <run_id>`` chạy
-``export.preview`` (gói xem trước cho Spark). Stage được thêm vào cuối run nếu approach không có,
+``export.preview`` (gói xem trước cho Spark); ``d2s export video <run_id>`` chạy
+``render.nurec_video`` (video đi dọc đoạn đường của run Instant NuRec). Stage được thêm vào cuối
+run nếu approach không có,
 và các stage khác đã xong không chạy lại (CONTRACTS mục 10.4).
 """
 
@@ -11,7 +13,7 @@ from drive2sim.cli.output import emit, event_printer
 from drive2sim.engine.run import execute_run, reset_stage
 from drive2sim.engine.workdir import Workdir
 
-STAGES = {"ply": "export.ply_world", "preview": "export.preview"}
+STAGES = {"ply": "export.ply_world", "preview": "export.preview", "video": "render.nurec_video"}
 
 
 def register(

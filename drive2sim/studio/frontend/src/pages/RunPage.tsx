@@ -250,6 +250,13 @@ export function RunPage({ runId }: { runId: string }) {
                     {t("run.action.export_preview")}
                   </button>
                 )}
+                {/* run NuRec tạo trước khi có stage video: thêm video đi dọc đoạn đường */}
+                {data.approach.approach_id === "nurec" && !data.stages?.some((s) => s.stage_id === "render.nurec_video") && (
+                  <button className="btn" onClick={() => action(t("run.toast.export", { kind: "video" }), `${base}/export`, { kind: "video" })} title={t("run.action.export_video_help")}>
+                    <Download size={19} />
+                    {t("run.action.export_video")}
+                  </button>
+                )}
               </>
             )}
             <a className="btn ghost" href={href({ page: "compare", sceneId: data.scene_id, splitId: data.split_id })}>

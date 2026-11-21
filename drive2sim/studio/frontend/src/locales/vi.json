@@ -301,6 +301,8 @@
   "run.action.resume": "Chạy tiếp",
   "run.action.export_ply": "Xuất PLY",
   "run.action.export_preview": "Xuất gói xem trước",
+  "run.action.export_video": "Xuất video đi dọc đường",
+  "run.action.export_video_help": "Vẽ PLY ở mọi khung của đoạn cho các camera của split (hàng ảnh thật ở trên, ảnh dựng ở dưới), 10 khung/giây; video của bước chấm chỉ có khung test của một camera.",
   "run.action.view3d": "Xem 3D",
   "run.toast.cancel_requested": "Đã gửi yêu cầu huỷ",
   "run.toast.cancel_failed": "Không huỷ được",

@@ -60,7 +60,8 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     means, quats, scales, opac, colors = load_ply(Path(a.ply), dev)
     print(f"{len(means):,} Gaussians")
-    v = np.load(a.views, allow_pickle=True)
+    with np.load(a.views, allow_pickle=True) as npz:  # nạp mỗi mảng một lần: đọc npz[k] mỗi lần là nạp lại cả mảng
+        v = {k: npz[k] for k in npz.files}
     per_cam: dict[str, list[float]] = {}
     per_cam_ssim: dict[str, list[float]] = {}
     per_cam_lpips: dict[str, list[float]] = {}

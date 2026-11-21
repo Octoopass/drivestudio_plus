@@ -301,6 +301,8 @@
   "run.action.resume": "Resume",
   "run.action.export_ply": "Export PLY",
   "run.action.export_preview": "Export preview",
+  "run.action.export_video": "Export drive-through video",
+  "run.action.export_video_help": "Renders the PLY at every frame of the segment for the split's cameras (ground truth row on top, render below), 10 frames per second; the eval video only has the test frames of one camera.",
   "run.action.view3d": "View in 3D",
   "run.toast.cancel_requested": "Cancel requested",
   "run.toast.cancel_failed": "Could not cancel",

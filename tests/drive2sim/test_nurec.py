@@ -34,7 +34,7 @@ def test_approach_loads_with_its_stages() -> None:
     approach = load_approach("nurec")
     assert approach.codebase == "external:nurec"
     assert [s.stage for s in approach.stages] == [
-        "prep.ncore", "train.nurec", "eval.ncore", "export.nurec_ply",
+        "prep.ncore", "train.nurec", "eval.ncore", "export.nurec_ply", "render.nurec_video",
     ]  # fmt: skip
 
 
@@ -203,3 +203,25 @@ def test_ply_transform_moves_points_and_orientations(tmp_path: Path) -> None:
     # rig FLU → camera OpenCV → Velodyne: trục tới của rig (x) thành trục tới của camera (z)
     cam0 = np.eye(4)
     assert np.allclose(ply.ncore_to_world(cam0) @ [1, 0, 0, 0], [0, 0, 1, 0])
+
+
+def test_video_stage_command_and_wiring(tmp_path: Path) -> None:
+    from drive2sim.engine.registry import REGISTRY, load_builtin_stages
+    from drive2sim.stages.render.nurec_video import NurecVideoParams, build_render_command
+
+    load_builtin_stages()
+    cls = REGISTRY.get("render.nurec_video")
+    assert cls.inputs == {"model": "model", "clip": "ncore_clip", "split": "split"}
+    command = build_render_command(
+        NurecVideoParams(), tmp_path / "s.ply", tmp_path / "v.npz", tmp_path / "f.mp4",
+        ["camera_front_left_00", "camera_fisheye_left_02"],
+    )  # fmt: skip
+    assert command[2].endswith("ncore_render_video.py") and "--no-gt" not in command
+    assert float(command[command.index("--fps") + 1]) == 10
+    assert command[command.index("--cameras") + 1] == "camera_front_left_00,camera_fisheye_left_02"
+    assert "--no-gt" in build_render_command(
+        NurecVideoParams(with_gt=False, fps=5), tmp_path / "s.ply", tmp_path / "v.npz",
+        tmp_path / "f.mp4", ["c"],
+    )  # fmt: skip
+    with pytest.raises(ValueError):
+        NurecVideoParams(fps=0)
