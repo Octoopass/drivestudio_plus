@@ -1,7 +1,7 @@
 # Kế hoạch tích hợp XSIM vào drive2sim
 
 Ngày lập: 21/11/2026. Branch: `feat/xsim-integration`, tách từ `drive2sim` tại `cd993b7`.
-Trạng thái: **đã audit luồng tích hợp ngày 21/11/2026; chưa implement, chưa build CUDA, chưa train**.
+Trạng thái: **đang triển khai L1. Đã có script cài runtime, stage chỉ mục và provider KITTI-360. Chưa chạy train/eval trên GPU**.
 
 Mục 1–7 ghi phạm vi và thứ tự triển khai. Mục 8 ghi bằng chứng theo revision đã kiểm, mục 9 ghi kết quả thử và mục 10 liệt kê các điều kiện nghiệm thu.
 
@@ -389,7 +389,7 @@ Các đánh đổi phải được chốt trước phần implement phụ thuộ
 - Camera/dataset đủ dữ liệu nào là scene nghiệm thu đầu tiên sau kiểm toán P1.
 - API/định dạng LiDAR và mức preview nếu cần mở rộng contract hiện tại.
 
-## 7. Trạng thái lúc kết thúc lượt lập plan
+## 7. Tiến độ triển khai
 
 - [x] Tạo branch `feat/xsim-integration` từ `drive2sim`.
 - [x] Inspect luồng hiện tại và paper/code local, ghi các khoảng trống có bằng chứng.
@@ -398,9 +398,12 @@ Các đánh đổi phải được chốt trước phần implement phụ thuộ
       hiện tại chỉ điều khiển/xem/test nhẹ, không chạy XSIM thật.
 - [x] Audit lại source, sửa thông tin checkpoint/PHM và bổ sung rủi ro cache, mask, summary,
       môi trường, worker, remote/resume; có probe AST/CPU cô lập, chưa có nghiệm thu XSIM runtime.
-- [ ] Implement P0–P6: chưa bắt đầu.
+- [x] Script cài XSIM theo gitlink và patch factory/sampler, commit `f73a04c`.
+- [x] Stage chỉ mục scene/split và khoá cache theo nội dung, commit `80391fd`.
+- [x] Provider camera, box và sweep dạng lưới cầu theo khung, commit `edb7dce`. Kiểm tra CPU trên file Velodyne thật, còn phải nghiệm thu native runtime.
+- [ ] Worker train/eval/resume, Studio, backend remote và nghiệm thu L1.
 - [ ] Cài môi trường / chạy GPU / cloud: chưa thực hiện.
-- [ ] Commit / push branch: chưa thực hiện.
+- [ ] Push branch để chạy notebook từ đúng revision.
 
 ## 8. Phạm vi audit và phát hiện từ mã nguồn
 
