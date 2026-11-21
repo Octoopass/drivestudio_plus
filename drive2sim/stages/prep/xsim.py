@@ -37,6 +37,8 @@ class PrepXsimStage(Stage):
         if split is not None:
             if not split.train or not split.test:
                 return "XSIM L1 cần cả ảnh train và ảnh test"
+            if {camera for _, camera in split.test} - {camera for _, camera in split.train}:
+                return "camera test cần ít nhất một ảnh train để học embedding XSIM"
             supported = {
                 c.camera_id
                 for c in manifest.cameras

@@ -165,7 +165,7 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 
 ## 9. Đánh giá
 
-Với XSIM, worker train lưu checkpoint theo chu kỳ để có thể tiếp tục một run bị gián đoạn. Phần train native còn chờ kiểm chứng trên GPU.
+Với XSIM, worker train lưu checkpoint theo chu kỳ để có thể tiếp tục một run bị gián đoạn. Approach XSIM dùng embedding của camera đã có ảnh train để đánh giá các cặp test KITTI-360. Phần train và render native còn chờ kiểm chứng trên GPU.
 
 Khi pipeline có nhiều bước đánh giá, bảng so sánh hiển thị kết quả của bước đánh giá thành công cuối cùng theo thứ tự pipeline.
 

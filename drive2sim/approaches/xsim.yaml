@@ -1,0 +1,22 @@
+schema_version: d2s-approach/0.3
+approach_id: xsim
+name: XSIM
+version: 0.1.0
+codebase: external:xsim
+level: L1
+requires:
+  camera_models: [opencv_pinhole, opencv_fisheye]
+  cuboids: optional
+  split_strategies: [every_nth_frame, custom]
+options:
+  downscale:
+    choices: [1, 2, 4]
+    default: 1
+    label: "Hệ số thu nhỏ ảnh"
+    help: "Chia chiều rộng và chiều cao ảnh cho cùng hệ số khi train và đánh giá."
+stages:
+  - {stage: prep.masks_segformer, params: {dynamic: false}}
+  - {stage: prep.xsim}
+  - stage: train.xsim
+    params: {downscale: "${options.downscale}"}
+  - {stage: eval.xsim}

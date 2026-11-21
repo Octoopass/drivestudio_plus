@@ -8,6 +8,7 @@ import pytest
 from drive2sim.core import files
 from drive2sim.core.schema import JobResult, JobSpec
 from drive2sim.external.xsim import worker
+from drive2sim.stages import xsim_worker
 from drive2sim.stages.train import xsim
 
 
@@ -39,11 +40,11 @@ def test_stage_validates_current_worker_result(
 
     monkeypatch.setenv("D2S_XSIM_PYTHON", "/worker/python")
     monkeypatch.setattr(worker, "_train", native)
-    monkeypatch.setattr(xsim, "run_logged", launch)
+    monkeypatch.setattr(xsim_worker, "run_logged", launch)
     stage = xsim.TrainXsimStage()
     assert stage.run(ctx, {}, xsim.TrainXsimParams()) == {"model": out}
     assert peaks == [37]
-    monkeypatch.setattr(xsim, "run_logged", lambda *args, **kwargs: None)
+    monkeypatch.setattr(xsim_worker, "run_logged", lambda *args, **kwargs: None)
     with pytest.raises(ValueError, match="result.json"):
         stage.run(ctx, {}, xsim.TrainXsimParams())
     job = files.load(out / "job.json", JobSpec)
