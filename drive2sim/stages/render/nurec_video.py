@@ -7,7 +7,9 @@ khung, cỡ 2 giây). Stage này vẽ PLY ở **mọi khung** của clip NCore c
    khung.
 2. ``ncore_render_video.py`` (môi trường chính, gsplat; camera mắt cá bằng 3DGUT): mỗi khung là
    một hàng ảnh dựng của các camera, mặc định thêm hàng ảnh thật ở trên; ghi ``flythrough.mp4``
-   (H.264) và ``flythrough.json`` (số khung, fps, thời lượng).
+   (H.264) và ``flythrough.json`` (số khung, fps, thời lượng). Mặc định video chạy đúng tốc độ gốc:
+   mỗi khung giữ trên màn hình bằng khoảng thời gian thật tới khung sau (KITTI-360 trong NuRec
+   thường 0,5 s một khung, nên 120 khung là cỡ 1 phút); ``speed`` khác 1 thì nhanh, chậm hơn.
 Tab Video của Studio liệt kê mọi MP4 trong thư mục stage nên video hiện ra ở đó.
 
 Nằm trong danh sách stage của approach ``nurec`` (sau ``export.nurec_ply``); run tạo trước đó thì
@@ -38,7 +40,9 @@ class NurecVideoParams(BaseModel):
     """Tham số của ``render.nurec_video``.
 
     Attributes:
-        fps: Khung hình mỗi giây của video.
+        fps: Khung hình mỗi giây của file video.
+        speed: Tốc độ so với thời gian thật (1 là tốc độ gốc, 2 nhanh gấp đôi); 0 là mỗi khung
+            nguồn một khung video (bỏ qua mốc thời gian, nhanh như video của ``eval.ncore``).
         height: Chiều cao (pixel) của ảnh mỗi camera trong hàng.
         with_gt: Thêm hàng ảnh thật ở trên hàng ảnh dựng.
     """
@@ -46,6 +50,7 @@ class NurecVideoParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     fps: float = Field(default=10, gt=0, le=60)
+    speed: float = Field(default=1, ge=0, le=32)
     height: int = Field(default=360, ge=120, le=1080)
     with_gt: bool = True
 
@@ -65,7 +70,8 @@ def build_render_command(
     command = [
         sys.executable, "-u", str(nurec.TOOLS_DIR / "ncore_render_video.py"),
         str(ply), str(views), "--out", str(out),
-        "--cameras", ",".join(cameras), "--fps", str(params.fps), "--height", str(params.height),
+        "--cameras", ",".join(cameras), "--fps", str(params.fps), "--speed", str(params.speed),
+        "--height", str(params.height),
     ]  # fmt: skip
     if not params.with_gt:
         command.append("--no-gt")

@@ -218,6 +218,7 @@ def test_video_stage_command_and_wiring(tmp_path: Path) -> None:
     )  # fmt: skip
     assert command[2].endswith("ncore_render_video.py") and "--no-gt" not in command
     assert float(command[command.index("--fps") + 1]) == 10
+    assert float(command[command.index("--speed") + 1]) == 1  # mặc định: tốc độ gốc
     assert command[command.index("--cameras") + 1] == "camera_front_left_00,camera_fisheye_left_02"
     assert "--no-gt" in build_render_command(
         NurecVideoParams(with_gt=False, fps=5), tmp_path / "s.ply", tmp_path / "v.npz",

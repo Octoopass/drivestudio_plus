@@ -1,12 +1,15 @@
 """(drive2sim) Video đi dọc đoạn đường từ PLY của Instant NuRec, như render_flythrough của Fisheye Fusion Lab.
 
     <python môi trường chính> ncore_render_video.py <merged.ply> <views.npz> --out <video.mp4>
-        [--cameras a,b] [--fps 10] [--height 360] [--no-gt]
+        [--cameras a,b] [--fps 10] [--speed 1] [--height 360] [--no-gt]
 
 ``views.npz`` do ``ncore_eval_export.py --every 1`` ghi (mọi khung của clip NCore). Mỗi khung video
 là một hàng ảnh dựng của các camera (theo thứ tự ``--cameras``), mỗi ảnh co về cao ``--height``;
 mặc định có thêm hàng ảnh thật ở trên để so. Camera mắt cá vẽ bằng 3DGUT như
 ``ncore_eval_render.py``. Ghi H.264 yuv420p (trình duyệt phát được) khi có ``imageio_ffmpeg``.
+``--speed`` > 0: video theo mốc thời gian thật của khung (``t_us`` của views.npz), mỗi khung giữ
+trên màn hình đúng khoảng tới khung sau chia ``speed`` (1 là tốc độ gốc), video vẫn ``--fps``
+khung/giây; ``--speed 0`` hoặc views không có ``t_us``: mỗi khung nguồn một khung video.
 In ``progress <đã vẽ>/<tổng>`` sau mỗi khung để stage báo tiến độ.
 """
 from __future__ import annotations
@@ -58,6 +61,7 @@ def main():
     p.add_argument("--out", required=True)
     p.add_argument("--cameras", default="", help="thứ tự camera trong hàng; mặc định theo views")
     p.add_argument("--fps", type=float, default=10)
+    p.add_argument("--speed", type=float, default=1, help="1: tốc độ gốc; 0: mỗi khung một khung video")
     p.add_argument("--height", type=int, default=360)
     p.add_argument("--max-side", type=int, default=1408)
     p.add_argument("--no-gt", action="store_true", help="chỉ hàng ảnh dựng")
@@ -71,6 +75,17 @@ def main():
     for i, cam in enumerate(v["camera"]):
         by_frame.setdefault(int(v["frame"][i]), {})[str(cam)] = i
     frames = sorted(by_frame)
+    repeats = [1] * len(frames)
+    if a.speed > 0 and "t_us" in v:
+        stamp = [int(v["t_us"][next(iter(by_frame[f].values()))]) for f in frames]
+        gaps = [(b - c) / 1e6 for c, b in zip(stamp, stamp[1:])]
+        gaps.append(float(np.median(gaps)) if gaps else 1 / a.fps)  # khung cuối
+        # làm tròn theo tổng dồn để thời lượng cả video không lệch dần
+        done, clock = 0, 0.0
+        for k, gap in enumerate(gaps):
+            clock += max(gap, 0) / a.speed
+            repeats[k] = max(1, round(clock * a.fps) - done)
+            done += repeats[k]
     widths: dict[str, int] = {}
     rows: list[np.ndarray] = []
     out = Path(a.out)
@@ -109,7 +124,9 @@ def main():
             writer = cv2.VideoWriter(str(raw), cv2.VideoWriter_fourcc(*"mp4v"), a.fps, size)
         if (row.shape[1], row.shape[0]) != size:
             row = cv2.resize(row, size)
-        writer.write(cv2.cvtColor(row, cv2.COLOR_RGB2BGR))
+        bgr = cv2.cvtColor(row, cv2.COLOR_RGB2BGR)
+        for _ in range(repeats[n]):
+            writer.write(bgr)
         print(f"progress {n + 1}/{len(frames)}", flush=True)
     if writer is None:
         sys.exit("views.npz không có khung nào")
@@ -126,10 +143,11 @@ def main():
         raw.unlink()
     else:
         raw.replace(out)
-    info = {"frames": len(frames), "cameras": cameras, "fps": a.fps, "duration_s": len(frames) / a.fps,
+    info = {"frames": len(frames), "video_frames": sum(repeats), "speed": a.speed if "t_us" in v else 0,
+            "cameras": cameras, "fps": a.fps, "duration_s": sum(repeats) / a.fps,
             "size": [int(size[0]), int(size[1])], "with_gt": not a.no_gt}
     out.with_suffix(".json").write_text(json.dumps(info, indent=2) + "\n")
-    print(f"wrote {out}: {len(frames)} frames, {len(frames) / a.fps:.1f} s")
+    print(f"wrote {out}: {len(frames)} frames, {sum(repeats) / a.fps:.1f} s")
 
 
 if __name__ == "__main__":
