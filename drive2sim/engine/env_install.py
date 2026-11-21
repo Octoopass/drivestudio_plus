@@ -14,7 +14,13 @@ gsplat-geer, nvdiffrast, pytorch3d), trong lúc đó ingest và tải Drive vẫ
 File này chứa:
 - ``SCRIPTS``, ``PYTHON``: script và bản Python của từng môi trường.
 - ``InstallFlow``: một lần cài đang chạy hoặc vừa xong (Studio giữ một bản); cài môi trường
-  (``start``) hoặc một lệnh của bảng thư viện (``start_command``, ``libraries.py``).
+  (``start``), một lệnh của bảng thư viện (``start_command``, ``libraries.py``), hoặc lần lượt mọi
+  mục còn thiếu (``start_all``, nút "Cài tất cả", ``d2s libraries install --all``).
+
+``start_all`` chạy một hàng đợi ở luồng riêng: với từng mục, hỏi lại trạng thái ngay lúc tới lượt
+(mục đã có nhờ mục trước, như renderer sau môi trường chính, thì bỏ qua), mục mà mục nó cần chưa
+có hoặc máy không cài được (không GPU, Python khác bản, không phải Linux) thì ghi lý do và đi
+tiếp; mục lỗi không dừng cả hàng. Dừng thì dừng mục đang cài và bỏ các mục sau.
 """
 
 import os
@@ -67,6 +73,11 @@ class InstallFlow:
         self._state: dict[str, Any] = {"state": "idle"}
         self._log = ""
         self._cancelled = False
+        self._reader: Optional[threading.Thread] = None
+        self._queue: Optional[threading.Thread] = None
+        self._all: Optional[dict[str, Any]] = None
+        self._all_stop = False
+        self.echo: Optional[Callable[[str], None]] = None  # CLI: in log ra màn hình
 
     @property
     def python(self) -> str:
@@ -89,6 +100,9 @@ class InstallFlow:
             }  # fmt: skip
             view.update(self._state)
             view["log"] = self._log[-LOG_TAIL:]
+            view["all"] = None
+            if self._all is not None:
+                view["all"] = {**self._all, "items": [dict(i) for i in self._all["items"]]}
             return view
 
     def preflight(self, env: str) -> Path:
@@ -99,6 +113,11 @@ class InstallFlow:
         """
         if env not in SCRIPTS:
             raise ValueError(f"không có môi trường {env}; có: {', '.join(SCRIPTS)}")
+        if not sys.platform.startswith("linux"):
+            raise ValueError(
+                f"môi trường {env} chỉ cài được trên Linux có GPU NVIDIA (Windows: dùng WSL2); "
+                f"{environment.REMOTE_HINT}"
+            )
         script = self._repo / SCRIPTS[env]
         if not script.is_file():
             raise ValueError(
@@ -130,9 +149,7 @@ class InstallFlow:
         Raises:
             ValueError: Theo ``preflight``.
         """
-        with self._lock:
-            running = self._process is not None and self._process.poll() is None
-        if running:
+        if self.busy():
             return self.view()
         script = self.preflight(env)
         command = ["bash", str(script), "--python", self._python, "--from", str(int(from_step))]
@@ -145,11 +162,107 @@ class InstallFlow:
             name: Tên mục (``env`` trong trạng thái, tên file log ``install-<name>.log``).
             command: Lệnh cài.
         """
-        with self._lock:
-            running = self._process is not None and self._process.poll() is None
-        if running:
+        if self.busy():
             return self.view()
         return self._launch(name, command, 1)
+
+    def busy(self) -> bool:
+        """Đang có lần cài chạy, hoặc hàng "Cài tất cả" chưa xong."""
+        with self._lock:
+            running = self._process is not None and self._process.poll() is None
+            queued = self._queue is not None and self._queue.is_alive()
+        return running or queued
+
+    def start_all(self, item_ids: list[str]) -> dict:
+        """Cài lần lượt các mục còn thiếu (đang cài thì giữ nguyên lần đang chạy).
+
+        Args:
+            item_ids: Mục của bảng thư viện theo thứ tự cài (``libraries.bulk_ids()``).
+
+        Returns:
+            Trạng thái như ``view``; ``all`` có ``state`` và từng mục ``{"id", "name",
+            "result": "waiting" | "running" | "installed" | "present" | "skipped" | "failed" |
+            "cancelled", "reason"}``.
+        """
+        from drive2sim.engine import libraries
+
+        if self.busy():
+            return self.view()
+        with self._lock:
+            self._all_stop = False
+            self._all = {
+                "state": "running", "current": None, "started_at": time.time(),
+                "finished_at": None,
+                "items": [
+                    {"id": i, "name": libraries.BY_ID[i]["name"], "result": "waiting",
+                     "reason": None}
+                    for i in item_ids
+                ],
+            }  # fmt: skip
+            self._queue = threading.Thread(target=self._run_all, daemon=True)
+            self._queue.start()
+        return self.view()
+
+    def wait(self) -> dict:
+        """Chờ lần cài (hoặc hàng "Cài tất cả") xong; trả trạng thái cuối."""
+        for thread in (self._queue, self._reader):
+            if thread is not None:
+                thread.join()
+        if self._queue is not None:
+            self._queue.join()
+        return self.view()
+
+    def _set_item(self, index: int, result: str, reason: Optional[str] = None) -> None:
+        with self._lock:
+            assert self._all is not None
+            self._all["items"][index].update(result=result, reason=reason)
+            self._all["current"] = self._all["items"][index]["id"] if result == "running" else None
+
+    def _run_all(self) -> None:
+        from drive2sim.engine import libraries
+
+        assert self._all is not None
+        for index, entry in enumerate(list(self._all["items"])):
+            if self._all_stop:
+                self._set_item(index, "cancelled")
+                continue
+            item = libraries.BY_ID[entry["id"]]
+            if libraries.item_status(item)["status"] == "ok":
+                self._set_item(index, "present")
+                continue
+            missing = [
+                libraries.BY_ID[r]["name"]
+                for r in item.get("requires", [])
+                if libraries.item_status(libraries.BY_ID[r])["status"] != "ok"
+            ]
+            if missing:
+                self._set_item(index, "skipped", "cần " + ", ".join(missing) + " trước")
+                continue
+            try:
+                plan = libraries.install_plan(entry["id"], self._python)
+                if plan[0] == "env":
+                    script = self.preflight(plan[1])
+                    command = ["bash", str(script), "--python", self._python,
+                               "--from", str(plan[2])]  # fmt: skip
+                    self._launch(plan[1], command, plan[2])
+                else:
+                    self._launch(entry["id"], plan[1], 1)
+            except (ValueError, OSError) as error:
+                self._set_item(index, "skipped", str(error))
+                continue
+            self._set_item(index, "running")
+            if self._reader is not None:
+                self._reader.join()
+            state = self.view()["state"]
+            result = {"succeeded": "installed", "cancelled": "cancelled"}.get(state, "failed")
+            self._set_item(index, result, None if result != "failed" else "xem log")
+        with self._lock:
+            results = {i["result"] for i in self._all["items"]}
+            self._all["state"] = (
+                "cancelled" if self._all_stop else "failed" if "failed" in results else "succeeded"
+            )
+            self._all["finished_at"] = time.time()
+            self._all["current"] = None
 
     def _launch(self, env: str, command: list[str], from_step: int) -> dict:
         self._log_dir.mkdir(parents=True, exist_ok=True)
@@ -169,7 +282,8 @@ class InstallFlow:
             self._log = ""
             self._cancelled = False
             process = self._process
-        threading.Thread(target=self._read, args=(process, log_path), daemon=True).start()
+        self._reader = threading.Thread(target=self._read, args=(process, log_path), daemon=True)
+        self._reader.start()
         return self.view()
 
     def _read(self, process: "subprocess.Popen[str]", log_path: Path) -> None:
@@ -178,6 +292,8 @@ class InstallFlow:
             for line in process.stdout or ():
                 log.write(line)
                 log.flush()
+                if self.echo is not None:
+                    self.echo(line)
                 with self._lock:
                     self._log = (self._log + line)[-4 * LOG_TAIL :]
                     found = STEP.match(line.strip())
@@ -199,6 +315,7 @@ class InstallFlow:
     def cancel(self) -> dict:
         """Dừng lần cài đang chạy (cả nhóm tiến trình: pip, nvcc...)."""
         with self._lock:
+            self._all_stop = self._all is not None and self._all["state"] == "running"
             process = self._process
             if process is not None and process.poll() is None:
                 self._cancelled = True

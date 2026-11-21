@@ -12,11 +12,24 @@ File này chứa:
 - ``item_status``: trạng thái một mục trên máy này.
 - ``install_plan``: cách cài một mục (``("env", tên, bước)`` hoặc ``("command", lệnh)``).
 - ``catalog``: danh mục kèm trạng thái cho Studio.
+- ``bulk_ids``: các mục mà "Cài tất cả" cài, theo thứ tự phụ thuộc.
+
+"Cài tất cả" (``InstallFlow.start_all``, nút trên trang Thư viện, ``d2s libraries install --all``)
+cài lần lượt mọi mục cài được còn thiếu, bỏ mục ``bulk: False`` (Waymo kéo TensorFlow 2.11 và có
+thể đổi numpy của môi trường; nuPlan ghim nhiều gói): hai mục này vẫn cài riêng được.
+
+Mọi lệnh ``pip`` của bảng (``install_plan``) chạy với file ràng buộc ghim đúng phiên bản các gói
+đang có trong Python của Studio (``pip_constraints``): pip chỉ thêm gói mới, không nâng, hạ gói
+của môi trường chính (thử trên máy lab: nuscenes-devkit 1.2.0 kéo matplotlib 3.5.3 → 3.10.9 và
+opencv-python-headless đè lên cv2); không thoả được thì pip báo lỗi, môi trường giữ nguyên.
+Mục cần công cụ hệ thống (``needs``, ví dụ ``cargo`` để build av2) mà máy chưa có thì không cài,
+nói lý do.
 """
 
 import importlib
 import importlib.util
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Optional, Union
@@ -97,6 +110,7 @@ CATALOG: list[dict] = [
         "check": ("import", ["waymo_open_dataset"]),
         "install": ("pip", ["waymo-open-dataset-tf-2-11-0==1.6.0"]),
         "size": "~1.5 GB", "minutes": 5,
+        "bulk": False, "bulk_note": "kéo TensorFlow 2.11, có thể đổi numpy của môi trường chính",
     },
     {
         "id": "sdk-pandaset", "group": "Dữ liệu", "name": "PandaSet devkit", "dataset": "pandaset",
@@ -112,6 +126,7 @@ CATALOG: list[dict] = [
         "desc": "Đọc dữ liệu Argoverse 2.",
         "links": [["GitHub", "https://github.com/ziyc/av2-api"]],
         "check": ("import", ["av2"]), "install": ("pip", ["git+https://github.com/ziyc/av2-api"]),
+        "needs": [["cargo", "Rust (cargo) để build phần mở rộng của av2: https://rustup.rs"]],
         "size": "~50 MB", "minutes": 3,
     },
     {
@@ -128,6 +143,7 @@ CATALOG: list[dict] = [
         "check": ("import", ["nuplan"]),
         "install": ("pip", ["git+https://github.com/motional/nuplan-devkit"]),
         "size": "~500 MB", "minutes": 6,
+        "bulk": False, "bulk_note": "ghim nhiều gói, có thể đổi phiên bản trong môi trường chính",
     },
     {
         "id": "sdk-physicalai", "group": "Dữ liệu", "name": "PhysicalAI (Hugging Face hub)",
@@ -235,11 +251,15 @@ def install_plan(item_id: str, python: str = sys.executable) -> Plan:
     plan = item["install"]
     if plan is None:
         raise ValueError(f"{item['name']} cần cài tay (quyền quản trị): {item['links'][0][1]}")
+    for tool, why in item.get("needs", []):
+        if not _which(tool):
+            raise ValueError(f"cần {why}")
     kind = plan[0]
     if kind == "env":
         return ("env", plan[1], plan[2])
     if kind == "pip":
-        return ("command", [python, "-m", "pip", "install", *plan[1]])
+        constraints = pip_constraints(python)
+        return ("command", [python, "-m", "pip", "install", "-c", str(constraints), *plan[1]])
     if kind == "hf":
         code = (
             "from transformers import SegformerForSemanticSegmentation as M; "
@@ -254,6 +274,33 @@ def install_plan(item_id: str, python: str = sys.executable) -> Plan:
     raise ValueError(f"kiểu cài lạ: {kind}")
 
 
+def pip_constraints(python: str, path: Optional[Path] = None) -> Path:
+    """Ghi file ràng buộc pip ghim phiên bản mọi gói đang có trong ``python``.
+
+    Dòng cài từ đường dẫn, git (``tên @ url``) và gói editable bị bỏ: chúng không ghim được
+    bằng ``==`` và pip không nâng, hạ chúng khi không được yêu cầu.
+
+    Args:
+        python: Python mà pip cài vào.
+        path: File cần ghi; mặc định ``~/.cache/drive2sim/pip-constraints.txt``.
+
+    Returns:
+        Đường dẫn file.
+    """
+    path = path or Path.home() / ".cache" / "drive2sim" / "pip-constraints.txt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        frozen = subprocess.run(
+            [python, "-m", "pip", "freeze", "--exclude-editable"],
+            capture_output=True, text=True, check=False,
+        ).stdout  # fmt: skip
+    except OSError:  # không chạy được Python đó: không ghim gì, lệnh pip sau sẽ báo lỗi rõ hơn
+        frozen = ""
+    pins = [line for line in frozen.splitlines() if "==" in line and " @ " not in line]
+    path.write_text("".join(f"{line}\n" for line in pins), encoding="utf-8")
+    return path
+
+
 def catalog() -> dict:
     """Danh mục kèm trạng thái cho Studio.
 
@@ -265,7 +312,19 @@ def catalog() -> dict:
     for item in CATALOG:
         public = {k: v for k, v in item.items() if k not in ("check", "install")}
         public.setdefault("requires", [])
+        public.setdefault("bulk", item["install"] is not None)
         public["installable"] = item["install"] is not None
         public.update(item_status(item))
         items.append(public)
     return {"groups": list(GROUPS), "items": items}
+
+
+def bulk_ids() -> list[str]:
+    """Các mục "Cài tất cả" cài: cài được, không đánh dấu ``bulk: False``, theo thứ tự ``CATALOG``.
+
+    Thứ tự trong ``CATALOG`` đã đặt mục được cần trước mục cần nó (môi trường chính trước renderer,
+    uv trước Colab CLI).
+    """
+    return [
+        item["id"] for item in CATALOG if item["install"] is not None and item.get("bulk", True)
+    ]
