@@ -126,12 +126,13 @@ async function fetchSource(opts) {
     rmSync(opts.src, { recursive: true, force: true });
     console.log("git clone lỗi: thử gói nén của bản phát hành");
   }
+  // tên file như bản phát hành (docs/releases): Windows là .zip; tar của Windows 10+ giải được zip
   const os = WINDOWS ? "windows" : platform() === "darwin" ? "macos" : "linux";
-  const name = `drive2sim-${opts.ref}-${os}.tar.gz`;
+  const name = `drive2sim-${opts.ref}-${os}${WINDOWS ? ".zip" : ".tar.gz"}`;
   mkdirSync(opts.src, { recursive: true });
   const archive = join(HOME, name);
   await download(`${REPO}/releases/download/${opts.ref}/${name}`, archive);
-  if (run("tar", ["-xzf", archive, "-C", opts.src, "--strip-components", "1"])) fail("giải nén lỗi");
+  if (run("tar", ["-xf", archive, "-C", opts.src, "--strip-components", "1"])) fail("giải nén lỗi");
   rmSync(archive, { force: true });
 }
 
