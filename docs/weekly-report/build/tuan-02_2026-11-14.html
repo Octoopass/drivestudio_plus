@@ -1,0 +1,414 @@
+<!doctype html><html lang=vi><head><meta charset=utf-8><base href="file:///home/lqaq/PROJECT/drivestudio_plus/docs/weekly-report/"><title>Báo cáo tiến độ tuần 02 · 14/11/2026</title><style>/* Kiểu chung của báo cáo tuần khi xuất PDF (template/build.py). */
+@page { size: A4; margin: 16mm 15mm 16mm 15mm; }
+:root {
+  --ink: #1d232b; --muted: #5b6573; --line: #d6dbe1; --head: #f1f3f6;
+  --xong: #d3f0d8; --xong-ink: #17602a;
+  --dang-lam: #fff1bf; --dang-lam-ink: #7a5a00;
+  --dung: #fbd5d2; --dung-ink: #9b1c13;
+  --ke-hoach: #e7e9ec; --ke-hoach-ink: #4b5360;
+}
+body { font-family: "Be Vietnam Pro", "Noto Sans", "Segoe UI", Arial, sans-serif; color: var(--ink);
+       background: #fff; font-size: 10.5pt; line-height: 1.45; }
+h1 { font-size: 18pt; margin: 0 0 2pt; }
+h1 + p { color: var(--muted); margin-top: 0; }
+h2 { font-size: 13pt; margin: 16pt 0 6pt; padding-bottom: 3pt; border-bottom: 1.5px solid var(--ink); }
+h3 { font-size: 11pt; margin: 12pt 0 4pt; }
+h2, h3 { break-after: avoid; }
+table { border-collapse: collapse; width: 100%; margin: 6pt 0 8pt; font-size: 9pt; }
+th, td { border: 1px solid var(--line); padding: 3pt 5pt; vertical-align: top; text-align: left; }
+th { background: var(--head); }
+tr { break-inside: avoid; }
+code { font-family: "IBM Plex Mono", "DejaVu Sans Mono", monospace; font-size: 8.5pt; }
+ul, ol { margin: 3pt 0 6pt; padding-left: 18pt; }
+li { margin: 1pt 0; }
+.st-xong { background: var(--xong); color: var(--xong-ink); }
+.st-dang-lam { background: var(--dang-lam); color: var(--dang-lam-ink); }
+.st-dung { background: var(--dung); color: var(--dung-ink); }
+.st-ke-hoach { background: var(--ke-hoach); color: var(--ke-hoach-ink); }
+tr[class^="st-"] td { color: var(--ink); }
+tr[class^="st-"] td:first-child { border-left: 5px solid; }
+tr.st-xong td:first-child { border-left-color: #2e9e4c; }
+tr.st-dang-lam td:first-child { border-left-color: #e0a800; }
+tr.st-dung td:first-child { border-left-color: #d0362a; }
+tr.st-ke-hoach td:first-child { border-left-color: #9aa1ab; }
+table tr.group td, table tr.group td:last-child { background: #2b323c; color: #fff; font-weight: 600; }
+.chip { display: inline-block; padding: 1pt 6pt; border-radius: 8pt; font-size: 8.5pt; font-weight: 600; }
+.progress .chip { font-size: 9.5pt; padding: 2pt 8pt; margin-right: 3pt; }
+.roadmap td:not(:first-child), .roadmap th:not(:first-child) { text-align: center; width: 11%; font-size: 8pt; }
+.tracker tr:not(.group) td:last-child { width: 34%; color: var(--muted); }
+ul.changes { list-style: none; padding-left: 4pt; }
+.warn { color: var(--dung-ink); }
+.legend { margin: 4pt 0; }
+.caption, p > em:only-child { display: block; color: var(--muted); font-size: 9pt; font-style: italic; margin: 2pt 0 3pt; }
+img { display: block; max-width: 100%; max-height: 120mm; margin: 6pt auto 2pt; break-inside: avoid; }
+.gallery { display: flex; gap: 5pt; margin: 6pt 0 2pt; }
+.gallery img { width: 19%; max-height: none; margin: 0; border: 1px solid var(--line); }
+p > em:only-child { text-align: center; }
+figure { margin: 6pt 0 8pt; break-inside: avoid; }
+figure p { margin: 0; }
+table.changes td:nth-last-child(2) { width: 13%; white-space: nowrap; }
+table.changes tr:not(.group) td:last-child { color: var(--muted); }
+table:has(th:nth-child(9)) { font-size: 7.6pt; }
+table:has(th:nth-child(9)) th, table:has(th:nth-child(9)) td { padding: 2pt 3pt; }
+</style></head><body><h1>Báo cáo tiến độ tuần 02 · 14/11/2026</h1>
+<p>Reconstructing Real-World Driving Scenes (Real2Sim) · Tuần 02: 08/11/2026 – 14/11/2026</p>
+<h2>Quy ước thuật ngữ</h2>
+<p class="caption">Ghi chú: cách dùng các thuật ngữ trong báo cáo này; mọi báo cáo tuần dùng chung một bảng.</p><table>
+<thead>
+<tr>
+<th>Thuật ngữ</th>
+<th>Nghĩa trong báo cáo</th>
+<th>Ví dụ</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Method (approach)</td>
+<td>Một cách dựng cảnh có code riêng. Trong tool drive2sim, mỗi method là một approach.</td>
+<td>OmniRe, Street GS, PVG, DeformableGS, Instant NuRec, MCGS-SLAM</td>
+</tr>
+<tr>
+<td>Cấu hình</td>
+<td>Một method cộng các lựa chọn bên trong nó: renderer, luật densify, kỹ thuật tăng tốc. Mỗi run chạy đúng một cấu hình.</td>
+<td>OmniRe + 3DGUT + FastGS + Faster-GS</td>
+</tr>
+<tr>
+<td>Renderer</td>
+<td>Cách vẽ Gaussian ra ảnh. 3DGS chỉ vẽ được camera pinhole; 3DGUT và 3DGEER vẽ được cả camera fisheye.</td>
+<td>3DGS, 3DGUT, 3DGEER</td>
+</tr>
+<tr>
+<td>Luật densify</td>
+<td>Cách thêm và bớt Gaussian trong lúc train.</td>
+<td>gốc, MCMC, FastGS</td>
+</tr>
+<tr>
+<td>Dựng từng cảnh (per-scene optimization)</td>
+<td>Tối ưu một mô hình riêng cho mỗi cảnh, thường mất vài giờ GPU.</td>
+<td>OmniRe, Street GS</td>
+</tr>
+<tr>
+<td>Dựng tức thì (feed-forward)</td>
+<td>Mạng đã train sẵn dựng cảnh mới trong vài giây, không tối ưu lại cho từng cảnh.</td>
+<td>Instant NuRec</td>
+</tr>
+<tr>
+<td>Track benchmark A, B, C</td>
+<td>Ba bảng xếp hạng riêng của benchmark. A: dựng từng cảnh trên đoạn ngắn (khoảng 200 khung). B: quãng đường dài từ 1 km. C: dựng tức thì (feed-forward).</td>
+<td>Track A có ba ô A-LB, A-L, A-0</td>
+</tr>
+<tr>
+<td>Ô A-LB, A-L, A-0</td>
+<td>Ba ô của track A, chia theo đầu vào: có LiDAR và box 3D (A-LB), chỉ có LiDAR (A-L), không có cả hai (A-0).</td>
+<td></td>
+</tr>
+<tr>
+<td>Vùng che fisheye 88°</td>
+<td>Khi train và đánh giá, che các pixel có tia sáng lệch khỏi trục quang của camera quá 88°. Góc nhìn còn lại là 2 × 88° = 176°, không phải FOV 88°.</td>
+<td>KITTI-360: ống kính nhìn tới 96,1° và 92,5° lệch trục</td>
+</tr>
+<tr>
+<td>Pinhole, fisheye</td>
+<td>Loại camera: pinhole là camera thường, fisheye là camera góc rất rộng (khoảng 180°). Báo cáo không gọi loại camera là "track".</td>
+<td>KITTI-360: 2 pinhole, 2 fisheye</td>
+</tr>
+<tr>
+<td>ID theo dõi (track ID)</td>
+<td>Mã gắn cho cùng một vật thể qua các khung, để biết box ở hai khung là cùng một xe.</td>
+<td></td>
+</tr>
+<tr>
+<td>Mốc M0–M5</td>
+<td>Các mốc của kế hoạch tổng thể dự án (mục 2).</td>
+<td>M2: benchmark nhiều method</td>
+</tr>
+</tbody>
+</table>
+<h2>1. Tóm tắt</h2>
+<p class="progress"><span class="chip st-xong">Xong 7/15 (+4 tuần này)</span> <span class="chip st-dang-lam">Đang làm 7</span> <span class="chip st-dung">Dừng 1</span> <span class="chip st-ke-hoach">Kế hoạch tuần sau 5</span></p>
+<p>Tuần này nhóm chuyển từ thiết kế sang chạy thật: dựng phiên bản đầu tiên của tool drive2sim và chạy thử ba hướng tái dựng cảnh trên ba loại dữ liệu khác nhau. Tất cả đều là dựng từng cảnh (per-scene optimization), tức là tối ưu một mô hình riêng cho mỗi cảnh.</p>
+<ul>
+<li><strong>Tool drive2sim:</strong> nhóm dựng xong phiên bản đầu của tool, cho phép nạp cảnh, tạo split và so sánh các method với cùng một cách đo. Để một môi trường chạy được cả ba renderer 3DGS, 3DGUT và 3DGEER (kể cả ảnh fisheye của KITTI-360), nhóm port drivestudio lên gsplat-geer 1.5.3.</li>
+<li><strong>Camera pinhole (nuScenes mini):</strong> cấu hình Street GS + FastGS (method Street GS, luật densify FastGS) cho PSNR test cao nhất, 27,64 dB, với 0,36 triệu Gaussian. Các run khác nhau ở nhiều thiết lập cùng lúc, nên chưa biết bao nhiêu trong đó là nhờ FastGS.</li>
+<li><strong>Camera fisheye (KITTI-360):</strong> cấu hình Street GS + 3DGEER + FastGS đạt 24,56 dB trên 2 camera fisheye; cấu hình 3DGUT + MCMC của fflab (dựng cảnh tĩnh, không tách xe động) mới đạt 16,0 dB.</li>
+<li><strong>Camera + LiDAR:</strong> method SimULi trên dữ liệu NCore đạt 31,19 dB val PSNR khi render thêm LiDAR.</li>
+<li><strong>Chưa làm được:</strong> Instant NuRec và neurad-studio (SplatAD). Ba con số PSNR ở trên đến từ dataset, camera và cách đánh giá khác nhau, nên chưa so trực tiếp với nhau được.</li>
+<li><strong>Tuần sau:</strong> chạy thử các method cho quãng đường dài, đánh giá trên một đoạn đường giữ lại liền mạch, xử lý xe động và bầu trời, và chạy Instant NuRec.</li>
+</ul>
+<h2>2. Vị trí trên lộ trình</h2>
+<p>Mốc M0 đã xong vì tool đã có kiến trúc và contract. Mốc M1 đang làm: tool đã chạy được từ dữ liệu tới bước đánh giá, nhưng các kết quả tuần này vẫn chạy ngoài drive2sim.</p>
+<p class="caption">Ghi chú: mốc M0–M5 và ba track benchmark A/B/C, mỗi cột là một tuần, ô tô màu theo trạng thái. Cam kết M0–M2 trong 6 tuần, M3–M5 làm theo mức khả thi nhất có thể. Trạng thái từng việc ở mục 9 (Bảng tổng hợp công việc).</p><table class="roadmap"><thead><tr><th>Mốc / track benchmark</th><th>T01</th><th>T02</th></tr></thead><tbody><tr class="group"><td colspan="3">Mốc của dự án (kế hoạch tổng thể)</td></tr><tr><td><b>M0</b> Kiến trúc, interface, contract</td><td class="st-dang-lam">Đang làm</td><td class="st-xong">Xong</td></tr><tr><td><b>M1</b> Chạy được dựng cảnh đến đánh giá</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-dang-lam">Đang làm</td></tr><tr><td><b>M2</b> Benchmark nhiều phương pháp</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-ke-hoach">Kế hoạch</td></tr><tr><td><b>M3</b> Thế giới sẵn sàng cho mô phỏng</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-ke-hoach">Kế hoạch</td></tr><tr><td><b>M4</b> Closed-loop simulation</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-ke-hoach">Kế hoạch</td></tr><tr><td><b>M5</b> Nền tảng mở rộng được</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-ke-hoach">Kế hoạch</td></tr><tr class="group"><td colspan="3">Track benchmark (ba bảng xếp hạng riêng)</td></tr><tr><td><b>A</b> Dựng từng cảnh (per-scene optimization)</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-ke-hoach">Kế hoạch</td></tr><tr><td><b>B</b> Quãng đường dài ≥ 1 km (long-drive)</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-ke-hoach">Kế hoạch</td></tr><tr><td><b>C</b> Dựng tức thì (feed-forward)</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-ke-hoach">Kế hoạch</td></tr></tbody></table>
+<h2>3. Đối chiếu với kế hoạch tuần trước</h2>
+<p>Tuần trước nhóm đặt ra bốn việc: dựng tool, khảo sát method, viết report chung và khảo sát CARLA. Bảng dưới cho biết từng việc đã đi tới đâu, và những việc mới phát sinh khi bắt đầu chạy thật.</p>
+<p class="caption">Ghi chú: đối chiếu với bảng Kế hoạch tuần sau ở mục 7 của báo cáo tuần trước: việc đã đặt ra, trạng thái cuối tuần này và kết quả thực tế; cuối bảng là việc tiếp tục và việc thêm mới. Chi tiết ở mục 4 (Chi tiết công việc đã làm) và mục 5 (Kết quả thực nghiệm).</p><table class="changes"><thead><tr><th>Công việc</th><th>Trạng thái</th><th>Kết quả thực tế</th></tr></thead><tbody><tr class="group"><td colspan="3">Theo kế hoạch tuần trước</td></tr><tr class="st-xong"><td>Dựng tool thử nghiệm và chạy thử các method</td><td><span class="chip st-xong">Xong</span></td><td>Bản đầu: 6 bước, 7 dataset, 10 cấu hình</td></tr><tr class="st-xong"><td>Khảo sát và chọn method</td><td><span class="chip st-xong">Xong</span></td><td>Giữ nền drivestudio; loại NeRF và DGGT</td></tr><tr class="st-dang-lam"><td>Report kỹ thuật chung</td><td><span class="chip st-dang-lam">Đang làm</span></td><td></td></tr><tr class="st-dang-lam"><td>Khảo sát tích hợp CARLA</td><td><span class="chip st-dang-lam">Đang làm</span></td><td>Tuần này không có tiến triển mới</td></tr><tr class="group"><td colspan="3">Ngoài kế hoạch (thêm mới trong quá trình làm)</td></tr><tr class="st-xong"><td>Port drivestudio lên gsplat-geer 1.5.3 (3DGS, 3DGUT, 3DGEER)</td><td><span class="chip st-xong">Xong</span></td><td>Ba renderer chạy trong một môi trường</td></tr><tr class="st-dang-lam"><td>Thực nghiệm pinhole trên nuScenes</td><td><span class="chip st-dang-lam">Đang làm</span></td><td>Tốt nhất 27,64 dB; chưa chạy qua drive2sim</td></tr><tr class="st-dang-lam"><td>Thực nghiệm fisheye trên KITTI-360 (3DGUT, 3DGEER)</td><td><span class="chip st-dang-lam">Đang làm</span></td><td>Hai hướng khác dữ liệu, chưa so trực tiếp</td></tr><tr class="st-dang-lam"><td>Thực nghiệm camera + LiDAR: SimULi trên NCore</td><td><span class="chip st-dang-lam">Đang làm</span></td><td>Val PSNR 31,19 dB, scene static</td></tr><tr class="st-xong"><td>Khảo sát method feed-forward, chọn Instant NuRec</td><td><span class="chip st-xong">Xong</span></td><td>Chỉ Instant NuRec ra một .ply cho cả cảnh</td></tr><tr class="st-dang-lam"><td>Chạy Instant NuRec</td><td><span class="chip st-dang-lam">Đang làm</span></td><td>Chưa chạy được</td></tr><tr class="st-dung"><td>Chạy SplatAD (neurad-studio)</td><td><span class="chip st-dung">Dừng</span></td><td>Phụ thuộc gsplat fork 1.0, không tương thích 1.5.3 và 1.6</td></tr><tr class="st-dang-lam"><td>Tìm dataset có fisheye, LiDAR, pose, box</td><td><span class="chip st-dang-lam">Đang làm</span></td><td>Ứng viên A2D2</td></tr></tbody></table>
+<h2>4. Chi tiết công việc đã làm</h2>
+<p>Tuần này nhóm dựng phần nền để chạy thực nghiệm: tool drive2sim, khảo sát các method dựng tức thì (feed-forward) để chọn một method cho hướng này, và tìm dataset phù hợp.</p>
+<h3>4.1 Tool drive2sim</h3>
+<p>Nhóm đã xây dựng phiên bản đầu tiên của tool drive2sim. Tool cho phép chạy và so sánh các method trên cùng dữ liệu, cùng split và cùng các cách đo, qua sáu bước tổng thể:</p>
+<ol>
+<li><strong>Nạp cảnh:</strong> đưa 7 dataset về một định dạng chuẩn, kèm báo cáo kiểm tra dữ liệu.</li>
+<li><strong>Tạo split:</strong> chọn N, camera và đoạn khung dùng để train và test.</li>
+<li><strong>Chọn method và cấu hình:</strong> chọn method OmniRe hoặc Street GS, rồi chọn renderer (3DGS, 3DGUT, 3DGEER), có dùng FastGS hay không và có tinh chỉnh pose camera hay không; tổng cộng 10 cấu hình.</li>
+<li><strong>Chạy:</strong> chạy trên máy hoặc trên Kaggle; tự chạy tiếp khi bị ngắt; có chế độ chạy thử 3.000 bước.</li>
+<li><strong>Đo và so sánh:</strong> PSNR, SSIM, LPIPS, tính riêng theo từng vùng; thời gian, VRAM, số Gaussian; bảng xếp hạng.</li>
+<li><strong>Xem kết quả:</strong> xem video render và cảnh 3D, qua dòng lệnh <code>d2s</code> hoặc giao diện web Studio.</li>
+</ol>
+<p>Các renderer nằm ở các phiên bản gsplat khác nhau, nên nhóm port drivestudio lên gsplat-geer 1.5.3. Nhờ vậy cả 3DGS, 3DGUT và 3DGEER chạy được trong cùng một môi trường.</p>
+<h3>4.2 Khảo sát method feed-forward</h3>
+<p>Method dựng tức thì (feed-forward) dùng một mạng đã train sẵn để dựng cảnh mới trong vài giây, thay vì tối ưu riêng từng cảnh trong vài giờ như OmniRe hay Street GS. Để dùng được trong dự án, method phải xuất ra một file <code>.ply</code> cho cả cảnh, vì renderer cạnh CARLA đọc định dạng này. Trong các method nhóm đã xem, chỉ Instant NuRec đáp ứng được điều kiện đó:</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Code</th>
+<th>Đầu ra và lý do không chọn</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Instant NuRec</td>
+<td>Có, kèm weights</td>
+<td>Một <code>.ply</code> static, gộp chunk bằng <code>--merge</code>. Được chọn</td>
+</tr>
+<tr>
+<td>DGGT</td>
+<td>Có, đã chạy</td>
+<td><code>.ply</code> riêng từng cửa sổ 4 khung, scale riêng, không gộp được. Đã loại</td>
+</tr>
+<tr>
+<td>STORM</td>
+<td>Có</td>
+<td>Giảm từ 26,38 dB (2 s) xuống 22,02 dB (16 s); cần train lại</td>
+</tr>
+<tr>
+<td>EVolSplat4D, UniSplat, MCSplat, ReconDrive</td>
+<td>Có</td>
+<td>Không xuất <code>.ply</code>, hoặc chỉ theo từng timestep / segment ngắn</td>
+</tr>
+<tr>
+<td>PointForward, UFO, StreetForward</td>
+<td>Chưa dùng được</td>
+<td>Theo dõi khi có code</td>
+</tr>
+</tbody>
+</table>
+<p>Về chất lượng, paper Instant NuRec so ba method trên Waymo với cùng protocol: Instant NuRec đạt 28,26 dB, DGGT 26,25 dB và STORM 21,88 dB. Instant NuRec cũng nhanh, mất khoảng 1,5 giây cho một đoạn 10–20 giây và không phải train lại cho từng cảnh.</p>
+<h3>4.3 Dataset</h3>
+<p>Nhóm bắt đầu tìm dataset có đủ camera fisheye, LiDAR, pose và box 3D. Ứng viên đầu tiên là A2D2, nhưng bộ này thiếu pose liên tục và thiếu bbox theo track, nên chưa dùng được ngay.</p>
+<h2>5. Kết quả thực nghiệm</h2>
+<p>Yêu cầu của dự án đặt ra ba loại dữ liệu đầu vào: camera pinhole, camera fisheye, và camera kèm LiDAR (mục tiêu ở tuần 01). Vì vậy tuần này nhóm chạy thử một hướng tái dựng cho mỗi loại, để biết hướng đó có chạy được không và đạt mức chất lượng nào: pinhole trên nuScenes, fisheye trên KITTI-360, và camera kèm LiDAR trên NCore. Đây là các lần chạy thử, mỗi hướng dùng dữ liệu và cách đo riêng, nên chưa so được với nhau (mục 8). Hầu hết các run chạy trên GPU T4 của Kaggle.</p>
+<h3>5.1 Pinhole trên nuScenes mini</h3>
+<p>Câu hỏi của thực nghiệm này là các cấu hình đã có trong fork drivestudio chạy được tới đâu trên camera pinhole, và FastGS có giảm được chi phí train không. Nhóm dùng nuScenes mini vì đây là bộ nhỏ, tải tự do, và là dataset đầu tiên đã nạp được vào tool. Thiết lập chung: scene 000, camera trước, ảnh 800×450, lấy mỗi khung thứ 10 làm ảnh test.</p>
+<p>Các run trong bảng dưới chưa chạy qua tool drive2sim và khác nhau ở nhiều thiết lập cùng lúc (codebase, luật densify, có tinh chỉnh pose camera hay không, phiên bản gsplat). Vì vậy bảng chỉ cho biết mỗi cấu hình đạt bao nhiêu, chưa tách được phần chênh lệch do riêng thành phần nào. Ô "chưa ghi lại" là thông tin không có trong ghi chép của nhóm.</p>
+<table>
+<thead>
+<tr>
+<th>Cấu hình</th>
+<th>Codebase</th>
+<th>Renderer</th>
+<th>Số bước</th>
+<th>GPU</th>
+<th>Test PSNR (dB)</th>
+<th>Gaussian</th>
+<th>VRAM (GB)</th>
+<th>Train</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Street GS + FastGS</td>
+<td>Fork drivestudio</td>
+<td>3DGS</td>
+<td>30.000</td>
+<td>T4</td>
+<td>27,64</td>
+<td>0,36 tr</td>
+<td>7,4</td>
+<td>73 phút (gồm cả đánh giá)</td>
+</tr>
+<tr>
+<td>FastGS gốc, cảnh tĩnh</td>
+<td>Repo FastGS gốc</td>
+<td>3DGS</td>
+<td>chưa ghi lại</td>
+<td>chưa ghi lại</td>
+<td>25,26</td>
+<td>0,23 tr</td>
+<td>2,7</td>
+<td>7 phút</td>
+</tr>
+<tr>
+<td>OmniRe + 3DGEER</td>
+<td>chưa ghi lại</td>
+<td>3DGEER</td>
+<td>chưa ghi lại</td>
+<td>chưa ghi lại</td>
+<td>24,53</td>
+<td>3,87 tr</td>
+<td>14,8</td>
+<td>5 h 30</td>
+</tr>
+<tr>
+<td>Street GS + 3DGEER</td>
+<td>DriveStudio gốc</td>
+<td>3DGEER</td>
+<td>30.000</td>
+<td>T4</td>
+<td>24,44</td>
+<td>4,23 tr</td>
+<td>14,9</td>
+<td>4 h 47</td>
+</tr>
+<tr>
+<td>Street GS gốc</td>
+<td>DriveStudio gốc, gsplat 1.3.0</td>
+<td>3DGS</td>
+<td>30.000</td>
+<td>T4</td>
+<td>23,15</td>
+<td>1,23 tr</td>
+<td>14,9</td>
+<td>2 h 03</td>
+</tr>
+</tbody>
+</table>
+<p>Từ bảng trên, nhóm rút ra các nhận xét sau:</p>
+<ul>
+<li><strong>Street GS + FastGS đạt PSNR cao nhất với ít Gaussian và ít VRAM hơn hẳn</strong> Street GS gốc (27,64 so với 23,15 dB; 0,36 so với 1,23 triệu Gaussian; 7,4 so với 14,9 GB). Tuy nhiên hai run này khác nhau cả codebase, luật densify và việc tinh chỉnh pose camera, nên chưa biết bao nhiêu trong mức chênh 4,5 dB là nhờ FastGS. Cần chạy các run đối chứng chỉ đổi một thành phần (việc này làm ở tuần 03).</li>
+<li><strong>FastGS gốc chỉ mất 7 phút</strong> vì đây là repo FastGS gốc, không phải drivestudio: nó dựng cảnh tĩnh (không tách xe động) và có thêm hai kỹ thuật tăng tốc mà bản fork trong drivestudio không đưa vào (giới hạn số Gaussian khi prune, và rasterizer tăng tốc). Vì khác codebase và chưa rõ số bước, PSNR của nó không so được với các dòng khác.</li>
+<li><strong>3DGEER tốn kém trên ảnh pinhole:</strong> so với Street GS gốc, thời gian train gấp 2,3–2,7 lần và số Gaussian gấp 3–4 lần, trong khi VRAM gần chạm giới hạn 16 GB của T4.</li>
+</ul>
+<h3>5.2 Fisheye trên KITTI-360</h3>
+<p>Renderer 3DGS chỉ vẽ được camera pinhole, nên muốn dùng ảnh fisheye thì phải có renderer khác. Câu hỏi của thực nghiệm này là các renderer vẽ được fisheye có chạy được trên KITTI-360 không, vì KITTI-360 là bộ công khai có camera fisheye cùng LiDAR và box 3D. Kết quả là cả 3DGUT và 3DGEER đều đã chạy được, mỗi renderer trong một cấu hình khác nhau. Tuy nhiên hai kết quả dùng đoạn dữ liệu, camera và vùng tính PSNR khác nhau, nên bảng dưới chỉ đặt cạnh nhau để tham khảo, chưa so trực tiếp được:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Street GS + 3DGEER + FastGS</th>
+<th>3DGUT + MCMC, static (fflab)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Test PSNR</td>
+<td>24,56 dB fisheye</td>
+<td>16,0 dB fisheye; 18,2 dB pinhole</td>
+</tr>
+<tr>
+<td>Camera</td>
+<td>2 fisheye 185°</td>
+<td>2 pinhole + 2 fisheye, kèm LiDAR</td>
+</tr>
+<tr>
+<td>Dữ liệu</td>
+<td>80 khung (8 s), sequence 0000, 700×700</td>
+<td>100 khung, sequence 0003, khoảng 500 m đường</td>
+</tr>
+<tr>
+<td>Thời gian train</td>
+<td>2 h 21 (T4)</td>
+<td>Khoảng 4 phút (RTX 6000 Ada)</td>
+</tr>
+<tr>
+<td>Vật động</td>
+<td>Xe chuyển động được dựng riêng và tái tạo rõ</td>
+<td>Xe động bị nhạt thành vệt</td>
+</tr>
+</tbody>
+</table>
+<p>Mỗi hướng có điểm mạnh và vấn đề riêng:</p>
+<ul>
+<li><strong>3DGEER + FastGS</strong> train thẳng trên ảnh fisheye gốc và render đúng tới mép vòng ảnh. Tuy vậy camera phải kém camera trái khá nhiều (22,85 so với 26,27 dB), và FastGS gần như không densify vì ngưỡng 1,0 đặt quá cao.</li>
+<li><strong>3DGUT + MCMC</strong> dùng 1 triệu Gaussian. Vòm Gaussian dựng riêng cho bầu trời đóng góp thêm 4–5 dB. Hướng này chạy được trên cảnh thứ hai (17,7 dB pinhole), nhưng hai bên đường vẫn còn nhoè.</li>
+</ul>
+<h3>5.3 Camera + LiDAR: SimULi trên NCore</h3>
+<p>SimULi là method dựng từng cảnh render được cả ảnh camera lẫn LiDAR. Nhóm thử SimULi vì dữ liệu đích có LiDAR, và cần biết render thêm LiDAR có giúp ảnh camera tốt hơn không. Kết quả là khi render thêm LiDAR, SimULi đạt val PSNR 31,19 dB. Toàn bộ ablation chỉ mất khoảng 30 phút trên T4, và thứ hạng giữa các cấu hình khớp với số của nhóm tác giả trên GPU A40 (26,46 → 29,54 dB). Thiết lập: clip 4 giây, camera trước, ảnh 480×270, 10.000 bước. Cảnh được dựng ở dạng static (chưa train các actor động), và val là ảnh nội suy trên cùng quỹ đạo.</p>
+<p>Bảng dưới cho thấy mỗi thành phần thêm vào cải thiện bao nhiêu:</p>
+<table>
+<thead>
+<tr>
+<th>Cấu hình</th>
+<th>Val PSNR (dB)</th>
+<th>Tăng</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>3DGUT FTheta baseline</td>
+<td>24,85</td>
+<td></td>
+</tr>
+<tr>
+<td>+ MCMC</td>
+<td>27,85</td>
+<td>+3,0</td>
+</tr>
+<tr>
+<td>+ SH bậc 3</td>
+<td>30,25</td>
+<td>+2,4</td>
+</tr>
+<tr>
+<td>+ LiDAR render</td>
+<td>31,19</td>
+<td>+0,9</td>
+</tr>
+</tbody>
+</table>
+<h2>6. Phát hiện và quyết định</h2>
+<p>Kết quả chạy thử và khảo sát trong tuần giúp nhóm thu hẹp lựa chọn: giữ nền drivestudio, chọn một method cho hướng feed-forward, và loại các hướng không phù hợp.</p>
+<p><em>Ghi chú: các quyết định chốt trong tuần, mỗi quyết định kèm lý do và nguồn (mục trong báo cáo, paper hoặc tài liệu).</em></p>
+<table>
+<thead>
+<tr>
+<th>Quyết định</th>
+<th>Lý do / bằng chứng</th>
+<th>Nguồn</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Fork drivestudio</td>
+<td>Một môi trường chạy được 3DGS, 3DGUT, 3DGEER; là nền của drive2sim</td>
+<td>Mục 4.1 (Tool drive2sim)</td>
+</tr>
+<tr>
+<td>Tạm dừng neurad-studio (SplatAD)</td>
+<td>Lỗi khi chạy; phụ thuộc gsplat fork 1.0, không tương thích với 1.5.3 và 1.6</td>
+<td>Chạy thử trong tuần</td>
+</tr>
+<tr>
+<td>Dừng tìm thêm method fisheye</td>
+<td>Đã chạy được render 3DGUT và 3DGEER</td>
+<td>Mục 5.2 (Fisheye trên KITTI-360)</td>
+</tr>
+<tr>
+<td>Loại NeRF và DGGT</td>
+<td>NeRF quá chậm; DGGT chỉ xử lý cửa sổ ngắn, không gộp được thành một scene</td>
+<td>Mục 4.2 (Khảo sát method feed-forward)</td>
+</tr>
+<tr>
+<td>Chọn Instant NuRec cho feed-forward</td>
+<td>Duy nhất có code + weights và gộp được chunk thành một <code>.ply</code> static</td>
+<td>Mục 4.2; paper Instant NuRec</td>
+</tr>
+<tr>
+<td>Tìm hiểu hướng quãng đường dài (&gt; 1 km)</td>
+<td>Mục tiêu là closed-loop trên một khu vực thật, nhưng các lần chạy hiện mới dừng ở đoạn 4–30 s</td>
+<td>Mục tiêu dự án</td>
+</tr>
+</tbody>
+</table>
+<h2>7. Kế hoạch tuần sau</h2>
+<p>Các lần chạy tuần này mới dừng ở đoạn ngắn và chưa xử lý xe động, nên kế hoạch tuần sau tập trung vào quãng đường dài, cách đánh giá và các method còn chưa chạy được.</p>
+<p class="caption">Ghi chú: việc dự kiến làm trong tuần sau và kết quả cần có để tính là xong. Báo cáo tuần sau báo lại trạng thái của từng việc này ở mục 3 (Đối chiếu với kế hoạch tuần trước).</p><p><b>Tuần 03 · 15/11/2026 – 21/11/2026</b></p><table class="plan"><thead><tr><th>Công việc</th></tr></thead><tbody><tr><td>Nghiên cứu và chạy thử method quãng đường dài (SLAM, Hierarchical 3DGS, DA3, VGGT-Long)</td></tr><tr><td>Đánh giá trên đoạn đường giữ lại liền mạch</td></tr><tr><td>Xử lý xe động và bầu trời</td></tr><tr><td>Sinh kết quả Instant NuRec</td></tr><tr><td>Thử nghiệm SplatAD nếu có thời gian</td></tr></tbody></table>
+<h2>8. Hạn chế, rủi ro và câu hỏi còn mở</h2>
+<p>Các con số tuần này cho thấy từng hướng chạy được, nhưng chưa đủ để kết luận hướng nào tốt hơn, vì các lý do sau:</p>
+<ol>
+<li>Đánh giá chưa đồng nhất: mỗi hướng dùng dataset, split và vùng tính PSNR riêng, và chưa có kết quả nào chạy qua drive2sim.</li>
+<li>Chưa đánh giá ở góc nhìn mới (novel view): mọi PSNR đều là ảnh nội suy trên cùng quỹ đạo đã dùng để train.</li>
+<li>Chưa có run đối chứng cho FastGS trên cả nuScenes và KITTI-360.</li>
+<li>Hầu hết kết quả chạy trên GPU T4 của Kaggle, nên thời gian và VRAM chưa so được với số trong các paper.</li>
+</ol>
+<h2>9. Bảng tổng hợp công việc</h2>
+<p class="caption">Ghi chú: cộng dồn từ tuần 01, mỗi khối là một tuần; việc kéo dài nhiều tuần lặp lại ở từng tuần để thấy màu đổi dần. Khối cuối (xám) là kế hoạch tuần sau, chi tiết ở mục 7 (Kế hoạch tuần sau).</p><p class="legend"><span class="chip st-xong">Xong</span> <span class="chip st-dang-lam">Đang làm</span> <span class="chip st-dung">Dừng</span> <span class="chip st-ke-hoach">Kế hoạch</span> </p><table class="tracker"><thead><tr><th>Công việc</th><th>Ghi chú</th></tr></thead><tbody><tr class="group"><td colspan="2">Tuần 01 · 01/11/2026 – 07/11/2026</td></tr><tr class="st-dang-lam"><td>Dựng report kỹ thuật chung (khung 3 part, 17 chương)</td><td>Ch 1, Ch 3 có bản nháp; Ch 2 xong tới 2.5</td></tr><tr class="st-xong"><td>Đặc tả yêu cầu, deliverables, phạm vi M0–M5</td><td>8 nhóm yêu cầu, 6 deliverable; chờ mentor xác nhận</td></tr><tr class="st-xong"><td>Kiến trúc tham chiếu 5 subsystem và luồng dữ liệu</td><td>5 subsystem, 2 giai đoạn offline và online</td></tr><tr class="st-xong"><td>Thiết kế tool thử nghiệm: chuẩn hoá cách nối các method</td><td>Chuẩn hoá dữ liệu, contract, metric; không chuẩn hoá thuật toán</td></tr><tr class="st-dang-lam"><td>Khảo sát và chọn method</td><td>Đã xem 6 framework, chưa chốt 4 method</td></tr><tr class="st-dang-lam"><td>Khảo sát tích hợp CARLA (map.xodr, cách NuRec nối CARLA)</td><td>Mới phân tích trên giấy: cần map.xodr, quỹ đạo vật thể, phép đổi toạ độ</td></tr><tr class="group"><td colspan="2">Tuần 02 · 08/11/2026 – 14/11/2026</td></tr><tr class="st-dang-lam"><td>Dựng report kỹ thuật chung (khung 3 part, 17 chương)</td><td></td></tr><tr class="st-xong"><td>Khảo sát và chọn method</td><td>Giữ nền drivestudio; loại NeRF và DGGT</td></tr><tr class="st-dang-lam"><td>Khảo sát tích hợp CARLA (map.xodr, cách NuRec nối CARLA)</td><td>Tuần này không có tiến triển mới</td></tr><tr class="st-xong"><td>Dựng khung tool drive2sim: nạp cảnh, split, chạy, đo, so sánh</td><td>Bản đầu: 6 bước, 7 dataset, 10 cấu hình</td></tr><tr class="st-xong"><td>Port drivestudio lên gsplat-geer 1.5.3 (3DGS, 3DGUT, 3DGEER)</td><td>Ba renderer chạy trong một môi trường</td></tr><tr class="st-dang-lam"><td>Thực nghiệm pinhole trên nuScenes</td><td>Tốt nhất 27,64 dB; chưa chạy qua drive2sim</td></tr><tr class="st-dang-lam"><td>Thực nghiệm fisheye trên KITTI-360 (3DGUT, 3DGEER)</td><td>Hai hướng khác dữ liệu, chưa so trực tiếp</td></tr><tr class="st-dang-lam"><td>Thực nghiệm camera + LiDAR: SimULi trên NCore</td><td>Val PSNR 31,19 dB, scene static</td></tr><tr class="st-xong"><td>Khảo sát method feed-forward, chọn Instant NuRec</td><td>Chỉ Instant NuRec ra một .ply cho cả cảnh</td></tr><tr class="st-dang-lam"><td>Chạy Instant NuRec</td><td>Chưa chạy được</td></tr><tr class="st-dung"><td>Chạy SplatAD (neurad-studio)</td><td>Phụ thuộc gsplat fork 1.0, không tương thích 1.5.3 và 1.6</td></tr><tr class="st-dang-lam"><td>Tìm dataset có fisheye, LiDAR, pose, box</td><td>Ứng viên A2D2</td></tr><tr class="group"><td colspan="2">Tuần 03 · 15/11/2026 – 21/11/2026 (kế hoạch)</td></tr><tr class="st-ke-hoach"><td>Nghiên cứu và chạy thử method quãng đường dài (SLAM, Hierarchical 3DGS, DA3, VGGT-Long)</td><td></td></tr><tr class="st-ke-hoach"><td>Đánh giá trên đoạn đường giữ lại liền mạch</td><td></td></tr><tr class="st-ke-hoach"><td>Xử lý xe động và bầu trời</td><td></td></tr><tr class="st-ke-hoach"><td>Sinh kết quả Instant NuRec</td><td></td></tr><tr class="st-ke-hoach"><td>Thử nghiệm SplatAD nếu có thời gian</td><td></td></tr></tbody></table></body></html>

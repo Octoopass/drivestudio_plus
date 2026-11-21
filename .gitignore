@@ -205,15 +205,17 @@ local_scripts/
 # Sổ tay kỹ thuật LaTeX chỉ lưu local theo yêu cầu người dùng
 /docs/sổ tay kỹ thuật/
 
-# Báo cáo kỹ thuật chung (docs/report/): chỉ đưa nguồn LaTeX lên git; file biên dịch tạo lại bằng latexmk
-/docs/report/**/*.aux
-/docs/report/**/*.bbl
-/docs/report/**/*.blg
-/docs/report/**/*.fdb_latexmk
-/docs/report/**/*.fls
-/docs/report/**/*.out
-/docs/report/**/*.toc
-/docs/report/**/*.synctex.gz
-/docs/report/notes.pdf
-/docs/report/build/
+# Báo cáo kỹ thuật chung (docs/final-report/): đưa nguồn LaTeX và PDF đã biên dịch (build/*.pdf) lên git;
+# file tạm của latexmk thì không
+/docs/final-report/**/*.aux
+/docs/final-report/**/*.bbl
+/docs/final-report/**/*.blg
+/docs/final-report/**/*.fdb_latexmk
+/docs/final-report/**/*.fls
+/docs/final-report/**/*.out
+/docs/final-report/**/*.toc
+/docs/final-report/**/*.synctex.gz
+/docs/final-report/notes.pdf
+/docs/final-report/build/*
+!/docs/final-report/build/*.pdf
 /docs/slides/*/index.bundle.html

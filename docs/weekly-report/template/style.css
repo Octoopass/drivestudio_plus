@@ -1,0 +1,52 @@
+/* Kiểu chung của báo cáo tuần khi xuất PDF (template/build.py). */
+@page { size: A4; margin: 16mm 15mm 16mm 15mm; }
+:root {
+  --ink: #1d232b; --muted: #5b6573; --line: #d6dbe1; --head: #f1f3f6;
+  --xong: #d3f0d8; --xong-ink: #17602a;
+  --dang-lam: #fff1bf; --dang-lam-ink: #7a5a00;
+  --dung: #fbd5d2; --dung-ink: #9b1c13;
+  --ke-hoach: #e7e9ec; --ke-hoach-ink: #4b5360;
+}
+body { font-family: "Be Vietnam Pro", "Noto Sans", "Segoe UI", Arial, sans-serif; color: var(--ink);
+       background: #fff; font-size: 10.5pt; line-height: 1.45; }
+h1 { font-size: 18pt; margin: 0 0 2pt; }
+h1 + p { color: var(--muted); margin-top: 0; }
+h2 { font-size: 13pt; margin: 16pt 0 6pt; padding-bottom: 3pt; border-bottom: 1.5px solid var(--ink); }
+h3 { font-size: 11pt; margin: 12pt 0 4pt; }
+h2, h3 { break-after: avoid; }
+table { border-collapse: collapse; width: 100%; margin: 6pt 0 8pt; font-size: 9pt; }
+th, td { border: 1px solid var(--line); padding: 3pt 5pt; vertical-align: top; text-align: left; }
+th { background: var(--head); }
+tr { break-inside: avoid; }
+code { font-family: "IBM Plex Mono", "DejaVu Sans Mono", monospace; font-size: 8.5pt; }
+ul, ol { margin: 3pt 0 6pt; padding-left: 18pt; }
+li { margin: 1pt 0; }
+.st-xong { background: var(--xong); color: var(--xong-ink); }
+.st-dang-lam { background: var(--dang-lam); color: var(--dang-lam-ink); }
+.st-dung { background: var(--dung); color: var(--dung-ink); }
+.st-ke-hoach { background: var(--ke-hoach); color: var(--ke-hoach-ink); }
+tr[class^="st-"] td { color: var(--ink); }
+tr[class^="st-"] td:first-child { border-left: 5px solid; }
+tr.st-xong td:first-child { border-left-color: #2e9e4c; }
+tr.st-dang-lam td:first-child { border-left-color: #e0a800; }
+tr.st-dung td:first-child { border-left-color: #d0362a; }
+tr.st-ke-hoach td:first-child { border-left-color: #9aa1ab; }
+table tr.group td, table tr.group td:last-child { background: #2b323c; color: #fff; font-weight: 600; }
+.chip { display: inline-block; padding: 1pt 6pt; border-radius: 8pt; font-size: 8.5pt; font-weight: 600; }
+.progress .chip { font-size: 9.5pt; padding: 2pt 8pt; margin-right: 3pt; }
+.roadmap td:not(:first-child), .roadmap th:not(:first-child) { text-align: center; width: 11%; font-size: 8pt; }
+.tracker tr:not(.group) td:last-child { width: 34%; color: var(--muted); }
+ul.changes { list-style: none; padding-left: 4pt; }
+.warn { color: var(--dung-ink); }
+.legend { margin: 4pt 0; }
+.caption, p > em:only-child { display: block; color: var(--muted); font-size: 9pt; font-style: italic; margin: 2pt 0 3pt; }
+img { display: block; max-width: 100%; max-height: 120mm; margin: 6pt auto 2pt; break-inside: avoid; }
+.gallery { display: flex; gap: 5pt; margin: 6pt 0 2pt; }
+.gallery img { width: 19%; max-height: none; margin: 0; border: 1px solid var(--line); }
+p > em:only-child { text-align: center; }
+figure { margin: 6pt 0 8pt; break-inside: avoid; }
+figure p { margin: 0; }
+table.changes td:nth-last-child(2) { width: 13%; white-space: nowrap; }
+table.changes tr:not(.group) td:last-child { color: var(--muted); }
+table:has(th:nth-child(9)) { font-size: 7.6pt; }
+table:has(th:nth-child(9)) th, table:has(th:nth-child(9)) td { padding: 2pt 3pt; }

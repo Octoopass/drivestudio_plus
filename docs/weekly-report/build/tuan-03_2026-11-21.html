@@ -1,0 +1,1129 @@
+<!doctype html><html lang=vi><head><meta charset=utf-8><base href="file:///home/lqaq/PROJECT/drivestudio_plus/docs/weekly-report/"><title>Báo cáo tiến độ tuần 03 · 21/11/2026</title><style>/* Kiểu chung của báo cáo tuần khi xuất PDF (template/build.py). */
+@page { size: A4; margin: 16mm 15mm 16mm 15mm; }
+:root {
+  --ink: #1d232b; --muted: #5b6573; --line: #d6dbe1; --head: #f1f3f6;
+  --xong: #d3f0d8; --xong-ink: #17602a;
+  --dang-lam: #fff1bf; --dang-lam-ink: #7a5a00;
+  --dung: #fbd5d2; --dung-ink: #9b1c13;
+  --ke-hoach: #e7e9ec; --ke-hoach-ink: #4b5360;
+}
+body { font-family: "Be Vietnam Pro", "Noto Sans", "Segoe UI", Arial, sans-serif; color: var(--ink);
+       background: #fff; font-size: 10.5pt; line-height: 1.45; }
+h1 { font-size: 18pt; margin: 0 0 2pt; }
+h1 + p { color: var(--muted); margin-top: 0; }
+h2 { font-size: 13pt; margin: 16pt 0 6pt; padding-bottom: 3pt; border-bottom: 1.5px solid var(--ink); }
+h3 { font-size: 11pt; margin: 12pt 0 4pt; }
+h2, h3 { break-after: avoid; }
+table { border-collapse: collapse; width: 100%; margin: 6pt 0 8pt; font-size: 9pt; }
+th, td { border: 1px solid var(--line); padding: 3pt 5pt; vertical-align: top; text-align: left; }
+th { background: var(--head); }
+tr { break-inside: avoid; }
+code { font-family: "IBM Plex Mono", "DejaVu Sans Mono", monospace; font-size: 8.5pt; }
+ul, ol { margin: 3pt 0 6pt; padding-left: 18pt; }
+li { margin: 1pt 0; }
+.st-xong { background: var(--xong); color: var(--xong-ink); }
+.st-dang-lam { background: var(--dang-lam); color: var(--dang-lam-ink); }
+.st-dung { background: var(--dung); color: var(--dung-ink); }
+.st-ke-hoach { background: var(--ke-hoach); color: var(--ke-hoach-ink); }
+tr[class^="st-"] td { color: var(--ink); }
+tr[class^="st-"] td:first-child { border-left: 5px solid; }
+tr.st-xong td:first-child { border-left-color: #2e9e4c; }
+tr.st-dang-lam td:first-child { border-left-color: #e0a800; }
+tr.st-dung td:first-child { border-left-color: #d0362a; }
+tr.st-ke-hoach td:first-child { border-left-color: #9aa1ab; }
+table tr.group td, table tr.group td:last-child { background: #2b323c; color: #fff; font-weight: 600; }
+.chip { display: inline-block; padding: 1pt 6pt; border-radius: 8pt; font-size: 8.5pt; font-weight: 600; }
+.progress .chip { font-size: 9.5pt; padding: 2pt 8pt; margin-right: 3pt; }
+.roadmap td:not(:first-child), .roadmap th:not(:first-child) { text-align: center; width: 11%; font-size: 8pt; }
+.tracker tr:not(.group) td:last-child { width: 34%; color: var(--muted); }
+ul.changes { list-style: none; padding-left: 4pt; }
+.warn { color: var(--dung-ink); }
+.legend { margin: 4pt 0; }
+.caption, p > em:only-child { display: block; color: var(--muted); font-size: 9pt; font-style: italic; margin: 2pt 0 3pt; }
+img { display: block; max-width: 100%; max-height: 120mm; margin: 6pt auto 2pt; break-inside: avoid; }
+.gallery { display: flex; gap: 5pt; margin: 6pt 0 2pt; }
+.gallery img { width: 19%; max-height: none; margin: 0; border: 1px solid var(--line); }
+p > em:only-child { text-align: center; }
+figure { margin: 6pt 0 8pt; break-inside: avoid; }
+figure p { margin: 0; }
+table.changes td:nth-last-child(2) { width: 13%; white-space: nowrap; }
+table.changes tr:not(.group) td:last-child { color: var(--muted); }
+table:has(th:nth-child(9)) { font-size: 7.6pt; }
+table:has(th:nth-child(9)) th, table:has(th:nth-child(9)) td { padding: 2pt 3pt; }
+</style></head><body><h1>Báo cáo tiến độ tuần 03 · 21/11/2026</h1>
+<p>Reconstructing Real-World Driving Scenes (Real2Sim) · Tuần 03: 15/11/2026 – 21/11/2026</p>
+<h2>Quy ước thuật ngữ</h2>
+<p class="caption">Ghi chú: cách dùng các thuật ngữ trong báo cáo này; mọi báo cáo tuần dùng chung một bảng.</p><table>
+<thead>
+<tr>
+<th>Thuật ngữ</th>
+<th>Nghĩa trong báo cáo</th>
+<th>Ví dụ</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Method (approach)</td>
+<td>Một cách dựng cảnh có code riêng. Trong tool drive2sim, mỗi method là một approach.</td>
+<td>OmniRe, Street GS, PVG, DeformableGS, Instant NuRec, MCGS-SLAM</td>
+</tr>
+<tr>
+<td>Cấu hình</td>
+<td>Một method cộng các lựa chọn bên trong nó: renderer, luật densify, kỹ thuật tăng tốc. Mỗi run chạy đúng một cấu hình.</td>
+<td>OmniRe + 3DGUT + FastGS + Faster-GS</td>
+</tr>
+<tr>
+<td>Renderer</td>
+<td>Cách vẽ Gaussian ra ảnh. 3DGS chỉ vẽ được camera pinhole; 3DGUT và 3DGEER vẽ được cả camera fisheye.</td>
+<td>3DGS, 3DGUT, 3DGEER</td>
+</tr>
+<tr>
+<td>Luật densify</td>
+<td>Cách thêm và bớt Gaussian trong lúc train.</td>
+<td>gốc, MCMC, FastGS</td>
+</tr>
+<tr>
+<td>Dựng từng cảnh (per-scene optimization)</td>
+<td>Tối ưu một mô hình riêng cho mỗi cảnh, thường mất vài giờ GPU.</td>
+<td>OmniRe, Street GS</td>
+</tr>
+<tr>
+<td>Dựng tức thì (feed-forward)</td>
+<td>Mạng đã train sẵn dựng cảnh mới trong vài giây, không tối ưu lại cho từng cảnh.</td>
+<td>Instant NuRec</td>
+</tr>
+<tr>
+<td>Track benchmark A, B, C</td>
+<td>Ba bảng xếp hạng riêng của benchmark. A: dựng từng cảnh trên đoạn ngắn (khoảng 200 khung). B: quãng đường dài từ 1 km. C: dựng tức thì (feed-forward).</td>
+<td>Track A có ba ô A-LB, A-L, A-0</td>
+</tr>
+<tr>
+<td>Ô A-LB, A-L, A-0</td>
+<td>Ba ô của track A, chia theo đầu vào: có LiDAR và box 3D (A-LB), chỉ có LiDAR (A-L), không có cả hai (A-0).</td>
+<td></td>
+</tr>
+<tr>
+<td>Vùng che fisheye 88°</td>
+<td>Khi train và đánh giá, che các pixel có tia sáng lệch khỏi trục quang của camera quá 88°. Góc nhìn còn lại là 2 × 88° = 176°, không phải FOV 88°.</td>
+<td>KITTI-360: ống kính nhìn tới 96,1° và 92,5° lệch trục</td>
+</tr>
+<tr>
+<td>Pinhole, fisheye</td>
+<td>Loại camera: pinhole là camera thường, fisheye là camera góc rất rộng (khoảng 180°). Báo cáo không gọi loại camera là "track".</td>
+<td>KITTI-360: 2 pinhole, 2 fisheye</td>
+</tr>
+<tr>
+<td>ID theo dõi (track ID)</td>
+<td>Mã gắn cho cùng một vật thể qua các khung, để biết box ở hai khung là cùng một xe.</td>
+<td></td>
+</tr>
+<tr>
+<td>Mốc M0–M5</td>
+<td>Các mốc của kế hoạch tổng thể dự án (mục 2).</td>
+<td>M2: benchmark nhiều method</td>
+</tr>
+</tbody>
+</table>
+<h2>1. Tóm tắt</h2>
+<p class="progress"><span class="chip st-xong">Xong 14/21 (+7 tuần này)</span> <span class="chip st-dang-lam">Đang làm 6</span> <span class="chip st-dung">Dừng 1</span> <span class="chip st-ke-hoach">Kế hoạch tuần sau 6</span></p>
+<p>Tuần này các thực nghiệm lần đầu chạy qua drive2sim với cùng một protocol đánh giá, nên kết quả của các cấu hình đã so được với nhau. Từ đó nhóm thiết kế benchmark cho tuần sau.</p>
+<ul>
+<li><strong>Dựng từng cảnh (per-scene optimization), camera pinhole, nuScenes scene-0061:</strong> nhóm so 11 cấu hình của hai method OmniRe và Street GS. Cấu hình OmniRe + 3DGS + Faster-GS cho PSNR cao nhất, 25,20 dB. Thêm FastGS vào cấu hình làm model nhỏ đi 2,8 lần mà PSNR chỉ kém khoảng 0,2 dB. Khi chỉ đổi renderer trong cùng cấu hình OmniRe + FastGS + Faster-GS, 3DGUT kém 3DGS 1,0 dB, còn 3DGEER kém 3,2 dB.</li>
+<li><strong>Dựng từng cảnh, camera fisheye, KITTI-360:</strong> nhóm so hai renderer 3DGUT và 3DGEER trong cùng cấu hình OmniRe + FastGS + Faster-GS (4 run). Trên ảnh fisheye, hai renderer ngang nhau (khoảng 23 dB). Khi train chung pinhole và fisheye, 3DGUT tốt hơn 2,35 dB, vì 3DGEER chỉ đạt khoảng 20 dB trên ảnh pinhole.</li>
+<li><strong>Quãng đường dài (long-drive):</strong> method KiloGS-SLAM chạy hết chuỗi KITTI 06 (1.101 khung, khoảng 1,2 km) trong 40 phút trên T4, với sai số quỹ đạo ATE 1,37 m và PSNR keyframe 21,99 dB. Nhóm chọn method MCGS-SLAM (dùng nhiều camera) cho track B của benchmark (quãng đường dài).</li>
+<li><strong>Method khác:</strong> BezierGS trên Waymo 017 đạt 29,91 dB test (trung bình trong paper là 31,51 dB). SimULi phải dừng do lỗi của gsplat 1.6.</li>
+<li><strong>Feed-forward và CARLA:</strong> Instant NuRec dựng được cảnh KITTI-360 với cả 4 camera, nhưng mới đạt khoảng 16 dB (trời chưa được ghép, mặt đường nhoè, không có xe động). Cảnh NuRec đã chạy được trong CARLA cùng 4 xe NPC, là bản thử đầu tiên của bước tích hợp CARLA.</li>
+<li><strong>Benchmark:</strong> nhóm đã thiết kế xong benchmark gồm 8 yêu cầu, 3 track xếp hạng riêng (A dựng từng cảnh, B quãng đường dài, C feed-forward) và 13 run ưu tiên (khoảng 23 GPU-giờ).</li>
+<li><strong>Tuần sau:</strong> dựng tool benchmark, chạy 13 run theo ma trận, và đánh giá dataset PHENIKAA.</li>
+</ul>
+<h2>2. Vị trí trên lộ trình</h2>
+<p>Mốc M1 đã xong, vì các run đã chạy qua drive2sim với cùng protocol đánh giá. Mốc M2 (benchmark) đang làm: thiết kế đã xong nhưng chưa chạy. Track A (dựng từng cảnh) và track B (quãng đường dài) đã có run thử; track C (feed-forward) có run thử Instant NuRec chạy ngoài tool (mục 5.5). Mốc M3 (thế giới sẵn sàng cho mô phỏng) bắt đầu với bản thử đưa cảnh NuRec vào CARLA.</p>
+<p class="caption">Ghi chú: mốc M0–M5 và ba track benchmark A/B/C, mỗi cột là một tuần, ô tô màu theo trạng thái. Cam kết M0–M2 trong 6 tuần, M3–M5 làm theo mức khả thi nhất có thể. Trạng thái từng việc ở mục 9 (Bảng tổng hợp công việc).</p><table class="roadmap"><thead><tr><th>Mốc / track benchmark</th><th>T01</th><th>T02</th><th>T03</th></tr></thead><tbody><tr class="group"><td colspan="4">Mốc của dự án (kế hoạch tổng thể)</td></tr><tr><td><b>M0</b> Kiến trúc, interface, contract</td><td class="st-dang-lam">Đang làm</td><td class="st-xong">Xong</td><td class="st-xong">Xong</td></tr><tr><td><b>M1</b> Chạy được dựng cảnh đến đánh giá</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-dang-lam">Đang làm</td><td class="st-xong">Xong</td></tr><tr><td><b>M2</b> Benchmark nhiều phương pháp</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-dang-lam">Đang làm</td></tr><tr><td><b>M3</b> Thế giới sẵn sàng cho mô phỏng</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-dang-lam">Đang làm</td></tr><tr><td><b>M4</b> Closed-loop simulation</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-ke-hoach">Kế hoạch</td></tr><tr><td><b>M5</b> Nền tảng mở rộng được</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-ke-hoach">Kế hoạch</td></tr><tr class="group"><td colspan="4">Track benchmark (ba bảng xếp hạng riêng)</td></tr><tr><td><b>A</b> Dựng từng cảnh (per-scene optimization)</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-dang-lam">Đang làm</td></tr><tr><td><b>B</b> Quãng đường dài ≥ 1 km (long-drive)</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-dang-lam">Đang làm</td></tr><tr><td><b>C</b> Dựng tức thì (feed-forward)</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-ke-hoach">Kế hoạch</td><td class="st-dang-lam">Đang làm</td></tr></tbody></table>
+<h2>3. Đối chiếu với kế hoạch tuần trước</h2>
+<p>Tuần trước nhóm đặt ra năm việc, xoay quanh quãng đường dài, cách đánh giá và các method chưa chạy được. Bảng dưới cho biết từng việc đã đi tới đâu, cùng các việc tiếp tục từ trước và các việc phát sinh trong tuần.</p>
+<p class="caption">Ghi chú: đối chiếu với bảng Kế hoạch tuần sau ở mục 7 của báo cáo tuần trước: việc đã đặt ra, trạng thái cuối tuần này và kết quả thực tế; cuối bảng là việc tiếp tục và việc thêm mới. Chi tiết ở mục 4 (Chi tiết công việc đã làm) và mục 5 (Kết quả thực nghiệm).</p><table class="changes"><thead><tr><th>Công việc</th><th>Trạng thái</th><th>Kết quả thực tế</th></tr></thead><tbody><tr class="group"><td colspan="3">Theo kế hoạch tuần trước</td></tr><tr class="st-xong"><td>Nghiên cứu và chạy thử method quãng đường dài (SLAM, Hierarchical 3DGS, DA3, VGGT-Long)</td><td><span class="chip st-xong">Xong</span></td><td>Chọn MCGS-SLAM cho track B (quãng đường dài)</td></tr><tr class="st-dang-lam"><td>Đánh giá trên đoạn đường giữ lại liền mạch</td><td><span class="chip st-dang-lam">Đang làm</span></td><td>Đã đưa vào thiết kế benchmark, chưa chạy</td></tr><tr class="st-xong"><td>Xử lý xe động và bầu trời</td><td><span class="chip st-xong">Xong</span></td><td>Giải quyết bằng cách chuyển sang OmniRe: xe theo box, trời bằng mô hình riêng và mask trời</td></tr><tr class="st-dang-lam"><td>Sinh kết quả Instant NuRec</td><td><span class="chip st-dang-lam">Đang làm</span></td><td>Chạy ngoài tool trên KITTI-360 40 và 150 khung, khoảng 16 dB; chưa qua bộ đo chung</td></tr><tr class="st-dang-lam"><td>Thử nghiệm SplatAD nếu có thời gian</td><td><span class="chip st-dang-lam">Đang làm</span></td><td>Đang dựng khung chạy</td></tr><tr class="group"><td colspan="3">Tiếp tục từ tuần trước (đang làm, không có trong kế hoạch)</td></tr><tr class="st-dang-lam"><td>Dựng report kỹ thuật chung (khung 3 part, 17 chương)</td><td><span class="chip st-dang-lam">Đang làm</span></td><td></td></tr><tr class="st-dang-lam"><td>Khảo sát tích hợp CARLA (map.xodr, cách NuRec nối CARLA)</td><td><span class="chip st-dang-lam">Đang làm</span></td><td>Bản thử đầu: cảnh NuRec chạy trong CARLA cùng 4 xe NPC (mục 5.5)</td></tr><tr class="st-xong"><td>Thực nghiệm pinhole trên nuScenes</td><td><span class="chip st-xong">Xong</span></td><td>11 cấu hình, tốt nhất 25,20 dB</td></tr><tr class="st-dang-lam"><td>Thực nghiệm fisheye trên KITTI-360 (3DGUT, 3DGEER)</td><td><span class="chip st-dang-lam">Đang làm</span></td><td>Run che 88° (82bc) xong, 22,84 dB; còn đợt chỉ pinhole</td></tr><tr class="st-dung"><td>Thực nghiệm camera + LiDAR: SimULi trên NCore</td><td><span class="chip st-dung">Dừng</span></td><td>Loss LiDAR NaN do lỗi gsplat 1.6</td></tr><tr class="st-xong"><td>Tìm dataset có fisheye, LiDAR, pose, box (A2D2 loại, PHENIKAA)</td><td><span class="chip st-xong">Xong</span></td><td>Loại A2D2; PHENIKAA: 2/3 chuỗi mini đủ 10 camera</td></tr><tr class="group"><td colspan="3">Ngoài kế hoạch (thêm mới trong quá trình làm)</td></tr><tr class="st-xong"><td>Nâng cấp drive2sim: thêm method, fisheye theo camera, chuẩn đánh giá, Studio, Kaggle/Colab</td><td><span class="chip st-xong">Xong</span></td><td>Thêm PVG, DeformableGS, Instant NuRec; protocol 0.3; vùng che 88°</td></tr><tr class="st-xong"><td>Tái hiện BezierGS trên Waymo</td><td><span class="chip st-xong">Xong</span></td><td>29,91 dB test (paper 31,51)</td></tr><tr class="st-xong"><td>Thiết kế benchmark: 8 yêu cầu, 3 track benchmark, protocol, ma trận 13 run</td><td><span class="chip st-xong">Xong</span></td><td>13 run, ~23 GPU-giờ</td></tr></tbody></table>
+<h2>4. Chi tiết công việc đã làm</h2>
+<p>Để các thực nghiệm ở mục 5 chạy được và so được với nhau, nhóm nâng cấp tool drive2sim. Song song, nhóm thiết kế benchmark cho tuần sau và chọn dataset cho track A (dựng từng cảnh).</p>
+<h3>4.1 Nâng cấp tool drive2sim</h3>
+<p>Sau tuần này, tool đã đủ để chạy, so sánh và xem kết quả của nhiều method trên nhiều dataset. Mỗi phần nâng cấp dưới đây xuất phát từ một vấn đề gặp khi chạy tuần trước:</p>
+<ul>
+<li><strong>Method mới:</strong> benchmark cần method cho từng ô và từng track (mục 4.2). Vì vậy nhóm thêm PVG và DeformableGS (dựng từng cảnh mà không cần box 3D, cho ô A-L), OmniRe nhiều camera, và method feed-forward Instant NuRec (cho track C).</li>
+<li><strong>Fisheye:</strong> trước đây mọi camera fisheye bị che cố định từ 83° lệch trục, nhưng mỗi ống kính nhìn được tới một góc khác nhau (image_02 tới 96,1°, image_03 tới 92,5°). Một con số chung vì vậy hoặc bỏ phí phần ảnh dùng được, hoặc giữ phần ảnh sai. Nay góc dùng được của từng camera được tính từ calibration của chính camera đó, vùng đen ngoài ống kính được dò từ ảnh, và thân xe được che, nên cách che đúng với mọi dataset. Ngoài ra cả 3DGUT và 3DGEER dừng ở 88°, vì renderer không vẽ được gì ngoài 90° (mục 5.3).</li>
+<li><strong>Đánh giá:</strong> protocol 0.2 cũ tính SSIM và LPIPS trên hai ảnh đã tô đen vùng không hợp lệ (ngoài ống kính, thân xe). Các vùng đen giống hệt nhau đó làm điểm tốt hơn thực tế, nhất là với ảnh fisheye có nhiều vùng đen. Protocol 0.3 chỉ tính trên pixel hợp lệ, và báo thêm metric theo từng camera để thấy chênh lệch đến từ camera nào. Để run cũ vẫn so được với run mới, tool tự đo lại từ checkpoint khi metric của run cũ hơn protocol hiện tại.</li>
+<li><strong>Studio (giao diện web):</strong> khi số run tăng lên (hơn hai mươi run tới cuối tuần), nhóm cần xem và so chúng mà không phải đọc từng file kết quả. Studio có bảng so sánh run, lịch densify, viewer 3D, ghép video của hai run, upload dữ liệu từ máy hoặc Google Drive qua Colab, cài môi trường ngay từ Studio, và trợ lý đề xuất cấu hình run.</li>
+<li><strong>Kaggle/Colab:</strong> máy T4 của Kaggle có 2 GPU nhưng mỗi notebook trước đây chỉ dùng một, trong khi quota GPU tính theo thời gian notebook. Nay một notebook chạy được hai run song song, mỗi run một GPU. Notebook cũng dùng lại wheel đã build và cache tiền xử lý của notebook trước, vì riêng bước build môi trường đã mất khoảng nửa giờ mỗi lần.</li>
+</ul>
+<h3>4.2 Thiết kế benchmark</h3>
+<p>Các thực nghiệm đến tuần này mới đo PSNR trên ảnh nội suy, nên chưa trả lời được method nào phù hợp để chạy closed-loop. Vì vậy nhóm thiết kế một benchmark so các method (và cấu hình của chúng) theo mức phù hợp với closed-loop và theo chi phí. Ngoài PSNR trên khung test, benchmark còn đo ảnh khi xe đi lệch làn, chất lượng file <code>.ply</code> xuất ra, độ sạch của cảnh nền (không dính xe thật) và những đoạn đường bị hỏng. Để kết quả so được với nhau, mọi method, dù chạy trong drive2sim hay trong notebook riêng, đều giao cùng một bộ file và được chấm bởi cùng một bộ đo.</p>
+<figure><p><img alt="Hình 1. Luồng đánh giá 6 bước: mọi method được chấm bằng cùng một bộ đo." src="figures/tuan-03/luong-danh-gia.png" /></p><p><em>Hình 1. Luồng đánh giá 6 bước: mọi method được chấm bằng cùng một bộ đo.</em></p></figure>
+<p>Từ mục tiêu closed-loop, nhóm rút ra 8 yêu cầu mà benchmark phải đo, mỗi yêu cầu có metric riêng:</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Yêu cầu</th>
+<th>Metric chính</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R1</td>
+<td>Ảnh render giống ảnh thật trên khung giữ lại</td>
+<td>PSNR, SSIM, LPIPS, Avg của Mip-NeRF; theo camera; vùng xe, người</td>
+</tr>
+<tr>
+<td>R2</td>
+<td>Vẫn dùng được khi xe đi lệch quỹ đạo gốc</td>
+<td>KID khi dịch camera ngang 0, ±1, ±2, ±3 m; PSNR trên split stereo</td>
+</tr>
+<tr>
+<td>R3</td>
+<td>Chất lượng file <code>.ply</code> xuất ra</td>
+<td>Chênh PSNR render gốc so với render <code>.ply</code> (export gap); số Gaussian, dung lượng</td>
+</tr>
+<tr>
+<td>R4</td>
+<td>Cảnh nền sạch, đúng hình học</td>
+<td>static_psnr, ghost_ratio; depth so với LiDAR (AbsRel, RMSE, δ &lt; 1,25)</td>
+</tr>
+<tr>
+<td>R5</td>
+<td>Chạy được với pinhole và fisheye, có hoặc không LiDAR</td>
+<td>Mọi metric R1–R3 báo riêng pinhole và fisheye</td>
+</tr>
+<tr>
+<td>R6</td>
+<td>Phủ trên 1 km đường</td>
+<td>ATE; PSNR quanh chỗ nối chunk; thời gian mỗi 100 m</td>
+</tr>
+<tr>
+<td>R7</td>
+<td>Biết cảnh hỏng ở đoạn nào</td>
+<td>PSNR, LPIPS theo quãng đường; đoạn xấu = ≥ 5 khung liền thấp hơn trung vị quá 2 dB</td>
+</tr>
+<tr>
+<td>R8</td>
+<td>Chi phí thấp, kết quả xác định</td>
+<td>Thời gian train, VRAM đỉnh, FPS render</td>
+</tr>
+</tbody>
+</table>
+<p>Các yêu cầu trên được tổ chức thành benchmark như sau:</p>
+<ul>
+<li><strong>Ba track xếp hạng riêng:</strong> benchmark chia các method thành ba nhóm không so trực tiếp với nhau, gọi là track. Track A là dựng từng cảnh (per-scene optimization) trên đoạn ngắn khoảng 200 khung; track B là quãng đường dài từ 1 km trở lên; track C là dựng tức thì (feed-forward). Track A chia tiếp theo đầu vào có hay không có LiDAR và box 3D, thành ba ô A-LB, A-L và A-0, để đo riêng LiDAR và box đóng góp bao nhiêu. Ô thứ tư (có box, không LiDAR) không chạy, vì box 3D trong các dataset luôn được gán nhãn trên LiDAR, nên không có dữ liệu thật nào có box mà thiếu LiDAR. Lưu ý: "track" ở đây không phải loại camera; pinhole và fisheye là hai loại camera dùng trong cả ba track.</li>
+<li><strong>Scene:</strong> KITTI-360 là bộ chính, vì đây là bộ công khai có đủ 2 camera pinhole, 2 camera fisheye, LiDAR, pose và box 3D, và nhóm đã chạy cả 3DGS, 3DGUT, 3DGEER trên nó (mục 5.2). Tên scene bắt đầu bằng chữ cái của track dùng nó: A1 là drive_0003 khung 0–199 với 2 pinhole; A2 thêm 2 fisheye; A3 là một đoạn khoảng 200 khung có rẽ hoặc ngã tư; B1 là KITTI Odometry 06; B2 là khoảng 1 km liền trên KITTI-360; C1 là nuScenes scene-0103 và scene-0553.</li>
+<li><strong>Quy tắc chọn method:</strong> xếp theo chỉ số Avg của Mip-NeRF. Hai method chênh dưới 0,3 dB PSNR được coi là ngang nhau, vì các run cũ cho thấy hai cấu hình gần giống nhau đã lệch 0,05–0,2 dB. Khi ngang nhau, nhóm xét tiếp lệch làn, chất lượng <code>.ply</code>, độ sạch cảnh nền, rồi đến chi phí.</li>
+<li><strong>Nguồn của cách đo:</strong> mức lệch ±3 m lấy theo EUVS; cách đo bằng KID theo NeuRAD và SplatAD.</li>
+</ul>
+<p>Hình dưới cho thấy cách chia track A (dựng từng cảnh): mỗi cặp ô so sánh chỉ khác nhau đúng một đầu vào, nên chênh lệch kết quả cho biết đầu vào đó đóng góp bao nhiêu.</p>
+<figure><p><img alt="Hình 2. Track A (dựng từng cảnh): ba ô chạy, mỗi cặp so sánh chỉ khác đúng một đầu vào." src="figures/tuan-03/track-a.png" /></p><p><em>Hình 2. Track A (dựng từng cảnh): ba ô chạy, mỗi cặp so sánh chỉ khác đúng một đầu vào.</em></p></figure>
+<h3>4.3 Dataset</h3>
+<p>KITTI-360 chỉ có 2 camera fisheye gắn hai bên hông, nên nhóm tìm thêm dataset có camera fisheye bao quanh xe. Kết quả là PHENIKAA phù hợp cho track A (dựng từng cảnh) hơn A2D2: bộ này có đủ pose, LiDAR, box 3D và 4 fisheye bao quanh, chỉ thiếu ID theo dõi (track ID) cho box, tức là chưa biết box ở hai khung có phải cùng một xe không. PHENIKAA là bộ dữ liệu perception 3D của Phenikaa-X (<a href="https://phenikaa-x.com/perception-data/">trang giới thiệu</a>, <a href="https://drive.google.com/drive/folders/1G490BK62MlmYhMMlapE_Smm6JgO3WmnJ">thư mục dữ liệu</a>), thu trong giao thông đông ở Hà Nội, gồm 1.500 chuỗi dài 20 giây; bản mini 12 chuỗi được tải tự do. Đây là bộ duy nhất nhóm tìm được có đủ cả bốn thứ trên, trong khi A2D2 thiếu pose và box.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>A2D2 (Audi)</th>
+<th>PHENIKAA (Phenikaa-X)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Camera</td>
+<td>5 fisheye 120° + 1 pinhole trước, 30 Hz</td>
+<td>4 fisheye 180° + 6 pinhole, camera 30 Hz (khung dữ liệu 10 Hz)</td>
+</tr>
+<tr>
+<td>LiDAR</td>
+<td>5 × VLP-16, cắt theo ảnh từng camera</td>
+<td>128 tia + 4 LiDAR điểm mù đã gộp sẵn, <code>.laz</code></td>
+</tr>
+<tr>
+<td>Ego pose</td>
+<td>Không có (chỉ GPS 6 Hz; dead reckoning lệch 27 m sau 1 km)</td>
+<td>Có; x/y/yaw đã kiểm bằng LiDAR, z/pitch lệch ~25 cm</td>
+</tr>
+<tr>
+<td>Box 3D</td>
+<td>Không có trong chuỗi liên tục</td>
+<td>Có, dày (~164 vật/khung), không có ID theo dõi</td>
+</tr>
+<tr>
+<td>Đường dài</td>
+<td>Tốt: chuỗi 4,2 km có vòng lặp</td>
+<td>Yếu: clip 20 s (~150–300 m)</td>
+</tr>
+</tbody>
+</table>
+<p>Để biết bản mini dùng được ngay cho dựng cảnh 3DGS hay chưa, nhóm kiểm tra từng thư mục của ba chuỗi mini có thể dùng cho dựng cảnh 3DGS: đếm số ảnh của từng camera, số khung LiDAR, ego pose, nhãn box 3D, và xem có calibration không. Mỗi chuỗi dài 20 giây ở 10 Hz, tức 200 khung.</p>
+<p><em>Ghi chú: số khung có dữ liệu trên tổng 200 khung của mỗi chuỗi; camera ghi theo số camera đủ 200 ảnh trên tổng số camera của loại đó.</em></p>
+<table>
+<thead>
+<tr>
+<th>Dữ liệu</th>
+<th><a href="https://drive.google.com/drive/folders/1-N78SIGJLIeni3zFutQ6D1wLwHLxRSzY">COMPLEX CITY</a></th>
+<th><a href="https://drive.google.com/drive/folders/1midXKgMp61bGgBQvgEDiEmlS9Q_Co5hT">COMPLEX URBAN</a></th>
+<th><a href="https://drive.google.com/drive/folders/1OkODxuYYnrpL5uCXYMfeF0B7-iEgofgy">RESIDENTIAL AREA</a></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Camera pinhole đủ ảnh</td>
+<td>6/6</td>
+<td>6/6</td>
+<td>4/6</td>
+</tr>
+<tr>
+<td>Camera fisheye đủ ảnh</td>
+<td>4/4</td>
+<td>4/4</td>
+<td>2/4</td>
+</tr>
+<tr>
+<td>LiDAR (<code>lidar/</code>)</td>
+<td>200/200</td>
+<td>200/200</td>
+<td>200/200 (có một file trùng tên)</td>
+</tr>
+<tr>
+<td>Ego pose (<code>ego_pose/</code>)</td>
+<td>200/200</td>
+<td>200/200</td>
+<td>200/200</td>
+</tr>
+<tr>
+<td>Nhãn box 3D (<code>label/</code>)</td>
+<td>200/200</td>
+<td>200/200</td>
+<td>200/200</td>
+</tr>
+<tr>
+<td>Calibration</td>
+<td>Có</td>
+<td>Có</td>
+<td>Có, dùng chung thư mục Calib Information</td>
+</tr>
+</tbody>
+</table>
+<p>Hai chuỗi COMPLEX CITY và COMPLEX URBAN có đủ cả 10 camera: 6 pinhole (<code>CAM_P_F</code>, <code>CAM_P_FL</code>, <code>CAM_P_FR</code>, <code>CAM_P_L</code>, <code>CAM_P_R</code>, <code>CAM_P_B</code>) và 4 fisheye (<code>CAM_F_F</code>, <code>CAM_F_L</code>, <code>CAM_F_R</code>, <code>CAM_F_B</code>). Chuỗi RESIDENTIAL AREA thiếu ảnh ở bốn camera: pinhole <code>CAM_P_FL</code> không có ảnh nào và <code>CAM_P_R</code> chỉ có 27/200 ảnh; fisheye <code>CAM_F_F</code> và <code>CAM_F_R</code> không có ảnh nào. Các camera còn lại của chuỗi này đủ ảnh.</p>
+<p>Hình 3 cho thấy vị trí của các camera và LiDAR trên xe thu dữ liệu, cùng vùng nhìn của chúng. Theo trang giới thiệu của Phenikaa-X, xe có 4 camera fisheye góc nhìn 180° × 180° (1920 × 1080) đặt ở trước, sau và hai gương (<code>CAM_F_*</code>); 4 camera pinhole tầm xa góc nhìn 54° × 43° và 2 camera pinhole tầm trung góc nhìn 128,7° × 98,7° (1920 × 1536) đặt trên nóc (<code>CAM_P_*</code>); một LiDAR cơ 128 tia quét 360° × 40°, tầm 250 m, trên nóc (<code>LIDAR_T</code>), và 4 LiDAR solid-state cho điểm mù ở trước, sau và hai góc sau xe. Camera ghi ở 30 Hz, LiDAR ở 10 Hz. Khác với KITTI-360 chỉ có 2 fisheye gắn hông, 4 fisheye của PHENIKAA phủ kín quanh xe, nên phù hợp để thử dựng cảnh từ fisheye bao quanh.</p>
+<p><img alt="Hình 3. Vị trí camera, LiDAR và vùng nhìn trên xe thu dữ liệu PHENIKAA (nguồn: Phenikaa-X Perception Data)." src="figures/tuan-03/phenikaa-sensor-layout.jpg" /></p>
+<p><em>Hình 3. Vị trí camera, LiDAR và vùng nhìn trên xe thu dữ liệu PHENIKAA (nguồn: <a href="https://phenikaa-x.com/perception-data/">Phenikaa-X Perception Data</a>).</em></p>
+<p>Từ bảng trên, nhóm kết luận COMPLEX CITY và COMPLEX URBAN có đủ đầu vào để thử dựng cảnh 3DGS với cả pinhole lẫn fisheye bao quanh xe, nên sẽ dùng cho bước đánh giá PHENIKAA tuần sau. RESIDENTIAL AREA chỉ dùng được với 4 pinhole, 2 fisheye và LiDAR. Với cả ba chuỗi, việc đếm file mới cho biết dữ liệu có mặt; calibration và pose còn phải kiểm chứng (ví dụ chiếu LiDAR lên ảnh), và box vẫn chưa có ID theo dõi.</p>
+<h3>4.4 Việc còn mở từ tuần 02</h3>
+<p>Ba việc trong kế hoạch tuần 02 không có mục riêng ở trên; trạng thái của chúng nằm trong bảng ở mục 3. Phần dưới ghi những gì đã làm được cho từng việc:</p>
+<ul>
+<li><strong>Đánh giá trên đoạn đường giữ lại liền mạch:</strong> đã đưa vào thiết kế benchmark ở mục 4.2. Split stereo của A1 cho ảnh thật lệch ngang khoảng 0,6 m, và danh sách đoạn xấu theo quãng đường đo được chỗ cảnh hỏng. Phần này chưa chạy.</li>
+<li><strong>Xử lý xe động và bầu trời:</strong> đã giải quyết bằng cách dùng method OmniRe cho các run tuần này, không cần làm thêm. Hai vấn đề này gặp ở cấu hình dựng cảnh tĩnh của tuần 02 (xe động nhoè thành vệt; trời không có điểm LiDAR nên bị tô bằng Gaussian lơ lửng). OmniRe có sẵn cả hai phần: mỗi xe là một nhóm Gaussian riêng di chuyển theo box 3D qua từng khung, còn bầu trời do một mạng nhỏ riêng vẽ theo hướng nhìn, kèm mask trời để phạt Gaussian che vùng trời. Cột "PSNR xe" ở mục 5.1 và 5.2 đo riêng phần xe dựng tách ra này.</li>
+<li><strong>Chạy Instant NuRec:</strong> đã thêm vào tool (mục 4.1). Ngoài tool, một thành viên đã chạy NuRec trên KITTI-360 và đưa cảnh vào CARLA; kết quả ở mục 5.5.</li>
+</ul>
+<h2>5. Kết quả thực nghiệm</h2>
+<p>Nhờ tool đã nâng cấp ở mục 4.1, tuần này nhóm chạy năm nhóm thực nghiệm, mỗi nhóm trả lời một câu hỏi. Ba nhóm đầu là dựng từng cảnh (per-scene optimization): chọn cấu hình trên camera pinhole (mục 5.1), gộp camera pinhole với fisheye (mục 5.2), và xử lý vùng mép ảnh fisheye (mục 5.3). Nhóm thứ tư thử các method cho quãng đường dài và một số method mới (mục 5.4). Nhóm thứ năm dựng cảnh bằng method feed-forward Instant NuRec và thử đưa cảnh đó vào CARLA (mục 5.5). Mỗi mục đi theo cùng trình tự: câu hỏi, vì sao cần, thiết lập, kết quả, nhận xét và mức tin cậy.</p>
+<h3>5.1 Dựng từng cảnh trên nuScenes (camera pinhole)</h3>
+<p><strong>Câu hỏi.</strong> Trên camera pinhole, mỗi thành phần của cấu hình (method, renderer, luật densify, kỹ thuật tăng tốc) làm chất lượng ảnh và chi phí train thay đổi bao nhiêu?</p>
+<p><strong>Vì sao cần.</strong> Tool cho phép bật tắt nhiều thành phần, nên có hơn mười cấu hình chạy được. Trước khi chạy benchmark, nhóm cần biết thành phần nào nên giữ làm mặc định, và các kỹ thuật giảm chi phí như FastGS phải trả giá bao nhiêu PSNR. Câu hỏi về chi phí quan trọng vì các run chạy trên GPU T4 miễn phí của Kaggle, với quota giới hạn mỗi tuần.</p>
+<p><strong>Thiết lập.</strong> Nhóm dùng cảnh nuScenes scene-0061, là cảnh đầu tiên đã nạp và kiểm tra xong trong tool ở tuần 02; cảnh có 6 camera pinhole, có xe và người. Các run dùng 3 camera phía trước (split front3: 516 ảnh train, 57 ảnh test, cứ 10 khung lấy 1 khung làm test), ảnh 800×450, 30.000 bước, Kaggle T4. Mỗi phép so chỉ đổi một thành phần so với một run mốc, để chênh lệch kết quả quy về đúng thành phần đó.</p>
+<table>
+<thead>
+<tr>
+<th>Run</th>
+<th>Method</th>
+<th>Renderer</th>
+<th>Densify</th>
+<th>FastGS</th>
+<th>Faster-GS</th>
+<th>PSNR</th>
+<th>SSIM</th>
+<th>LPIPS</th>
+<th>PSNR xe</th>
+<th>Train</th>
+<th>VRAM</th>
+<th>Gaussian</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>8d9c</td>
+<td>OmniRe</td>
+<td>3DGS</td>
+<td>gốc</td>
+<td></td>
+<td>có</td>
+<td>25,20</td>
+<td>0,785</td>
+<td>0,251</td>
+<td>25,04</td>
+<td>3 h 18</td>
+<td>6,9 GB</td>
+<td>1,52 tr</td>
+</tr>
+<tr>
+<td>2d33</td>
+<td>OmniRe</td>
+<td>3DGS</td>
+<td>gốc</td>
+<td></td>
+<td></td>
+<td>25,15</td>
+<td>0,786</td>
+<td>0,251</td>
+<td>24,98</td>
+<td>3 h 39</td>
+<td>6,6 GB</td>
+<td>1,52 tr</td>
+</tr>
+<tr>
+<td>453a</td>
+<td>OmniRe</td>
+<td>3DGS</td>
+<td>gốc</td>
+<td>có</td>
+<td></td>
+<td>25,02</td>
+<td>0,777</td>
+<td>0,268</td>
+<td>24,73</td>
+<td>2 h 47</td>
+<td>4,4 GB</td>
+<td>0,55 tr</td>
+</tr>
+<tr>
+<td>f8a6</td>
+<td>OmniRe</td>
+<td>3DGS</td>
+<td>gốc</td>
+<td>có</td>
+<td>có</td>
+<td>25,01</td>
+<td>0,778</td>
+<td>0,269</td>
+<td>24,75</td>
+<td>2 h 29</td>
+<td>4,7 GB</td>
+<td>0,55 tr</td>
+</tr>
+<tr>
+<td>ccec</td>
+<td>Street GS</td>
+<td>3DGS</td>
+<td>gốc</td>
+<td>có</td>
+<td></td>
+<td>25,02</td>
+<td>0,779</td>
+<td>0,264</td>
+<td>24,48</td>
+<td>1 h 11</td>
+<td>3,4 GB</td>
+<td>0,43 tr</td>
+</tr>
+<tr>
+<td>ecaa</td>
+<td>Street GS</td>
+<td>3DGS</td>
+<td>gốc</td>
+<td>có</td>
+<td>có</td>
+<td>24,96</td>
+<td>0,779</td>
+<td>0,264</td>
+<td>24,38</td>
+<td>1 h 03</td>
+<td>3,7 GB</td>
+<td>0,43 tr</td>
+</tr>
+<tr>
+<td>60e5</td>
+<td>OmniRe</td>
+<td>3DGUT</td>
+<td>gốc</td>
+<td>có</td>
+<td>có</td>
+<td>23,99</td>
+<td>0,750</td>
+<td>0,333</td>
+<td>24,10</td>
+<td>2 h 26</td>
+<td>3,5 GB</td>
+<td>0,33 tr</td>
+</tr>
+<tr>
+<td>a022</td>
+<td>OmniRe</td>
+<td>3DGS</td>
+<td>MCMC</td>
+<td></td>
+<td>có</td>
+<td>23,56</td>
+<td>0,716</td>
+<td>0,403</td>
+<td>20,82</td>
+<td>2 h 31</td>
+<td>3,8 GB</td>
+<td>1,18 tr</td>
+</tr>
+<tr>
+<td>44d8</td>
+<td>OmniRe</td>
+<td>3DGUT</td>
+<td>MCMC</td>
+<td></td>
+<td>có</td>
+<td>23,19</td>
+<td>0,711</td>
+<td>0,415</td>
+<td>20,21</td>
+<td>2 h 39</td>
+<td>3,6 GB</td>
+<td>1,18 tr</td>
+</tr>
+<tr>
+<td>a8a9</td>
+<td>OmniRe</td>
+<td>3DGEER (densify 50 bước)</td>
+<td>gốc</td>
+<td>có</td>
+<td>có</td>
+<td>21,77</td>
+<td>0,752</td>
+<td>0,300</td>
+<td>24,46</td>
+<td>2 h 43</td>
+<td>4,3 GB</td>
+<td>0,54 tr</td>
+</tr>
+<tr>
+<td>6b85</td>
+<td>OmniRe</td>
+<td>3DGEER (densify 300 bước)</td>
+<td>gốc</td>
+<td>có</td>
+<td>có</td>
+<td>21,66</td>
+<td>0,744</td>
+<td>0,317</td>
+<td>24,42</td>
+<td>2 h 34</td>
+<td>3,6 GB</td>
+<td>0,44 tr</td>
+</tr>
+</tbody>
+</table>
+<p>Hai hình dưới đặt ảnh render của các cấu hình cạnh ảnh thật, cùng một khung test của camera CAM_FRONT. Số trong ngoặc là PSNR trên toàn tập test của run đó, không phải của riêng khung này. Hình 4 so ảnh thật với ba cấu hình tốt nhất; Hình 5 giữ cấu hình mốc và mỗi ô chỉ đổi một thành phần.</p>
+<figure><p><img alt="Hình 4. Ảnh thật và ba cấu hình tốt nhất trên nuScenes scene-0061 (CAM_FRONT, cùng khung test)." src="figures/tuan-03/nuscenes-cau-hinh-tot.jpg" /></p><p><em>Hình 4. Ảnh thật và ba cấu hình tốt nhất trên nuScenes scene-0061 (CAM_FRONT, cùng khung test).</em></p></figure>
+<figure><p><img alt="Hình 5. Cấu hình mốc và ba cấu hình chỉ đổi một thành phần (cùng khung test)." src="figures/tuan-03/nuscenes-thanh-phan.jpg" /></p><p><em>Hình 5. Cấu hình mốc và ba cấu hình chỉ đổi một thành phần (cùng khung test).</em></p></figure>
+<p>Trên ảnh, ba cấu hình tốt nhất gần như không phân biệt được với nhau, khớp với mức chênh dưới 0,2 dB. Ở Hình 5, MCMC làm chiếc xe phía trước nhoè thành khối mờ và cọc giao thông mất hình dạng, khớp với việc vùng xe kém 4,2 dB. 3DGEER giữ được xe nhưng có một dải nhiễu ở mép trái và một khung chữ nhật lệch ở mép trên ảnh.</p>
+<p>So từng cặp run trong bảng, nhóm rút ra các nhận xét sau:</p>
+<ul>
+<li><strong>Thêm FastGS</strong> (453a so với 2d33): model cuối nhỏ khoảng 2,8 lần (0,55 so với 1,52 triệu Gaussian), train nhanh hơn khoảng 25% và tốn ít VRAM hơn khoảng 30%, trong khi PSNR chỉ kém 0,13 dB. <strong>Thêm Faster-GS</strong> (8d9c so với 2d33) chỉ làm train nhanh hơn, PSNR gần như không đổi.</li>
+<li><strong>Đổi method</strong> (ccec so với 453a, cùng 3DGS và FastGS): Street GS cho PSNR ngang OmniRe (25,02 dB) và train nhanh gấp khoảng 2 lần. Tuy nhiên vùng người kém 1,2 dB (22,94 so với 24,15), vì Street GS không có node SMPL để dựng người.</li>
+<li><strong>Đổi renderer</strong> (60e5 và a8a9 so với f8a6): 3DGUT kém 3DGS 1,0 dB, chủ yếu vì densify ít nên có ít hơn 40% Gaussian; 3DGEER kém 3,2 dB dù có cùng số Gaussian nền, và densify dày hơn (mỗi 50 bước thay vì 300) chỉ cải thiện 0,1 dB. Mỗi renderer giữ thông số densify riêng theo config của nó, nên đây là so hai cấu hình hoàn chỉnh chứ không chỉ riêng cách vẽ.</li>
+<li><strong>Đổi luật densify sang MCMC</strong> (a022 so với 8d9c): kém 1,6 dB, và vùng xe tụt mạnh nhất (20,82 so với 25,04 dB). Vì vậy từ 19/11 nhóm gỡ MCMC khỏi lựa chọn mặc định của OmniRe.</li>
+<li><strong>Số bước:</strong> khi có FastGS, 3DGUT và 3DGEER gần như đạt chất lượng cuối ở bước 15.000; từ đó tới 30.000 bước chỉ tăng thêm 0,1–0,3 dB.</li>
+</ul>
+<p><strong>Mức tin cậy.</strong> Mỗi cấu hình chỉ chạy một lần, nên chênh lệch dưới khoảng 0,1 dB (ví dụ 8d9c với 2d33) chưa đủ để kết luận. Kết quả mới đúng cho một cảnh nuScenes và camera pinhole. Từ kết quả này, các run KITTI-360 ở mục 5.2 dùng FastGS và Faster-GS để giảm chi phí, và không dùng MCMC.</p>
+<h3>5.2 Gộp camera pinhole và fisheye trên KITTI-360</h3>
+<p><strong>Câu hỏi.</strong> Có hai câu hỏi. Thứ nhất, ảnh pinhole và ảnh fisheye có học chung được một cảnh 3D không, hay thêm ảnh pinhole làm ảnh fisheye kém đi? Thứ hai, trong hai renderer vẽ được ảnh fisheye, 3DGUT và 3DGEER, cái nào tốt hơn?</p>
+<p><strong>Vì sao cần.</strong> Dữ liệu đích của dự án có cả camera pinhole và fisheye (mục tiêu đặt ra ở tuần 01). Renderer 3DGS chỉ vẽ được pinhole, nên muốn dùng ảnh fisheye thì phải chọn giữa 3DGUT và 3DGEER.</p>
+<p><strong>Thiết lập và lý do chọn.</strong></p>
+<ul>
+<li><strong>Dữ liệu:</strong> KITTI-360 drive_0003, khung 0–199 (khoảng 20 giây). KITTI-360 là bộ công khai nhóm có, gồm cả 2 camera pinhole, 2 camera fisheye, LiDAR, pose và box 3D.</li>
+<li><strong>Cấu hình:</strong> OmniRe + FastGS + Faster-GS. Nhóm chọn OmniRe vì method này tách xe động theo box 3D và KITTI-360 có box cho xe. FastGS và Faster-GS được bật vì mục 5.1 cho thấy chúng giảm thời gian train và VRAM mà chỉ mất khoảng 0,2 dB, điều cần thiết khi chạy nhiều run trên T4. MCMC tắt vì kém 1,6 dB ở mục 5.1.</li>
+<li><strong>Hai bộ camera train:</strong> chỉ 2 camera fisheye (362 ảnh train, 38 ảnh test), và cả 4 camera (724 ảnh train, 76 ảnh test). Ảnh fisheye giữ nguyên phép chiếu fisheye ở 700×700; ảnh pinhole dùng 704×188. Hai bộ train cùng 30.000 bước, nên run gộp học mỗi ảnh ít lần hơn.</li>
+<li><strong>Khác biệt cần lưu ý:</strong> mỗi renderer giữ thông số densify riêng (3DGUT densify mỗi 100 bước với ngưỡng 0,0005; 3DGEER mỗi 50 bước với ngưỡng 0,01), nên so 3DGUT với 3DGEER là so hai cấu hình hoàn chỉnh.</li>
+<li>Kaggle T4, protocol đánh giá 0.3, chạy ngày 17/11. Ảnh fisheye được che các pixel lệch trục quang quá 83°.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Run</th>
+<th>Renderer</th>
+<th>Camera train</th>
+<th>PSNR</th>
+<th>SSIM</th>
+<th>LPIPS</th>
+<th>PSNR xe</th>
+<th>Gaussian</th>
+<th>Train</th>
+<th>VRAM</th>
+<th>FPS</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>146b</td>
+<td>3DGUT</td>
+<td>2 fisheye</td>
+<td>23,08</td>
+<td>0,760</td>
+<td>0,224</td>
+<td>22,74</td>
+<td>272k</td>
+<td>2 h 16</td>
+<td>3,1 GB</td>
+<td>11,3</td>
+</tr>
+<tr>
+<td>e3e3</td>
+<td>3DGEER</td>
+<td>2 fisheye</td>
+<td>22,90</td>
+<td>0,746</td>
+<td>0,220</td>
+<td>22,20</td>
+<td>194k</td>
+<td>2 h 30</td>
+<td>3,5 GB</td>
+<td>11,3</td>
+</tr>
+<tr>
+<td>e627</td>
+<td>3DGUT</td>
+<td>2 pinhole + 2 fisheye</td>
+<td>23,72</td>
+<td>0,769</td>
+<td>0,234</td>
+<td>21,14</td>
+<td>208k</td>
+<td>1 h 37</td>
+<td>3,1 GB</td>
+<td>14,9</td>
+</tr>
+<tr>
+<td>0b27</td>
+<td>3DGEER</td>
+<td>2 pinhole + 2 fisheye</td>
+<td>21,37</td>
+<td>0,765</td>
+<td>0,214</td>
+<td>21,45</td>
+<td>218k</td>
+<td>2 h 01</td>
+<td>3,4 GB</td>
+<td>12,9</td>
+</tr>
+</tbody>
+</table>
+<p>PSNR chung trộn lẫn các camera, nên bảng dưới tách PSNR theo từng camera để thấy chênh lệch đến từ đâu (ô trống là camera không dùng trong run đó):</p>
+<table>
+<thead>
+<tr>
+<th>Camera</th>
+<th>146b 3DGUT, chỉ fisheye</th>
+<th>e3e3 3DGEER, chỉ fisheye</th>
+<th>e627 3DGUT, gộp</th>
+<th>0b27 3DGEER, gộp</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>image_00 pinhole</td>
+<td></td>
+<td></td>
+<td>25,74</td>
+<td>20,15</td>
+</tr>
+<tr>
+<td>image_01 pinhole</td>
+<td></td>
+<td></td>
+<td>25,09</td>
+<td>19,95</td>
+</tr>
+<tr>
+<td>image_02 fisheye</td>
+<td>23,83</td>
+<td>23,23</td>
+<td>23,04</td>
+<td>23,89</td>
+</tr>
+<tr>
+<td>image_03 fisheye</td>
+<td>22,33</td>
+<td>22,57</td>
+<td>21,00</td>
+<td>21,48</td>
+</tr>
+</tbody>
+</table>
+<p>Hai hình dưới đặt ảnh render cạnh ảnh thật ở cùng một khung test. Hình 6 so hai renderer trên camera fisheye image_02 của hai run chỉ train fisheye. Hình 7 so hai renderer trên camera pinhole image_00 của hai run gộp, là nơi có khoảng cách 5,6 dB.</p>
+<figure><p><img alt="Hình 6. Camera fisheye image_02: ảnh thật, 3DGUT và 3DGEER (run chỉ train fisheye, cùng khung test; số là PSNR của camera này trên toàn tập test)." src="figures/tuan-03/kitti-fisheye-renderer.jpg" /></p><p><em>Hình 6. Camera fisheye image_02: ảnh thật, 3DGUT và 3DGEER (run chỉ train fisheye, cùng khung test; số là PSNR của camera này trên toàn tập test).</em></p></figure>
+<figure><p><img alt="Hình 7. Camera pinhole image_00 trong run gộp 4 camera: ảnh thật, 3DGUT và 3DGEER (cùng khung test)." src="figures/tuan-03/kitti-pinhole-gop.jpg" /></p><p><em>Hình 7. Camera pinhole image_00 trong run gộp 4 camera: ảnh thật, 3DGUT và 3DGEER (cùng khung test).</em></p></figure>
+<p>Trên ảnh fisheye, hai renderer cho kết quả tương tự nhau, đều nhoè ở xe đang chạy và ở tán cây sát mặt trời. Trên ảnh pinhole, ảnh 3DGEER có một khung chữ nhật lệch so với ảnh thật ở mép trên và mép phải, giống hiện tượng ở mép ảnh 3DGEER trên nuScenes (Hình 5). Hiện tượng này gợi ý vấn đề nằm ở phép chiếu pinhole của 3DGEER chứ không chỉ do gộp camera, nhưng cần đợt chạy chỉ train pinhole để khẳng định.</p>
+<p>Từ hai bảng trên, nhóm rút ra các nhận xét sau:</p>
+<ul>
+<li><strong>Trên ảnh fisheye, hai renderer ngang nhau.</strong> Khi chỉ train fisheye, 3DGUT hơn 0,18 dB và mỗi renderer thắng một camera. Trong run gộp, 3DGEER còn hơn 3DGUT trên cả hai camera fisheye (0,85 và 0,48 dB).</li>
+<li><strong>Khoảng cách 2,35 dB của run gộp nằm hết ở camera pinhole:</strong> 3DGEER chỉ đạt khoảng 20 dB trên image_00 và image_01, thấp hơn 3DGUT khoảng 5,3 dB.</li>
+<li><strong>Gộp pinhole không làm hỏng fisheye:</strong> PSNR fisheye của run gộp gần bằng run chỉ train fisheye. Với 3DGEER, image_02 còn tăng 0,66 dB; image_03 giảm 1,1–1,3 dB ở cả hai renderer.</li>
+<li><strong>Chi phí:</strong> 3DGUT train nhanh hơn và tốn ít VRAM hơn ở cả hai bộ camera.</li>
+</ul>
+<p><strong>Mức tin cậy và việc còn mở.</strong> Mỗi cấu hình chạy một lần. Nhóm chưa chạy bộ chỉ train pinhole, nên chưa biết 3DGEER kém trên pinhole do chính phép chiếu pinhole của nó hay do gộp hai loại camera. Đợt chạy này nằm trong bước 3 của benchmark (cảnh A2, mục 7).</p>
+<h3>5.3 Vùng mép ảnh fisheye và giới hạn 90° của renderer</h3>
+<p><strong>Câu hỏi.</strong> Vì sao PSNR ở vùng mép ảnh fisheye thấp, và nên che ảnh fisheye tới góc nào khi train?</p>
+<p><strong>Vì sao cần.</strong> Ống kính fisheye của KITTI-360 nhìn tới 96,1° lệch khỏi trục quang ở image_02 và 92,5° ở image_03. Các run ở mục 5.2 che mọi pixel lệch trục quá 83°, tức là bỏ một vành ảnh rộng khi train. Nếu renderer vẽ được vành đó thì nới vùng che sẽ cho cảnh thêm dữ liệu; nếu không vẽ được thì train vành đó chỉ thêm nhiễu.</p>
+<p><strong>Kết quả.</strong> Nhóm trả lời câu hỏi qua ba bước, mỗi bước dựa trên kết quả của bước trước.</p>
+<p><strong>Bước 1. Đo theo dải góc trên các run ở mục 5.2.</strong> Nhóm render lại checkpoint của 146b (3DGUT) và e3e3 (3DGEER) mà không che, rồi so với ảnh gốc theo từng dải góc trên 12 khung của image_02. Ngoài 83°, cả hai renderer tụt như nhau (88–89°: 17,4 dB cả hai; 89–90°: 16,5 và 16,6 dB). Vì vậy phần tụt do vành ảnh này chưa được học khi train, chứ không do renderer vẽ sai.</p>
+<p><strong>Bước 2. Nới vùng che từ 83° lên 88°.</strong> Hai run thử 4ef4 và fe92 cùng dùng OmniRe + 3DGUT, 1.000 bước, cảnh 40 khung với 2 camera fisheye, và chỉ khác góc che. Bảng dưới đo trên 8 khung test của image_02. Vành 83–90° tăng thêm 1,2–2,4 dB và dải 60–83° gần như không đổi, nhưng dải giữa ảnh 0–60° giảm 0,5 dB. Với một run 1.000 bước, chưa rõ mức giảm 0,5 dB này là do vùng che hay do dao động giữa hai lần chạy.</p>
+<table>
+<thead>
+<tr>
+<th>Dải góc</th>
+<th>Che từ 83° (4ef4)</th>
+<th>Che từ 88° (fe92)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0–60°</td>
+<td>19,5 dB</td>
+<td>19,0 dB</td>
+</tr>
+<tr>
+<td>60–83°</td>
+<td>18,3–20,8 dB</td>
+<td>18,4–20,9 dB</td>
+</tr>
+<tr>
+<td>83–86°</td>
+<td>16,2 dB</td>
+<td>17,4 dB</td>
+</tr>
+<tr>
+<td>86–88°</td>
+<td>14,8 dB</td>
+<td>17,2 dB</td>
+</tr>
+<tr>
+<td>88–90°</td>
+<td>13,9 dB</td>
+<td>16,1 dB</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Bước 3. Thử che tới đúng giới hạn ống kính.</strong> Run <code>3586</code> (3DGEER) che tới đúng giới hạn ống kính (96,1° và 92,5°). Kết quả: mô hình có độ phủ (opacity) bằng 0 ở mọi pixel lệch trục quá 90°, tức là không vẽ được gì ở đó. Đọc code của gsplat cho thấy nguyên nhân: gsplat bỏ mọi Gaussian có tâm nằm sau mặt phẳng camera, và điều này đúng cho cả 3DGUT lẫn 3DGEER. Vì run này train một vành ảnh mà renderer không vẽ được, nhóm không dùng nó để so PSNR.</p>
+<p>Từ ba bước trên, từ 19–20/11 nhóm che các pixel lệch trục quá 88° cho cả hai renderer, tức là giữ góc nhìn 176°. Mức 88° nằm sát giới hạn 90° và chừa 2° an toàn, vì 3DGUT chiếu các điểm mẫu của mỗi Gaussian qua ống kính và phép chiếu này đã sai lệch khi tới gần 90°. Vành 88–96° vẫn bị bỏ, vì renderer hiện tại không vẽ được.</p>
+<p>Sau khi đặt vùng che 88°, nhóm kiểm tra thêm một câu hỏi phụ: 3DGEER tính giao giữa tia sáng và Gaussian một cách chính xác, nên được kỳ vọng vẽ vùng mép tốt hơn 3DGUT. Hai run thử dưới đây giữ mọi điều kiện như nhau và chỉ đổi renderer: cảnh 40 khung, 2 camera fisheye, 1.000 bước, cùng che từ 88°.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>fe92 3DGUT</th>
+<th>d9ee 3DGEER</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PSNR image_02 / image_03</td>
+<td>19,27 / 18,18</td>
+<td>18,79 / 17,47</td>
+</tr>
+<tr>
+<td>LPIPS image_02 / image_03</td>
+<td>0,362 / 0,345</td>
+<td>0,361 / 0,343</td>
+</tr>
+<tr>
+<td>PSNR image_02 theo dải góc 0–60° / 60–88° / 88–96°</td>
+<td>19,00 / 17,2–20,9 / 13,2–16,1</td>
+<td>19,11 / 15,5–19,4 / 10,6–15,0</td>
+</tr>
+<tr>
+<td>Số Gaussian cuối</td>
+<td>1,05 triệu</td>
+<td>1,34 triệu</td>
+</tr>
+</tbody>
+</table>
+<p>Hình 8 đặt ảnh render của ba run thử cạnh ảnh thật, cùng một khung test. Vì chỉ train 1.000 bước, cả ba ảnh còn nhoè; hình chỉ dùng để xem vùng mép và các vết lỗi.</p>
+<figure><p><img alt="Hình 8. Camera fisheye image_02, run thử 1.000 bước: ảnh thật, 3DGUT che từ 83°, 3DGUT che từ 88°, 3DGEER che từ 88° (cùng khung test)." src="figures/tuan-03/kitti-vung-che.jpg" /></p><p><em>Hình 8. Camera fisheye image_02, run thử 1.000 bước: ảnh thật, 3DGUT che từ 83°, 3DGUT che từ 88°, 3DGEER che từ 88° (cùng khung test).</em></p></figure>
+<p>Ở run che từ 88°, vành ngoài của ảnh có thêm hình mặt đường và hàng cây mà run che từ 83° còn thiếu. Ảnh 3DGEER có một vết tối giữa bầu trời và các vết tím ở mép phải, khớp với việc 3DGEER kém nhiều nhất ở dải 60–88°.</p>
+<p>Kết quả không như kỳ vọng: 3DGEER kém 3DGUT 0,5–0,7 dB, kém nhiều nhất ở dải 60–88°, tức chính vùng mép. Ngoài 88° cả hai đều tụt mạnh vì không vẽ được gì ngoài màu trời.</p>
+<p><strong>Mức tin cậy.</strong> Hai run này chỉ chạy 1.000 bước trên cảnh 40 khung, mỗi cấu hình một lần, trong khi các run 30.000 bước ở mục 5.2 cho thấy hai renderer ngang nhau trên fisheye. Vì vậy kết quả này chưa đủ để nói 3DGEER kém trên fisheye khi train đầy đủ.</p>
+<p><strong>Run đầy đủ đầu tiên với vùng che 88°.</strong> Để biết vùng che mới có giữ được chất lượng khi train đủ 30.000 bước, nhóm chạy lại cấu hình của 146b (OmniRe + 3DGUT + FastGS + Faster-GS, 2 camera fisheye, cùng đoạn khung 0–199) trên bản nạp mới của cảnh, có vùng che 88° tính theo từng camera. Run này là 82bc, xong ngày 21/11.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>146b (che từ 83°)</th>
+<th>82bc (che từ 88°)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PSNR / SSIM / LPIPS</td>
+<td>23,08 / 0,760 / 0,224</td>
+<td>22,84 / 0,763 / 0,223</td>
+</tr>
+<tr>
+<td>PSNR image_02 / image_03</td>
+<td>23,83 / 22,33</td>
+<td>23,27 / 22,41</td>
+</tr>
+<tr>
+<td>Gaussian, thời gian train, VRAM</td>
+<td>272k, 2 h 16, 3,1 GB</td>
+<td>266k, 1 h 59, 3,0 GB</td>
+</tr>
+</tbody>
+</table>
+<p>PSNR chung thấp hơn 0,24 dB, còn SSIM và LPIPS gần như không đổi. Tuy vậy hai con số không đo trên cùng một tập pixel: 82bc tính thêm vành 83–88°, là vùng khó hơn phần giữa ảnh (mục Bước 2 ở trên). Vì vậy chênh lệch này chưa cho biết vùng che 88° làm phần giữa ảnh tốt lên hay kém đi. Để trả lời, nhóm cần đo hai run theo cùng các dải góc như ở Bước 2; việc này cần ảnh render của 82bc, đang tải về.</p>
+<h3>5.4 Quãng đường dài (long-drive) và các method khác</h3>
+<p><strong>Câu hỏi.</strong> Có method nào có code mà dựng được một đoạn đường từ 1 km trở lên trên một GPU T4 không, và method nào nên đưa vào track B (quãng đường dài) của benchmark? Ngoài ra, các method mới (BezierGS, SimULi, SplatAD) có tái hiện được kết quả của paper để đưa vào tool không?</p>
+<p><strong>Vì sao cần.</strong> Mục tiêu của dự án là mô phỏng closed-loop trên một khu vực thật, nhưng các run tới tuần 02 mới dựng đoạn 4–30 giây (quyết định ở tuần 02). Vì vậy nhóm cần biết hướng nào đi được tới cỡ km.</p>
+<p><strong>Thiết lập.</strong> Mỗi method chạy trên một dataset có số liệu trong paper của nó, để so được với paper: KITTI Odometry 06 cho các method SLAM một camera, Waymo cho MCGS-SLAM và BezierGS, NCore cho SimULi, PandaSet cho SplatAD. Vì dữ liệu khác nhau, các con số dưới đây chỉ so được với paper của chính method đó, không so được giữa các method. Ngoài ra PSNR của SLAM đo trên keyframe, tức là ảnh đã dùng để học, nên cũng không so được với PSNR test ở mục 5.1.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Dữ liệu</th>
+<th>Trạng thái</th>
+<th>PSNR / SSIM / LPIPS</th>
+<th>Khác</th>
+<th>Chi phí (T4)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>KiloGS-SLAM</td>
+<td>KITTI 06 đủ 1.101 khung, ~1,2 km, 1 camera</td>
+<td>Xong</td>
+<td>21,99 / 0,666 / 0,482 (keyframe)</td>
+<td>ATE 1,37 m, scale 0,97; loop closure bắt 6 vòng; 236k anchor</td>
+<td>39,9 phút, VRAM 14,4 GB</td>
+</tr>
+<tr>
+<td>MCGS-SLAM</td>
+<td>Waymo 100613, 3 camera, 198 khung, ~19 s</td>
+<td>Xong</td>
+<td>26,81 / 0,821 / 0,240 (keyframe; paper TB 26,50)</td>
+<td>ATE 1,19 m (paper 1,30); 172k Gaussian, <code>.ply</code> 11,7 MB</td>
+<td>17,4 phút, 8,9 GB</td>
+</tr>
+<tr>
+<td>BezierGS</td>
+<td>Waymo 017, 3 camera, 49 khung, 640×960</td>
+<td>Xong</td>
+<td>Test 29,91 / 0,894 / 0,082; Dyn-PSNR 30,60 (paper TB 12 cảnh: 31,51 / 0,903 / 0,092 / 28,51)</td>
+<td>1,87 triệu Gaussian; <code>.ply</code> nền 1,80 triệu, 68% gần trong suốt</td>
+<td>169,5 phút, 10,9 GB</td>
+</tr>
+<tr>
+<td>SimULi</td>
+<td>NCore clip 004c2001</td>
+<td>Dừng</td>
+<td></td>
+<td>Loss LiDAR NaN sau 40–340 bước do lỗi render LiDAR có feature của gsplat 1.6</td>
+<td></td>
+</tr>
+<tr>
+<td>GigaSLAM, GLAM-SLAM</td>
+<td>KITTI 06</td>
+<td>Dừng</td>
+<td></td>
+<td>Không cải thiện so với KiloGS/MCGS-SLAM</td>
+<td></td>
+</tr>
+<tr>
+<td>SplatAD, IDsplat</td>
+<td>PandaSet 001</td>
+<td>Đang làm</td>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Hai điểm rút ra cho track B của benchmark (quãng đường dài):</p>
+<ul>
+<li>KiloGS-SLAM cho thấy 1,2 km vừa đủ chạy trên một GPU T4, và sai số quỹ đạo tốt hơn số của paper GigaSLAM trên cùng chuỗi (2,11 m). Tuy nhiên PSNR chỉ khoảng 22 dB, method chỉ dùng 1 camera, không mô hình hoá xe động, và lưu bản đồ dạng anchor + MLP chứ không phải <code>.ply</code> 3DGS thuần.</li>
+<li>Nhóm chưa tìm được method nào có code mà vừa chạy được cỡ km vừa render được xe động. Vì vậy track B ưu tiên cách chia đoạn đường thành nhiều đoạn ngắn (chunk), dựng từng đoạn bằng method của drivestudio, rồi gộp lại.</li>
+</ul>
+<p><strong>Mức tin cậy.</strong> Mỗi method chạy một lần trên một chuỗi. Các số so với paper chỉ cho biết nhóm đã chạy đúng method, chưa cho biết method đó tốt trên dữ liệu của dự án.</p>
+<h3>5.5 Dựng tức thì (feed-forward) bằng Instant NuRec và thử đưa cảnh vào CARLA</h3>
+<p><strong>Câu hỏi.</strong> Có hai câu hỏi. Thứ nhất, Instant NuRec có dựng được cảnh từ dữ liệu KITTI-360 của dự án không, và chất lượng ra sao? Thứ hai, cảnh tái dựng có đưa vào CARLA được không, tức là CARLA chạy xe trong cảnh đó và cảnh được render theo vị trí camera của CARLA?</p>
+<p><strong>Vì sao cần.</strong> Instant NuRec là method được chọn cho hướng feed-forward ở tuần 02, nay là track C (feed-forward) của benchmark. Còn việc đưa cảnh vào CARLA là mục tiêu cuối của dự án: ở tuần 01, nhóm mới phân tích trên giấy cách NVIDIA nối NuRec với CARLA (một script gọi cả hai bên, mỗi bước mô phỏng lấy vị trí camera từ CARLA rồi gọi renderer).</p>
+<p><strong>Thiết lập.</strong> Một thành viên làm thử nghiệm này ngoài tool drive2sim, ngày 16/11, theo ba bước nối tiếp nhau:</p>
+<ol>
+<li><strong>Chuyển dữ liệu sang định dạng NuRec đọc được.</strong> NuRec chỉ đọc dữ liệu ở định dạng NCore của NVIDIA, nên KITTI-360 chuỗi 0003 được chuyển sang NCore. Để kiểm tra phép chuyển đúng, điểm LiDAR được chiếu lên ảnh của cả 4 camera (Hình 9), và mask thân xe được làm thử hai phiên bản.</li>
+<li><strong>Dựng cảnh bằng NuRec.</strong> NuRec được chạy trước trên clip mẫu của NVIDIA để kiểm tra method chạy được, rồi trên KITTI-360 với cả 4 camera (2 pinhole, 2 fisheye) ở hai độ dài: 40 khung và 150 khung, bắt đầu từ khung 167. Đầu ra là một file <code>.ply</code> cảnh tĩnh, kèm phần trời lưu riêng.</li>
+<li><strong>Đưa cảnh vào CARLA.</strong> Cảnh NuRec được render theo camera của một xe chạy trong CARLA suốt 75 giây, và 4 xe NPC (xe do CARLA điều khiển) được ghép vào ảnh render (Hình 11).</li>
+</ol>
+<figure><p><img alt="Hình 9. Kiểm tra dữ liệu sau khi chuyển sang NCore: điểm LiDAR (đỏ gần, xanh xa) chiếu lên ảnh fisheye image_02 nằm khít mặt đường và tường nhà." src="figures/tuan-03/ncore-lidar-fisheye.jpg" /></p><p><em>Hình 9. Kiểm tra dữ liệu sau khi chuyển sang NCore: điểm LiDAR (đỏ gần, xanh xa) chiếu lên ảnh fisheye image_02 nằm khít mặt đường và tường nhà.</em></p></figure>
+<p><strong>Kết quả.</strong> Bảng dưới là PSNR theo từng camera mà NuRec đạt trên KITTI-360:</p>
+<table>
+<thead>
+<tr>
+<th>Camera</th>
+<th>40 khung (10 ảnh đo mỗi camera)</th>
+<th>150 khung (15 ảnh đo mỗi camera)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>image_00 pinhole</td>
+<td>15,98</td>
+<td>15,89</td>
+</tr>
+<tr>
+<td>image_01 pinhole</td>
+<td>16,07</td>
+<td>15,88</td>
+</tr>
+<tr>
+<td>image_02 fisheye</td>
+<td>16,02</td>
+<td>15,52</td>
+</tr>
+<tr>
+<td>image_03 fisheye</td>
+<td>16,19</td>
+<td>13,71</td>
+</tr>
+</tbody>
+</table>
+<figure><p><img alt="Hình 10. Instant NuRec trên KITTI-360 (40 khung), camera fisheye image_02: ảnh thật (trái) và ảnh render (phải)." src="figures/tuan-03/nurec-kitti360-fisheye.jpg" /></p><p><em>Hình 10. Instant NuRec trên KITTI-360 (40 khung), camera fisheye image_02: ảnh thật (trái) và ảnh render (phải).</em></p></figure>
+<figure><p><img alt="Hình 11. Cảnh NuRec chạy trong CARLA: nền là cảnh tái dựng, xe màu xanh là xe NPC của CARLA được ghép vào ảnh." src="figures/tuan-03/nurec-carla-npc.jpg" /></p><p><em>Hình 11. Cảnh NuRec chạy trong CARLA: nền là cảnh tái dựng, xe màu xanh là xe NPC của CARLA được ghép vào ảnh.</em></p></figure>
+<p>Từ bảng và các hình trên, nhóm rút ra các nhận xét sau:</p>
+<ul>
+<li><strong>Bước chuyển dữ liệu đúng:</strong> điểm LiDAR nằm khít lên vật trong ảnh ở cả camera pinhole lẫn fisheye, nên NuRec nhận đúng calibration và pose của KITTI-360.</li>
+<li><strong>NuRec chạy được trên dữ liệu của dự án, nhưng chất lượng còn thấp:</strong> PSNR khoảng 16 dB ở mọi camera. Hình 10 cho thấy ba nguyên nhân nhìn thấy được. Bầu trời bị đen hoàn toàn, vì ảnh đo không ghép phần trời lưu riêng; vùng trời chiếm khoảng một phần ba ảnh nên kéo PSNR xuống mạnh. Mặt đường bị nhoè thành vân ô lưới. Xe đang chạy (xe tải xanh ở ảnh thật) không có trong ảnh render, vì <code>.ply</code> của NuRec chỉ chứa cảnh tĩnh.</li>
+<li><strong>Dài hơn thì kém hơn:</strong> với 150 khung, PSNR giảm nhẹ ở ba camera và giảm 2,5 dB ở fisheye image_03. Nhóm chưa tìm hiểu nguyên nhân.</li>
+<li><strong>Đưa vào CARLA được:</strong> đây là lần đầu dự án chạy được một cảnh tái dựng trong CARLA, với xe NPC của CARLA chạy trên đường của cảnh. Trong video CARLA, phần trời đã được ghép vào. Tuy nhiên mặt đường và hai bên đường vẫn nhoè như ở Hình 10.</li>
+</ul>
+<p><strong>Mức tin cậy và câu hỏi còn mở.</strong> Các con số trên chưa so được với các run OmniRe ở mục 5.1 và 5.2 (khoảng 23 dB), vì khác đoạn khung (40 hoặc 150 khung so với 200 khung), khác cách chọn ảnh đo, và tính cả vùng trời đen. Nhóm còn bốn điểm phải xác nhận với thành viên đã chạy (ghi ở mục 8): PSNR đo trên ảnh NuRec đã nhận làm đầu vào hay ảnh giữ lại; vì sao ảnh đo không ghép trời; video CARLA là chạy lại theo quỹ đạo ghi sẵn hay CARLA điều khiển xe; và xe NPC được ghép vào ảnh có che khuất đúng theo độ sâu không. Để so được với các method khác, NuRec cần chạy qua bộ đo chung của benchmark (track C, mục 7).</p>
+<h2>6. Phát hiện và quyết định</h2>
+<p>Mục này gồm hai phần. Phần đầu gom các nhận xét ở mục 5.1–5.3 thành kết luận: nên dùng cấu hình nào cho trường hợp nào. Phần sau là các quyết định khác cho benchmark tuần tới.</p>
+<p><strong>Cấu hình khuyến nghị theo trường hợp.</strong> Các run ở mục 5.1 và 5.2 mỗi lần chỉ đổi một thành phần, nên có thể ghép lại thành lựa chọn cho từng trường hợp. Faster-GS được bật ở mọi trường hợp, vì nó chỉ làm train nhanh hơn mà không đổi chất lượng (8d9c so với 2d33).</p>
+<p><em>Ghi chú: mỗi dòng là một trường hợp sử dụng; cột "Đánh đổi" ghi cái giá phải trả so với cấu hình khác. Kết luận mới dựa trên một cảnh nuScenes (pinhole) và một cảnh KITTI-360 (fisheye), mỗi cấu hình chạy một lần; benchmark tuần sau sẽ kiểm tra lại trên cảnh A1, A2.</em></p>
+<table>
+<thead>
+<tr>
+<th>Trường hợp</th>
+<th>Cấu hình khuyến nghị</th>
+<th>Vì sao</th>
+<th>Đánh đổi</th>
+<th>Nguồn</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Chỉ có camera pinhole, dùng làm mặc định (ô A-LB của benchmark)</td>
+<td>OmniRe + 3DGS + FastGS + Faster-GS</td>
+<td>25,01 dB, chỉ kém cấu hình tốt nhất 0,19 dB; số Gaussian ít hơn 2,8 lần nên file <code>.ply</code> nhỏ; train 2 h 29 thay vì 3 h 18; VRAM 4,7 thay vì 6,9 GB</td>
+<td>Mất khoảng 0,2 dB</td>
+<td>Mục 5.1 (Dựng từng cảnh trên nuScenes)</td>
+</tr>
+<tr>
+<td>Chỉ có camera pinhole, cần chất lượng cao nhất và GPU dư VRAM</td>
+<td>OmniRe + 3DGS + Faster-GS</td>
+<td>PSNR cao nhất, 25,20 dB</td>
+<td>Train lâu nhất (3 h 18), 6,9 GB VRAM, 1,52 triệu Gaussian</td>
+<td>Mục 5.1</td>
+</tr>
+<tr>
+<td>Chỉ có camera pinhole, cảnh ít hoặc không có người, cần train nhanh</td>
+<td>Street GS + 3DGS + FastGS</td>
+<td>PSNR ngang OmniRe (25,02 dB), train nhanh gấp khoảng 2 lần (1 h 11)</td>
+<td>Vùng người kém 1,2 dB, vì Street GS không dựng người bằng SMPL</td>
+<td>Mục 5.1</td>
+</tr>
+<tr>
+<td>Có camera fisheye (chỉ fisheye, hoặc gộp pinhole với fisheye)</td>
+<td>OmniRe + 3DGUT + FastGS + Faster-GS, che pixel fisheye lệch trục quá 88°</td>
+<td>Ngang 3DGEER trên ảnh fisheye; hơn 3DGEER 2,35 dB khi gộp pinhole; train nhanh hơn và ít VRAM hơn</td>
+<td>Trên ảnh pinhole, 3DGUT kém 3DGS 1,0 dB; nếu cảnh chỉ có pinhole thì dùng 3DGS</td>
+<td>Mục 5.2, 5.3</td>
+</tr>
+<tr>
+<td>Không nên dùng</td>
+<td>Luật densify MCMC; renderer 3DGEER cho ảnh pinhole</td>
+<td>MCMC kém 1,6 dB và vùng xe kém 4,2 dB; 3DGEER kém 3DGS 3,2 dB trên pinhole</td>
+<td></td>
+<td>Mục 5.1</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Các quyết định khác.</strong> Từ các kết quả ở mục 5 và việc chọn dataset ở mục 4.3, nhóm chốt thêm các quyết định sau cho benchmark tuần tới.</p>
+<p><em>Ghi chú: các quyết định chốt trong tuần, mỗi quyết định kèm lý do và nguồn (mục trong báo cáo, paper hoặc tài liệu).</em></p>
+<table>
+<thead>
+<tr>
+<th>Quyết định</th>
+<th>Lý do / bằng chứng</th>
+<th>Nguồn</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Bỏ KiloGS-SLAM khỏi benchmark, dùng MCGS-SLAM cho track B (quãng đường dài)</td>
+<td>KiloGS PSNR thấp (~22 dB) và chỉ 1 camera; MCGS dùng nhiều camera, khớp số paper</td>
+<td>Mục 5.4 (Quãng đường dài và các method khác)</td>
+</tr>
+<tr>
+<td>Track B (quãng đường dài) ưu tiên chia chunk rồi gộp trên drivestudio</td>
+<td>Chưa có method có code vừa chạy cỡ km vừa render xe động</td>
+<td>Mục 5.4 (Quãng đường dài và các method khác)</td>
+</tr>
+<tr>
+<td>Dừng SimULi</td>
+<td>Loss LiDAR NaN do lỗi render LiDAR của gsplat 1.6</td>
+<td>Mục 5.4 (Quãng đường dài và các method khác)</td>
+</tr>
+<tr>
+<td>3DGUT là renderer mặc định cho camera fisheye</td>
+<td>Ngang 3DGEER trên ảnh fisheye, tốt hơn 2,35 dB khi gộp pinhole, train nhanh hơn và tốn ít VRAM hơn</td>
+<td>Mục 5.2 (Gộp camera pinhole và fisheye trên KITTI-360)</td>
+</tr>
+<tr>
+<td>Che các pixel fisheye lệch trục quang quá 88° (giữ góc nhìn 176°) cho cả hai renderer</td>
+<td>Renderer không vẽ được gì ngoài 90° (gsplat bỏ Gaussian sau mặt phẳng camera); nới từ 83° lên 88° tăng vùng mép 1,2–2,4 dB</td>
+<td>Mục 5.3 (Vùng mép ảnh fisheye và giới hạn 90°)</td>
+</tr>
+<tr>
+<td>Gỡ luật densify MCMC khỏi lựa chọn mặc định của OmniRe</td>
+<td>Kém 1,6 dB, vùng xe tụt mạnh nhất</td>
+<td>Mục 5.1 (Dựng từng cảnh trên nuScenes)</td>
+</tr>
+<tr>
+<td>Loại A2D2</td>
+<td>Không có ego pose và box 3D trong chuỗi liên tục</td>
+<td>Mục 4.3 (Dataset)</td>
+</tr>
+<tr>
+<td>Đánh giá PHENIKAA cho track A (dựng từng cảnh), bắt đầu với hai chuỗi mini COMPLEX CITY và COMPLEX URBAN</td>
+<td>Bộ duy nhất tìm được có 4 fisheye bao quanh, LiDAR, box và pose; hai chuỗi này đủ cả 10 camera</td>
+<td>Mục 4.3 (Dataset); <a href="https://phenikaa-x.com/perception-data/">Phenikaa-X Perception Data</a></td>
+</tr>
+<tr>
+<td>Benchmark 3 track xếp hạng riêng (dựng từng cảnh, quãng đường dài, feed-forward), 13 run ưu tiên</td>
+<td>Cần đo 8 yêu cầu của closed-loop, không chỉ PSNR nội suy</td>
+<td>Mục 4.2 (Thiết kế benchmark); EUVS (ICCV 2025), XLD (3DV 2025), Para-Lane (2025)</td>
+</tr>
+</tbody>
+</table>
+<h2>7. Kế hoạch tuần sau</h2>
+<p>Benchmark đã thiết kế xong, nên tuần sau nhóm dựng tool đo theo thiết kế đó và chạy các run ưu tiên. Song song, nhóm đánh giá PHENIKAA để biết bộ này có thay được KITTI-360 cho track A (dựng từng cảnh) không.</p>
+<p class="caption">Ghi chú: việc dự kiến làm trong tuần sau và kết quả cần có để tính là xong. Báo cáo tuần sau báo lại trạng thái của từng việc này ở mục 3 (Đối chiếu với kế hoạch tuần trước).</p><p><b>Tuần 04 · 22/11/2026 – 28/11/2026</b></p><table class="plan"><thead><tr><th>Công việc</th><th>Kết quả cần có</th></tr></thead><tbody><tr><td>Dựng tool benchmark (đo lệch làn, export gap, ghost_ratio, đoạn xấu; config không LiDAR; chia chunk)</td><td>Tool chạy được từ output của một run tới bảng kết quả</td></tr><tr><td>Chạy benchmark theo ma trận (13 run, ~23 GPU-giờ)</td><td>Bảng kết quả của track A (dựng từng cảnh, 3 ô), track B (quãng đường dài), track C (feed-forward); danh sách đoạn xấu</td></tr><tr><td>Thực nghiệm fisheye: đợt chỉ train pinhole, và đo 82bc theo dải góc</td><td>Biết 3DGEER kém trên pinhole do phép chiếu hay do gộp camera; biết vùng che 88° làm phần giữa ảnh tốt lên hay kém đi</td></tr><tr><td>Đánh giá dataset PHENIKAA cho track A (dựng từng cảnh), trên COMPLEX CITY và COMPLEX URBAN</td><td>Kết luận PHENIKAA có thay được KITTI-360 cho track A (pinhole + 4 fisheye) không</td></tr><tr><td>Chạy Instant NuRec qua bộ đo chung (track C, feed-forward)</td><td>Kết quả track C so được với method khác; trả lời 4 câu hỏi về NuRec ở mục 8 tuần 03</td></tr><tr><td>Đưa BezierGS, SplatAD vào tool nếu còn thời gian</td><td></td></tr></tbody></table>
+<h3>Ma trận chạy benchmark tuần 04</h3>
+<p>Việc "Chạy benchmark theo ma trận" ở bảng trên gồm 13 run. Bảng dưới liệt kê các run đó theo thứ tự chạy: bước 1 của track A (dựng từng cảnh) chạy trước, vì cần method thắng ở bước này để làm các bước sau.</p>
+<p><em>Ghi chú: chi tiết của việc "Chạy benchmark theo ma trận" trong bảng kế hoạch mục 7; các run ưu tiên 1 xếp theo thứ tự chạy, GPU-giờ ước lượng trên một RTX 4090. Thiết kế benchmark ở mục 4.2 (Thiết kế benchmark).</em></p>
+<table>
+<thead>
+<tr>
+<th>Thứ tự</th>
+<th>Track benchmark, bước</th>
+<th>Method hoặc cấu hình</th>
+<th>Scene</th>
+<th>Số run</th>
+<th>GPU-giờ</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>A, chọn best A-LB (có LiDAR, có box)</td>
+<td>OmniRe + 3DGS + FastGS</td>
+<td>A1</td>
+<td>1</td>
+<td>1,2</td>
+</tr>
+<tr>
+<td>1</td>
+<td>A, chọn best A-L (có LiDAR, không box)</td>
+<td>PVG; DeformableGS</td>
+<td>A1</td>
+<td>2</td>
+<td>3,4</td>
+</tr>
+<tr>
+<td>2</td>
+<td>A, A-0 (không LiDAR, không box)</td>
+<td>Method thắng A-L, bỏ LiDAR</td>
+<td>A1</td>
+<td>1</td>
+<td>1,7</td>
+</tr>
+<tr>
+<td>3</td>
+<td>A, chọn renderer fisheye</td>
+<td>OmniRe + 3DGUT; OmniRe + 3DGEER</td>
+<td>A2</td>
+<td>2</td>
+<td>4,3</td>
+</tr>
+<tr>
+<td>3</td>
+<td>A, fisheye cho A-L</td>
+<td>A-L với 3DGUT</td>
+<td>A2</td>
+<td>1</td>
+<td>2,0</td>
+</tr>
+<tr>
+<td>Song song</td>
+<td>B (quãng đường dài)</td>
+<td>MCGS-SLAM</td>
+<td>B2</td>
+<td>1</td>
+<td>0,5</td>
+</tr>
+<tr>
+<td>Song song</td>
+<td>C (feed-forward)</td>
+<td>Instant NuRec</td>
+<td>Clip mẫu NCore, A1</td>
+<td>2</td>
+<td>3,0</td>
+</tr>
+<tr>
+<td>Chung</td>
+<td>Hiệu chỉnh</td>
+<td>3k bước</td>
+<td>A1, A2</td>
+<td>1</td>
+<td>1,0</td>
+</tr>
+<tr>
+<td>Cuối</td>
+<td>A, cảnh thứ hai</td>
+<td>Method thắng A-LB</td>
+<td>A3</td>
+<td>1</td>
+<td>1,2</td>
+</tr>
+<tr>
+<td>Cuối</td>
+<td>B (quãng đường dài)</td>
+<td>drivestudio chia chunk + gộp</td>
+<td>B2 (5–7 chunk)</td>
+<td>1</td>
+<td>5,0</td>
+</tr>
+<tr>
+<td><strong>Tổng ưu tiên 1</strong></td>
+<td></td>
+<td></td>
+<td></td>
+<td><strong>13</strong></td>
+<td><strong>~23</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Nếu còn thời gian, nhóm chạy thêm BezierGS, SplatAD, NuRec trên B2, ReconDrive và EVolSplat4D (6 run, khoảng 7 GPU-giờ).</p>
+<h2>8. Hạn chế, rủi ro và câu hỏi còn mở</h2>
+<p>Phần này gồm hai nhóm: các giới hạn đã biết trước của benchmark tuần sau, và các câu hỏi về thử nghiệm Instant NuRec ở mục 5.5 cần thành viên đã chạy xác nhận.</p>
+<p><strong>Giới hạn của benchmark:</strong></p>
+<ol>
+<li>Track A (dựng từng cảnh) hiện chỉ có KITTI-360, với 2 cảnh và 2 fisheye gắn hông. PHENIKAA có thể thay thế, nhưng phải ghép ID theo dõi cho box trước khi dùng.</li>
+<li>Các method SLAM lưu cảnh dạng anchor + MLP, nên các metric về <code>.ply</code> (R3) không đo được cho chúng trong đợt này.</li>
+<li>13 run ước tính khoảng 23 GPU-giờ trên RTX 4090 thuê. Nếu chỉ dùng Kaggle T4 thì thời gian chạy sẽ tăng, và chi phí đo được sẽ không so được với số đo trên 4090.</li>
+</ol>
+<p><strong>Câu hỏi về Instant NuRec và CARLA (mục 5.5):</strong></p>
+<ol>
+<li>PSNR khoảng 16 dB của NuRec đo trên ảnh mà NuRec đã nhận làm đầu vào, hay trên ảnh giữ lại không đưa vào? Nếu là ảnh đầu vào thì con số này chỉ cho biết NuRec tái tạo lại đầu vào tốt đến đâu.</li>
+<li>Vì sao ảnh đo của NuRec không ghép phần trời, trong khi video CARLA có ghép? Nếu ghép trời khi đo thì PSNR sẽ tăng bao nhiêu?</li>
+<li>Video CARLA là xe chạy lại theo quỹ đạo đã ghi (open-loop) hay CARLA điều khiển xe (closed-loop)? Xe NPC được ghép vào ảnh có che khuất đúng theo độ sâu của cảnh không?</li>
+<li>Vì sao chạy 150 khung lại kém hơn 40 khung, nhất là ở camera fisheye image_03 (13,71 so với 16,19 dB)?</li>
+</ol>
+<h2>9. Bảng tổng hợp công việc</h2>
+<p class="caption">Ghi chú: cộng dồn từ tuần 01, mỗi khối là một tuần; việc kéo dài nhiều tuần lặp lại ở từng tuần để thấy màu đổi dần. Khối cuối (xám) là kế hoạch tuần sau, chi tiết ở mục 7 (Kế hoạch tuần sau).</p><p class="legend"><span class="chip st-xong">Xong</span> <span class="chip st-dang-lam">Đang làm</span> <span class="chip st-dung">Dừng</span> <span class="chip st-ke-hoach">Kế hoạch</span> </p><table class="tracker"><thead><tr><th>Công việc</th><th>Ghi chú</th></tr></thead><tbody><tr class="group"><td colspan="2">Tuần 01 · 01/11/2026 – 07/11/2026</td></tr><tr class="st-dang-lam"><td>Dựng report kỹ thuật chung (khung 3 part, 17 chương)</td><td>Ch 1, Ch 3 có bản nháp; Ch 2 xong tới 2.5</td></tr><tr class="st-xong"><td>Đặc tả yêu cầu, deliverables, phạm vi M0–M5</td><td>8 nhóm yêu cầu, 6 deliverable; chờ mentor xác nhận</td></tr><tr class="st-xong"><td>Kiến trúc tham chiếu 5 subsystem và luồng dữ liệu</td><td>5 subsystem, 2 giai đoạn offline và online</td></tr><tr class="st-xong"><td>Thiết kế tool thử nghiệm: chuẩn hoá cách nối các method</td><td>Chuẩn hoá dữ liệu, contract, metric; không chuẩn hoá thuật toán</td></tr><tr class="st-dang-lam"><td>Khảo sát và chọn method</td><td>Đã xem 6 framework, chưa chốt 4 method</td></tr><tr class="st-dang-lam"><td>Khảo sát tích hợp CARLA (map.xodr, cách NuRec nối CARLA)</td><td>Mới phân tích trên giấy: cần map.xodr, quỹ đạo vật thể, phép đổi toạ độ</td></tr><tr class="group"><td colspan="2">Tuần 02 · 08/11/2026 – 14/11/2026</td></tr><tr class="st-dang-lam"><td>Dựng report kỹ thuật chung (khung 3 part, 17 chương)</td><td></td></tr><tr class="st-xong"><td>Khảo sát và chọn method</td><td>Giữ nền drivestudio; loại NeRF và DGGT</td></tr><tr class="st-dang-lam"><td>Khảo sát tích hợp CARLA (map.xodr, cách NuRec nối CARLA)</td><td>Tuần này không có tiến triển mới</td></tr><tr class="st-xong"><td>Dựng khung tool drive2sim: nạp cảnh, split, chạy, đo, so sánh</td><td>Bản đầu: 6 bước, 7 dataset, 10 cấu hình</td></tr><tr class="st-xong"><td>Port drivestudio lên gsplat-geer 1.5.3 (3DGS, 3DGUT, 3DGEER)</td><td>Ba renderer chạy trong một môi trường</td></tr><tr class="st-dang-lam"><td>Thực nghiệm pinhole trên nuScenes</td><td>Tốt nhất 27,64 dB; chưa chạy qua drive2sim</td></tr><tr class="st-dang-lam"><td>Thực nghiệm fisheye trên KITTI-360 (3DGUT, 3DGEER)</td><td>Hai hướng khác dữ liệu, chưa so trực tiếp</td></tr><tr class="st-dang-lam"><td>Thực nghiệm camera + LiDAR: SimULi trên NCore</td><td>Val PSNR 31,19 dB, scene static</td></tr><tr class="st-xong"><td>Khảo sát method feed-forward, chọn Instant NuRec</td><td>Chỉ Instant NuRec ra một .ply cho cả cảnh</td></tr><tr class="st-dang-lam"><td>Chạy Instant NuRec</td><td>Chưa chạy được</td></tr><tr class="st-dung"><td>Chạy SplatAD (neurad-studio)</td><td>Phụ thuộc gsplat fork 1.0, không tương thích 1.5.3 và 1.6</td></tr><tr class="st-dang-lam"><td>Tìm dataset có fisheye, LiDAR, pose, box</td><td>Ứng viên A2D2</td></tr><tr class="group"><td colspan="2">Tuần 03 · 15/11/2026 – 21/11/2026</td></tr><tr class="st-dang-lam"><td>Dựng report kỹ thuật chung (khung 3 part, 17 chương)</td><td></td></tr><tr class="st-dang-lam"><td>Khảo sát tích hợp CARLA (map.xodr, cách NuRec nối CARLA)</td><td>Bản thử đầu: cảnh NuRec chạy trong CARLA cùng 4 xe NPC (mục 5.5)</td></tr><tr class="st-xong"><td>Nâng cấp drive2sim: thêm method, fisheye theo camera, chuẩn đánh giá, Studio, Kaggle/Colab</td><td>Thêm PVG, DeformableGS, Instant NuRec; protocol 0.3; vùng che 88°</td></tr><tr class="st-xong"><td>Thực nghiệm pinhole trên nuScenes</td><td>11 cấu hình, tốt nhất 25,20 dB</td></tr><tr class="st-dang-lam"><td>Thực nghiệm fisheye trên KITTI-360 (3DGUT, 3DGEER)</td><td>Run che 88° (82bc) xong, 22,84 dB; còn đợt chỉ pinhole</td></tr><tr class="st-dung"><td>Thực nghiệm camera + LiDAR: SimULi trên NCore</td><td>Loss LiDAR NaN do lỗi gsplat 1.6</td></tr><tr class="st-xong"><td>Chạy thử method quãng đường dài (KiloGS-SLAM, MCGS-SLAM)</td><td>Chọn MCGS-SLAM cho track B (quãng đường dài)</td></tr><tr class="st-dang-lam"><td>Đánh giá trên đoạn đường giữ lại liền mạch</td><td>Đã đưa vào thiết kế benchmark, chưa chạy</td></tr><tr class="st-xong"><td>Xử lý xe động và bầu trời</td><td>Giải quyết bằng cách chuyển sang OmniRe: xe theo box, trời bằng mô hình riêng và mask trời</td></tr><tr class="st-xong"><td>Tái hiện BezierGS trên Waymo</td><td>29,91 dB test (paper 31,51)</td></tr><tr class="st-dang-lam"><td>Chạy Instant NuRec</td><td>Chạy ngoài tool trên KITTI-360 40 và 150 khung, khoảng 16 dB; chưa qua bộ đo chung</td></tr><tr class="st-dang-lam"><td>Chạy SplatAD, IDsplat trên PandaSet</td><td>Đang dựng khung chạy</td></tr><tr class="st-xong"><td>Tìm dataset có fisheye, LiDAR, pose, box (A2D2 loại, PHENIKAA)</td><td>Loại A2D2; PHENIKAA: 2/3 chuỗi mini đủ 10 camera</td></tr><tr class="st-xong"><td>Thiết kế benchmark: 8 yêu cầu, 3 track benchmark, protocol, ma trận 13 run</td><td>13 run, ~23 GPU-giờ</td></tr><tr class="group"><td colspan="2">Tuần 04 · 22/11/2026 – 28/11/2026 (kế hoạch)</td></tr><tr class="st-ke-hoach"><td>Dựng tool benchmark (đo lệch làn, export gap, ghost_ratio, đoạn xấu; config không LiDAR; chia chunk)</td><td></td></tr><tr class="st-ke-hoach"><td>Chạy benchmark theo ma trận (13 run, ~23 GPU-giờ)</td><td></td></tr><tr class="st-ke-hoach"><td>Thực nghiệm fisheye: đợt chỉ train pinhole, và đo 82bc theo dải góc</td><td></td></tr><tr class="st-ke-hoach"><td>Đánh giá dataset PHENIKAA cho track A (dựng từng cảnh), trên COMPLEX CITY và COMPLEX URBAN</td><td></td></tr><tr class="st-ke-hoach"><td>Chạy Instant NuRec qua bộ đo chung (track C, feed-forward)</td><td></td></tr><tr class="st-ke-hoach"><td>Đưa BezierGS, SplatAD vào tool nếu còn thời gian</td><td></td></tr></tbody></table></body></html>
