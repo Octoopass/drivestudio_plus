@@ -1,0 +1,48 @@
+% Biên dịch bằng LuaLaTeX (đã đặt sẵn trong latexmkrc)
+\documentclass[11pt,a4paper]{report}
+
+\input{preamble}
+
+% ---------- Tiêu đề ----------
+\title{\sffamily\bfseries Reconstructing Real-World Driving Scenes using NeRF or 3D Gaussian Splatting\\[0.5em]
+  \large\mdseries Reference Architecture \& Research Engineering Design}
+\author{Lâm Quang Anh Quân \\ Lương Sỹ Khánh \\ Đặng Thái Anh \\ Phạm Minh Hiếu}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+
+% ---------- Part I: cả nhóm đọc và thống nhất ----------
+\part{Shared Foundation}
+\input{chapters/shared/01_introduction}
+\input{chapters/shared/02_system_architecture}
+\input{chapters/shared/03_framework_design}
+\input{chapters/shared/04_evaluation_protocol}
+\input{chapters/shared/05_literature_review}
+\input{chapters/shared/06_research_plan}
+
+% ---------- Part II: mỗi thành viên một chương ----------
+\part{Independent Approach Studies}
+\input{chapters/approaches/07_approach_a}
+\input{chapters/approaches/08_approach_b}
+\input{chapters/approaches/09_approach_c}
+\input{chapters/approaches/10_approach_d}
+\input{chapters/approaches/11_road_logic_carla}
+
+% ---------- Part III: cả nhóm tổng hợp ----------
+\part{Synthesis, Selection \& Integration}
+\input{chapters/synthesis/12_comparative_evaluation}
+\input{chapters/synthesis/13_final_pipeline}
+\input{chapters/synthesis/14_framework_validation}
+\input{chapters/synthesis/15_carla_feasibility}
+\input{chapters/synthesis/16_conclusions}
+
+% ---------- Khái niệm ----------
+\input{chapters/17_concepts}
+
+% =====================================================================
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

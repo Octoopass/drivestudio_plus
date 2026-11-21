@@ -1,0 +1,212 @@
+\chapter{Pipeline Experiment Tool (Tool thử nghiệm pipeline)}
+
+Chương 2 mô tả hệ thống Real2Sim mà project hướng tới.
+Chương này mô tả tool để chạy thử và so sánh nhiều cách xây dựng hệ thống đó.
+Đây chính là tool được hoàn thiện ở Phase 3.
+Nếu không có khung chung, 4 approach sẽ có 4 kiểu dữ liệu và 4 cách đo, khiến kết quả không so sánh được.
+
+\section{Tổng quan}
+
+Hệ thống ở chương 2 là thứ nhóm đang nghiên cứu và muốn xây dựng.
+Tool ở chương này là công cụ giúp nhóm chạy thử, thay đổi và đánh giá nhiều cách xây dựng hệ thống đó.
+
+\begin{table}[H]
+  \centering
+  \caption{Khác nhau giữa hệ thống và tool}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.9cm} X X}
+    \toprule
+     & \textbf{Hệ thống (chương 2)} & \textbf{Tool (chương 3)} \\
+    \midrule
+    Là gì & Hệ thống Real-to-Sim & Công cụ nghiên cứu Real-to-Sim \\
+    \addlinespace
+    Mục đích & Tạo môi trường mô phỏng từ dữ liệu thật & Chạy, thay đổi và đánh giá nhiều cách tạo môi trường đó \\
+    \addlinespace
+    Thành phần & Data, World Construction, Simulation Runtime, AD Stack, Evaluation & Approach registry, adapter, chạy pipeline, quản lý thí nghiệm, đánh giá chung \\
+    \addlinespace
+    Giữa các approach & Pipeline bên trong có thể khác nhau & Cách quản lý và đánh giá giữ giống nhau \\
+    \addlinespace
+    Vai trò & Mô tả hệ thống mục tiêu & Mô tả phần mềm nhóm tự phát triển \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+      box/.style={draw=accent, fill=blue!4, rounded corners=2pt, align=center,
+                  text width=2.7cm, minimum height=0.85cm, font=\scriptsize\sffamily},
+      flow/.style={-{Stealth[length=2mm]}, thick, color=black!65}]
+    \node[box] (reg) at (0,0) {Approach registry};
+    \node[box] (a) at (4,1.5) {Pipeline NuRec};
+    \node[box] (b) at (4,0.5) {Pipeline HUGSIM};
+    \node[box] (c) at (4,-0.5) {Pipeline Cam2Sim};
+    \node[box] (d) at (4,-1.5) {Pipeline tổng hợp của nhóm};
+    \node[box] (man) at (8,0) {Quản lý thí nghiệm};
+    \node[box] (ev) at (12,0) {Đánh giá và so sánh chung};
+    \foreach \p in {a,b,c,d} {
+      \draw[flow] (reg.east) -- (\p.west);
+      \draw[flow] (\p.east) -- (man.west);
+    }
+    \draw[flow] (man) -- (ev);
+  \end{tikzpicture}
+  \caption{Cấu trúc của tool. Các pipeline chỉ là ví dụ ứng viên, chưa được tích hợp}
+\end{figure}
+
+Tool cần trả lời được các câu hỏi:
+\begin{itemize}
+  \item Làm sao đăng ký thêm một approach mới?
+  \item Làm sao chạy lại toàn bộ pipeline của một approach?
+  \item Làm sao thay method trong một pipeline?
+  \item Làm sao cấu hình một pipeline tổng hợp?
+  \item Làm sao quản lý thí nghiệm, log và artifact?
+  \item Làm sao benchmark và so sánh công bằng?
+\end{itemize}
+
+\section{Nguyên tắc: chuẩn hóa interface, không chuẩn hóa thuật toán}
+
+Module được định nghĩa bằng input, output và evaluation contract, không bằng công nghệ bên trong.
+Các phương pháp không bắt buộc xuất cùng một kiểu 3D representation.
+Framework dùng metadata, capability declarations và adapter để xử lý khác biệt.
+
+Capability nào không có thì khai báo rõ, không giả lập kết quả.
+Thay module là để giảm phụ thuộc, không thể bảo đảm mọi repository đều plug-and-play mà không cần adapter.
+
+\section{Stable core và experimental modules}
+
+Chuẩn hóa tại ranh giới giữa các module, giữ tự do thử nghiệm bên trong từng module.
+
+\begin{table}[H]
+  \centering
+  \caption{Phần cố định và phần thay thế được}
+  \begin{tabularx}{\linewidth}{l X}
+    \toprule
+    \textbf{Nhóm} & \textbf{Thành phần} \\
+    \midrule
+    Stable core & Dataset manifest, timestamp conventions, coordinate systems, calibration representation, experiment configurations, metrics, logging \\
+    \addlinespace
+    Experimental modules & Pose estimation, reconstruction, Gaussian renderer, geometry extraction, road logic extraction, simulator adapters \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Approach registry}
+
+Registry là danh sách các approach mà tool biết cách chạy. Mỗi approach khai báo:
+\begin{itemize}
+  \item Tên approach và người phụ trách.
+  \item Các bước của pipeline, theo đúng thứ tự.
+  \item Method dùng ở mỗi bước.
+  \item Capability hỗ trợ, ví dụ pinhole, fisheye, LiDAR.
+  \item Cấu hình và yêu cầu tài nguyên.
+\end{itemize}
+
+Ví dụ minh họa, tên method chỉ là giả định và format cuối cùng sẽ quyết định khi xây tool:
+
+\begin{lstlisting}[numbers=none, caption={Ví dụ khai báo một approach}]
+approach: approach_a
+capabilities: [pinhole, lidar]
+pipeline:
+  - step: ingest
+    method: dataset_converter
+  - step: pose
+    method: dataset_poses
+  - step: reconstruction
+    method: method_a
+  - step: evaluation
+    method: shared_metrics
+\end{lstlisting}
+
+Muốn thử method khác, chỉ cần sửa dòng \texttt{method}.
+Muốn đổi thứ tự, chỉ cần đổi thứ tự các bước trong danh sách.
+
+\section{Pipeline execution}
+
+Theo yêu cầu của tool, pipeline phải đổi được method trong từng module và đổi được thứ tự module theo approach.
+Các thí nghiệm cần hỗ trợ:
+\begin{itemize}
+  \item Giữ nguyên dataset, thay reconstruction algorithm.
+  \item Giữ nguyên reconstructed scene, thay camera renderer.
+  \item Giữ nguyên geometry, thay road extraction algorithm.
+  \item Giữ nguyên CARLA scenario, thay perception model.
+  \item Chạy lại benchmark để so sánh hiệu năng và độ chính xác.
+\end{itemize}
+
+Khi chạy một pipeline, tool làm theo thứ tự:
+\begin{enumerate}
+  \item Đọc cấu hình của approach.
+  \item Kiểm tra output của mỗi bước có khớp với input của bước sau không. Nếu không khớp, báo lỗi trước khi chạy.
+  \item Chạy lần lượt từng bước.
+  \item Lưu output, log và tài nguyên đã dùng của từng bước.
+  \item Gọi phần đánh giá dùng chung.
+\end{enumerate}
+
+Đổi thứ tự module chỉ hợp lệ khi các bước vẫn khớp nhau.
+Ví dụ, không thể chạy dựng cảnh trước khi có dữ liệu mà bước đó cần.
+
+\section{Modular adapters}
+
+Mỗi implementation nối vào framework qua một adapter, ví dụ NuRec adapter, SplatAD adapter, Fisheye-GS adapter, Geometry/Mesh adapter.
+Output chung gồm scene artifacts, metadata và capabilities.
+
+\section{Data contracts}
+
+\begin{table}[H]
+  \centering
+  \caption{Contract mẫu cho module Scene Reconstruction}
+  \begin{tabularx}{\linewidth}{l X}
+    \toprule
+    \textbf{Phần} & \textbf{Nội dung} \\
+    \midrule
+    Input & Normalized sensor observations; camera models, intrinsics/extrinsics; sensor poses và timestamps; LiDAR scans nếu method hỗ trợ \\
+    \addlinespace
+    Output & Scene artifact theo format của method; metadata và coordinate system; renderer adapter nếu có; supported capabilities; execution logs và resource usage \\
+    \addlinespace
+    Evaluation contract & Render lại được các viewpoint được hỗ trợ; ghi nhận runtime, VRAM, failure cases; xuất đủ dữ liệu để chạy metrics \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Các module còn lại được quy định tương tự, ở mức bản nháp:
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Contract nháp của các module khác}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Module} & \textbf{Input} & \textbf{Output} & \textbf{Kiểm tra} \\
+    \midrule
+    Data ingestion & Log thô của dataset & Dataset chuẩn và manifest & Đủ thành phần, đúng thời gian \\
+    \addlinespace
+    Calibration \& localization & Dataset chuẩn & Thông số camera, vị trí cảm biến theo thời gian & Chiếu LiDAR lên ảnh thấy khớp \\
+    \addlinespace
+    Geometry \& road extraction & Dataset chuẩn, pose & Mặt đường, collision mesh, bản đồ đường & So với LiDAR; xe tìm được đường đi hợp lệ \\
+    \addlinespace
+    Rendering & Scene artifact, vị trí camera & Ảnh hoặc LiDAR tổng hợp & Render lại được các góc nhìn được hỗ trợ \\
+    \addlinespace
+    Evaluation & Kết quả render, ground truth, log & Bảng số đo & Chạy lại cho cùng kết quả \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Experiment management}
+
+Phần này điều phối việc chạy thí nghiệm. Nó không phải một chức năng của xe tự lái, mà là hạ tầng phục vụ nghiên cứu, do nhóm tự thiết kế và phát triển.
+Nhờ phần này, nhóm chạy lại được các pipeline khác nhau mà không buộc chúng dùng chung công nghệ bên trong.
+
+Phần này đảm nhận:
+\begin{itemize}
+  \item Lưu cấu hình và phiên bản code của mỗi lần chạy.
+  \item Điều phối thứ tự chạy các bước, kể cả các bước chạy song song.
+  \item Quản lý artifact: dữ liệu trung gian, model đã train, ảnh render.
+  \item Lưu log và thông tin tài nguyên đã dùng.
+\end{itemize}
+
+\section{Common evaluation \& benchmarking}
+
+Bộ script đánh giá dùng chung cần có từ đầu Phase 2, để mọi approach đo cùng một cách:
+\begin{itemize}
+  \item \textbf{Đầu vào:} ảnh render, ảnh thật được giữ lại, log chạy.
+  \item \textbf{Đầu ra:} số đo theo chương 4, gắn với experiment ID.
+  \item \textbf{Nguyên tắc:} không có dữ liệu thì ghi \texttt{Not Evaluated}, không tự tạo số liệu.
+\end{itemize}

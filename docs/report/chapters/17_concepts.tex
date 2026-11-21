@@ -1,0 +1,147 @@
+\chapter{Tổng hợp khái niệm}
+
+\section{ADAS và các cấp độ L1, L2, L2+}
+
+ADAS (Advanced Driver Assistance Systems) là hệ thống hỗ trợ người lái, chẳng hạn giữ làn, điều khiển tốc độ và phanh khẩn cấp.
+
+\begin{table}[H]
+  \centering
+  \caption{Các cấp độ hỗ trợ lái}
+  \begin{tabularx}{\linewidth}{l X}
+    \toprule
+    \textbf{Cấp độ} & \textbf{Khả năng} \\
+    \midrule
+    L1 & Hỗ trợ điều khiển ngang hoặc dọc \\
+    L2 & Hỗ trợ đồng thời điều khiển ngang (đánh lái) và dọc (tăng/giảm tốc), nhưng người lái vẫn phải giám sát \\
+    L2+ & Thuật ngữ thương mại/kỹ thuật cho các hệ thống L2 tiên tiến, có thể hỗ trợ thêm điều hướng hoặc chuyển làn trong điều kiện cho phép \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+L2+ không phải cấp độ tự động hóa chính thức của SAE.
+Về trách nhiệm giám sát, hệ thống L2+ vẫn thuộc L2.
+
+\section{L2/L2+ ADAS Resimulation}
+
+Resimulation là quá trình chạy lại hoặc tái tạo các tình huống lái xe để kiểm thử, đánh giá và cải tiến hệ thống ADAS, mà không cần đưa xe ra đường thực tế mỗi lần thử nghiệm.
+
+Resimulation không đơn thuần là phát lại video hoặc tái dựng môi trường 3D.
+Resimulation phải cho phép kiểm tra hệ thống ADAS sẽ nhận biết, quyết định và phản ứng như thế nào trong một tình huống lái xe.
+
+Dữ liệu thường được thu từ xe chạy ngoài đường:
+\begin{itemize}
+  \item Camera ghi lại hình ảnh giao thông.
+  \item LiDAR/Radar đo các đối tượng xung quanh (nếu có).
+  \item GPS/IMU ghi nhận chuyển động và vị trí xe.
+  \item CAN bus ghi tốc độ, góc lái, trạng thái phanh và các tín hiệu khác.
+\end{itemize}
+
+Sau đó, kỹ sư dùng dữ liệu này để chạy lại tình huống và kiểm thử phiên bản mới của thuật toán ADAS:
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+      box/.style={draw=accent, fill=blue!4, rounded corners=2pt, align=center,
+                  minimum width=3.3cm, text width=3.1cm, minimum height=1.3cm,
+                  font=\scriptsize\sffamily},
+      flow/.style={-{Stealth[length=2mm]}, thick, color=black!65}]
+    \node[box] (a) at (0,0) {\textbf{Real-world driving logs}\\Camera, LiDAR, GPS/IMU, CAN};
+    \node[box] (b) at (3.95,0) {\textbf{Resimulation environment}\\Dữ liệu phát lại hoặc môi trường tái dựng};
+    \node[box] (c) at (7.9,0) {\textbf{ADAS software stack}\\Perception, prediction, planning, control};
+    \node[box] (d) at (11.85,0) {\textbf{Evaluation \& regression testing}\\Va chạm, lệch làn, phanh, quỹ đạo, độ êm};
+    \draw[flow] (a) -- (b);
+    \draw[flow] (b) -- (c);
+    \draw[flow] (c) -- (d);
+  \end{tikzpicture}
+  \caption{Pipeline khái niệm của resimulation}
+\end{figure}
+
+Ví dụ: xe đang chạy 60~km/h thì một ô tô phía trước bất ngờ chuyển làn.
+Resimulation giúp kiểm tra thuật toán ADAS có phát hiện xe chuyển làn, dự đoán nguy cơ va chạm và ra lệnh phanh phù hợp hay không.
+
+\section{Open-loop và closed-loop}
+
+Khác biệt nằm ở chỗ quyết định của thuật toán có làm thay đổi dữ liệu đầu vào tiếp theo hay không.
+
+\begin{table}[H]
+  \centering
+  \caption{So sánh open-loop và closed-loop}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.6cm} X X}
+    \toprule
+     & \textbf{Open-loop} & \textbf{Closed-loop} \\
+    \midrule
+    Cách hoạt động & Chạy lại thuật toán trên dữ liệu cảm biến đã ghi sẵn & Simulator cập nhật môi trường theo trạng thái xe, rồi sinh dữ liệu cảm biến mới \\
+    \addlinespace
+    Tác động của quyết định lái & Không làm thay đổi dữ liệu đầu vào tiếp theo & Làm thay đổi trạng thái xe và dữ liệu đầu vào tiếp theo \\
+    \addlinespace
+    Phù hợp để kiểm thử & Perception, prediction, phát hiện regression (lỗi phát sinh sau khi cập nhật phần mềm) & Toàn bộ chu trình perception $\to$ planning $\to$ control và hậu quả của quyết định lái \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Trong công nghiệp, resimulation thường mang nghĩa open-loop replay/recompute\footnote{Nguồn gốc trong trao đổi: ISE Developer Blog, \url{https://devblogs.microsoft.com}}.
+Closed-loop resimulation là dạng mở rộng, khi tình huống thực tế được tái tạo thành môi trường có thể tương tác.
+
+\section{Simulation và resimulation}
+
+\begin{table}[H]
+  \centering
+  \caption{So sánh simulation và resimulation}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3cm} X X}
+    \toprule
+     & \textbf{Simulation} & \textbf{Resimulation} \\
+    \midrule
+    Nguồn tình huống & Có thể tạo hoàn toàn nhân tạo & Thường bắt đầu từ dữ liệu hoặc tình huống đã ghi nhận \\
+    \addlinespace
+    Mục tiêu & Kiểm thử tình huống giả định & Tái hiện, phân tích hoặc kiểm thử lại tình huống cụ thể \\
+    \addlinespace
+    Ví dụ & Tạo giao lộ và cho 10 xe chạy & Tái hiện một tình huống xe thật suýt va chạm \\
+    \addlinespace
+    Closed-loop & Có & Có, nếu hệ thống hỗ trợ tương tác \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Liên hệ với project}
+
+Một pipeline khả thi khi áp dụng vào CARLA, NuRec và 3DGS:
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+      box/.style={draw=accent, fill=blue!4, rounded corners=2pt, align=center,
+                  minimum width=2.7cm, text width=2.5cm, minimum height=1.5cm,
+                  font=\scriptsize\sffamily},
+      flow/.style={-{Stealth[length=2mm]}, thick, color=black!65},
+      lbl/.style={font=\tiny\sffamily, color=black!70}]
+    \node[box] (a) at (0,0) {\textbf{Dữ liệu thực tế}\\Camera, LiDAR, calibration, vehicle poses};
+    \node[box] (b) at (3.3,0) {\textbf{3D reconstruction}\\NuRec/3DGS, render góc nhìn mới};
+    \node[box] (c) at (6.6,0) {\textbf{CARLA}\\Road logic, traffic actors, vehicle dynamics};
+    \node[box] (d) at (9.9,0) {\textbf{ADAS L2/L2+}\\Nhận sensor data, ra quyết định, điều khiển xe};
+    \node[box] (e) at (13.2,0) {\textbf{Evaluation}\\An toàn, quỹ đạo, giữ làn, va chạm, tái lập};
+    \draw[flow] (a) -- (b);
+    \draw[flow] (b) -- (c);
+    \draw[flow] (c) -- (d);
+    \draw[flow] (d) -- (e);
+    \draw[flow] (d.south) -- ++(0,-0.5) -| node[lbl, pos=0.25, below] {closed-loop feedback} (c.south);
+  \end{tikzpicture}
+  \caption{Pipeline khả thi của project}
+\end{figure}
+
+\begin{itemize}
+  \item \textbf{NuRec/3DGS:} tạo nền hình ảnh gần với khu vực đường thật và render ảnh từ vị trí camera mới.
+  \item \textbf{Road logic layer:} mô tả làn đường, kết nối làn, giao lộ và quy tắc giao thông để xe lập kế hoạch di chuyển.
+  \item \textbf{CARLA:} mô phỏng xe, traffic actors, thời gian và tương tác.
+  \item \textbf{ADAS stack:} hệ thống cần được kiểm thử.
+\end{itemize}
+
+\begin{warning}
+Có NuRec và CARLA không tự động bảo đảm closed-loop hoạt động.
+Vẫn cần tích hợp tọa độ, road logic, sensor rendering và vòng điều khiển xe.
+\end{warning}
+
+\begin{keyidea}[Kết luận]
+Với mục tiêu mentor đã mô tả (closed-loop trên khu vực địa lý có thật, chi phí thấp, mở rộng được, tính xác định cao), project đang hướng đến real-world-based closed-loop ADAS simulation/resimulation, không chỉ là công cụ replay camera hay tái dựng 3DGS.
+
+Đầu ra quan trọng nhất không phải một scene 3D đẹp, mà là một môi trường kiểm thử nơi hệ thống L2/L2+ chạy, tương tác và được đánh giá có thể tái lập.
+\end{keyidea}

@@ -1,0 +1,1141 @@
+\chapter{Real2Sim System Architecture (Kiến trúc hệ thống tham khảo)}
+
+Chương này mô tả một pipeline tổng quát để đạt được các deliverable và giúp cả nhóm nhìn được bức tranh chung của hệ thống, chứ không phải pipeline bắt buộc: mỗi hệ thống hoặc approach thực tế có thể tổ chức các bước theo cách khác và dùng những method khác nhau.
+
+\section{Phương pháp thiết kế}
+
+Nhóm không chọn công nghệ ngay từ đầu.
+Trước tiên, nhóm đọc yêu cầu, xác định sản phẩm cần có, chia hệ thống thành các khối chức năng và quy định các khối trao đổi dữ liệu với nhau thế nào.
+Sau đó, nhóm mới tìm cách làm cho từng khối và chạy thử.
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+      box/.style={draw=accent, fill=blue!4, rounded corners=2pt, align=center,
+                  minimum width=2.8cm, text width=2.6cm, minimum height=1.1cm,
+                  font=\scriptsize\sffamily},
+      ask/.style={box, fill=orange!10, draw=orange!70!black},
+      flow/.style={-{Stealth[length=2mm]}, thick, color=black!65},
+      lbl/.style={font=\scriptsize\sffamily, color=black!70}]
+    \node[box] (r) at (0,0) {\textbf{1. Yêu cầu}\\Đề bài và ràng buộc};
+    \node[box] (o) at (3.7,0) {\textbf{2. Sản phẩm cần có}\\Demo, số liệu, báo cáo};
+    \node[box] (a) at (7.4,0) {\textbf{3. Kiến trúc}\\Các khối chức năng};
+    \node[box] (c) at (11.1,0) {\textbf{4. Nối các khối}\\Mỗi khối nhận gì, trả gì};
+    \node[box] (s) at (11.1,-2.6) {\textbf{5. Tìm cách làm}\\Paper, repo, dataset};
+    \node[box] (e) at (7.4,-2.6) {\textbf{6. Chạy thử}\\Quy mô nhỏ};
+    \node[ask] (q) at (3.7,-2.6) {Kết quả có khớp với thiết kế không?};
+    \node[box] (i) at (0,-2.6) {\textbf{7. Ghép và đánh giá}\\Báo cáo, kết luận};
+    \draw[flow] (r) -- (o);
+    \draw[flow] (o) -- (a);
+    \draw[flow] (a) -- (c);
+    \draw[flow] (c) -- (s);
+    \draw[flow] (s) -- (e);
+    \draw[flow] (e) -- (q);
+    \draw[flow] (q) -- node[lbl, above] {Có} (i);
+    \draw[flow] (q.north) -- ++(0,0.6) -| node[lbl, pos=0.25, above] {Không: sửa kiến trúc} (a.south);
+  \end{tikzpicture}
+  \caption{Các bước thiết kế hệ thống}
+\end{figure}
+
+Điểm quan trọng là mũi tên quay lại: kiến trúc ban đầu chỉ là dự đoán, nên nếu chạy thử cho thấy thiết kế không phù hợp thì nhóm quay lại sửa kiến trúc.
+
+Ví dụ, ban đầu nhóm yêu cầu khối render phải xuất được cả ảnh pinhole và fisheye.
+Khi chạy thử, nhóm có thể thấy một phương pháp chỉ hỗ trợ pinhole, còn phương pháp khác hỗ trợ fisheye nhưng không nhận LiDAR.
+Lúc đó, nhóm sửa thiết kế để mỗi phương pháp khai báo rõ mình làm được gì, thay vì ép tất cả theo cùng một kiểu.
+
+\section{Một số hệ thống Real2Sim hiện có}
+
+Để hiểu bài toán, nhóm xem 3 hệ thống đã có: NVIDIA NuRec\footnote{\url{https://docs.nvidia.com/nurec/basics/how-nurec-works.html}} kết hợp CARLA\footnote{\url{https://carla.readthedocs.io/en/latest/nvidia_nurec/}}, HUGSIM\footnote{\url{https://arxiv.org/abs/2412.01718}} và Cam2Sim\footnote{\url{https://github.com/ast-fortiss-tum/cam2sim}}.
+Cả 3 đều đi theo luồng chung dưới đây, nhưng phạm vi và cách làm ở mỗi khâu khác nhau:
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+      box/.style={draw=accent, fill=blue!4, rounded corners=2pt, align=center,
+                  text width=2.5cm, minimum height=0.9cm, font=\small\sffamily},
+      flow/.style={-{Stealth[length=2mm]}, thick, color=black!65},
+      evalflow/.style={flow, dashed, color=black!45}]
+    \node[box] (a) at (0,0) {Dữ liệu thật};
+    \node[box] (b) at (3.6,0) {Thế giới tái dựng};
+    \node[box] (c) at (7.2,0) {Mô phỏng};
+    \node[box] (d) at (11.2,0) {Tác tử lái};
+    \node[box, text width=13.7cm] (e) at (5.6,-1.8) {Đánh giá ở nhiều khâu};
+    \draw[flow] (a) -- (b);
+    \draw[flow] (b) -- (c);
+    \draw[flow] ([yshift=2mm]c.east) -- ([yshift=2mm]d.west);
+    \draw[flow] ([yshift=-2mm]d.west) -- ([yshift=-2mm]c.east);
+    \foreach \n in {a,b,c,d} \draw[evalflow] (\n.south) -- (\n.south |- e.north);
+  \end{tikzpicture}
+  \caption{Luồng chung của các hệ thống Real2Sim}
+\end{figure}
+
+Tuy nhiên, 3 hệ thống này không dùng chung một pipeline.
+Không phải hệ thống nào cũng dùng CARLA, và không phải hệ thống nào cũng có một AD Stack đầy đủ. Chương 5 tổng hợp thêm các hệ thống khác.
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{So sánh 3 hệ thống thực tế}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.2cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Thành phần} & \textbf{NuRec + CARLA} & \textbf{HUGSIM} & \textbf{Cam2Sim} \\
+    \midrule
+    Dữ liệu & Camera và LiDAR ở format NCore, kèm dữ liệu phụ trợ & Ảnh RGB, dự đoán semantic và tracking; không cần LiDAR để dựng cảnh & Cần camera và pose, LiDAR tùy chọn; trích xuất từ ROS bag \\
+    \addlinespace
+    Dựng cảnh & Tách nền tĩnh và vật thể động, xuất USDZ & 3DGS, tách mặt đường, nền tĩnh và xe động & COLMAP chạy thủ công, rồi Splatfacto \\
+    \addlinespace
+    Bản đồ đường & Gói USDZ có thể kèm bản đồ XODR & Multi-plane ground; HD map chỉ có ở nuScenes & Tải OSM, chuyển sang \texttt{map.xodr} bằng \texttt{carla.\allowbreak Osm2Odr} \\
+    \addlinespace
+    Mô phỏng & NuRec không tự mô phỏng; chạy với AlpaSim hoặc CARLA & Simulator riêng, dùng Gymnasium API & CARLA \\
+    \addlinespace
+    Xe khác & Có vật thể động, hành vi do simulator quản lý & Replay, IDM, hành vi tấn công & Chỉ có xe đỗ, chưa có traffic động \\
+    \addlinespace
+    Tạo ảnh cảm biến & gsplat, gọi qua gRPC & Gaussian renderer tích hợp & Splatfacto hoặc camera của CARLA \\
+    \addlinespace
+    Tác tử lái & Vòng kín qua AlpaSim; ví dụ CARLA dùng bộ bám quỹ đạo, chưa nối AD Stack & UniAD, VAD, Latent-TransFuser & DAVE-2 \\
+    \addlinespace
+    Đánh giá & Kiểm tra dữ liệu, validation (PSNR), so sánh hình ảnh và hành vi, benchmark & PSNR, SSIM, LPIPS, KID; HD-Score cho lái xe & Semantic IoU; Fréchet distance, tỷ lệ ra khỏi hành lang, steering jitter \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Có 3 điểm đáng chú ý:
+\begin{itemize}
+  \item \textbf{NuRec} lo dựng cảnh và render, không tự chạy mô phỏng. Trong luồng với CARLA, CARLA tải bản đồ và các xe, còn NuRec trả ảnh qua gRPC. Tài liệu CARLA gọi ví dụ này là replay, nhưng mã nguồn đã có điểm nhận lệnh lái, chỉ chưa nối AD Stack (xem chương 11). Vòng kín của NuRec được NVIDIA mô tả đầy đủ qua AlpaSim, một simulator mã nguồn mở.
+  \item \textbf{HUGSIM} là simulator closed-loop hoàn chỉnh, có runtime riêng, không chạy trên CARLA. Cảnh được dựng từ ảnh RGB, không cần LiDAR.
+  \item \textbf{Cam2Sim} là pipeline end-to-end trên CARLA, gồm 6 bước từ trích xuất dữ liệu đến đánh giá. Hệ thống có 4 chế độ chạy: replay trên CARLA, replay bằng Gaussian Splatting, và closed-loop với DAVE-2 trên ảnh CARLA hoặc ảnh Gaussian Splatting. Hiện hệ thống mới có xe đỗ, chưa có traffic động.
+\end{itemize}
+
+=> Vì mỗi hệ thống tổ chức khác nhau, điều cần chuẩn hóa không phải là thứ tự các thuật toán, mà là các chức năng hệ thống phải có và cách các chức năng đó trao đổi dữ liệu với nhau.
+
+\section{Tổng quan hệ thống}
+
+Từ nhận xét trên, kiến trúc được định nghĩa theo 5 chức năng, gọi là 5 subsystem, và chia thành 2 giai đoạn:
+\begin{itemize}
+  \item \textbf{Offline:} xử lý dữ liệu đã ghi để tạo ra thế giới tái dựng.
+  \item \textbf{Online:} chạy mô phỏng theo từng bước thời gian, trên thế giới đó.
+\end{itemize}
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+      box/.style={draw=accent, fill=white, rounded corners=2pt, align=center,
+                  text width=2.5cm, minimum height=1cm, inner sep=2pt,
+                  font=\fontsize{7}{8.5}\selectfont\sffamily},
+      head/.style={font=\fontsize{7}{8.5}\selectfont\sffamily\bfseries, color=accent, anchor=north},
+      stage/.style={font=\scriptsize\sffamily\bfseries, color=black!60, anchor=north west},
+      group/.style={draw=accent, fill=blue!4, rounded corners=3pt},
+      flow/.style={-{Stealth[length=2mm]}, thick, color=black!65},
+      evalflow/.style={flow, dashed, color=black!45},
+      lbl/.style={font=\tiny\sffamily, color=black!70, align=center}]
+    \fill[black!3, rounded corners=4pt] (-1.3,-2.75) rectangle (7.0,2.75);
+    \fill[black!3, rounded corners=4pt] (7.2,-2.75) rectangle (14.6,2.75);
+    \node[stage] at (-1.25,2.72) {OFFLINE: tái dựng thế giới};
+    \node[stage] at (7.25,2.72) {ONLINE: mô phỏng closed-loop};
+    \node[box, fill=blue!4, text width=2.1cm] (data) at (0,0) {\textbf{1. Data}\\camera, LiDAR, calibration, pose};
+    \draw[group] (2.0,-2.45) rectangle (6.7,2.2);
+    \node[head] at (4.35,2.15) {2. World Construction};
+    \node[box, text width=4.1cm] (visual) at (4.35,1.2) {Cảnh hình ảnh\\3DGS, NeRF, mesh};
+    \node[box, text width=4.1cm] (road) at (4.35,-0.1) {Đường và thế giới vật lý\\bản đồ, geometry, semantics};
+    \node[box, text width=4.1cm] (actor) at (4.35,-1.4) {Vật thể động\\quỹ đạo, mô hình vật thể};
+    \draw[group] (7.6,-1.9) rectangle (10.8,2.2);
+    \node[head] at (9.2,2.15) {3. Simulation Runtime};
+    \node[box] (sim) at (9.2,1.05) {CARLA hoặc simulator khác};
+    \node[box] (sensor) at (9.2,-0.95) {Sensor rendering\\camera, LiDAR};
+    \node[box, fill=blue!4, text width=2.1cm] (ad) at (13.2,0) {\textbf{4. AD Stack / Agent}\\perception, planning, control};
+    \node[box, fill=blue!4, text width=15.6cm, minimum height=0.75cm] (eval) at (6.65,-3.4) {\textbf{5. Evaluation \& Experiment Framework}};
+    \draw[flow] (data.east) -- (2.0,0);
+    \draw[flow] (6.7,0) -- (7.6,0);
+    \draw[flow] (sim) -- node[lbl, right] {trạng thái\\thế giới, xe} (sensor);
+    \draw[flow] (sensor.east) -| node[lbl, below, pos=0.35] {dữ liệu cảm biến} (ad.south);
+    \draw[flow] (ad.north) |- node[lbl, above, pos=0.7] {lệnh điều khiển} (sim.east);
+    \draw[evalflow] (0,-1) -- (0,-3.02);
+    \draw[evalflow] (4.35,-2.45) -- (4.35,-3.02);
+    \draw[evalflow] (9.2,-1.9) -- (9.2,-3.02);
+    \draw[evalflow] (14.0,-0.8) -- (14.0,-3.02);
+  \end{tikzpicture}
+  \caption{Reference architecture theo 5 subsystem}
+\end{figure}
+
+Đây là kiến trúc do nhóm đề xuất, không phải sơ đồ được công bố nguyên dạng bởi NVIDIA hay một tổ chức tiêu chuẩn.
+Sơ đồ mô tả chức năng, không phải một pipeline bắt buộc chạy tuần tự.
+Một approach cụ thể có thể gộp nhiều module thành một.
+
+NuRec không phải toàn bộ kiến trúc, mà là một implementation có thể cung cấp một số chức năng trong đó.
+Tương tự, 3DGUT là công nghệ có thể dùng bên trong World Construction hoặc rendering.
+
+\section{Subsystem 1: Data}
+
+Subsystem này biến dữ liệu thô ghi từ xe thành một dataset chuẩn, để mọi approach phía sau dùng chung.
+Đây là phần đầu của toàn bộ hệ thống: nếu dữ liệu ở đây sai, ví dụ camera và LiDAR bị lệch nhau, thì cảnh dựng ra và kết quả đánh giá phía sau đều sai theo.
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+      box/.style={draw=accent, fill=blue!4, rounded corners=2pt, align=center,
+                  text width=1.72cm, minimum height=1cm, inner sep=1pt,
+                  font=\fontsize{6.5}{8}\selectfont\sffamily},
+      src/.style={box, fill=blue!12},
+      head/.style={font=\fontsize{6.5}{8}\selectfont\sffamily\bfseries, color=accent, align=center, text width=1.9cm},
+      lane/.style={font=\scriptsize\sffamily\bfseries, color=black!60, anchor=west},
+      flow/.style={-{Stealth[length=2mm]}, thick, color=black!65}]
+    \node[head] at (2.1,1.95) {1. Đọc dữ liệu};
+    \node[head] at (4.2,1.95) {2. Đồng bộ thời gian};
+    \node[head] at (6.3,1.95) {3. Calibration};
+    \node[head] at (8.4,1.95) {4. Pose};
+    \node[head] at (10.5,1.95) {5. Nhãn vật thể};
+    \node[lane] at (-0.86,1.5) {Đường A};
+    \node[lane] at (-0.86,-1.65) {Đường B};
+    \node[src] (a0) at (0,0.8) {Dataset có sẵn};
+    \node[box] (a1) at (2.1,0.8) {Chuyển format};
+    \node[box] (a2) at (4.2,0.8) {Dùng thời gian có sẵn};
+    \node[box] (a3) at (6.3,0.8) {Dùng calibration có sẵn};
+    \node[box] (a4) at (8.4,0.8) {Dùng pose có sẵn};
+    \node[box] (a5) at (10.5,0.8) {Dùng nhãn có sẵn};
+    \node[src] (b0) at (0,-0.8) {Log thô: video hoặc ảnh, có thể có LiDAR};
+    \node[box] (b1) at (2.1,-0.8) {Tách ảnh, giữ thời gian};
+    \node[box] (b2) at (4.2,-0.8) {Ghép dữ liệu, ước lượng độ lệch};
+    \node[box] (b3) at (6.3,-0.8) {Tự hiệu chuẩn};
+    \node[box] (b4) at (8.4,-0.8) {Tính từ LiDAR hoặc ảnh};
+    \node[box] (b5) at (10.5,-0.8) {Chạy model tạo nhãn};
+    \node[box] (chk) at (12.35,0) {6. Kiểm tra};
+    \node[src] (out) at (14.2,0) {7. Dataset chuẩn};
+    \foreach \x/\y in {a0/a1,a1/a2,a2/a3,a3/a4,a4/a5,b0/b1,b1/b2,b2/b3,b3/b4,b4/b5} \draw[flow] (\x) -- (\y);
+    \draw[flow] (a5) -- (chk);
+    \draw[flow] (b5) -- (chk);
+    \draw[flow] (chk) -- (out);
+    \draw[-{Stealth[length=2mm]}, thick, dashed, color=black!50] (b4.south) -- ++(0,-0.3) -| node[pos=0.25, below, font=\tiny\sffamily, color=black!70] {tinh chỉnh lại} (b2.south);
+    \draw[-{Stealth[length=2mm]}, thick, dashed, color=black!50] (8.4,-1.62) -| (b3.south);
+  \end{tikzpicture}
+  \caption{Luồng xử lý của subsystem Data}
+\end{figure}
+
+\subsection{Đầu vào}
+
+Đầy đủ nhất, subsystem dùng các dữ liệu sau:
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Dữ liệu đầu vào}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.9cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X l}
+    \toprule
+    \textbf{Dữ liệu} & \textbf{Là gì} & \textbf{Dùng để làm gì} & \textbf{Mức cần} \\
+    \midrule
+    \multicolumn{4}{l}{\textbf{Dữ liệu cốt lõi}} \\
+    Camera pinhole & Chuỗi ảnh theo thời gian, ảnh ít méo & Dựng hình ảnh của cảnh & Cần ít nhất \\
+    \addlinespace
+    Camera fisheye & Chuỗi ảnh góc rộng, méo mạnh & Dựng hình ảnh, nhìn được rộng hơn & một camera \\
+    \addlinespace
+    LiDAR & Các đám mây điểm đo khoảng cách & Dựng hình học, có tỉ lệ thật, kiểm tra căn chỉnh & Nên có \\
+    \midrule
+    \multicolumn{4}{l}{\textbf{Dữ liệu bổ sung}} \\
+    Intrinsics & Thông số bên trong camera: tiêu cự, tâm ảnh, độ méo & Biết điểm 3D rơi vào pixel nào & Tự tạo được \\
+    \addlinespace
+    Extrinsics & Vị trí và hướng lắp từng cảm biến trên xe & Đưa dữ liệu các cảm biến về cùng hệ tọa độ & Tự tạo được \\
+    \addlinespace
+    Thời gian ghi & Mốc thời gian của từng ảnh và từng lần quét LiDAR & Ghép đúng dữ liệu cùng thời điểm & Tự tạo được \\
+    \addlinespace
+    Ego pose & Vị trí và hướng của xe theo thời gian & Biết mỗi ảnh được chụp từ đâu & Tự tạo được \\
+    \addlinespace
+    Nhãn vật thể & Khung 3D và quỹ đạo của xe, người & Tách vật thể động & Tự tạo được \\
+    \addlinespace
+    Bản đồ & Bản đồ đường của khu vực, nếu có & Hỗ trợ road logic và khớp tọa độ & Tùy chọn \\
+    \addlinespace
+    GPS, IMU, CAN & Vị trí, gia tốc, tốc độ, góc lái & Tính ego pose, đối chiếu hành vi lái & Tùy chọn \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Dữ liệu chia thành 2 nhóm. Nhóm cốt lõi là dữ liệu cảm biến, đo trực tiếp từ môi trường và không thể tự tạo ra. Nhóm bổ sung giúp kết quả tốt hơn, nhưng nếu thiếu thì tự tạo từ nhóm cốt lõi hoặc bỏ qua.
+Sơ đồ dưới đây cho biết từ các dữ liệu đó tạo ra được gì. Dòng nhỏ trong mỗi ô là dữ liệu cần dùng:
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+      core/.style={draw=accent, very thick, fill=accent!18, rounded corners=2pt, align=center,
+                   text width=2.9cm, minimum height=0.8cm, inner sep=2pt,
+                   font=\fontsize{7}{8.5}\selectfont\sffamily\bfseries},
+      extra/.style={draw=black!55, dashed, fill=white, rounded corners=2pt, align=center,
+                    text width=2.9cm, minimum height=0.56cm, inner sep=1pt,
+                    font=\fontsize{7}{8.5}\selectfont\sffamily},
+      made/.style={draw=accent, fill=blue!4, rounded corners=2pt, align=center,
+                   text width=3.5cm, minimum height=0.92cm, inner sep=2pt,
+                   font=\fontsize{7}{8.5}\selectfont\sffamily},
+      frame/.style={draw=black!30, rounded corners=4pt, fill=black!2},
+      head/.style={font=\scriptsize\sffamily\bfseries, color=accent, anchor=north, align=center},
+      flow/.style={-{Stealth[length=2.2mm]}, very thick, color=black!60},
+      dflow/.style={flow, dashed, color=black!45},
+      lbl/.style={font=\tiny\sffamily, color=black!70, align=center}]
+    \fill[black!2, draw=accent, very thick, rounded corners=4pt] (-1.8,1.05) rectangle (1.8,4.5);
+    \node[head] at (0,4.43) {Dữ liệu cốt lõi};
+    \draw[frame, dashed] (-1.8,-3.6) rectangle (1.8,0.85);
+    \node[head, color=black!60] at (0,0.8) {Dữ liệu bổ sung};
+    \draw[frame] (3.1,-3.6) rectangle (7.0,4.5);
+    \node[head] at (5.05,4.43) {Tự tạo được};
+    \draw[frame] (8.3,-3.6) rectangle (12.2,4.5);
+    \node[head] at (10.25,4.43) {Thế giới tái dựng};
+    \node[core] at (0,3.45) {Camera pinhole};
+    \node[core] at (0,2.5) {Camera fisheye};
+    \node[core] at (0,1.55) {LiDAR};
+    \node[extra] at (0,-0.1) {Calibration};
+    \node[extra] at (0,-0.7) {Thời gian ghi};
+    \node[extra] at (0,-1.3) {Ego pose, GPS, IMU};
+    \node[extra] at (0,-1.9) {CAN: tốc độ, góc lái};
+    \node[extra] at (0,-2.5) {Nhãn khung 3D};
+    \node[extra] at (0,-3.1) {HD map};
+    \node[made] (intr) at (5.05,3.45) {\textbf{Intrinsics}\\camera};
+    \node[made] (extr) at (5.05,2.25) {\textbf{Extrinsics}\\camera + LiDAR};
+    \node[made] (pose) at (5.05,1.05) {\textbf{Pose, quỹ đạo xe}\\camera hoặc LiDAR};
+    \node[made] (scale) at (5.05,-0.15) {\textbf{Tỉ lệ thật (mét)}\\LiDAR, hoặc GPS, tốc độ};
+    \node[made] (label) at (5.05,-1.35) {\textbf{Mặt nạ, khung 3D, tracking}\\camera, LiDAR qua model};
+    \node[made] (cloud) at (5.05,-2.55) {\textbf{LiDAR gộp nhiều lần quét}\\LiDAR + pose};
+    \node[made] (vis) at (10.25,3.2) {\textbf{Cảnh nền 3DGS hoặc NeRF}\\ảnh + calibration + pose + mặt nạ};
+    \node[made] (act) at (10.25,1.4) {\textbf{Vật thể động: Gaussian hoặc asset 3D}\\ảnh + pose + khung 3D, tracking};
+    \node[made] (geo) at (10.25,-0.4) {\textbf{Hình học vật lý: mặt đường}\\sinh từ map.xodr; mesh là tùy chọn};
+    \node[made] (road) at (10.25,-2.2) {\textbf{Road logic: map.xodr}\\OSM, HD map, hoặc quỹ đạo + BEV};
+    \draw[flow] (1.8,2.75) -- node[lbl, above] {tính} (3.1,2.75);
+    \draw[dflow] (1.8,-1.3) -- node[lbl, above] {dùng ngay\\nếu có} (3.1,-1.3);
+    \foreach \a/\b in {intr/vis,extr/vis,pose/vis,label/vis,pose/act,label/act,pose/road}
+      \draw[-{Stealth[length=1.6mm]}, color=black!55] (\a.east) -- (\b.west);
+    \draw[-{Stealth[length=1.6mm]}, color=black!55] (road.north) -- (geo.south);
+    \draw[-{Stealth[length=1.6mm]}, dashed, color=black!55] (cloud.east) -- (geo.west);
+    \draw[-{Stealth[length=1.6mm]}, color=black!55] (scale.north) -- (pose.south);
+    \draw[-{Stealth[length=1.6mm]}, dashed, color=black!55] (vis.east) -- ++(0.1,0) |- (geo.east);
+  \end{tikzpicture}
+  \caption{Các loại dữ liệu và những gì tạo ra được từ chúng}
+\end{figure}
+
+Một số khái niệm trong sơ đồ:
+\begin{itemize}
+  \item \textbf{Tỉ lệ thật:} quan hệ giữa kích thước trong mô hình và mét ngoài đời. Chỉ từ một camera thì có hình dạng nhưng không biết độ lớn thật. Tỉ lệ được dùng để đưa pose về đơn vị mét, vì CARLA tính bằng mét.
+  \item \textbf{Mặt nạ, khung 3D, tracking:} mặt nạ cho biết pixel nào thuộc vật thể trên ảnh, khung 3D cho biết vị trí và kích thước trong không gian, tracking gán cùng một ID cho vật thể qua các khung hình.
+  \item \textbf{LiDAR gộp nhiều lần quét:} mỗi lần quét khá thưa, nên dùng pose đưa các lần quét về cùng hệ tọa độ, sau khi bỏ điểm của xe đang chạy, để có một mô hình 3D dày của con đường.
+  \item \textbf{Cảnh nền:} model 3DGS hoặc NeRF của phần tĩnh, dùng để render ảnh.
+  \item \textbf{Vật thể động:} có thể là các Gaussian gắn với track, nằm cùng scene với cảnh nền như cách của NuRec, hoặc asset 3D có sẵn do simulator đặt vào.
+  \item \textbf{Hình học vật lý:} CARLA sinh mặt đường từ hình dạng và bề rộng đường trong \texttt{map.xodr}, nên không cần xuất mesh. Mesh từ LiDAR hoặc từ cảnh 3DGS (mũi tên nét đứt) là tùy chọn, khi cần nhà và vật cản tĩnh có va chạm.
+  \item \textbf{Road logic từ quỹ đạo xe:} xe đã chạy trên đường nên quỹ đạo xấp xỉ một làn đường. Khi không có GPS, hệ thống tạo một con đường dọc theo quỹ đạo, rồi dùng ảnh BEV của mặt đường để bổ sung số làn và bề rộng.
+\end{itemize}
+
+Sơ đồ cho thấy vì sao mức tối thiểu vẫn chạy được: chỉ từ camera đã tạo được intrinsics, pose, mặt nạ và khung 3D, rồi đến cảnh hình ảnh và road logic theo quỹ đạo xe.
+LiDAR giúp có tỉ lệ thật và hình học chính xác, nên rất nên có. Dữ liệu bổ sung giúp bỏ qua bước tính toán và cho kết quả tốt hơn.
+
+Thực tế có 2 trường hợp, nên hệ thống có 2 đường vào và cùng ra một dataset chuẩn:
+\begin{itemize}
+  \item \textbf{Đường A, dataset có sẵn:} dataset công khai thường đã có calibration, pose và nhãn khung 3D. Nên dùng luôn, vì nhãn thật thường chính xác hơn nhãn tự tạo. Đường này ít rủi ro và phù hợp để benchmark công bằng.
+  \item \textbf{Đường B, chỉ có log thô:} log chỉ gồm video hoặc tập ảnh, có thể có LiDAR. Hệ thống phải tự tạo phần còn thiếu. Đây là mức tối thiểu hệ thống phải hỗ trợ, và cũng đúng với yêu cầu scale up, vì khu vực mới sẽ không có sẵn nhãn.
+\end{itemize}
+
+Hai đường không tách hẳn nhau. Nếu dataset chỉ thiếu một phần, ví dụ thiếu nhãn, thì riêng phần đó đi theo cách làm của đường B.
+Ở đường B, các mũi tên nét đứt cho biết có thể phải quay lại: sau khi có pose, nhóm dùng pose để bù chuyển động của xe ở bước đồng bộ và tinh chỉnh calibration.
+
+Hệ thống cần xử lý được các mức đầu vào sau. Dữ liệu càng ít thì chất lượng càng giảm, nhưng pipeline vẫn phải chạy được:
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Các mức đầu vào hệ thống phải hỗ trợ}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.3cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Đầu vào} & \textbf{Hệ thống phải tự tạo} & \textbf{Hạn chế} \\
+    \midrule
+    Đầy đủ (dataset) & Không cần & Chỉ có ở dataset công khai \\
+    \addlinespace
+    Video hoặc ảnh + LiDAR & Thời gian, calibration, pose, nhãn & Khó nhất là khớp camera với LiDAR \\
+    \addlinespace
+    Chỉ có video hoặc ảnh & Intrinsics, pose, tỉ lệ thật, nhãn & Hình học kém hơn, khó biết tỉ lệ thật, không có LiDAR để đánh giá. Một camera trước chỉ thấy một phần cảnh, nên ảnh góc khác kém hơn nhiều \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Nếu chỉ có LiDAR mà không có ảnh thì dựng được hình học, nhưng không dựng được cảnh hình ảnh, nên đầu vào tối thiểu phải có ảnh.
+
+\subsection{Các bước xử lý}
+
+\textbf{Bước 1: Đọc dữ liệu.}
+Mỗi dataset có format riêng, ví dụ ROS bag hoặc thư mục theo cấu trúc của dataset đó, nên cần một bộ chuyển đổi riêng.
+Ở bước này cũng kiểm tra nhanh dữ liệu có đủ không, để đổi đoạn khác trước khi tốn thời gian train.
+\begin{itemize}
+  \item \textbf{Đường A:} chuyển format của dataset về format chung.
+  \item \textbf{Đường B:} tách khung hình từ video, ví dụ bằng ffmpeg, và giữ lại thời gian của từng khung. Video và tập ảnh tách sẵn khác nhau không nhiều, nhưng tập ảnh có thể đã mất mốc thời gian gốc, và ảnh từ video thường bị nén nên kém hơn ảnh gốc.
+\end{itemize}
+
+\textbf{Bước 2: Đồng bộ thời gian.}
+Camera và LiDAR không ghi cùng một lúc, nên phải ghép các dữ liệu có thời điểm gần nhau nhất.
+Sai lệch nhỏ cũng gây ảnh hưởng lớn.
+Ví dụ, xe chạy 54~km/h (15~m/s), nếu ảnh và LiDAR lệch nhau 50~ms thì xe đã đi được 0,75~m, nên vật thể trong ảnh và trong LiDAR sẽ lệch nhau.
+\begin{itemize}
+  \item \textbf{Đường A:} dùng mốc thời gian có sẵn và ghép theo thời điểm gần nhất.
+  \item \textbf{Đường B:} lấy thời gian từ log của xe. Nếu cảm biến không đồng bộ phần cứng thì phải ước lượng độ lệch. Nếu chỉ có một camera thì không cần ghép, chỉ cần thứ tự khung hình.
+\end{itemize}
+
+\textbf{Bước 3: Calibration.}
+Calibration cho biết các cảm biến đặt ở đâu so với nhau, và cố định trong suốt quá trình ghi.
+Ví dụ, để biết một điểm LiDAR rơi vào pixel nào, trước hết đưa điểm $p_{\text{LiDAR}}$ sang hệ camera bằng phép biến đổi $T$, sau đó chiếu lên ảnh bằng hàm chiếu $\pi$ của camera:
+\begin{equation}
+  p_{\text{camera}} = T \, p_{\text{LiDAR}}, \qquad \text{pixel} = \pi(p_{\text{camera}})
+\end{equation}
+
+Calibration gồm 2 phần: intrinsics cho biết camera chiếu cảnh 3D thành ảnh thế nào, còn extrinsics cho biết cảm biến đặt ở đâu trên xe.
+Pinhole và fisheye khác nhau ở hàm chiếu $\pi$. Vì vậy, hai track dùng chung quy trình, chỉ khác mô hình camera.
+
+Khi xe có nhiều camera, kể cả camera có FOV khác nhau, không cần bước riêng.
+Mọi cảm biến được quy về cùng một gốc trên xe, gọi là hệ rig. Mỗi camera có một mục riêng trong \texttt{calibration.json}, gồm mô hình camera, intrinsics và extrinsics so với rig.
+Ví dụ, xe có 3 camera và 1 LiDAR thì có 3 bộ intrinsics, 4 bộ extrinsics, nhưng chỉ một trajectory của xe.
+
+\begin{itemize}
+  \item \textbf{Đường A:} dùng calibration có sẵn, nhưng vẫn kiểm tra lại.
+  \item \textbf{Đường B:} intrinsics lấy bằng bảng ô cờ nếu còn tiếp cận được camera (OpenCV), nếu không thì ước lượng từ video (ViPE, COLMAP). Extrinsics giữa camera và LiDAR lấy bằng bảng mục tiêu, hoặc tự động từ cảnh thật. Công cụ direct\_visual\_\allowbreak lidar\_\allowbreak calibration làm được việc này mà không cần bảng mục tiêu, hỗ trợ cả pinhole và fisheye. Nếu không có LiDAR thì không cần phần extrinsics này.
+\end{itemize}
+
+\textbf{Bước 4: Pose.}
+Pose là vị trí và hướng của xe tại một thời điểm, còn chuỗi pose theo thời gian là trajectory của xe.
+Bước này tạo ra trajectory đó. Sau đó, từ pose của xe và calibration, hệ thống suy ra pose của từng camera tại mỗi thời điểm, và đây là thông tin bước dựng cảnh cần.
+Đường A dùng pose có sẵn trong dataset, đường B chọn một trong các nguồn còn lại:
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Các nguồn pose}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.1cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Nguồn} & \textbf{Khi nào dùng} & \textbf{Hạn chế} \\
+    \midrule
+    Pose có sẵn trong dataset & Dataset đã có và kiểm tra thấy đáng tin & Vẫn phải kiểm tra, không tin tuyệt đối \\
+    \addlinespace
+    GPS và IMU & Xe có ghi các dữ liệu này & GPS kém chính xác ở khu vực nhiều nhà cao tầng \\
+    \addlinespace
+    LiDAR odometry & Có LiDAR, cần pose mượt & Sai số tích lũy trên đoạn đường dài \\
+    \addlinespace
+    ViPE & Chỉ có video. Ước lượng cùng lúc intrinsics, pose và độ sâu gần đúng theo mét, hỗ trợ camera góc rộng & Cần GPU; tỉ lệ chỉ gần đúng, cần kiểm tra trên đường dài \\
+    \addlinespace
+    Global SfM (SuperPoint, LightGlue) & Chỉ có ảnh, xử lý offline. Dash2Sim dùng hướng này, ghép thêm ảnh Street View để có tỉ lệ thật và vị trí & Cần ảnh tham chiếu ở khu vực đó \\
+    \addlinespace
+    ORB-SLAM3 & Video liên tục, cần nhanh & Dễ mất dấu khi ít đặc trưng; một camera thì thiếu tỉ lệ thật \\
+    \addlinespace
+    COLMAP (SfM) & Baseline khi chỉ có ảnh & Chậm, thường kém ổn định với cảnh đường phố; một camera thì thiếu tỉ lệ thật \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Với LiDAR odometry có thể thử KISS-ICP (chỉ cần LiDAR), hoặc FAST-LIO (cần thêm IMU).
+KISS-ICP chỉ tính trajectory của LiDAR, không làm calibration, nên vẫn cần extrinsics từ bước 3 để suy ra pose của camera.
+
+Nếu chỉ dùng một camera, quỹ đạo đúng hình dạng nhưng không biết đơn vị thật. CARLA cần đơn vị mét, nên phải lấy tỉ lệ từ GPS, tốc độ xe, ảnh tham chiếu có vị trí, chiều cao lắp camera, hoặc model ước lượng độ sâu. Trong thử nghiệm của Dash2Sim, model độ sâu một bước chưa đủ chính xác nếu dùng riêng, nên cần kết hợp với hình học nhiều góc nhìn. Tỉ lệ cũng có thể trôi dần trên đoạn đường dài, nên phải kiểm tra lại.
+Xe đang chạy trong ảnh cũng có thể làm sai ước lượng, nên cần che các vật thể động trước khi chạy.
+Khi có LiDAR thì ưu tiên LiDAR odometry. Khi chỉ có video thì thử ViPE trước, dùng COLMAP làm baseline. Đây là đường tối thiểu hệ thống phải chạy được.
+
+\textbf{Bước 5: Nhãn vật thể.}
+Nhãn cho biết xe và người nằm ở đâu, để tách vật thể động khỏi cảnh nền.
+\begin{itemize}
+  \item \textbf{Đường A:} dùng nhãn khung 3D và quỹ đạo có sẵn.
+  \item \textbf{Đường B:} cần 3 việc. Phân đoạn ảnh để có mặt nạ (SegFormer, Mask2Former, SAM). Phát hiện 3D để có khung (PointPillars khi có LiDAR, FCOS3D khi chỉ có ảnh). Tracking để nối khung qua các khung hình, vì hai model phát hiện trên không tự làm việc này. Dash2Sim là ví dụ khi chỉ có ảnh: tracking 2D bằng SAM3, rồi nâng lên 3D nhờ độ sâu, sau đó làm mượt quỹ đạo bằng bộ lọc Kalman. Nhãn tự tạo có thể sai hoặc bỏ sót.
+\end{itemize}
+
+Nhãn được lưu riêng trong \texttt{tracks/}, dùng khi train và khi di chuyển vật thể, không phải một phần của ảnh.
+Một số hướng giảm phụ thuộc vào nhãn: HUGSIM dùng tracking dự đoán từ model, còn Instant NuRec tự dự đoán quỹ đạo vật thể khi dựng cảnh.
+
+\textbf{Bước 6: Kiểm tra.}
+Dù đi theo đường nào, dữ liệu cũng phải qua cùng các kiểm tra trước khi dùng:
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Các kiểm tra trên dữ liệu}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.1cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Kiểm tra} & \textbf{Cách làm} & \textbf{Nếu bỏ qua} \\
+    \midrule
+    Đủ dữ liệu & Đếm số ảnh, số lần quét, tìm khung hình thiếu & Pipeline lỗi giữa chừng \\
+    \addlinespace
+    Thời gian & Kiểm tra thời gian tăng đều, đo độ lệch giữa các cảm biến & Ảnh và LiDAR lệch nhau \\
+    \addlinespace
+    Calibration & Chiếu LiDAR lên ảnh của từng camera, xem có khớp cạnh vật thể không. Với nhiều camera, xem vùng chồng lấn có khớp không & Cảnh bị mờ, hai nguồn không khớp \\
+    \addlinespace
+    Pose & Vẽ quỹ đạo, tìm các đoạn nhảy bất thường & Cảnh bị nhòe, đường bị đôi \\
+    \addlinespace
+    Chất lượng ảnh & Xem nhanh độ mờ, chói, lóa ống kính & Cảnh có vùng lỗi \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\textbf{Bước 7: Tạo dataset chuẩn.}
+Dữ liệu đạt kiểm tra được đưa về một cấu trúc chung, để mọi approach đọc cùng một nguồn. Mỗi approach có một adapter để chuyển từ đây sang format riêng của approach đó.
+Cấu trúc dưới đây là đề xuất, sẽ chốt ở chương 3 và chương 4:
+
+\begin{lstlisting}[numbers=none, morecomment={[l]\#}, texcl=true, caption={Cấu trúc dataset chuẩn (đề xuất)}, breaklines=false]
+dataset/<sequence>/
+  manifest.json       # nguồn dữ liệu, phiên bản, đơn vị, hệ tọa độ
+  calibration.json    # intrinsics, extrinsics, loại camera
+  poses.csv           # vị trí xe theo thời gian
+  images/<camera>/    # ảnh của từng camera
+  lidar/              # các lần quét LiDAR
+  tracks/             # vật thể động, nếu có
+  splits.json         # danh sách ảnh train và ảnh giữ lại để test
+\end{lstlisting}
+
+Các công cụ nêu trong mục này là gợi ý, chưa được nhóm chạy thử.
+
+\subsection{Thứ tự làm và rủi ro}
+
+Nên làm đường A trước để benchmark các approach, sau đó thử đường B trên một đoạn ngắn.
+Để đo chất lượng đường B, chạy đường này trên chính dataset công khai, rồi so pose và nhãn tự tạo với dữ liệu thật của dataset.
+
+Với đường B khi có LiDAR, mức độ khó theo thứ tự:
+\begin{enumerate}
+  \item \textbf{Thời gian và extrinsics} rủi ro nhất. Nếu không có thông tin đồng bộ hoặc vị trí lắp cảm biến, camera và LiDAR rất khó khớp, kể cả khi dùng công cụ tự động.
+  \item \textbf{Pose} làm được bằng LiDAR odometry, nhưng sai số tích lũy trên đoạn đường dài.
+  \item \textbf{Nhãn vật thể} tự tạo được, nhưng cần kiểm tra chất lượng.
+\end{enumerate}
+
+Khi chỉ có ảnh, rủi ro lớn nhất chuyển thành tỉ lệ thật và độ ổn định của ước lượng pose. Sai số cũng cộng dồn qua các bước, và các hệ thống hiện có chủ yếu chạy tốt với cảnh ban ngày, thời tiết đẹp.
+
+\subsection{Các module}
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Các module của Data}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.6cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Module} & \textbf{Làm gì} & \textbf{Không làm gì} \\
+    \midrule
+    Data ingestion \& standardization & Đọc dữ liệu thô, kiểm tra đủ thành phần, đưa về format chung & Không tính pose, không dựng cảnh \\
+    \addlinespace
+    Calibration, sync \& localization & Xác định mỗi cảm biến nằm ở đâu, tại thời điểm nào & Không dựng cảnh \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{Các hệ thống khác làm thế nào?}
+
+\begin{itemize}
+  \item \textbf{NuRec} chuyển dữ liệu sang format chuẩn NCore, kèm một bộ dữ liệu phụ trợ. NVIDIA có công cụ chiếu LiDAR lên ảnh để kiểm tra calibration và thời gian.
+  \item \textbf{HUGSIM} dựng cảnh từ ảnh RGB, kèm dự đoán semantic và tracking từ các model có sẵn, nên không cần LiDAR.
+  \item \textbf{Cam2Sim} trích xuất dữ liệu từ ROS bag, gồm ảnh, pose đồng bộ theo odometry, LiDAR và góc lái.
+\end{itemize}
+
+=> Nhóm cũng cần một format chung như NCore, nhưng không nhất thiết dùng đúng NCore. Mỗi approach có một adapter để chuyển từ dataset chuẩn sang format riêng của approach đó.
+
+\subsection{Việc cần chốt}
+
+\begin{itemize}
+  \item Dữ liệu dùng để demo đường B: log của mentor, hay dataset công khai bỏ bớt thông tin?
+  \item Dataset cho từng track: pinhole + LiDAR và fisheye + LiDAR.
+  \item Nguồn pose: dataset đã chọn có pose đủ tin cậy không?
+  \item Nhãn vật thể: có sẵn hay phải tự tạo?
+  \item Mô hình fisheye và quy ước tọa độ (chương 4).
+\end{itemize}
+
+\section{Subsystem 2: World Construction}
+
+Subsystem này biến dataset chuẩn thành một thế giới tái dựng, gồm những gì simulator cần để tái hiện địa điểm thật.
+Thế giới đó không chỉ là một cảnh 3DGS đẹp, mà gồm 4 loại thông tin:
+\begin{itemize}
+  \item \textbf{Cảnh hình ảnh:} môi trường trông như thế nào, dùng để render ảnh.
+  \item \textbf{Vật thể động:} xe, người và quỹ đạo của chúng.
+  \item \textbf{Hình học vật lý:} mặt đường và vật cản, để xe bám đường và va chạm.
+  \item \textbf{Road logic:} làn đường, kết nối và luật giao thông, để xe biết đường đi.
+\end{itemize}
+
+Không nhất thiết một thuật toán phải tạo ra tất cả. Mỗi nhánh có thể dùng method riêng, nên cả 4 nhánh chạy song song và được gom lại ở cuối. Cảnh hình ảnh và vật thể động đi từ dữ liệu cảm biến, road logic chủ yếu đi từ nguồn bản đồ, còn mặt đường mặc định sinh từ \texttt{map.xodr}.
+Hai mũi tên nét đứt là các hướng tùy chọn: dựng mesh từ dữ liệu cảm biến, và tự trích xuất road logic.
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+      box/.style={draw=accent, fill=blue!4, rounded corners=2pt, align=center,
+                  text width=2.25cm, minimum height=0.9cm, inner sep=1pt,
+                  font=\fontsize{6.5}{8}\selectfont\sffamily},
+      wide/.style={box, text width=3.1cm},
+      src/.style={box, fill=blue!12},
+      flow/.style={-{Stealth[length=2mm]}, thick, color=black!65},
+      evalflow/.style={flow, dashed, color=black!50}]
+    \node[src] (in) at (0,0) {Dataset chuẩn\\(từ subsystem 1)};
+    \node[box] (split) at (2.5,0) {1. Tách cảnh tĩnh và vật thể động};
+    \node[wide] (vis) at (5.5,1.85) {\textbf{2. Dựng cảnh hình ảnh}\\3DGS, NeRF};
+    \node[wide] (act) at (5.5,0.62) {\textbf{3. Dựng vật thể động}\\quỹ đạo, mô hình vật thể};
+    \node[wide] (geo) at (5.5,-0.62) {\textbf{4. Tạo hình học vật lý}\\mặt đường, mesh tùy chọn};
+    \node[wide] (road) at (5.5,-1.85) {\textbf{5. Tạo road logic}\\\texttt{map.xodr}: làn, kết nối, luật};
+    \node[box] (align) at (8.5,0) {\textbf{6. Khớp tọa độ}\\có GPS: qua \texttt{geoReference}\\không GPS: bản đồ cùng hệ tọa độ với scene};
+    \node[box] (chk) at (10.95,0) {7. Kiểm tra};
+    \node[src] (out) at (13.4,0) {8. Gói scene thống nhất};
+    \draw[flow] (in) -- (split);
+    \node[box] (ext) at (2.5,-1.85) {Nguồn bản đồ: OSM, HD map, quỹ đạo, BEV};
+    \foreach \x in {vis,act} \draw[flow] (split.east) -- (\x.west);
+    \draw[evalflow] (split.east) -- (geo.west);
+    \foreach \x in {vis,act,geo,road} \draw[flow] (\x.east) -- (align.west);
+    \draw[flow] (in.south) |- (ext.west);
+    \draw[flow] (ext.east) -- (road.west);
+    \draw[flow] (road.north) -- (geo.south);
+    \draw[evalflow] (split.south) -- (ext.north);
+    \draw[flow] (align) -- (chk);
+    \draw[flow] (chk) -- (out);
+  \end{tikzpicture}
+  \caption{Luồng xử lý của subsystem World Construction}
+\end{figure}
+
+\subsection{Đầu vào}
+
+Đầu vào chính là dataset chuẩn từ subsystem Data: ảnh, pose, calibration, nhãn vật thể, và LiDAR nếu có.
+Riêng road logic có thể cần thêm nguồn ngoài như OpenStreetMap, vì không phải thông tin nào cũng suy ra được từ dữ liệu cảm biến.
+
+\subsection{Các bước xử lý}
+
+\textbf{Bước 1: Tách cảnh tĩnh và vật thể động.}
+3DGS cơ bản giả định cảnh đứng yên. Xe đang chạy nằm ở vị trí khác nhau trong mỗi khung hình, nên nếu không tách thì sẽ thành vệt mờ hoặc nhiều bản sao.
+Bước này dùng nhãn từ subsystem Data để chia dữ liệu thành cảnh tĩnh (đường, nhà, cây) và vật thể động (xe, người).
+
+Bước này phục vụ 2 nhánh chính: cảnh hình ảnh cần dữ liệu tĩnh, vật thể động là phần được tách ra. Nếu dựng mesh thì cũng cần bỏ các điểm LiDAR của xe đang chạy.
+Road logic không đi qua bước này, vì được lấy từ bản đồ.
+
+Xe đỗ cần được quyết định riêng. Nếu để trong cảnh nền thì chúng nhìn thật nhưng không dịch chuyển được. Nếu tách ra thì phải đặt lại trong simulator, như Cam2Sim đang làm.
+
+\textbf{Bước 2: Dựng cảnh hình ảnh.}
+Đây là phần chính của NeRF hoặc 3DGS. Từ ảnh, pose và LiDAR, method tối ưu một mô hình cảnh để render được ảnh từ góc nhìn mới.
+Một số điểm cần xử lý:
+\begin{itemize}
+  \item \textbf{Giữ ảnh để đánh giá:} giữ lại một số ảnh không dùng để train, theo \texttt{splits.json}, để đo chất lượng.
+  \item \textbf{Dùng LiDAR:} LiDAR có thể khởi tạo cảnh hoặc giúp hình học chính xác hơn, tùy method.
+  \item \textbf{Khác biệt giữa camera:} màu và độ sáng khác nhau giữa các camera được xử lý ở đây. HUGSIM dùng biến đổi affine để xử lý phơi sáng tự động.
+  \item \textbf{Góc nhìn xa dữ liệu gốc:} xe trong mô phỏng có thể đi lệch đường đã ghi, nên ảnh render có thể bị méo. Mặt đường dễ lỗi nhất. HUGSIM dùng mô hình mặt đường nhiều mảng phẳng để giảm méo vạch làn.
+\end{itemize}
+
+\textbf{Bước 3: Dựng vật thể động.}
+Mỗi vật thể cần 2 thứ: quỹ đạo để biết nó đi đâu, và hình dáng để hiển thị trong ảnh. Hình dáng có 2 cách:
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Hai cách biểu diễn vật thể động}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Cách} & \textbf{Ưu điểm} & \textbf{Hạn chế} \\
+    \midrule
+    Neural asset dựng từ dữ liệu & Giống xe thật, hòa hợp với cảnh & Chỉ thấy một phía nên khó xoay góc khác, chỉ có các xe đã ghi được \\
+    \addlinespace
+    Asset 3D có sẵn, ví dụ xe của CARLA & Dễ điều khiển, xoay đủ góc, có sẵn vật lý & Nhìn kém hòa hợp với cảnh tái dựng \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Khung 3D còn là cách di chuyển vật thể: các Gaussian của một chiếc xe gắn với track của nó, nên khung đi đến đâu thì xe đi đến đó.
+Khi render, chương trình gửi \texttt{track\_id} và vị trí, renderer vẽ đúng các track đó. Ảnh đưa cho AD Stack chỉ có chiếc xe, không có khung, trừ khi bật lớp vẽ thêm để kiểm tra, như tùy chọn \texttt{--overlay-bboxes} của NuRec.
+
+\textbf{Bước 4: Tạo hình học vật lý.}
+Simulator cần bề mặt để xe bám đường và phát hiện va chạm. Với CARLA, phần này không cần xuất mesh từ cảnh tái dựng, vì CARLA có sẵn vật lý riêng.
+Cần phân biệt rõ 2 luồng trong cách nối NuRec với CARLA:
+\begin{itemize}
+  \item \textbf{gRPC chỉ để tạo ảnh:} script gửi vị trí camera và vị trí xe, NuRec trả ảnh. Thông tin va chạm không đi qua kết nối này.
+  \item \textbf{Vật lý do CARLA tính:} mặt đường do \texttt{generate\_opendrive\_world} sinh từ \texttt{map.xodr}, còn xe và người là các actor của CARLA, tạo từ track với khung va chạm có sẵn.
+\end{itemize}
+
+Vì vậy, mặt đường sinh từ OpenDRIVE là cách mặc định. Mesh chỉ là phần tùy chọn, khi cần hình học chính xác hơn:
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Các nguồn hình học vật lý}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Nguồn} & \textbf{Cách làm} & \textbf{Hạn chế} \\
+    \midrule
+    Sinh từ OpenDRIVE (mặc định) & CARLA tự tạo mặt đường từ file \texttt{.xodr}, như cách NuRec + CARLA đang làm & Không cần xuất mesh. Mặt đường có thể lệch so với cảnh thật; nhà, cột đèn không có va chạm \\
+    \addlinespace
+    Mesh từ LiDAR (tùy chọn) & Gộp các lần quét, tạo mesh mặt đường và vật cản & Chính xác hơn, nhưng cần xử lý nhiễu và đưa mesh vào simulator \\
+    \addlinespace
+    Mesh từ cảnh 3DGS (tùy chọn) & Render độ sâu rồi gộp thành mesh, hoặc dùng SuGaR, 2DGS. NuRec có lệnh xuất mesh mặt đất, và USDZ mẫu có \texttt{mesh\_ground.ply} & Không cần LiDAR, nhưng mesh thường nhiễu, có lỗ, cần làm sạch \\
+    \addlinespace
+    Suy từ cảnh Gaussian & HUGSIM đếm số Gaussian nằm trong khung xe để phát hiện va chạm & Dùng trong runtime riêng, không đưa thẳng được vào CARLA \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Mesh hữu ích trong 3 trường hợp: cần va chạm với nhà và vật cản tĩnh, cần LiDAR của CARLA quét trúng các vật đó, hoặc dùng simulator khác.
+Ví dụ, AlpaSim dùng \texttt{mesh\_ground.ply} để giữ xe bám mặt đất, còn va chạm được tính bằng khung của các vật thể.
+Script NuRec + CARLA không dùng file mesh này, nên muốn đưa mesh riêng vào CARLA thì cần một quy trình khác, nhóm chưa kiểm tra.
+
+\textbf{Bước 5: Tạo road logic.}
+Train 3DGS không tự sinh ra thông tin đường. Nhìn ảnh một ngã tư thì thấy đường, nhưng xe còn cần biết làn nào rẽ được sang làn nào.
+Road logic gồm hình dạng đường, tâm làn, kết nối giữa các làn và luật giao thông. CARLA đọc thông tin này ở định dạng OpenDRIVE (\texttt{.xodr}).
+Nhánh này đi từ nguồn bản đồ, còn dataset chỉ cung cấp vị trí để tìm đúng khu vực, ví dụ Cam2Sim dùng quỹ đạo xe để tải dữ liệu OpenStreetMap.
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Các nguồn road logic}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Nguồn} & \textbf{Cách làm} & \textbf{Hạn chế} \\
+    \midrule
+    Bản đồ có sẵn & Dùng HD map của dataset, hoặc \texttt{.xodr} kèm scene & Không phải dataset nào cũng có, có thể phải chuyển format \\
+    \addlinespace
+    OpenStreetMap & Tải dữ liệu OSM, chuyển sang OpenDRIVE bằng \texttt{carla.\allowbreak Osm2Odr}, như Cam2Sim & Dữ liệu ở mức đường, thiếu bề rộng làn và chi tiết lề đường \\
+    \addlinespace
+    OSM kết hợp LiDAR & Lấy kết nối đường từ OSM, lấy hình dạng và làn từ LiDAR, rồi xuất OpenDRIVE. Pipeline của TU Graz làm cho đường cao tốc & Hiện mới có cho đường cao tốc \\
+    \addlinespace
+    Vẽ tay & Vẽ đường cho một khu vực nhỏ bằng công cụ dựng bản đồ & Chính xác nhưng tốn công, trái với yêu cầu scale up \\
+    \addlinespace
+    Tự tạo từ quỹ đạo và BEV & Lấy quỹ đạo làm đường tham chiếu, tìm vạch làn trên ảnh BEV của mặt đường & Tự động, nhưng giao lộ vẫn là bài toán khó \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Nên tách thành hai việc độc lập: có một bản đồ hợp lệ để chạy mô phỏng, và đánh giá riêng khả năng trích xuất tự động.
+
+Hướng chính của project là tạo \texttt{map.xodr} từ OpenStreetMap, vì tự động và rẻ nhất. Cam2Sim cũng đi theo hướng này:
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Quy trình tạo \texttt{map.xodr} từ OpenStreetMap}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{3.6cm}}
+    \toprule
+    \textbf{Bước} & \textbf{Làm gì} & \textbf{Công cụ} \\
+    \midrule
+    1. Xác định khu vực & Lấy vị trí địa lý từ GPS & Subsystem Data \\
+    \addlinespace
+    2. Tải bản đồ & Tải dữ liệu OSM của khu vực & Overpass API \\
+    \addlinespace
+    3. Chuyển sang OpenDRIVE & Chuyển \texttt{.osm} thành \texttt{map.xodr} & \texttt{carla.\allowbreak Osm2Odr.\allowbreak convert} \\
+    \addlinespace
+    4. Nạp vào CARLA & Tạo thế giới và mặt đường, để \texttt{wall\_height} bằng 0 theo khuyến nghị của CARLA & \texttt{generate\_\allowbreak opendrive\_\allowbreak world} \\
+    \addlinespace
+    5. Khớp tọa độ & Đọc \texttt{geoReference} và offset trong file, đổi quỹ đạo xe sang tọa độ CARLA & Tự viết, tham khảo Cam2Sim \\
+    \addlinespace
+    6. Kiểm tra & Xem quỹ đạo xe có nằm đúng làn không, xe có tìm được đường không & Waypoint của CARLA \\
+    \addlinespace
+    7. Sửa nếu cần & Chỉnh tay các đoạn bản đồ bị sai & Công cụ chỉnh OpenDRIVE \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Hướng này có 3 hạn chế:
+\begin{itemize}
+  \item OSM do cộng đồng đóng góp, nên số làn, vị trí làn và đèn tín hiệu có thể thiếu hoặc lệch.
+  \item Cần có vị trí địa lý của khu vực. Nếu không có thì đi theo hướng tự tạo ở dưới.
+  \item Đường bị cắt đột ngột ở biên bản đồ, có thể làm lỗi Traffic Manager.
+\end{itemize}
+
+NuRec không tự tạo \texttt{map.xodr} từ dữ liệu. Scene tự train từ dữ liệu thô không có bản đồ, còn bước \texttt{inject\_reference\_map} chỉ chép bản đồ từ một scene tham chiếu đã có sẵn.
+Vì vậy, dù dùng NuRec, nhóm vẫn phải tự lo bản đồ.
+
+Dữ liệu tối thiểu không có GPS, nên hệ thống có 2 hướng tạo bản đồ:
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Hai hướng tạo \texttt{map.xodr}}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.9cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Trường hợp} & \textbf{Cách làm} & \textbf{Hạn chế} \\
+    \midrule
+    Có GPS hoặc pose toàn cầu & Tải OSM và khớp tọa độ tự động theo quy trình trên & Phụ thuộc chất lượng OSM \\
+    \addlinespace
+    Không có GPS & Tự tạo \texttt{map.xodr} từ quỹ đạo xe và ảnh BEV của mặt đường & Chỉ có đoạn đường đã đi. Giao lộ cần xử lý thêm \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\texttt{map.xodr} là file XML theo chuẩn OpenDRIVE, mô tả hình học và logic của đường, không chứa mesh hay Gaussian. Vì chỉ là file văn bản nên có thể tạo bằng code. Hướng không có GPS gồm 2 lớp:
+
+\textbf{Lớp 1: tạo từ quỹ đạo xe.} Đây là mức tối thiểu, luôn chạy được:
+\begin{itemize}
+  \item Làm mượt quỹ đạo, vì xe ngoài đời có thể lệch tâm làn hoặc chuyển làn.
+  \item Dùng quỹ đạo làm đường tham chiếu, chia thành các đoạn thẳng hoặc cong.
+  \item Đặt bề rộng làn mặc định, ví dụ 3,5~m, và một làn mỗi chiều.
+\end{itemize}
+
+\textbf{Lớp 2: bổ sung từ ảnh BEV.} Lớp này cho số làn và bề rộng đúng hơn:
+\begin{enumerate}
+  \item Dựng riêng lớp mặt đường. Có thể tham khảo RoGS và RoadVGGT, hai phương pháp tái dựng mặt đường và xuất được bản đồ màu, semantic và độ cao nhìn từ trên xuống.
+  \item Render ảnh BEV từ lớp này bằng một camera ảo nhìn thẳng xuống. Ảnh BEV ở đây là ảnh render từ cảnh đã dựng, không phải ảnh gốc.
+  \item Tìm vạch làn và mép đường trên ảnh BEV.
+  \item Đo vị trí vạch và mép đường so với quỹ đạo để suy ra số làn và bề rộng làn.
+  \item Ghi kết quả vào \texttt{map.xodr}.
+\end{enumerate}
+
+Nên render từ lớp mặt đường riêng, không render từ toàn bộ cảnh 3DGS. Camera ảo nhìn từ trên xuống ở rất xa các góc nhìn lúc train, nên cảnh 3DGS thông thường dễ lỗi. Xe, cây và nhà cũng che mặt đường trong ảnh. Một paper về BEV ghi nhận 3DGS thông thường bị sụp cấu trúc khi nhìn từ trên xuống với góc nhìn gắn trên xe.
+
+Ưu điểm lớn của hướng này là ảnh BEV và quỹ đạo cùng hệ tọa độ với cảnh, nên bản đồ tự khớp với scene. Với camera chỉ thấy một đoạn phía trước, vùng xa quỹ đạo có thể thiếu dữ liệu.
+Nếu có LiDAR thì nên dùng thêm ảnh BEV từ LiDAR, vì đúng kích thước thật và thấy vạch kẻ qua cường độ phản xạ.
+
+Các phần trong file được lấy như sau:
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Các phần của \texttt{map.xodr} lấy từ đâu}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{4cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Phần trong XML} & \textbf{Mức tối thiểu} & \textbf{Có ảnh BEV} \\
+    \midrule
+    \texttt{planView}, \texttt{geometry} & Quỹ đạo xe đã làm mượt & Tâm đường đo từ mép đường \\
+    \addlinespace
+    \texttt{elevationProfile} & Độ cao của quỹ đạo & Bản đồ độ cao của mặt đường \\
+    \addlinespace
+    \texttt{width} của làn & Mặc định 3,5~m & Đo từ vạch làn \\
+    \addlinespace
+    Số \texttt{lane} & Một làn mỗi chiều & Đếm từ vạch làn \\
+    \addlinespace
+    \texttt{link}, \texttt{junction} & Bỏ trống & Xử lý sau \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Khảo sát chưa tìm thấy công cụ công khai đi trọn từ quỹ đạo và ảnh BEV đến \texttt{map.xodr}, nên nhóm phải tự viết bộ tạo file và cần thử nghiệm để xác nhận.
+
+\textbf{Bước 6: Khớp tọa độ.}
+Bốn nhánh được tạo riêng nên phải đưa về cùng hệ tọa độ, cùng đơn vị mét. Nếu không, xe chạy trên bản đồ nhưng trong ảnh lại đi trên vỉa hè.
+Bản đồ thường dùng tọa độ địa lý, còn scene dùng tọa độ cục bộ. CARLA cũng có quy ước trục riêng, nên cần phép biến đổi giữa các hệ.
+Cả NuRec và Cam2Sim đều dựa vào thông tin địa lý trong file \texttt{.xodr}:
+\begin{itemize}
+  \item \textbf{NuRec} đi theo chuỗi NuRec $\to$ ECEF $\to$ ENU, trong đó ECEF là hệ tọa độ toàn cầu, còn ENU là hệ của bản đồ với gốc đọc từ \texttt{geoReference}. Script CARLA gọi ma trận kết quả là \texttt{t\_\allowbreak scenario\_\allowbreak carla}.
+  \item \textbf{Cam2Sim} đọc \texttt{geoReference} và offset trong file \texttt{.xodr}, rồi đổi tọa độ dataset sang tọa độ CARLA.
+\end{itemize}
+
+Khi có GPS hoặc pose toàn cầu, hệ thống khớp tự động theo cách trên.
+Khi không có, hệ thống dùng hệ tọa độ cục bộ lấy điểm đầu quỹ đạo làm gốc. Nếu bản đồ được tạo từ quỹ đạo xe thì bản đồ và cảnh tự cùng hệ tọa độ, nên không cần khớp thêm.
+
+\textbf{Bước 7: Kiểm tra.}
+Mỗi nhánh được đánh giá riêng, sau đó kiểm tra các nhánh có khớp với nhau không:
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Các kiểm tra của World Construction}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Kiểm tra} & \textbf{Cách làm} & \textbf{Nếu bỏ qua} \\
+    \midrule
+    Chất lượng ảnh & So ảnh render với ảnh giữ lại: PSNR, SSIM, LPIPS & Không biết cảnh có đạt không \\
+    \addlinespace
+    Góc nhìn mới & Render khi dịch xe sang bên, xem có méo không & Cảnh chỉ đẹp trên đúng đường đã ghi \\
+    \addlinespace
+    Tách động & Xem còn vệt mờ hay xe bị đóng băng không & Xe xuất hiện hai lần trong mô phỏng \\
+    \addlinespace
+    Khung 3D & Vẽ khung 3D lên ảnh render, xem có khớp với xe không & Không phát hiện được sai ở nhãn, pose hoặc tọa độ \\
+    \addlinespace
+    Hình học & So mặt đường với LiDAR & Xe lún, nảy hoặc đi xuyên vật \\
+    \addlinespace
+    Road logic & Cho simulator tìm đường đi trên bản đồ & Xe không tìm được đường \\
+    \addlinespace
+    Khớp giữa các nhánh & Vẽ làn đường và mặt đường lên ảnh render & Hình ảnh và mô phỏng lệch nhau \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\textbf{Bước 8: Gói scene thống nhất.}
+Mỗi method có format riêng, nên kết quả được gom vào một gói chung để simulator và tool dùng được.
+Các dữ liệu ở mục 2.4 kết hợp thành gói scene như sau:
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Từ dữ liệu đến gói scene}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.1cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Thành phần} & \textbf{Tạo từ} & \textbf{Bằng cách nào} \\
+    \midrule
+    \texttt{neural\_scene/} & Ảnh, calibration, pose, mặt nạ & Train 3DGS, mặt nạ dùng để bỏ xe đang chạy \\
+    \addlinespace
+    \texttt{actors/} & Khung 3D, tracking, ảnh & Lấy quỹ đạo, dựng hình dáng vật thể \\
+    \addlinespace
+    \texttt{geometry/} (tùy chọn) & LiDAR gộp, hoặc cảnh 3DGS & Tạo mesh. Với CARLA có thể bỏ trống, vì mặt đường sinh từ \texttt{map.xodr} \\
+    \addlinespace
+    \texttt{road/map.xodr} & Vị trí và OSM, hoặc quỹ đạo xe & Theo quy trình ở bước 5 \\
+    \addlinespace
+    \texttt{trajectory.csv} & Pose & Dùng trực tiếp \\
+    \addlinespace
+    \texttt{calibration.json} & Intrinsics, extrinsics & Dùng trực tiếp \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Cấu trúc gói dưới đây là đề xuất, phần nào chưa có thì ghi là thiếu, không tạo dữ liệu giả:
+
+\begin{lstlisting}[numbers=none, morecomment={[l]\#}, texcl=true, caption={Cấu trúc gói scene (đề xuất)}, breaklines=false]
+scene/<sequence>/
+  scene_manifest.json   # method, phiên bản, hệ tọa độ, đơn vị, capability
+  calibration.json      # thông số camera dùng để render
+  trajectory.csv        # quỹ đạo xe ego
+  neural_scene/         # model đã train và cấu hình renderer
+  geometry/             # mesh tùy chọn
+  road/map.xodr         # bản đồ đường cho simulator
+  actors/               # quỹ đạo, kích thước vật thể động
+  evaluation/           # số đo, log, thời gian chạy
+\end{lstlisting}
+
+NuRec cũng làm tương tự: gói USDZ chứa checkpoint, mô tả scene, quỹ đạo và có thể kèm bản đồ \texttt{.xodr}.
+
+\subsection{Thứ tự làm và rủi ro}
+
+Không cần làm xong cả 4 nhánh cùng lúc. Mỗi mức hoàn thiện cần các nhánh khác nhau:
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Nhánh cần có theo mức hoàn thiện}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{4.2cm} X}
+    \toprule
+    \textbf{Mức} & \textbf{Nhánh cần có} \\
+    \midrule
+    M1, M2: dựng cảnh và benchmark & Cảnh hình ảnh, thêm vật thể động nếu method hỗ trợ \\
+    \addlinespace
+    M3: thế giới sẵn sàng cho mô phỏng & Đủ cả 4 nhánh ở mức tối thiểu, ví dụ road logic vẽ tay, hình học sinh từ OpenDRIVE \\
+    \addlinespace
+    M4 trở lên: closed-loop & Thêm kiểm tra góc nhìn mới và độ khớp giữa các nhánh \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Các rủi ro lớn nhất:
+\begin{enumerate}
+  \item \textbf{Các nhánh không khớp nhau:} hình ảnh, bản đồ và mặt đường đến từ các nguồn khác nhau, nên đây là phần dễ sai nhất.
+  \item \textbf{Road logic:} tự động hoàn toàn còn là bài toán khó. Nên có bản đồ tối thiểu trước.
+  \item \textbf{Ảnh xấu khi xe đi lệch:} kết quả benchmark trên ảnh giữ lại có thể đẹp, nhưng ảnh trong closed-loop kém hơn nhiều.
+\end{enumerate}
+
+\subsection{Các module}
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Các module của World Construction}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.6cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Module} & \textbf{Làm gì} & \textbf{Không làm gì} \\
+    \midrule
+    Reconstruction engine & Dựng cảnh nhìn được từ dữ liệu & Không biết làn đường hay luật giao thông \\
+    \addlinespace
+    Geometry \& semantic understanding & Tìm mặt đường, vật cản, làn xe; tạo bề mặt va chạm & Không tạo ảnh chân thực \\
+    \addlinespace
+    Dynamic actor assets & Cung cấp quỹ đạo và mô hình của xe, người đi bộ & Không điều khiển vật thể khi mô phỏng \\
+    \addlinespace
+    Unified scene representation & Gom các kết quả thành một gói có cùng hệ tọa độ & Không chạy thuật toán dựng cảnh \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{Các hệ thống khác làm thế nào?}
+
+\begin{itemize}
+  \item \textbf{NuRec} tách nền tĩnh và vật thể động theo nhãn và chuyển động, đóng gói thành USDZ. Công cụ Asset Harvester có thể tạo asset 3D từ các vật thể. Bản đồ \texttt{.xodr} không bắt buộc với NuRec, nhưng bắt buộc với script CARLA, và NuRec không tự tạo file này.
+  \item \textbf{HUGSIM} chia cảnh thành mặt đường, nền tĩnh và xe động. Xe trong dữ liệu đi theo quỹ đạo khớp bằng mô hình chuyển động, xe thêm vào lấy từ tập dữ liệu 3DRealCar.
+  \item \textbf{Cam2Sim} chỉ tái dựng đường, quỹ đạo ego và xe đỗ. Bản đồ lấy từ OpenStreetMap, xe đỗ được đặt lại trong CARLA, còn cảnh Gaussian chỉ dùng để render ảnh.
+\end{itemize}
+
+=> Cả 3 hệ thống đều tách cảnh thành nhiều lớp, không dùng một mô hình duy nhất cho mọi thứ. Road logic thường đến từ nguồn riêng, không sinh ra từ bước dựng cảnh.
+
+\subsection{Việc cần chốt}
+
+\begin{itemize}
+  \item Method dựng cảnh cho từng track (chương 5).
+  \item Xe đỗ để trong cảnh nền hay tách ra làm actor?
+  \item Vật thể động dùng neural asset hay asset của CARLA?
+  \item Nguồn road logic cho khu vực demo, và method dựng lớp mặt đường để render BEV.
+  \item Cách kiểm tra góc nhìn mới: xe dịch sang bên bao nhiêu mét là đạt?
+\end{itemize}
+
+\section{Subsystem 3: Simulation Runtime}
+
+Subsystem này quản lý xe, giao thông, vật lý, thời gian, và tạo dữ liệu cảm biến ở mỗi bước.
+Đây là một vai trò chức năng, không bắt buộc phải là CARLA: Cam2Sim dùng CARLA, còn HUGSIM có runtime riêng.
+CARLA là simulator được nêu trong đề bài, nên là runtime chính của project.
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Các module của Simulation Runtime}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.6cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Module} & \textbf{Làm gì} & \textbf{Không làm gì} \\
+    \midrule
+    Simulation integration layer, CARLA adapter & Chuyển gói scene sang dạng simulator dùng được & Không mô phỏng xe \\
+    \addlinespace
+    World \& traffic simulation & Quản lý xe, giao thông, vật lý và thời gian & Không tạo ảnh từ cảnh tái dựng \\
+    \addlinespace
+    Sensor rendering & Tạo ảnh camera và LiDAR theo vị trí hiện tại của xe & Không quyết định hành động của xe \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Sensor rendering được tách riêng vì nhiệm vụ khác với dựng cảnh: dựng cảnh tạo ra scene, còn renderer tạo ảnh theo vị trí camera ở từng bước mô phỏng.
+Renderer còn phải xử lý đúng các vật thể động do simulator quản lý, gồm vị trí, che khuất và hình ảnh tương tác.
+
+\begin{question}
+CARLA là simulation backend cố định, hay nên thiết kế \texttt{SimulatorAdapter} tổng quát để sau này thay bằng NVIDIA Isaac Sim, AlpaSim hoặc simulator khác?
+Đề xuất hiện tại: thiết kế adapter tổng quát, nhưng trong 6 tuần chỉ triển khai CARLA adapter.
+\end{question}
+
+\section{Subsystem 4: AD Stack / Agent}
+
+Subsystem này nhận dữ liệu cảm biến và trả về lệnh điều khiển. Đây là phần được kiểm thử.
+AD Stack là thành phần được tích hợp, không nhất thiết do nhóm xây dựng: có thể là Autoware, một planner nghiên cứu hoặc một controller đơn giản.
+Một số thí nghiệm replay không cần đến phần này.
+
+\begin{warning}
+Controller đọc thẳng vị trí xe khác từ simulator thì không chứng minh được dữ liệu cảm biến dùng được.
+\end{warning}
+
+\section{Subsystem 5: Evaluation}
+
+Đánh giá không phải bước cuối cùng, mà diễn ra ở nhiều khâu. Lỗi được phát hiện càng sớm thì càng đỡ tốn thời gian chạy lại.
+Các hệ thống ở mục trên đều đánh giá ở nhiều khâu, và thường đo riêng chất lượng dựng cảnh với chất lượng lái xe.
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Đánh giá theo từng khâu}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Khâu} & \textbf{Kiểm tra gì} & \textbf{Ví dụ} \\
+    \midrule
+    Data & Dữ liệu đủ và khớp nhau & Chiếu LiDAR lên ảnh để kiểm tra calibration \\
+    \addlinespace
+    World Construction & Cảnh dựng có đúng không & PSNR, SSIM, LPIPS; sai lệch hình học \\
+    \addlinespace
+    Trước khi mô phỏng & Cảnh có dùng được cho mô phỏng không & So sánh hình ảnh và hành vi với dữ liệu thật \\
+    \addlinespace
+    Simulation và AD Stack & Xe chạy có đúng và ổn định không & Va chạm, ra khỏi vùng lái được, độ êm \\
+    \addlinespace
+    Toàn hệ thống & Chạy lại có nhất quán không & Độ lệch giữa 2 lần chạy cùng kịch bản \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Module Experiment \& evaluation framework cấu hình thí nghiệm, ghi log và tính số đo, nhưng không thay đổi kết quả của module khác. Cách đo cụ thể nằm ở chương 4.
+
+\section{Luồng offline và online}
+
+\subsection{Offline}
+
+Giai đoạn này xử lý dữ liệu đã ghi, không cần chạy cùng xe thật. Các bước diễn ra theo thứ tự:
+
+\begin{enumerate}
+  \item \textbf{Đọc và kiểm tra dữ liệu.} Kiểm tra đủ ảnh, LiDAR, thời gian ghi và metadata, rồi đưa về format chung.
+  \item \textbf{Căn chỉnh cảm biến.} Xác định vị trí tương đối giữa các cảm biến và vị trí của xe theo thời gian. Nếu bước này sai, ảnh và LiDAR sẽ lệch nhau, kéo theo sai lệch ở mọi bước sau.
+  \item \textbf{Tách vật thể chuyển động.} Tách xe và người đang di chuyển khỏi cảnh nền. Nếu không, xe trong video có thể thành vệt mờ, hoặc trùng với xe do mô phỏng tạo ra.
+  \item \textbf{Dựng cảnh.} Tạo cảnh nhìn được từ phần dữ liệu tĩnh.
+  \item \textbf{Trích xuất đường và vật cản.} Tạo mặt đường, bề mặt va chạm và thông tin làn đường.
+  \item \textbf{Gom kết quả.} Đưa tất cả về một gói có cùng hệ tọa độ, đơn vị và metadata.
+\end{enumerate}
+
+\subsection{Online}
+
+Giai đoạn này chạy lặp lại theo từng bước thời gian. Xe trong mô phỏng có thể đi khác đường lúc ghi dữ liệu, nên không thể phát lại video cũ mà phải tạo dữ liệu cảm biến mới.
+
+\begin{enumerate}
+  \item CARLA cập nhật vị trí và vận tốc của xe ego và các xe khác.
+  \item Từ vị trí xe và vị trí lắp cảm biến, hệ thống tính vị trí của từng camera và LiDAR.
+  \item Sensor rendering tạo ảnh và LiDAR mới theo các vị trí đó.
+  \item Dữ liệu được đóng gói kèm thời gian và gửi cho AD Stack.
+  \item AD Stack tính lệnh lái, ga, phanh.
+  \item CARLA thực hiện lệnh, cập nhật vật lý, rồi quay lại bước 1.
+\end{enumerate}
+
+Đưa file cảnh vào CARLA không có nghĩa là camera của CARLA tự render được cảnh đó.
+Cần một phần nối riêng để nhận vị trí từ CARLA, gọi renderer và trả ảnh về đúng bước thời gian.
+
+\section{Phần nào chuẩn hóa, phần nào không?}
+
+5 subsystem là chuẩn ở cấp chức năng, không phải pipeline mà mọi approach phải tuân theo.
+
+\begin{table}[H]
+  \centering
+  \caption{Mức chuẩn hóa theo từng cấp thiết kế}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.5cm} l >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Cấp thiết kế} & \textbf{Chuẩn hóa?} & \textbf{Ví dụ} \\
+    \midrule
+    Chức năng hệ thống & Có & Data, World Construction, Simulation, AD Stack, Evaluation \\
+    \addlinespace
+    Giao tiếp giữa subsystem & Có, qua contract & Scene artifacts, dữ liệu cảm biến, trạng thái xe, lệnh điều khiển \\
+    \addlinespace
+    Thứ tự pipeline & Không cố định & Xử lý bản đồ và dựng cảnh có thể chạy song song \\
+    \addlinespace
+    Thuật toán bên trong & Không cố định & 3DGUT, Splatfacto, NuRec reconstruction, method riêng của HUGSIM \\
+    \addlinespace
+    Chi tiết triển khai & Không cố định & Python, CUDA, gRPC, ROS, process riêng \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Vì vậy, người nghiên cứu một approach không cần viết lại pipeline của approach đó cho giống sơ đồ trên.
+Ví dụ, với HUGSIM, chỉ cần mô tả pipeline gốc, rồi ánh xạ các chức năng của HUGSIM vào 5 subsystem.
+Mỗi chương approach trả lời 5 câu hỏi:
+\begin{enumerate}
+  \item Approach giải quyết những chức năng nào trong 5 subsystem?
+  \item Approach gộp những chức năng nào vào cùng một module?
+  \item Approach bỏ qua, hoặc cần dữ liệu bên ngoài cho chức năng nào?
+  \item Approach có interface nào để tích hợp vào tool?
+  \item Approach chạy độc lập và đánh giá được những gì?
+\end{enumerate}
+
+\section{Hai cấp kiến trúc}
+
+Thiết kế của nhóm gồm 2 cấp:
+\begin{itemize}
+  \item \textbf{Cấp 1, kiến trúc hệ thống (chương này):} 5 subsystem, gồm Data $\to$ World Construction $\to$ Simulation Runtime $\leftrightarrow$ AD Stack, và Evaluation đánh giá xuyên suốt.
+  \item \textbf{Cấp 2, tool thử nghiệm (chương 3):} Approach Registry $\to$ chạy theo cấu hình $\to$ quản lý artifact $\to$ đánh giá chung.
+\end{itemize}
+
+Các pipeline như NuRec, HUGSIM và Cam2Sim được ánh xạ vào cấp 1, rồi được chạy lại và đánh giá thông qua cấp 2.
+Nhờ đó, kiến trúc đủ tổng quát mà không làm sai lệch cấu trúc thực tế của từng approach.
+
+Kiến trúc này không được đóng băng thành một pipeline tuần tự.
+Nhóm chốt trước 5 chức năng, các contract và yêu cầu closed-loop cơ bản, rồi dùng các chương approach để kiểm chứng xem cần thêm, bớt hoặc chỉnh ranh giới module nào.
+
+\section{Mức hoàn thiện (milestones)}
+
+Thiết kế đầy đủ nhưng triển khai tăng dần.
+Đây là các mức do nhóm đề xuất, không phải cấp độ chính thức của mentor.
+
+\begin{table}[H]
+  \centering
+  \caption{Các mức hoàn thiện}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{5cm} X}
+    \toprule
+    \textbf{Mức} & \textbf{Outcome} \\
+    \midrule
+    M0: Architecture & Có high-level design, module specifications, interfaces và evaluation contracts \\
+    \addlinespace
+    M1: Reconstruction framework & Chạy được input $\to$ reconstruction $\to$ rendering $\to$ evaluation \\
+    \addlinespace
+    M2: Multi-method benchmark & Thay được nhiều phương pháp, so sánh pinhole/fisheye + LiDAR \\
+    \addlinespace
+    M3: Simulation-ready world & Có scene representation, geometry, road logic và CARLA adapter được kiểm chứng \\
+    \addlinespace
+    M4: Closed-loop simulation & Kết nối CARLA, sensor rendering và AD Stack \\
+    \addlinespace
+    M5: Scalable platform & Tự động hóa nhiều scene, reproducibility, cost optimization, regression testing \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Trong 6 tuần, cần bảo đảm M0--M2 có kết quả đủ tốt để nghiệm thu theo brief.
+M3--M5 vẫn có trong kiến trúc và được triển khai theo mức độ khả thi.
+
+\section{Architecture alternatives}
+
+Có 3 hướng triển khai chính:
+
+\begin{table}[H]
+  \centering
+  \caption{Các phương án kiến trúc}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.2cm} X X}
+    \toprule
+    \textbf{Phương án} & \textbf{Cách làm} & \textbf{Được và mất} \\
+    \midrule
+    A. Ưu tiên hình học & Từ LiDAR tạo mesh và bản đồ đường, CARLA tự render & Rẻ, chạy được traffic và điều khiển. Ảnh không giống nơi thật \\
+    \addlinespace
+    B. Ưu tiên hình ảnh & Dùng neural rendering tạo ảnh từ cảnh tái dựng & Ảnh chân thực. Tự thân chưa lái được \\
+    \addlinespace
+    C. Kết hợp & CARLA giữ đường và xe, neural renderer tạo ảnh camera & Đủ cả hai. Khó tích hợp nhất \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Đề xuất: nghiên cứu song song A và B, xem C là đích cuối.
+Làm C ngay từ đầu có thể tốn nhiều tuần cho tích hợp trong khi chưa biết chất lượng dựng cảnh có đủ tốt không.
+Chỉ chuyển sang C khi đã có kết quả dựng cảnh đạt yêu cầu và xác nhận nối được renderer với CARLA.

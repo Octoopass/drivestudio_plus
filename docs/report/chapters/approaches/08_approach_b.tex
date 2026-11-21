@@ -1,0 +1,93 @@
+\chapter{Approach B: [TBD]}
+
+\begin{table}[H]
+  \centering
+  \caption{Thông tin approach B}
+  \begin{tabularx}{\linewidth}{l X}
+    \toprule
+    \textbf{Field} & \textbf{Giá trị} \\
+    \midrule
+    Approach name & TBD \\
+    Paper / Repository & TBD \\
+    Owner & TBD \\
+    Track & A / B / Both \\
+    Camera model & TBD \\
+    LiDAR support & Yes / No / Optional \\
+    Required inputs & TBD \\
+    Output representation & TBD \\
+    GPU requirements & TBD \\
+    Reproduction status & Not Started \\
+    CARLA feasibility & Not Evaluated \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Overview \& References}
+
+Hướng làm: ghi tên paper, repository, tác giả, mục tiêu phương pháp, phiên bản và trạng thái mã nguồn.
+
+\section{Methodology \& Technical Background}
+
+Hướng làm: trình bày ý tưởng cốt lõi, thuật toán chính, assumptions và khác biệt với baseline.
+
+\section{Original Pipeline Architecture}
+
+Hướng làm: vẽ pipeline nguyên bản, ghi từng stage, input/output và dependencies.
+Mô tả đúng pipeline thực tế của approach, không ép theo pipeline chung.
+
+\begin{table}[H]
+  \centering
+  \caption{Ánh xạ pipeline của approach B sang module của framework}
+  \begin{tabularx}{\linewidth}{X X l}
+    \toprule
+    \textbf{Stage gốc} & \textbf{Module của framework} & \textbf{Thay thế được} \\
+    \midrule
+    TBD & TBD & Yes / No \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Requirements \& Environment Setup}
+
+Hướng làm: ghi camera models, LiDAR, calibration, GPU, VRAM, software và cách cài đặt.
+
+\section{Implementation \& Reproduction}
+
+Hướng làm: ghi cách chạy thật, preprocessing, config, các thay đổi trong code và các bước reproduce.
+
+\section{Experiments \& Configuration}
+
+Hướng làm: ghi dataset, sequences, train/test split, parameters và experiment IDs.
+
+\section{Results \& Benchmark}
+
+Hướng làm: đưa ảnh render, reconstructed scene, số đo và logs.
+
+\begin{table}[H]
+  \centering
+  \caption{Kết quả benchmark của approach B}
+  \begin{tabularx}{\linewidth}{X l l}
+    \toprule
+    \textbf{Metric} & \textbf{Experiment ID} & \textbf{Kết quả} \\
+    \midrule
+    PSNR & TBD & Not Evaluated \\
+    SSIM & TBD & Not Evaluated \\
+    LPIPS & TBD & Not Evaluated \\
+    Geometry & TBD & Not Evaluated \\
+    Runtime & TBD & Not Evaluated \\
+    VRAM & TBD & Not Evaluated \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Analysis \& Failure Cases}
+
+Hướng làm: phân tích kết quả tốt và xấu, nguyên nhân, giới hạn và trade-offs.
+
+\section{Framework \& CARLA Compatibility}
+
+Hướng làm: ghi module tái sử dụng được, artifacts, adapter cần thiết và CARLA feasibility.
+
+\section{Conclusions \& Reproducibility}
+
+Hướng làm: nêu kết luận, source commit, config, commands và artifacts bàn giao.

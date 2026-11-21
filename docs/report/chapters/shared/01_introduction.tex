@@ -1,0 +1,142 @@
+\chapter{Introduction \& Requirements (Bài toán và yêu cầu)}
+
+\section{Cách dùng tài liệu này}
+
+Tài liệu này có hai vai trò. Trước hết, nó là nền tảng chung để cả nhóm hiểu bài toán theo cùng một cách. Sau đó, nó trở thành nơi ghi lại thực nghiệm của từng thành viên và kết quả tổng hợp của cả nhóm. Ba phần của tài liệu tương ứng với ba phase của project:
+
+\begin{itemize}
+  \item \textbf{Part I} được cả nhóm đọc và thống nhất trong Phase 1. Phần này mô tả bài toán, kiến trúc hệ thống, thiết kế framework, protocol đánh giá và kế hoạch nghiên cứu.
+  \item \textbf{Part II} được viết trong Phase 2. Mỗi thành viên hoàn thành chương về approach mình phụ trách theo cùng một mẫu, để các chương có thể so sánh trực tiếp với nhau.
+  \item \textbf{Part III} được cả nhóm viết trong Phase 3, khi các kết quả của Part II được tổng hợp, so sánh và tích hợp thành pipeline cuối cùng.
+\end{itemize}
+
+Vì Part II và Part III đều dựa trên những gì đã thống nhất ở Part I, mỗi thành viên cần tự trả lời được các câu hỏi sau trước khi bắt đầu Phase 2:
+
+\begin{itemize}
+  \item Nhóm đang giải quyết bài toán gì?
+  \item Hệ thống cuối cùng được kỳ vọng hoạt động như thế nào?
+  \item Approach mình được giao đóng vai trò gì trong hệ thống đó?
+  \item Mình cần thực nghiệm những gì?
+  \item Mình cần cung cấp kết quả và artifact nào để tích hợp vào framework?
+\end{itemize}
+
+\section{Goal (Mục tiêu)}
+
+Mục tiêu của project được phát biểu như sau:
+
+\begin{quote}
+  \itshape
+  Explore existing methods in the field of 3D scene reconstruction
+  in order to construct \& develop a scalable, cost-efficient, and reproducible Real-to-Sim pipeline
+  that reconstructs real-world road environments
+  and enables closed-loop traffic simulation in CARLA.
+\end{quote}
+
+Nói cách khác, nhóm cần tìm hiểu các phương pháp tái dựng cảnh 3D hiện có, rồi dựa trên đó xây dựng một pipeline Real-to-Sim, tức là quy trình đi từ dữ liệu ghi lại ở thế giới thực đến một môi trường mô phỏng. Pipeline này phải phục dựng được môi trường giao thông thực tế và cho phép chạy mô phỏng vòng kín (closed-loop) trong CARLA. Ba tính chất được đặt ra cho pipeline là linh hoạt khi mở rộng (scalable), tiết kiệm chi phí (cost-efficient) và chạy lại được với kết quả như cũ (reproducible).
+
+Bên cạnh pipeline, project cần xây dựng một tool hoàn chỉnh để thử nghiệm pipeline của nhiều approach khác nhau. Lý do là các approach không chỉ khác nhau ở thuật toán trong từng bước mà còn có thể khác nhau ở thứ tự các bước. Vì vậy, tool phải cho phép hai việc:
+
+\begin{itemize}
+  \item Thay method xử lý trong từng module của pipeline.
+  \item Sắp xếp lại thứ tự các module cho phù hợp với từng approach.
+\end{itemize}
+
+Với thời lượng 6 tuần, kết quả có giá trị nhất không nhất thiết là scene đẹp nhất. Điều quan trọng hơn là chứng minh được phương pháp nào tái dựng được dữ liệu pinhole/fisheye + LiDAR của nhóm, kèm theo các con số đo được và kiểm chứng được về chất lượng, chi phí và khả năng tích hợp vào mô phỏng.
+
+\section{Requirement specification (Đặc tả yêu cầu)}
+
+Các yêu cầu dưới đây được sắp theo đường đi của dữ liệu qua hệ thống: bắt đầu từ dữ liệu đầu vào, qua việc khảo sát phương pháp và công cụ thử nghiệm, đến kết quả tái dựng và môi trường mô phỏng. Cuối danh sách là các tiêu chí dùng để đánh giá pipeline, sản phẩm báo cáo và các yêu cầu không bắt buộc.
+
+\begin{enumerate}
+  \item \textbf{Dữ liệu đầu vào:}
+  \begin{itemize}
+    \item Nguồn dữ liệu là video từ camera pinhole hoặc fisheye, đi kèm LiDAR.
+    \item Hệ thống phải xử lý được cả trường hợp tối thiểu: chỉ có video hoặc ảnh, có thể có hoặc không có LiDAR, và không có sẵn calibration, pose, GPS hay nhãn.
+  \end{itemize}
+  \item \textbf{Khảo sát phương pháp:}
+  \begin{itemize}
+    \item Khảo sát các promising approach phù hợp với từng loại dữ liệu nguồn và thực hiện evaluation cho các approach đó.
+  \end{itemize}
+  \item \textbf{Tool thử nghiệm pipeline:}
+  \begin{itemize}
+    \item Xây dựng một tool hoàn chỉnh để chạy thử pipeline của các approach khác nhau.
+    \item Tool cho phép thay method xử lý trong từng module của pipeline.
+    \item Tool cho phép thay đổi thứ tự các module theo từng approach.
+  \end{itemize}
+  \item \textbf{Kết quả tái dựng:}
+  \begin{itemize}
+    \item Một reconstruction pipeline hoàn chỉnh cho các promising approach.
+    \item Một reconstructed scene dùng làm kết quả demo.
+  \end{itemize}
+  \item \textbf{Đưa vào mô phỏng CARLA:}
+  \begin{itemize}
+    \item Thực hiện CARLA integration feasibility study, tức là đánh giá việc đưa scene tái dựng vào CARLA có khả thi hay không và vướng ở đâu.
+    \item Road logic layer: biểu diễn được mạng đường, gồm hình dạng đường, làn xe, hướng di chuyển, giao lộ, cách các làn nối với nhau và các quy tắc giao thông cơ bản.
+    \item Traffic simulation: có các phương tiện khác di chuyển và tương tác với ego vehicle.
+    \item Closed-loop simulation trên một khu vực địa lý có thật: xe phải điều khiển được và tương tác được với môi trường được tạo từ một địa điểm thực.
+  \end{itemize}
+  \item \textbf{Tiêu chí chất lượng của pipeline:}
+  \begin{itemize}
+    \item Cost efficiency (tiết kiệm chi phí): hạn chế việc dựng map thủ công, quá trình training quá đắt và sự phụ thuộc vào hardware lớn.
+    \item Scalability (khả năng mở rộng): pipeline phải tái sử dụng được trên nhiều khu vực, thay vì phải làm thủ công cho từng scene.
+    \item Determinism (tính tất định): khi chạy lại cùng một scenario trong cùng điều kiện, pipeline phải cho kết quả nhất quán.
+  \end{itemize}
+  \item \textbf{Báo cáo:}
+  \begin{itemize}
+    \item Evaluation \& technical report.
+  \end{itemize}
+  \item \textbf{Nice to have:}
+  \begin{itemize}
+    \item Sensor model: mô phỏng camera, LiDAR hoặc các đặc tính khác của cảm biến.
+    \item Vehicle modeling: xây dựng mô hình động lực học xe chuyên biệt và chính xác hơn.
+  \end{itemize}
+\end{enumerate}
+
+\section{Scope (Phạm vi)}
+
+Real2Sim Studio được thiết kế như một framework hoàn chỉnh, gồm các module độc lập, và trong mỗi module các method thuật toán có thể thay thế cho nhau. Kiến trúc tổng thể này không bị giới hạn bởi thời lượng 6 tuần. Trong 6 tuần, nhóm hiện thực hóa và kiểm chứng được phần nào thì tài liệu ghi nhận đúng phần đó.
+
+Do thiết kế rộng hơn những gì kịp làm, một thành phần có thể đang ở các mức hoàn thiện khác nhau. Một module có thể đã được thiết kế nhưng chưa được triển khai, và một module đã triển khai cũng chưa chắc đã được kiểm chứng đầy đủ. Để người đọc không nhầm giữa ``đã thiết kế'' và ``đã chạy đúng'', tài liệu luôn phân biệt ba khái niệm sau:
+
+\begin{table}[H]
+  \centering
+  \caption{Ba trạng thái của một thành phần}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.6cm} X}
+    \toprule
+    \textbf{Khái niệm} & \textbf{Ý nghĩa} \\
+    \midrule
+    1. Reference architecture & Thiết kế của toàn bộ hệ thống lý tưởng: chức năng, module, luồng dữ liệu và interface \\
+    \addlinespace
+    2. Implementation & Những thành phần nhóm đã thực sự phát triển hoặc tích hợp \\
+    \addlinespace
+    3. Validation & Những thành phần đã chạy thử và có bằng chứng hoạt động đúng \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Deliverables}
+
+Bảng dưới đây liệt kê các sản phẩm nhóm sẽ bàn giao khi kết thúc project. Đây mới là bản đề xuất: điều kiện nghiệm thu của từng sản phẩm vẫn cần mentor xác nhận.
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Danh sách deliverables}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.3cm} >{\raggedright\arraybackslash}p{3.2cm} l >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Deliverable} & \textbf{Định dạng} & \textbf{Phụ trách} & \textbf{Điều kiện nghiệm thu} \\
+    \midrule
+    Tool thử nghiệm pipeline & Mã nguồn và hướng dẫn chạy & TBD & Đổi được method và thứ tự module, chạy lại được \\
+    \addlinespace
+    Reconstruction pipeline & Mã nguồn và config & TBD & Chạy được từ dữ liệu đến ảnh render \\
+    \addlinespace
+    Scene demo & Video và file scene & TBD & Render được đoạn đường đã chọn \\
+    \addlinespace
+    Bảng benchmark & Bảng số liệu và log & TBD & Cùng dataset và cùng protocol ở chương 4 \\
+    \addlinespace
+    CARLA feasibility study & Một chương trong báo cáo & TBD & Có feasibility matrix và nêu rõ hạn chế \\
+    \addlinespace
+    Technical report & PDF & TBD & Đủ các chương, được mentor đánh giá \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
