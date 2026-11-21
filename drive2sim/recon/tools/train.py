@@ -111,6 +111,29 @@ def setup(args):
 
 # full checkpoint (model + optimizer state) written at every save, used to resume a run
 RESUME_CHECKPOINT = "checkpoint_resume.pth"
+
+
+def remove_step_checkpoints(log_dir: str) -> list:
+    """drive2sim: delete the periodic ``checkpoint_<step>.pth`` once training and evaluation are done.
+
+    Skipped with ``logging.keep_step_checkpoints`` (stage parameter ``keep_step_checkpoints``) for
+    studies of the model at an intermediate step.
+
+    Nothing reads them: resuming uses ``checkpoint_resume.pth``, evaluation, export and the viewer
+    use ``checkpoint_final.pth``. Each is as large as the final model (0.5-0.7 GB on nuScenes), so
+    removing them halves what Kaggle and Colab hand back (run 3c08: 1.3 GB, an hour to download).
+
+    Returns:
+        Paths removed.
+    """
+    removed = []
+    for name in os.listdir(log_dir):
+        stem, ext = os.path.splitext(name)
+        if ext == ".pth" and stem.startswith("checkpoint_") and stem[len("checkpoint_"):].isdigit():
+            path = os.path.join(log_dir, name)
+            os.remove(path)
+            removed.append(path)
+    return removed
 # drive2sim: training statistics read by eval.standard (CONTRACTS 6.1). Written together with every
 # checkpoint so that, after a resume, the counted time matches the steps that were kept.
 TRAIN_STATS = "train_stats.json"
@@ -484,6 +507,8 @@ def main(args):
     resume_ckpt = os.path.join(cfg.log_dir, RESUME_CHECKPOINT)
     if os.path.exists(resume_ckpt):
         os.remove(resume_ckpt)
+    if not cfg.logging.get("keep_step_checkpoints", False):
+        remove_step_checkpoints(cfg.log_dir)
     
     if args.enable_viewer:
         print("Viewer running... Ctrl+C to exit.")

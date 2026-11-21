@@ -127,6 +127,11 @@ def test_build_command_translates_split(tmp_path: Path) -> None:
     stats = TrainDrivestudioParams(method="omnire", renderer="3dgut", densify_stats=True)
     stats_command = build_command(stats, split, manifest, view_root, output_dir)
     assert option(stats_command, "trainer.densify_stats.enabled") in ("True", "true")
+    # checkpoint theo bước: mặc định train.py xoá sau khi xong; tham số giữ lại cho đo bước giữa
+    assert not any("keep_step_checkpoints" in part for part in command)
+    keep = TrainDrivestudioParams(method="omnire", renderer="3dgut", keep_step_checkpoints=True)
+    keep_command = build_command(keep, split, manifest, view_root, output_dir)
+    assert option(keep_command, "logging.keep_step_checkpoints") in ("True", "true")
     assert not any(part.startswith("trainer.type=") for part in stats_command)  # native
     screen = TrainDrivestudioParams(method="omnire", renderer="3dgut", ut_densify="screen")
     screen_command = build_command(screen, split, manifest, view_root, output_dir)

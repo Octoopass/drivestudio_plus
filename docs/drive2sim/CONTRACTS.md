@@ -395,7 +395,7 @@ runs/<scene_id>/<approach_id>/<run_id>/
         │   ├── metrics.json             # metric trong lúc train
         │   ├── metrics/images_test_*.json
         │   ├── videos/ images/ configs_bk/ backup/
-        │   ├── checkpoint_<bước>.pth     # chỉ model, sau mỗi lần lưu
+        │   ├── checkpoint_<bước>.pth     # chỉ model, sau mỗi lần lưu; train.py xoá khi train xong (từ 21/11/2026), trừ khi tham số keep_step_checkpoints
         │   ├── checkpoint_resume.pth    # model + optimizer + grad scaler; xoá khi train xong
         │   ├── checkpoint_final.pth
         │   ├── train_stats.json         # thời gian train thực, VRAM, số Gaussian, iteration; ghi cùng mỗi checkpoint
