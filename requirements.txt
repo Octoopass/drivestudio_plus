@@ -20,7 +20,7 @@ viser==1.0.30
 imageio
 imageio-ffmpeg
 scikit-image==0.20.0
-opencv-python
+opencv-python==4.11.0.86  # 4.12 trở lên (cả OpenCV 5) đòi numpy >= 2; numpy chốt 1.23.5 bên dưới
 
 open3d==0.17.0          # 0.16.0 không có bản cho Python 3.11 (Kaggle)
 pyquaternion==0.9.9

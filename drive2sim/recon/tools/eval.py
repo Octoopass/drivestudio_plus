@@ -96,7 +96,7 @@ def do_evaluation(
                 wandb.log(eval_dict)
             test_metrics_file = f"{cfg.log_dir}/metrics{post_fix}/images_test_{current_time}.json"
             with open(test_metrics_file, "w") as f:
-                json.dump(eval_dict, f)
+                json.dump(eval_dict, f, default=float)  # drive2sim: numpy float32 metrics
             logger.info(f"Image evaluation metrics saved to {test_metrics_file}")
 
         if args.enable_wandb:
@@ -152,7 +152,7 @@ def do_evaluation(
                 wandb.log(eval_dict)
             full_metrics_file = f"{cfg.log_dir}/metrics{post_fix}/images_full_{current_time}.json"
             with open(full_metrics_file, "w") as f:
-                json.dump(eval_dict, f)
+                json.dump(eval_dict, f, default=float)  # drive2sim: numpy float32 metrics
             logger.info(f"Image evaluation metrics saved to {full_metrics_file}")
 
         if args.enable_wandb:

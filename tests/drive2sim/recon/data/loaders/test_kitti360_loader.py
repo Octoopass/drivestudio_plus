@@ -497,3 +497,15 @@ def test_depth_map_keeps_nearest_point_per_pixel() -> None:
     pixels = torch.tensor([[1.2, 0.5], [1.7, 0.1], [0.0, 1.0]])
     depth_map = nearest_depth_map(pixels, torch.tensor([9.0, 3.0, 5.0]), 2, 3)
     assert depth_map.tolist() == [[0.0, 3.0, 0.0], [5.0, 0.0, 0.0]]
+
+
+def test_instance_num_is_zero_without_boxes() -> None:
+    """Cảnh không có box (hoặc load_objects tắt): instance_num là 0 thay vì lỗi khi khởi tạo."""
+    from types import SimpleNamespace
+
+    from drive2sim.recon.data.driving_dataset import DrivingDataset
+
+    no_boxes = SimpleNamespace(pixel_source=SimpleNamespace(instances_pose=None))
+    assert DrivingDataset.instance_num.fget(no_boxes) == 0
+    boxes = SimpleNamespace(pixel_source=SimpleNamespace(instances_pose=torch.zeros(2, 3, 4, 4)))
+    assert DrivingDataset.instance_num.fget(boxes) == 3

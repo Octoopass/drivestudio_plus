@@ -910,7 +910,9 @@ class BasicTrainer(nn.Module):
         Load model from checkpoint.
         """
         logger.info(f"Loading checkpoint from {ckpt_path}")
-        state_dict = torch.load(ckpt_path)
+        # drive2sim: DriveStudio checkpoints hold numpy scalars; PyTorch >= 2.6 refuses them with the
+        # default weights_only=True. Only the project's own checkpoints are loaded here.
+        state_dict = torch.load(ckpt_path, weights_only=False)
         if not load_only_model and "optimizer" not in state_dict:
             logger.warning(f"{ckpt_path} holds only the model; training resumes with a fresh optimizer")
             load_only_model = True
