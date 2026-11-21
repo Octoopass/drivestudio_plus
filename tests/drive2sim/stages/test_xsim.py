@@ -44,3 +44,22 @@ def test_sparse_split_preserves_camera_index_and_time(tmp_path: Path) -> None:
     assert index["relative_time_us"] == [0, 17, 34]
     changed = split.model_copy(update={"test": [(3, "CAM_FISH")]})
     assert index["split_key"] != input_key_for_split(split.split_id, changed)
+
+
+def test_train_init_uses_only_observed_camera_pairs() -> None:
+    split = Split.model_validate(
+        {
+            **SPLIT,
+            "strategy": "custom",
+            "cameras": ["left", "right"],
+            "train": [[8, "right"], [2, "left"], [3, "left"], [8, "left"]],
+            "test": [[2, "right"], [6, "left"]],
+        }
+    )
+    from drive2sim.external.xsim.observations import ObservationIndex
+
+    train = ObservationIndex.from_split(split, {"right": 3, "left": 2}, train=True)
+    assert train.lidar_frames == [2, 3, 8]
+    assert train.cameras == {2: [2, 3, 8], 3: [8]}
+    assert train.cameras_for_lidar == [[(2, 0)], [(2, 1)], [(2, 2), (3, 0)]]
+    assert train.lidar_for_camera == {2: [0, 1, 2], 3: [2]}

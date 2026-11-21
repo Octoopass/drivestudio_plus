@@ -730,7 +730,7 @@ chạy cả các test đó, 496 test đạt, không bỏ qua test nào.
 
 | Việc | Trạng thái | Commit |
 |---|---|---|
-| XSIM | Đã có môi trường riêng và stage chuẩn bị chỉ mục KITTI-360. Chưa nghiệm thu worker GPU. | |
+| XSIM | Đã có môi trường riêng, stage chỉ mục và provider KITTI-360 cho camera, sweep và box. Chưa nghiệm thu worker GPU. | |
 | Bàn giao `d2s pack`, ingest và môi trường thân thiện, SMPL theo split | Code và test local hoàn tất; chưa nghiệm thu train GPU cho thay đổi loader; gói 11 run thật đã ghi trên USB và kiểm đủ 15.708 mã băm sau giải nén; Studio đọc 11 run, đã render thử một frame bằng GPU có sẵn | |
 | Kaggle: gói output thành tar theo run và mục cache | Code và test local hoàn tất; có đường tải file rời cho notebook cũ và khi gói lỗi; chưa chạy bước gói trên Kaggle thật | |
 | Docs thiết kế (SPEC, ARCHITECTURE, CONTRACTS) | Xong, cập nhật theo từng quyết định | |
