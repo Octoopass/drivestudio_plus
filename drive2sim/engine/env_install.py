@@ -303,6 +303,15 @@ class InstallFlow:
                             label=found.group(3), step_started_at=time.time(),
                         )  # fmt: skip
         code = process.wait()
+        if self._python == sys.executable:
+            from drive2sim.engine import libraries
+
+            for stray in libraries.remove_stray_packages():
+                note = f"đã xoá {stray}: gói cài nhầm vào site-packages, che thư mục của repo\n"
+                with log_path.open("a", encoding="utf-8") as log:
+                    log.write(note)
+                with self._lock:
+                    self._log += note
         with self._lock:
             state = "cancelled" if self._cancelled else "succeeded" if code == 0 else "failed"
             self._state.update(state=state, finished_at=time.time())

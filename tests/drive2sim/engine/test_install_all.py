@@ -96,3 +96,20 @@ def test_cli_install_all_prints_summary(
     assert code == 0
     assert "env-main         present" in out and "anthropic        present" in out
     assert main(["libraries", "install", "nope", "--workdir", str(tmp_path)]) != 0
+
+
+def test_remove_stray_tests_package_installed_by_a_dependency(tmp_path: Path) -> None:
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "__init__.py").write_text("")
+    (tmp_path / "gmplot-1.4.1.dist-info").mkdir()
+    (tmp_path / "gmplot-1.4.1.dist-info" / "RECORD").write_text(
+        "gmplot/__init__.py,sha256=x,1\ntests/__init__.py,sha256=y,0\n"
+    )
+    assert libraries.remove_stray_packages(tmp_path) == ["tests/ (của gmplot-1.4.1)"]
+    assert not (tmp_path / "tests").exists()
+    # thư mục không do gói nào cài: giữ nguyên
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "__init__.py").write_text("")
+    (tmp_path / "gmplot-1.4.1.dist-info" / "RECORD").write_text("gmplot/__init__.py,sha256=x,1\n")
+    assert libraries.remove_stray_packages(tmp_path) == []
+    assert (tmp_path / "tests").exists()

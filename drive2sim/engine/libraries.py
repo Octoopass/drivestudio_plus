@@ -24,6 +24,10 @@ của môi trường chính (thử trên máy lab: nuscenes-devkit 1.2.0 kéo ma
 opencv-python-headless đè lên cv2); không thoả được thì pip báo lỗi, môi trường giữ nguyên.
 Mục cần công cụ hệ thống (``needs``, ví dụ ``cargo`` để build av2) mà máy chưa có thì không cài,
 nói lý do.
+
+Sau mỗi lần cài, ``remove_stray_packages`` xoá package tên chung (``tests``) mà một gói cài nhầm
+vào thẳng ``site-packages``: gmplot (PandaSet devkit kéo theo) cài ``tests/__init__.py`` ở đó, che
+mất ``tests`` của repo nên ``pytest tests/drive2sim`` không import được.
 """
 
 import importlib
@@ -299,6 +303,45 @@ def pip_constraints(python: str, path: Optional[Path] = None) -> Path:
     pins = [line for line in frozen.splitlines() if "==" in line and " @ " not in line]
     path.write_text("".join(f"{line}\n" for line in pins), encoding="utf-8")
     return path
+
+
+STRAY_PACKAGES = ("tests",)
+
+
+def remove_stray_packages(site_packages: Optional[Path] = None) -> list[str]:
+    """Xoá package tên chung (``STRAY_PACKAGES``) mà một gói đã cài đặt nhầm vào site-packages.
+
+    Chỉ xoá khi thư mục nằm trong ``RECORD`` của một gói đã cài (tức do pip đặt vào), không đụng
+    thư mục do người dùng tự tạo.
+
+    Args:
+        site_packages: Thư mục cần dọn; mặc định ``purelib`` của Python đang chạy.
+
+    Returns:
+        Mô tả từng thư mục đã xoá, ví dụ ``["tests/ (của gmplot 1.4.1)"]``.
+    """
+    import sysconfig
+
+    root = site_packages or Path(sysconfig.get_paths()["purelib"])
+    removed = []
+    for name in STRAY_PACKAGES:
+        folder = root / name
+        if not (folder / "__init__.py").is_file():
+            continue
+        owner = None
+        for record in root.glob("*.dist-info/RECORD"):
+            try:
+                text = record.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if f"\n{name}/__init__.py," in "\n" + text:
+                owner = record.parent.name.removesuffix(".dist-info")
+                break
+        if owner is None:
+            continue
+        shutil.rmtree(folder, ignore_errors=True)
+        removed.append(f"{name}/ (của {owner})")
+    return removed
 
 
 def catalog() -> dict:
