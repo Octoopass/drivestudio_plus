@@ -91,7 +91,9 @@ def test_beziergs_config_loads_with_bezier_nodes() -> None:
     assert "CamPose" not in config["model"]
     assert config["model"]["BezierNodes"]["bezier"]["order"] == 3
     assert config["trainer"]["losses"]["bezier_icc"]["w"] == 0.01
-    assert config["model"]["BezierNodes"]["optim"]["traj"]["lr"] == 1.6e-6
+    # BezierGS giữ LR đường đi bằng 1% LR xyz; giá trị tuyệt đối chỉnh theo cảnh nên không ghim.
+    xyz_lr = config["trainer"]["gaussian_optim_general_cfg"]["xyz"]["lr"]
+    assert config["model"]["BezierNodes"]["optim"]["traj"]["lr"] == pytest.approx(xyz_lr * 0.01)
 
 
 def test_params_reject_missing_combination() -> None:

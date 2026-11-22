@@ -36,9 +36,10 @@ Method `beziergs` của stage `train.drivestudio`, approach `beziergs` trên Stu
 | Rasterizer | diff-gaussian-rasterization (bản sửa), `neg_fov` | gsplat | Theo khung |
 | Densify "contract" | Ngưỡng scale theo khoảng cách | Ngưỡng theo `scene_scale` của DriveStudio | Theo khung |
 | 4D SH (Fourier) | Có code nhưng render không dùng | Bỏ | Gốc không dùng |
-| LR vị trí | 1,6e-3 → 1,6e-5 (đơn vị chuẩn hoá) | 1,6e-4 → 1,6e-6 × `scene_radius`; đường đi 1,6e-6 → 1,6e-8 (giữ tỉ lệ 0,01 như gốc) | Đổi đơn vị, cần chỉnh sau run đầu |
+| LR vị trí | 1,6e-3 → 1,6e-5 (đơn vị chuẩn hoá) | 7,0e-4 → 7,0e-6 × `scene_radius`; đường đi 7,0e-6 → 7,0e-8 (giữ tỉ lệ 0,01 như gốc) | Quy theo mét cho cảnh 017: 0,0268 m (gốc) ≈ 7,0e-4 × 38,4 m. Hệ số phụ thuộc cảnh; bản đầu dùng 1,6e-4 (thấp hơn 4,4 lần) |
 
 Khác nhỏ ngoài bảng của spec:
+- Nền khởi tạo: `from_lidar.num_samples` 263.000 (cho ≈ 253 nghìn điểm LiDAR như gốc) cộng 200.000 điểm ngẫu nhiên gần và xa (gốc: 200.000 điểm cầu).
 - Scale ban đầu của Gaussian vật động tính riêng từng vật (3 láng giềng gần nhất của control point đầu), như `distCUDA2` từng vật của gốc.
 - Split giữ Gaussian cha (scale chia 1,6) và thêm các con, theo quy ước DriveStudio; gốc thay cha bằng các con.
 - `ctrl.cull_out_of_bound` bị bỏ qua: Gaussian không còn toạ độ trong hệ box.
