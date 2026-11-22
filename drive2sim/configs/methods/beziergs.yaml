@@ -62,7 +62,7 @@ trainer:
     sh_rest:
       lr: 0.000125
     opacity:
-      lr: 0.05
+      lr: 0.005 # BezierGS gốc 0.005 (mặc định DriveStudio 0.05)
     scaling:
       lr: 0.005
     rotation:
@@ -89,6 +89,8 @@ trainer:
 model:
   Background:
     type: drive2sim.recon.models.gaussians.VanillaGaussians
+    ctrl:
+      max_points: 5_000_000 # ngừng densify khi nền có từng này Gaussian (densify_until_num_points của BezierGS)
     init:
       from_lidar:
         num_samples: 263_000 # BezierGS gốc khởi tạo 252.912 điểm LiDAR cho nền (600_000 cho ra 577 nghìn)
