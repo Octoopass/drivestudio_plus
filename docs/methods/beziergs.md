@@ -132,7 +132,7 @@ So sánh (cùng cảnh 017, khung 61–109, 3 camera, mỗi khung thứ 4 làm t
 Hai bên đo cùng độ phân giải (960×640; BezierGS gốc `load_size = [640, 960]`), nên ý "nửa độ phân giải" ở bản trước của mục này không phải khác biệt. Khác biệt cách đo còn lại: tập test khác khung (gốc `(idx+1) % 4 == 0` tức khung 3, 7, …, 47; drive2sim 4, 8, …, 48), ảnh float so với uint8, `ssim` và LPIPS dùng thư viện khác, PSNR vật động trên `bbox_mask` (gốc) so với mask động (drive2sim).
 
 Chênh train − test của hai bên gần bằng nhau, nên chỗ thua nằm ở độ khớp lúc train (thiếu khoảng 2 dB), không phải ở khả năng suy ra khung chưa thấy. Nghi vấn mạnh nhất tìm được, chưa thử:
-- **Learning rate vị trí thấp hơn gốc khoảng 4,4 lần theo đơn vị mét.** Gốc chuẩn hoá cảnh về [−1, 1] bằng PCA (`scale_factor = min(0,1; 1/max|t|)`, cảnh này 1 đơn vị ≈ 18,4 m) và nhân LR với `cameras_extent` ≈ 0,91. Tính ra LR xyz khởi đầu ≈ 0,0268 m, cuối ≈ 2,7e-4 m, đường đi 2,7e-4 → 2,7e-6 m. Bản port đang dùng 0,0061 m (xyz, cũng áp cho nền) và 6,1e-5 m (đường đi): đổi `1,6e-3 → 1,6e-4` ở bảng "Chỗ khác bản gốc" là quy đổi sai khoảng 4,4 lần.
+- **Learning rate vị trí thấp hơn gốc khoảng 4,4 lần theo đơn vị mét** (đã sửa ở run 2, không cải thiện kết quả). Gốc chuẩn hoá cảnh về [−1, 1] bằng PCA (`scale_factor = min(0,1; 1/max|t|)`, cảnh này 1 đơn vị ≈ 18,4 m) và nhân LR với `cameras_extent` ≈ 0,91. Tính ra LR xyz khởi đầu ≈ 0,0268 m, cuối ≈ 2,7e-4 m, đường đi 2,7e-4 → 2,7e-6 m. Bản port đang dùng 0,0061 m (xyz, cũng áp cho nền) và 6,1e-5 m (đường đi): đổi `1,6e-3 → 1,6e-4` ở bảng "Chỗ khác bản gốc" là quy đổi sai khoảng 4,4 lần.
 - Nền: Gaussian khởi tạo 777 nghìn (gốc 253 nghìn điểm nền), và số Gaussian cuối gấp đôi gốc mà vẫn khớp kém hơn.
 - Màu: gốc dùng color correction theo sensor (LR 5e-4 → 5e-5), bản port dùng `AffineTransform` LR 1e-5; bản port có thêm mô hình Sky (`EnvLight`), gốc `use_sky: false`.
 - FRONT_RIGHT thấp hẳn (24,18, LPIPS 0,195); chưa xem ảnh lỗi nên chưa biết do nền hay vật động.
@@ -140,4 +140,26 @@ Chênh train − test của hai bên gần bằng nhau, nên chỗ thua nằm �
 
 Dữ liệu 017 trong run này vốn là bản tác giả BezierGS xử lý sẵn (box, mask Grounded-SAM, LiDAR), nên chênh lệch do chuyển định dạng nhiều khả năng nhỏ; chưa kiểm.
 
-Việc còn lại: chạy `make test-gpu`; thử LR vị trí ×4,4 (cả nền và vật động) và xem ảnh lỗi FRONT_RIGHT; chạy lại với hai seed khác để có khoảng dao động.
+### Run 30.000 iteration lần 2: LR vị trí ×4,4 và nền khởi tạo như gốc (22–23/11/2026)
+
+Run `20261122-110728-beziergs-9484`, commit `75dc6a7`: LR xyz 7e-4 (đường đi 7e-6), `from_lidar.num_samples` 263.000. Không có NaN.
+
+| | Gốc | Run 1 | Run 2 |
+|---|---|---|---|
+| Test PSNR | 29,91 | 27,72 | 27,76 |
+| Test SSIM | 0,894 | 0,870 | 0,871 |
+| Test LPIPS | 0,082 | 0,117 | 0,121 |
+| Train PSNR (ước tính từ `full` và `test`) | 33,59 (đo trực tiếp) | ≈ 31,3 | ≈ 31,1 |
+| Gaussian cuối | 1,87 triệu | 3,92 triệu | 4,35 triệu |
+| Gaussian nền đỉnh | | 6,4 triệu | 7,9 triệu |
+| Thời gian train | 169,5 phút | 286 phút | 288 phút |
+| VRAM đỉnh | 10,9 GB | 11,8 GB | 14,1 GB (T4 có 15 GB) |
+
+Hai thay đổi không cải thiện kết quả (PSNR +0,03, LPIPS xấu đi 0,004, trong khoảng dao động có thể có giữa các lần chạy; chưa đo dao động), và số Gaussian tăng thêm. Giả thuyết "LR vị trí thấp" và "nền khởi tạo nhiều" không giải thích được khoảng cách 2,2 dB.
+
+Số Gaussian nền vượt xa gốc (gốc dừng ở 1,87 triệu tổng, trần `densify_until_num_points` 5 triệu) trong khi khớp ảnh kém hơn, nên nghi vấn tiếp theo nằm ở luật densify và cull. Khác biệt đọc được từ hai file config, chưa thử:
+- **LR opacity: 0,05 (bản port, mặc định DriveStudio) so với 0,005 (gốc)**, gấp 10 lần; ảnh hưởng tới cull theo opacity, đặt lại opacity và số Gaussian.
+- Gốc có trần 5 triệu điểm (`densify_until_num_points`) và cắt Gaussian quá to theo `big_point_threshold`/`prune_big_point`; bản port không có trần số điểm.
+- Color correction theo sensor (gốc) so với `AffineTransform` LR thấp; mô hình Sky chỉ có ở bản port.
+
+Việc còn lại: chạy `make test-gpu`; thử LR opacity 0,005 và trần số điểm, xem ảnh lỗi FRONT_RIGHT; chạy lại với hai seed khác để có khoảng dao động.
