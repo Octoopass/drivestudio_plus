@@ -54,7 +54,7 @@ Khác nhỏ ngoài bảng của spec:
 - Chỉ renderer 3DGS, không CamPose. 3DGUT và 3DGEER để sau.
 - Approach không có `export.preview`: tool đó chỉ xuất `RigidNodes`. `export.ply_world` chỉ xuất nền.
 - Các hàm chỉnh sửa instance và xuất PLY của `RigidNodes` (`remove_instances`, `replace_instances`, `export_gaussians_to_ply`) không có ở `BezierNodes`.
-- Phần vẽ (`rasterize_features`, `BezierTrainer.forward`) và việc khởi tạo trong `MultiTrainer` đã chạy thật trên GPU T4 của Kaggle, 1000 iteration (mục "Chạy thật"); chưa chạy đủ 30.000 iteration. `make test-gpu` chưa chạy; các test CPU dùng `pytorch3d`, `gsplat` giả.
+- Phần vẽ (`rasterize_features`, `BezierTrainer.forward`) và việc khởi tạo trong `MultiTrainer` đã chạy thật trên GPU T4 của Kaggle, 1000 iteration (mục "Chạy thật"), kể cả 30.000 iteration. `make test-gpu` chưa chạy; các test CPU dùng `pytorch3d`, `gsplat` giả.
 
 ## Chạy thật
 
@@ -81,3 +81,49 @@ Kết quả:
 Hai loss vận tốc và ICC bắt đầu gần 0 vì độ lệch từng Gaussian khởi tạo đúng bằng đường fit, rồi tăng khi các tham số Bézier được học; chưa kết luận được là đúng hay sai sau 1000 bước. Video test: xe ở đúng vị trí và có hình dạng xe ở các khung đã xem (khung 2 và 40 của video full set), ảnh còn mờ và nhiễu. Chưa kiểm hướng chuyển động bằng số.
 
 Số 1000 bước không so được với notebook 13 (NVS PSNR 29,91, SSIM 0,894, LPIPS 0,082) hay paper (NVS 31,51, trung bình 12 cảnh). Run 30.000 iteration và so sánh chưa làm.
+
+### Run 30.000 iteration (22/11/2026, Kaggle T4)
+
+Cùng cảnh, split và commit code `083fd16` (run `20261122-034526-beziergs-c2be`, notebook chạy commit `7fbbead` chỉ khác docs), mặc định 30.000 iteration, `eval.standard`. Không có NaN trong log.
+
+| Mục | Giá trị |
+|---|---|
+| Thời gian train | 17.136 s (4 giờ 46 phút) cho stage, `train_time_s` 16.642 s; `prep.masks_segformer` lấy từ cache |
+| VRAM đỉnh | 11.777 MB (T4 15 GB) |
+| Gaussian cuối | 3.916.240 tổng; `BezierNodes` 101.291, nền 3.814.949 (nền đỉnh 6,4 triệu ở bước 15.000) |
+| `render_fps` | 8,3 |
+| NVS test (36 ảnh) | PSNR 27,72, SSIM 0,870, LPIPS 0,117 |
+| PSNR vật động / xe / người | 25,89 / 25,89 / 25,66 |
+| Theo camera (PSNR) | FRONT 27,52; FRONT_LEFT 31,47; FRONT_RIGHT 24,18 |
+
+Loss Bézier theo bước (giá trị tức thời của log):
+
+| Bước | `bezier_dynamic` | `bezier_velocity` | `bezier_icc` | Gaussian `BezierNodes` |
+|---|---|---|---|---|
+| 0 | 7,6e-3 | 3e-6 | 1,3e-5 | 81.803 |
+| 5.000 | 9,4e-4 | 8,5e-5 | 6,5e-5 | 206.743 |
+| 15.000 | 3,8e-4 | 1,1e-5 | 3,8e-5 | 258.647 |
+| 30.000 | 3,9e-4 | 9e-6 | 2,7e-5 | 101.291 |
+
+`bezier_dynamic` giảm hai bậc độ lớn; `bezier_velocity` tăng ở đầu (đỉnh quanh 1e-4) rồi giảm về cỡ 1e-5, nhỏ hơn đỉnh nhưng lớn hơn giá trị khởi tạo; `bezier_icc` tăng rồi giảm một nửa. Số Gaussian `BezierNodes` tăng tới 259 nghìn rồi giảm còn 101 nghìn khi `stop_split_at` 15.000 và cull tiếp tục.
+
+Video test (khung 1 và 9 của 12): xe ở đúng vị trí so với ảnh thật, hình xe rõ; lớp vật động tách sạch khỏi nền, có vài vệt Gaussian lẻ quanh xe gần camera. Hướng chuyển động chưa kiểm bằng số.
+
+So sánh (cùng cảnh 017, khung 61–109, 3 camera, mỗi khung thứ 4 làm test):
+
+| | PSNR | SSIM | LPIPS |
+|---|---|---|---|
+| drive2sim `beziergs` (run này) | 27,72 | 0,870 | 0,117 |
+| Kaggle notebook 13 | 29,91 | 0,894 | 0,082 |
+| Chênh | −2,19 | −0,024 | +0,035 |
+| Paper (NVS, trung bình 12 cảnh, **không cùng cảnh**) | 31,51 | | |
+
+`beziergs` đang thấp hơn notebook 13 khoảng 2,2 dB, và chưa vượt hay bằng mốc nào. Chưa biết nguyên nhân; các nghi vấn, chưa kiểm chứng:
+- Dữ liệu khác ingest chuẩn (mục 1000 iteration): mask động Grounded-SAM thay mask từ box, LiDAR thiếu `origins`, không SMPL. Notebook 13 là run nào (method, dữ liệu) chưa được ghi lại ở repo này, nên chưa biết hai bên khác nhau những gì ngoài method.
+- Đơn vị và learning rate của vị trí Gaussian vật động và đường đi đã đổi từ đơn vị chuẩn hoá sang mét (bảng "Chỗ khác bản gốc"), cần chỉnh sau run đầu.
+- FRONT_RIGHT thấp hẳn (24,18, LPIPS 0,195) so với FRONT_LEFT (31,47). Chưa xem ảnh lỗi của camera này nên chưa biết do nền hay do vật động.
+- Một run, một seed, 36 ảnh test; chưa có khoảng dao động giữa các lần chạy.
+
+Khác biệt cách đo giữa `eval.standard` và `train.py` của BezierGS gốc (đã đọc `../BezierGS/train.py`, `evaluate.py`): `eval.standard` (protocol 0.3) đo ảnh uint8 ở độ phân giải `downscale_when_loading=[2,2,2]` (một nửa kích thước gốc), LPIPS alex qua `torchmetrics` 0.10.3; BezierGS gốc đo ảnh float, `lpipsPyTorch` alex và hàm `ssim` riêng của nó, và tính PSNR vật động trên `bbox_mask` (box chiếu) trong khi `eval.standard` dùng mask động. Số của paper và số của `eval.standard` vì vậy không so trực tiếp được; chưa đo ảnh hưởng của từng khác biệt. Số notebook 13 cũng đo bằng `eval.standard` nên so với số này là cùng cách đo.
+
+Việc còn lại: chạy `make test-gpu`; tìm nguyên nhân chênh 2,2 dB (thử chỉnh LR vị trí theo bảng, xem lỗi FRONT_RIGHT); chạy lại với hai seed khác để có khoảng dao động.
