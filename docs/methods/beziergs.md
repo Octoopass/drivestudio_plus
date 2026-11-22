@@ -54,8 +54,30 @@ Khác nhỏ ngoài bảng của spec:
 - Chỉ renderer 3DGS, không CamPose. 3DGUT và 3DGEER để sau.
 - Approach không có `export.preview`: tool đó chỉ xuất `RigidNodes`. `export.ply_world` chỉ xuất nền.
 - Các hàm chỉnh sửa instance và xuất PLY của `RigidNodes` (`remove_instances`, `replace_instances`, `export_gaussians_to_ply`) không có ở `BezierNodes`.
-- Phần vẽ (`rasterize_features`, `BezierTrainer.forward`) và việc khởi tạo trong `MultiTrainer` chưa chạy thật trên GPU; các phần còn lại có test CPU với `pytorch3d`, `gsplat` giả.
+- Phần vẽ (`rasterize_features`, `BezierTrainer.forward`) và việc khởi tạo trong `MultiTrainer` đã chạy thật trên GPU T4 của Kaggle, 1000 iteration (mục "Chạy thật"); chưa chạy đủ 30.000 iteration. `make test-gpu` chưa chạy; các test CPU dùng `pytorch3d`, `gsplat` giả.
 
 ## Chạy thật
 
-Chưa chạy. Sẽ ghi ở đây kết quả Waymo cảnh 017, khung 61–109, 3 camera, mỗi khung thứ 4 làm test, so với run Kaggle notebook 13 (NVS PSNR 29,91, SSIM 0,894, LPIPS 0,082) và paper (NVS 31,51 trung bình 12 cảnh).
+### Smoke run 1000 iteration (22/11/2026, Kaggle T4)
+
+Cảnh Waymo 017, khung 61–109 (49 khung), 3 camera (FRONT, FRONT_LEFT, FRONT_RIGHT), split `every_nth_frame:4` (111 ảnh train, 36 ảnh test). Run `20261122-022944-beziergs-e1dd`, `--set train.drivestudio.num_iters=1000`, commit `083fd16`.
+
+Dữ liệu: cảnh không ingest từ tfrecord Waymo mà chuyển từ bản 017 định dạng BezierGS sang thư mục cảnh DriveStudio bằng script dùng một lần (không nằm trong repo). Chỗ khác so với ingest chuẩn: mask động là mask Grounded-SAM của BezierGS (ingest chuẩn dùng mask thô chiếu từ box, rồi `prep.masks_segformer` lọc tiếp); LiDAR không có `origins`, `flows`, `laser_ids` (ghi 0); không có SMPL (`load_smpl=false`); chỉ số khung đánh lại từ 0. Hệ toạ độ box kiểm bằng LiDAR: 8428 điểm trong box xe ở khung 0 với heading gốc, 4084 khi xoay 90°.
+
+Kết quả:
+
+| Mục | Giá trị |
+|---|---|
+| NaN trong log | không |
+| Thời gian | train 497 s (cả `prep.masks_segformer` 428 s riêng) |
+| VRAM đỉnh | 3228 MB |
+| Gaussian `BezierNodes` | 81.803 lúc đầu, 55.551 ở bước 1000 (cull 53.948 ở lần tinh chỉnh đầu, bước 600), 64.318 sau lần tinh chỉnh cuối |
+| Gaussian nền | 777.289 → 1.083.704 |
+| `bezier_dynamic_loss` | 0,0076 → 0,0024 (500) → 0,0011 (1000): giảm |
+| `bezier_velocity_loss` | 2,5e-6 → 4,0e-5 (500) → 4,5e-5 (1000): **tăng**, rồi phẳng; giá trị rất nhỏ |
+| `bezier_icc_loss` | 1,3e-5 → 2,0e-5 → 4,1e-5: **tăng**; cũng rất nhỏ |
+| NVS test (36 ảnh) | PSNR 19,82, SSIM 0,632, LPIPS 0,591; PSNR vật động 17,16, xe 16,65 |
+
+Hai loss vận tốc và ICC bắt đầu gần 0 vì độ lệch từng Gaussian khởi tạo đúng bằng đường fit, rồi tăng khi các tham số Bézier được học; chưa kết luận được là đúng hay sai sau 1000 bước. Video test: xe ở đúng vị trí và có hình dạng xe ở các khung đã xem (khung 2 và 40 của video full set), ảnh còn mờ và nhiễu. Chưa kiểm hướng chuyển động bằng số.
+
+Số 1000 bước không so được với notebook 13 (NVS PSNR 29,91, SSIM 0,894, LPIPS 0,082) hay paper (NVS 31,51, trung bình 12 cảnh). Run 30.000 iteration và so sánh chưa làm.
