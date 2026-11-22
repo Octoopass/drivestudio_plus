@@ -118,12 +118,25 @@ So sánh (cùng cảnh 017, khung 61–109, 3 camera, mỗi khung thứ 4 làm t
 | Chênh | −2,19 | −0,024 | +0,035 |
 | Paper (NVS, trung bình 12 cảnh, **không cùng cảnh**) | 31,51 | | |
 
-`beziergs` đang thấp hơn notebook 13 khoảng 2,2 dB, và chưa vượt hay bằng mốc nào. Chưa biết nguyên nhân; các nghi vấn, chưa kiểm chứng:
-- Dữ liệu khác ingest chuẩn (mục 1000 iteration): mask động Grounded-SAM thay mask từ box, LiDAR thiếu `origins`, không SMPL. Notebook 13 là run nào (method, dữ liệu) chưa được ghi lại ở repo này, nên chưa biết hai bên khác nhau những gì ngoài method.
-- Đơn vị và learning rate của vị trí Gaussian vật động và đường đi đã đổi từ đơn vị chuẩn hoá sang mét (bảng "Chỗ khác bản gốc"), cần chỉnh sau run đầu.
-- FRONT_RIGHT thấp hẳn (24,18, LPIPS 0,195) so với FRONT_LEFT (31,47). Chưa xem ảnh lỗi của camera này nên chưa biết do nền hay do vật động.
-- Một run, một seed, 36 ảnh test; chưa có khoảng dao động giữa các lần chạy.
+`beziergs` đang thấp hơn notebook 13 khoảng 2,2 dB. Notebook 13 là run **BezierGS gốc** (`kascnte/beziergs`, code `6df0a36`, `run_summary.json`) trên dữ liệu 017 do tác giả xử lý sẵn, train 169,5 phút, VRAM đỉnh 10,9 GB, 1,87 triệu Gaussian cuối; không phải run của drive2sim. Điểm so chính xác hơn:
 
-Khác biệt cách đo giữa `eval.standard` và `train.py` của BezierGS gốc (đã đọc `../BezierGS/train.py`, `evaluate.py`): `eval.standard` (protocol 0.3) đo ảnh uint8 ở độ phân giải `downscale_when_loading=[2,2,2]` (một nửa kích thước gốc), LPIPS alex qua `torchmetrics` 0.10.3; BezierGS gốc đo ảnh float, `lpipsPyTorch` alex và hàm `ssim` riêng của nó, và tính PSNR vật động trên `bbox_mask` (box chiếu) trong khi `eval.standard` dùng mask động. Số của paper và số của `eval.standard` vì vậy không so trực tiếp được; chưa đo ảnh hưởng của từng khác biệt. Notebook 13 đo bằng cách nào chưa kiểm tra, nên so với số này chưa chắc là cùng cách đo.
+| | Gốc (notebook 13) | drive2sim `beziergs` |
+|---|---|---|
+| NVS test PSNR | 29,91 | 27,72 |
+| Train PSNR (đo cùng cách với test) | 33,59 | ước tính ≈ 31,3 (suy từ `full` 30,45 và test 27,72, chưa đo trực tiếp) |
+| Chênh train − test | 3,7 | ≈ 3,6 |
+| Gaussian cuối | 1,87 triệu | 3,92 triệu (nền đỉnh 6,4 triệu) |
+| Thời gian train | 169,5 phút | 286 phút |
 
-Việc còn lại: chạy `make test-gpu`; tìm nguyên nhân chênh 2,2 dB (thử chỉnh LR vị trí theo bảng, xem lỗi FRONT_RIGHT); chạy lại với hai seed khác để có khoảng dao động.
+Hai bên đo cùng độ phân giải (960×640; BezierGS gốc `load_size = [640, 960]`), nên ý "nửa độ phân giải" ở bản trước của mục này không phải khác biệt. Khác biệt cách đo còn lại: tập test khác khung (gốc `(idx+1) % 4 == 0` tức khung 3, 7, …, 47; drive2sim 4, 8, …, 48), ảnh float so với uint8, `ssim` và LPIPS dùng thư viện khác, PSNR vật động trên `bbox_mask` (gốc) so với mask động (drive2sim).
+
+Chênh train − test của hai bên gần bằng nhau, nên chỗ thua nằm ở độ khớp lúc train (thiếu khoảng 2 dB), không phải ở khả năng suy ra khung chưa thấy. Nghi vấn mạnh nhất tìm được, chưa thử:
+- **Learning rate vị trí thấp hơn gốc khoảng 4,4 lần theo đơn vị mét.** Gốc chuẩn hoá cảnh về [−1, 1] bằng PCA (`scale_factor = min(0,1; 1/max|t|)`, cảnh này 1 đơn vị ≈ 18,4 m) và nhân LR với `cameras_extent` ≈ 0,91. Tính ra LR xyz khởi đầu ≈ 0,0268 m, cuối ≈ 2,7e-4 m, đường đi 2,7e-4 → 2,7e-6 m. Bản port đang dùng 0,0061 m (xyz, cũng áp cho nền) và 6,1e-5 m (đường đi): đổi `1,6e-3 → 1,6e-4` ở bảng "Chỗ khác bản gốc" là quy đổi sai khoảng 4,4 lần.
+- Nền: Gaussian khởi tạo 777 nghìn (gốc 253 nghìn điểm nền), và số Gaussian cuối gấp đôi gốc mà vẫn khớp kém hơn.
+- Màu: gốc dùng color correction theo sensor (LR 5e-4 → 5e-5), bản port dùng `AffineTransform` LR 1e-5; bản port có thêm mô hình Sky (`EnvLight`), gốc `use_sky: false`.
+- FRONT_RIGHT thấp hẳn (24,18, LPIPS 0,195); chưa xem ảnh lỗi nên chưa biết do nền hay vật động.
+- Một run, một seed, 36 ảnh test; chưa có khoảng dao động.
+
+Dữ liệu 017 trong run này vốn là bản tác giả BezierGS xử lý sẵn (box, mask Grounded-SAM, LiDAR), nên chênh lệch do chuyển định dạng nhiều khả năng nhỏ; chưa kiểm.
+
+Việc còn lại: chạy `make test-gpu`; thử LR vị trí ×4,4 (cả nền và vật động) và xem ảnh lỗi FRONT_RIGHT; chạy lại với hai seed khác để có khoảng dao động.
