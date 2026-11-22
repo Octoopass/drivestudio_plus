@@ -84,6 +84,7 @@ CONFIG_FILES: dict[tuple[str, str, bool, bool, bool], str] = {
     ("pvg", "3dgs", True, False, False): "pvg.yaml",
     ("deformablegs", "3dgs", True, False, False): "deformablegs.yaml",
     ("beziergs", "3dgs", False, False, False): "beziergs.yaml",
+    ("beziergs", "3dgs", False, True, False): "beziergs_fastgs.yaml",
 }
 # Bản OmniRe cho nhiều camera (hơn 3): 40k iteration, chọn ảnh theo sai số, ngưỡng densify thấp
 # hơn; chỉ có cho tổ hợp gốc của paper (3DGS, CamPose, không FastGS, Faster-GS).
