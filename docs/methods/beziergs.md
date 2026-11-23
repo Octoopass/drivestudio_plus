@@ -213,8 +213,37 @@ Bản BezierGS gốc dựng pose camera từ pose xe **lúc từng camera chụp
 
 Cảnh `waymo_017_campose` (`data/`, không commit) ghi pose đúng bằng `camera_pose_start`, `camera_pose` và `camera_timing` (shutter `GLOBAL`), cùng định dạng mà script Waymo của drive2sim ghi và `WaymoCameraData` đọc (đã chạy hàm đọc pose của loader trên cảnh này: 49 pose mỗi camera). Chưa chạy train trên cảnh này.
 
-### Còn chênh 2,2 dB với bản gốc sau năm run
+### Run 6: pose camera đúng, `waymo_017_campose` (`20261123-050839-beziergs-28b2`, commit `6ddd4b3`)
 
-LR vị trí, nền khởi tạo, LR opacity, trần số điểm, FastGS và LR của `AffineTransform` đều không thay đổi PSNR quá 0,5 dB, kể cả khi số Gaussian giảm từ 4,7 triệu xuống 0,57 triệu. Số lượng Gaussian và luật densify vì vậy không phải nguyên nhân chính. Khác biệt còn lại chưa thử: pose camera (mục trên); mô hình Sky; tập test (khung 3, 7, … so với 4, 8, …). Mọi run dùng cùng một seed.
+Như run 5, chỉ đổi dữ liệu: pose camera lấy từ `ego_pose/<khung>_<camera>.txt` như BezierGS gốc. Không có NaN; loader đọc `camera_timing` bình thường.
 
-Việc còn lại: chạy `make test-gpu`; chạy lại trên `waymo_017_campose` (pose camera đúng), rồi bỏ Sky, xem ảnh lỗi FRONT_RIGHT; chạy lại với hai seed khác để có khoảng dao động.
+| | Run 5 (pose chung của khung) | Run 6 (pose từng camera) |
+|---|---|---|
+| Test PSNR / SSIM / LPIPS | 27,59 / 0,865 / 0,143 | 27,16 / 0,859 / 0,148 |
+| FRONT / FRONT_LEFT / FRONT_RIGHT | 27,32 / 30,97 / 24,47 | 26,95 / 30,48 / 24,07 |
+| Train PSNR (ước tính) | ≈ 29,9 | ≈ 29,3 |
+| Gaussian cuối | 0,58 triệu | 0,57 triệu |
+
+Pose đúng không cải thiện mà kém hơn 0,4 dB. Chưa đo dao động giữa các lần chạy cùng cấu hình, nên chưa biết 0,4 dB có vượt nhiễu không; kết luận chắc chắn duy nhất là pose không phải nguyên nhân chính của khoảng cách 2,2 dB.
+
+### Sai số theo vùng ảnh (run 6, so với bản gốc)
+
+PSNR tính trên MSE gộp, từ video test của drive2sim (12 khung × 3 camera, khung 4, 8, …, 48) và ảnh test của bản gốc (`exp_record`, khung 3, 7, …, 47). Hai tập khung khác nhau, nên đây là so sánh sơ bộ; mask trời lấy từ dữ liệu 017.
+
+| Camera, vùng | Gốc | drive2sim |
+|---|---|---|
+| FRONT, trời | 36,0 | 32,6 |
+| FRONT, tĩnh không trời | 29,8 | 29,8 |
+| FRONT_LEFT, trời | 34,9 | 20,3 |
+| FRONT_LEFT, tĩnh không trời | 33,1 | 27,9 |
+| FRONT_RIGHT, trời | 23,4 | 21,3 |
+| FRONT_RIGHT, tĩnh không trời | 26,2 | 24,0 |
+| Vùng vật động (mọi camera) | | 28,5 |
+
+Khoảng cách tập trung ở FRONT_LEFT (trời thấp hơn 14,6 dB, vùng tĩnh thấp hơn 5,2 dB) và FRONT_RIGHT; FRONT tĩnh ngang bản gốc. Vùng vật động không phải chỗ yếu. Ảnh lỗi cho thấy hai kiểu: lệch nhỏ dọc cạnh sắc (vạch qua đường, tán cây) và lệch màu mượt ở vùng trời.
+
+### Còn chênh 2,2 dB với bản gốc sau sáu run
+
+LR vị trí, nền khởi tạo, LR opacity, trần số điểm, FastGS và LR của `AffineTransform` đều không thay đổi PSNR quá 0,5 dB, kể cả khi số Gaussian giảm từ 4,7 triệu xuống 0,57 triệu. Số lượng Gaussian và luật densify vì vậy không phải nguyên nhân chính. Pose camera cũng không giúp (run 6). Khác biệt còn lại chưa thử: mô hình Sky (trời FRONT_LEFT và FRONT_RIGHT kém nhất); calib hoặc undistort của hai camera bên; tập test (khung 3, 7, … so với 4, 8, …). Mọi run dùng cùng một seed.
+
+Việc còn lại: chạy `make test-gpu`; đo dao động giữa hai seed; kiểm Sky (render riêng lớp trời) và calib hai camera bên bằng `d2s scene lidar-check` trên máy có `cv2`; chạy lại với hai seed khác để có khoảng dao động.
