@@ -226,24 +226,33 @@ Như run 5, chỉ đổi dữ liệu: pose camera lấy từ `ego_pose/<khung>_<
 
 Pose đúng không cải thiện mà kém hơn 0,4 dB. Chưa đo dao động giữa các lần chạy cùng cấu hình, nên chưa biết 0,4 dB có vượt nhiễu không; kết luận chắc chắn duy nhất là pose không phải nguyên nhân chính của khoảng cách 2,2 dB.
 
-### Sai số theo vùng ảnh (run 6, so với bản gốc)
+### Sai số theo camera và vùng ảnh (run 6, so với bản gốc)
 
-PSNR tính trên MSE gộp, từ video test của drive2sim (12 khung × 3 camera, khung 4, 8, …, 48) và ảnh test của bản gốc (`exp_record`, khung 3, 7, …, 47). Hai tập khung khác nhau, nên đây là so sánh sơ bộ; mask trời lấy từ dữ liệu 017.
+PSNR tính trên MSE gộp, từ video của drive2sim (đã nén H.264, nên thấp hơn `summary.json` khoảng 1 dB) và ảnh của bản gốc (`exp_record`, PNG). **Video xếp panel theo thứ tự FRONT_LEFT, FRONT, FRONT_RIGHT**, không phải chỉ số camera 0, 1, 2; bản đầu của mục này ghép nhầm và đã bị thay. Ảnh thật hai bên khớp nhau (sai khác trung bình 0,013–0,020, do nén).
 
-| Camera, vùng | Gốc | drive2sim |
+Khung test (gốc: khung 3, 7, …, 47; drive2sim: 4, 8, …, 48; khác khung nhưng kề nhau). Cột "gốc / drive2sim" theo PSNR (dB):
+
+| Camera | Tổng | Trời | Tĩnh không trời | Vật động |
+|---|---|---|---|---|
+| FRONT | 30,4 / 26,8 | 36,0 / 28,8 | 29,8 / 26,6 | 30,7 / 28,3 |
+| FRONT_LEFT | 32,5 / 30,2 | 34,9 / 27,1 | 33,1 / 31,3 | 25,1 / 24,1 |
+| FRONT_RIGHT | 25,9 / 23,8 | 23,4 / 21,3 | 26,2 / 24,0 | 30,8 / 25,9 |
+
+Khung train chung của cả hai bên (24 khung có chỉ số khung chia 4 dư 1 hoặc 2, tức không phải khung test của bên nào):
+
+| Camera | Gốc | drive2sim |
 |---|---|---|
-| FRONT, trời | 36,0 | 32,6 |
-| FRONT, tĩnh không trời | 29,8 | 29,8 |
-| FRONT_LEFT, trời | 34,9 | 20,3 |
-| FRONT_LEFT, tĩnh không trời | 33,1 | 27,9 |
-| FRONT_RIGHT, trời | 23,4 | 21,3 |
-| FRONT_RIGHT, tĩnh không trời | 26,2 | 24,0 |
-| Vùng vật động (mọi camera) | | 28,5 |
+| FRONT | 32,9 | 27,9 |
+| FRONT_LEFT | 35,9 | 32,4 |
+| FRONT_RIGHT | 31,5 | 27,6 |
+| Cả ba | 33,1 | 28,8 |
 
-Khoảng cách tập trung ở FRONT_LEFT (trời thấp hơn 14,6 dB, vùng tĩnh thấp hơn 5,2 dB) và FRONT_RIGHT; FRONT tĩnh ngang bản gốc. Vùng vật động không phải chỗ yếu. Ảnh lỗi cho thấy hai kiểu: lệch nhỏ dọc cạnh sắc (vạch qua đường, tán cây) và lệch màu mượt ở vùng trời.
+Kết luận: khoảng cách **đồng đều** ở mọi camera và mọi vùng, và có cả ở khung train (hụt khoảng 3–4 dB, trong đó vài phần mười dB đến khoảng 1 dB là do video nén). Đây là thiếu độ khớp lúc train nói chung, không nằm riêng ở trời, ở camera bên hay ở vật động.
+
+Về Sky (kiểm tra theo yêu cầu): màu trời đúng. Màu lệch cả ảnh (colour cast) chỉ chiếm 3–22% MSE vùng trời (FRONT 6%, FRONT_LEFT 22%, FRONT_RIGHT 3%); phần lõi trời (cách biên hơn 10 px) đạt 31,4 dB ở FRONT và 30,8 dB ở FRONT_LEFT, còn dải 10 px sát biên chỉ 23,7–25,0 dB. Lỗi trời vì vậy nằm ở biên trời với tán cây (chi tiết tần số cao), cùng kiểu với lỗi vùng tĩnh, nên mô hình Sky không phải thủ phạm. FRONT_RIGHT lệch lớn cả ở lõi (22,0 dB; bản gốc cũng chỉ 23,4 dB trên vùng trời này), nhiều khả năng do mask trời của camera này kém (IoU giữa mask của tác giả và SegFormer chỉ 0,68). Ảnh lỗi thiên về cạnh sắc (vạch kẻ đường, tán cây): bản port vẽ mờ hơn, khớp với LPIPS cao hơn (0,148 so với 0,082).
 
 ### Còn chênh 2,2 dB với bản gốc sau sáu run
 
-LR vị trí, nền khởi tạo, LR opacity, trần số điểm, FastGS và LR của `AffineTransform` đều không thay đổi PSNR quá 0,5 dB, kể cả khi số Gaussian giảm từ 4,7 triệu xuống 0,57 triệu. Số lượng Gaussian và luật densify vì vậy không phải nguyên nhân chính. Pose camera cũng không giúp (run 6). Khác biệt còn lại chưa thử: mô hình Sky (trời FRONT_LEFT và FRONT_RIGHT kém nhất); calib hoặc undistort của hai camera bên; tập test (khung 3, 7, … so với 4, 8, …). Mọi run dùng cùng một seed.
+LR vị trí, nền khởi tạo, LR opacity, trần số điểm, FastGS và LR của `AffineTransform` đều không thay đổi PSNR quá 0,5 dB, kể cả khi số Gaussian giảm từ 4,7 triệu xuống 0,57 triệu. Số lượng Gaussian và luật densify vì vậy không phải nguyên nhân chính. Pose camera cũng không giúp (run 6). Khoảng cách đồng đều ở mọi camera và vùng, và có ở cả khung train, nên nghi vấn nằm ở độ khớp chi tiết nói chung (bản port vẽ mờ hơn): vòng lặp train, mô hình ánh sáng, bộ rasterizer (gsplat so với `diff-gaussian-rasterization` bản sửa), lịch độ phân giải đầu train, chưa thử riêng cái nào. Mọi run dùng cùng một seed.
 
-Việc còn lại: chạy `make test-gpu`; đo dao động giữa hai seed; kiểm Sky (render riêng lớp trời) và calib hai camera bên bằng `d2s scene lidar-check` trên máy có `cv2`; chạy lại với hai seed khác để có khoảng dao động.
+Việc còn lại: chạy `make test-gpu`; đo dao động giữa hai seed; thử các khác biệt của vòng lặp train (lịch độ phân giải `res_schedule`, rasterizer); chạy lại với hai seed khác để có khoảng dao động.
