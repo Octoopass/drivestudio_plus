@@ -59,6 +59,24 @@ Khác nhỏ ngoài bảng của spec:
 
 ## Chạy thật
 
+### Tóm tắt các run (Waymo 017, khung 61–109, 3 camera, test mỗi khung thứ 4, Kaggle T4)
+
+PSNR / SSIM / LPIPS trên 36 ảnh test của `eval.standard`; thời gian là thời gian stage `train.drivestudio` (các mục dưới ghi `train_time_s` của `summary.json`, thấp hơn vài phút; chạy cùng lúc hai notebook làm run 3 chậm hơn). Chi tiết từng run ở các mục dưới. Thư mục `runs/` của các run này đã xoá khỏi máy sau khi ghi (notebook Kaggle `kascnte/d2s-waymo-017-*` vẫn còn).
+
+| # | Run | Cấu hình | PSNR / SSIM / LPIPS | Gaussian | Train |
+|---|---|---|---|---|---|
+| 0 | `e1dd` | 1000 iteration | 19,82 / 0,632 / 0,591 | 1,08 triệu nền, 56 nghìn `BezierNodes` | 8 phút |
+| 1 | `c2be` | 30k, cấu hình đầu | 27,72 / 0,870 / 0,117 | 3,92 triệu | 286 phút |
+| 2 | `9484` | LR vị trí ×4,4, nền khởi tạo như gốc | 27,76 / 0,871 / 0,121 | 4,35 triệu | 295 phút |
+| 3 | `de62` | Thêm LR opacity 0,005, trần 5 triệu điểm | 27,27 / 0,847 / 0,154 | 4,71 triệu | 363 phút |
+| 4 | `8906` | Run 2 với FastGS | 27,69 / 0,865 / 0,142 | 0,57 triệu | 162 phút |
+| 5 | `717a` | FastGS, LR Affine 5e-4 | 27,59 / 0,865 / 0,143 | 0,58 triệu | 165 phút |
+| 6 | `28b2` | FastGS, pose camera đúng (`waymo_017_campose`) | 27,16 / 0,859 / 0,148 | 0,57 triệu | 164 phút |
+| 7 | `6c42` | StreetGS với FastGS, `waymo_017_campose` | 27,37 / 0,862 / 0,128 | 0,74 triệu | 113 phút |
+| | BezierGS gốc | notebook 13 | 29,91 / 0,894 / 0,082 | 1,87 triệu | 169,5 phút |
+
+Rút ra: không thay đổi hyperparameter nào (run 2–3, 5) hay pose (run 6) vượt 0,5 dB; FastGS giữ PSNR với ít hơn 7 lần Gaussian và gần một nửa thời gian (run 4); StreetGS cùng quy trình cũng chỉ 27,4 dB (run 7), nên khoảng cách 2,5 dB với bản gốc nằm ở phần chung với framework, không ở code BezierGS.
+
 ### Smoke run 1000 iteration (22/11/2026, Kaggle T4)
 
 Cảnh Waymo 017, khung 61–109 (49 khung), 3 camera (FRONT, FRONT_LEFT, FRONT_RIGHT), split `every_nth_frame:4` (111 ảnh train, 36 ảnh test). Run `20261122-022944-beziergs-e1dd`, `--set train.drivestudio.num_iters=1000`, commit `083fd16`.
