@@ -162,4 +162,38 @@ Số Gaussian nền vượt xa gốc (gốc dừng ở 1,87 triệu tổng, tr�
 - Gốc có trần 5 triệu điểm (`densify_until_num_points`) và cắt Gaussian quá to theo `big_point_threshold`/`prune_big_point`; bản port không có trần số điểm.
 - Color correction theo sensor (gốc) so với `AffineTransform` LR thấp; mô hình Sky chỉ có ở bản port.
 
-Việc còn lại: chạy `make test-gpu`; thử LR opacity 0,005 và trần số điểm, xem ảnh lỗi FRONT_RIGHT; chạy lại với hai seed khác để có khoảng dao động.
+### Run 3: LR opacity 0,005 và trần 5 triệu điểm nền (`20261122-164355-beziergs-de62`, commit `2b82ba1`)
+
+Không có NaN. Trần được giữ (nền đỉnh 5,28 triệu điểm ở lần tinh chỉnh cuối trước khi dừng).
+
+| | Gốc | Run 2 | Run 3 (B) |
+|---|---|---|---|
+| Test PSNR / SSIM / LPIPS | 29,91 / 0,894 / 0,082 | 27,76 / 0,871 / 0,121 | **27,27 / 0,847 / 0,154** |
+| Train PSNR (ước tính) | 33,59 | ≈ 31,1 | ≈ 31,0 |
+| Gaussian cuối | 1,87 triệu | 4,35 triệu | 4,71 triệu |
+| VRAM đỉnh | 10,9 GB | 14,1 GB | 10,0 GB |
+| Thời gian train | 169,5 phút | 288 phút | 363 phút (chạy cùng lúc một notebook khác, có thể chậm hơn vì dùng chung CPU) |
+
+LR opacity thấp và trần số điểm không thu hẹp khoảng cách; kết quả kém hơn run 2 (PSNR −0,5, LPIPS +0,03). Giả thuyết "luật densify/cull" qua hai tham số này bị bác bỏ cho cảnh này. Giảm VRAM xuống 10 GB nhờ trần.
+
+### Run 4: FastGS (`beziergs_fastgs.yaml`, `20261122-164307-beziergs-8906`, commit `3421b7d`)
+
+Cùng baseline run 2 cộng `trainer.fastgs.enabled: true`, tham số mặc định (`score_thresh` 1,0, prune từ bước 15.000 với `prune_min_opacity` 0,1). Không có NaN, không có lỗi trong log; `summary.json` ghi `speedups: ["fastgs"]`.
+
+| | Run 2 | Run 4 (FastGS) |
+|---|---|---|
+| Test PSNR / SSIM / LPIPS | 27,76 / 0,871 / 0,121 | 27,69 / 0,865 / 0,142 |
+| PSNR người / xe | 25,94 / 26,08 | **22,89** / 26,05 |
+| Train PSNR (ước tính) | ≈ 31,1 | ≈ 30,0 |
+| Gaussian cuối | 4,35 triệu (`BezierNodes` 77 nghìn) | 0,57 triệu (`BezierNodes` 18,5 nghìn) |
+| VRAM đỉnh | 14,1 GB | 5,5 GB |
+| Thời gian train | 288 phút | 162 phút |
+| FPS render | 7,7 | 13,3 |
+
+Kết luận: FastGS dùng được với `BezierNodes` (cả điểm số lẫn prune chạy trên nền và vật động, 282 lượt chấm điểm không lỗi). Cùng chất lượng PSNR/SSIM với ít hơn 7 lần Gaussian, một nửa thời gian và 40% VRAM. Giá phải trả: LPIPS xấu đi 0,02, PSNR người đi bộ giảm 3 dB (một run, chưa rõ do dao động hay do prune Gaussian người). Prune chủ yếu là do opacity dưới 0,1 (1,39 triệu Gaussian nền ở bước 17.900); điều kiện sai số cao gần như không kích hoạt (0–2 Gaussian mỗi lượt), nên `prune_score_thresh` chưa có tác dụng. `score_thresh` chưa chỉnh; p90 điểm nền quanh 0,7–1,4, p99 10–29.
+
+### Còn chênh 2,2 dB với bản gốc sau bốn run
+
+LR vị trí, nền khởi tạo, LR opacity, trần số điểm và FastGS đều không thay đổi PSNR quá 0,5 dB, kể cả khi số Gaussian giảm từ 4,7 triệu xuống 0,57 triệu. Số lượng Gaussian và luật densify vì vậy không phải nguyên nhân chính. Khác biệt còn lại chưa thử: color correction theo sensor của gốc (LR 5e-4 → 5e-5, so với `AffineTransform` LR 1e-5 của bản port, thấp hơn 50 lần) có thể quan trọng với FRONT_RIGHT (24 dB, thấp nhất trong ba camera); mô hình Sky; dữ liệu và tập test (khung 3, 7, … so với 4, 8, …). Bốn run đều dùng cùng một seed.
+
+Việc còn lại: chạy `make test-gpu`; thử LR của `AffineTransform` lên 5e-4 (như gốc), bỏ Sky, xem ảnh lỗi FRONT_RIGHT; chạy lại với hai seed khác để có khoảng dao động.
