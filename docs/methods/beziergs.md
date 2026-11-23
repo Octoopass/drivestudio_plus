@@ -192,8 +192,29 @@ Cùng baseline run 2 cộng `trainer.fastgs.enabled: true`, tham số mặc đ�
 
 Kết luận: FastGS dùng được với `BezierNodes` (cả điểm số lẫn prune chạy trên nền và vật động, 282 lượt chấm điểm không lỗi). Cùng chất lượng PSNR/SSIM với ít hơn 7 lần Gaussian, một nửa thời gian và 40% VRAM. Giá phải trả: LPIPS xấu đi 0,02, PSNR người đi bộ giảm 3 dB (một run, chưa rõ do dao động hay do prune Gaussian người). Prune chủ yếu là do opacity dưới 0,1 (1,39 triệu Gaussian nền ở bước 17.900); điều kiện sai số cao gần như không kích hoạt (0–2 Gaussian mỗi lượt), nên `prune_score_thresh` chưa có tác dụng. `score_thresh` chưa chỉnh; p90 điểm nền quanh 0,7–1,4, p99 10–29.
 
-### Còn chênh 2,2 dB với bản gốc sau bốn run
+### Run 5: FastGS và LR `AffineTransform` 5e-4 → 5e-5 (`20261123-012115-beziergs-717a`)
 
-LR vị trí, nền khởi tạo, LR opacity, trần số điểm và FastGS đều không thay đổi PSNR quá 0,5 dB, kể cả khi số Gaussian giảm từ 4,7 triệu xuống 0,57 triệu. Số lượng Gaussian và luật densify vì vậy không phải nguyên nhân chính. Khác biệt còn lại chưa thử: color correction theo sensor của gốc (LR 5e-4 → 5e-5, so với `AffineTransform` LR 1e-5 của bản port, thấp hơn 50 lần) có thể quan trọng với FRONT_RIGHT (24 dB, thấp nhất trong ba camera); mô hình Sky; dữ liệu và tập test (khung 3, 7, … so với 4, 8, …). Bốn run đều dùng cùng một seed.
+Như run 4 (FastGS), chỉ đổi LR của `AffineTransform` như BezierGS gốc (log xác nhận LR giảm 5e-4 → 5e-5). Không có NaN.
 
-Việc còn lại: chạy `make test-gpu`; thử LR của `AffineTransform` lên 5e-4 (như gốc), bỏ Sky, xem ảnh lỗi FRONT_RIGHT; chạy lại với hai seed khác để có khoảng dao động.
+| | Run 4 | Run 5 |
+|---|---|---|
+| Test PSNR / SSIM / LPIPS | 27,69 / 0,865 / 0,142 | 27,59 / 0,865 / 0,143 |
+| PSNR FRONT / FRONT_LEFT / FRONT_RIGHT | 27,34 / 31,15 / 24,57 | 27,32 / 30,97 / 24,47 |
+| PSNR người | 22,89 | 23,48 |
+| Train PSNR (ước tính) | ≈ 30,0 | ≈ 29,9 |
+| Gaussian cuối | 0,57 triệu | 0,58 triệu |
+| Thời gian train | 162 phút | 165 phút |
+
+Giả thuyết "color correction LR thấp làm lệch phơi sáng giữa camera" bị bác bỏ: FRONT_RIGHT không đổi.
+
+### Lỗi trong bản chuyển đổi dữ liệu 017: pose camera
+
+Bản BezierGS gốc dựng pose camera từ pose xe **lúc từng camera chụp** (`ego_pose/<khung>_<camera>.txt`, biến `ego_cam_poses` trong `scene/drivex_waymo_loader.py`). Script chuyển 017 sang định dạng DriveStudio dùng pose chung của khung cho cả ba camera, nên pose camera lệch trung bình 5,5 cm, tối đa 14 cm so với cái bản gốc dùng (đo trên khung 61–109, camera 0–2; xe di chuyển 0,64 m mỗi khung). Cả bốn run trước (và run 5) dùng dữ liệu này. Chưa biết lệch này làm mất bao nhiêu dB.
+
+Cảnh `waymo_017_campose` (`data/`, không commit) ghi pose đúng bằng `camera_pose_start`, `camera_pose` và `camera_timing` (shutter `GLOBAL`), cùng định dạng mà script Waymo của drive2sim ghi và `WaymoCameraData` đọc (đã chạy hàm đọc pose của loader trên cảnh này: 49 pose mỗi camera). Chưa chạy train trên cảnh này.
+
+### Còn chênh 2,2 dB với bản gốc sau năm run
+
+LR vị trí, nền khởi tạo, LR opacity, trần số điểm, FastGS và LR của `AffineTransform` đều không thay đổi PSNR quá 0,5 dB, kể cả khi số Gaussian giảm từ 4,7 triệu xuống 0,57 triệu. Số lượng Gaussian và luật densify vì vậy không phải nguyên nhân chính. Khác biệt còn lại chưa thử: pose camera (mục trên); mô hình Sky; tập test (khung 3, 7, … so với 4, 8, …). Mọi run dùng cùng một seed.
+
+Việc còn lại: chạy `make test-gpu`; chạy lại trên `waymo_017_campose` (pose camera đúng), rồi bỏ Sky, xem ảnh lỗi FRONT_RIGHT; chạy lại với hai seed khác để có khoảng dao động.
