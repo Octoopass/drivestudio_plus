@@ -65,7 +65,7 @@ Bản port chạy được trên GPU (Kaggle T4, Waymo 017, 30.000 iteration, kh
 - **Điểm mạnh:** vùng vật động tốt hơn StreetGS 1,5 dB PSNR (xe +1,6 dB). FastGS dùng được với `BezierNodes` (`--set train.drivestudio.fastgs=true`): PSNR giữ nguyên với ít hơn 7 lần Gaussian (0,57 so với 4,35 triệu), gần một nửa thời gian train, VRAM 5,4 GB thay vì 14,1 GB.
 - **Điểm yếu:** LPIPS cao hơn StreetGS 0,02, train chậm hơn khoảng 50%, PSNR người đi bộ thấp (22,9–23,5 dB, như StreetGS).
 - **Đã loại trừ là nguyên nhân của khoảng cách:** LR vị trí (đã quy đổi theo mét), số điểm nền khởi tạo, LR opacity, trần số điểm, LR của `AffineTransform`, pose camera riêng từng camera, mô hình Sky, số lượng Gaussian và luật densify (FastGS). Không thay đổi nào làm PSNR đổi quá 0,5 dB.
-- **Chưa biết / chưa làm:** nguyên nhân chung của khoảng cách với bản gốc; dao động giữa các seed (mỗi cấu hình một run); chỉ một cảnh, hệ số LR vị trí 7e-4 tính riêng cho cảnh này; hướng chuyển động của xe chưa kiểm bằng số; `make test-gpu` chưa chạy; chưa đo CPU/GPU thời gian từng phần.
+- **Chưa biết / chưa làm:** nguyên nhân chung của khoảng cách với bản gốc; dao động giữa các seed (mỗi cấu hình một run); chỉ một cảnh, hệ số LR vị trí 7e-4 tính riêng cho cảnh này; hướng chuyển động của xe chưa kiểm bằng số; `make test-gpu` chưa chạy.
 - **Cách dùng đề nghị:** chọn approach `beziergs` (thêm `fastgs=true` để nhanh) khi cần dựng vật động bằng quỹ đạo Bézier; không dùng nó để báo số "như BezierGS gốc". Muốn thu hẹp khoảng cách thì tìm ở phần chung với framework, vì StreetGS cũng bị.
 
 ## Chạy thật
