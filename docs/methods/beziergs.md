@@ -226,6 +226,25 @@ Như run 5, chỉ đổi dữ liệu: pose camera lấy từ `ego_pose/<khung>_<
 
 Pose đúng không cải thiện mà kém hơn 0,4 dB. Chưa đo dao động giữa các lần chạy cùng cấu hình, nên chưa biết 0,4 dB có vượt nhiễu không; kết luận chắc chắn duy nhất là pose không phải nguyên nhân chính của khoảng cách 2,2 dB.
 
+### Run 7: StreetGS với FastGS làm mốc (`20261123-130229-streetgs-6c42`, commit `6ddd4b3`)
+
+Cùng cảnh `waymo_017_campose`, cùng split `every4_3cams`, cùng `fastgs=true`, chỉ khác method: `streetgs` (RigidNodes, tắt CamPose) thay `beziergs`. Mục đích: xem khoảng cách với BezierGS gốc nằm ở bản port hay ở chung quy trình (dữ liệu, gsplat, framework). Không có NaN.
+
+| | BezierGS (run 6) | StreetGS (run 7) | BezierGS gốc |
+|---|---|---|---|
+| Test PSNR / SSIM / LPIPS | 27,16 / 0,859 / 0,148 | 27,37 / 0,862 / 0,128 | 29,91 / 0,894 / 0,082 |
+| FRONT / FRONT_LEFT / FRONT_RIGHT | 26,95 / 30,48 / 24,07 | 27,09 / 31,07 / 23,95 | |
+| PSNR vật động / xe / người | 25,48 / 25,90 / 23,53 | 23,99 / 24,33 / 22,89 | 30,60 (box) / / |
+| Train PSNR (ước tính) | ≈ 29,3 | ≈ 30,3 | 33,59 |
+| Gaussian cuối | 0,57 triệu | 0,74 triệu | 1,87 triệu |
+| Thời gian train | 156 phút | 104 phút | 169,5 phút |
+| VRAM đỉnh | 5,4 GB | 3,8 GB | 10,9 GB |
+
+Kết luận (một run mỗi bên, chưa đo dao động):
+- PSNR và SSIM tổng của hai method trên cùng quy trình chỉ cách nhau 0,2 dB và 0,003; coi là ngang nhau. Khoảng cách với bản gốc (2,5–2,7 dB) vì vậy **không do code BezierGS** mà do phần chung: dữ liệu chuyển đổi, gsplat hoặc vòng lặp train của DriveStudio. Cả hai method bão hoà quanh 27,2–27,4 dB trên dữ liệu này.
+- Bản port BezierGS tốt hơn ở vật động: PSNR vùng vật động +1,5 dB và xe +1,6 dB so với StreetGS, đúng điều BezierGS nhắm tới (quỹ đạo Bézier theo từng Gaussian).
+- Bản port kém hơn ở LPIPS (0,148 so với 0,128), ở train PSNR (≈ −1 dB) và tốn thêm khoảng 50% thời gian; chưa rõ nguyên nhân (nghi `bezier_dynamic`/`bezier_velocity`, hoặc BezierNodes học chậm hơn RigidNodes).
+
 ### Sai số theo camera và vùng ảnh (run 6, so với bản gốc)
 
 PSNR tính trên MSE gộp, từ video của drive2sim (đã nén H.264, nên thấp hơn `summary.json` khoảng 1 dB) và ảnh của bản gốc (`exp_record`, PNG). **Video xếp panel theo thứ tự FRONT_LEFT, FRONT, FRONT_RIGHT**, không phải chỉ số camera 0, 1, 2; bản đầu của mục này ghép nhầm và đã bị thay. Ảnh thật hai bên khớp nhau (sai khác trung bình 0,013–0,020, do nén).
@@ -253,6 +272,6 @@ Về Sky (kiểm tra theo yêu cầu): màu trời đúng. Màu lệch cả ản
 
 ### Còn chênh 2,2 dB với bản gốc sau sáu run
 
-LR vị trí, nền khởi tạo, LR opacity, trần số điểm, FastGS và LR của `AffineTransform` đều không thay đổi PSNR quá 0,5 dB, kể cả khi số Gaussian giảm từ 4,7 triệu xuống 0,57 triệu. Số lượng Gaussian và luật densify vì vậy không phải nguyên nhân chính. Pose camera cũng không giúp (run 6). Khoảng cách đồng đều ở mọi camera và vùng, và có ở cả khung train, nên nghi vấn nằm ở độ khớp chi tiết nói chung (bản port vẽ mờ hơn): vòng lặp train, mô hình ánh sáng, bộ rasterizer (gsplat so với `diff-gaussian-rasterization` bản sửa), lịch độ phân giải đầu train, chưa thử riêng cái nào. Mọi run dùng cùng một seed.
+LR vị trí, nền khởi tạo, LR opacity, trần số điểm, FastGS và LR của `AffineTransform` đều không thay đổi PSNR quá 0,5 dB, kể cả khi số Gaussian giảm từ 4,7 triệu xuống 0,57 triệu. Số lượng Gaussian và luật densify vì vậy không phải nguyên nhân chính. Pose camera cũng không giúp (run 6), và StreetGS cùng quy trình cũng chỉ đạt 27,4 dB (run 7), nên khoảng cách nằm ở phần chung với framework chứ không ở code BezierGS. Khoảng cách đồng đều ở mọi camera và vùng, và có ở cả khung train: nghi vấn là độ khớp chi tiết nói chung (vẽ mờ hơn): dữ liệu chuyển đổi, bộ rasterizer (gsplat so với `diff-gaussian-rasterization` bản sửa), vòng lặp train và lịch độ phân giải đầu train của DriveStudio; chưa thử riêng cái nào. Mọi run dùng cùng một seed.
 
-Việc còn lại: chạy `make test-gpu`; đo dao động giữa hai seed; thử các khác biệt của vòng lặp train (lịch độ phân giải `res_schedule`, rasterizer); chạy lại với hai seed khác để có khoảng dao động.
+Việc còn lại: chạy `make test-gpu`; đo dao động giữa hai seed; tìm nguyên nhân ở phần chung của framework (lịch độ phân giải `res_schedule`, rasterizer, dữ liệu chuyển đổi), vì BezierGS và StreetGS cùng bị; chạy lại với hai seed khác để có khoảng dao động.
