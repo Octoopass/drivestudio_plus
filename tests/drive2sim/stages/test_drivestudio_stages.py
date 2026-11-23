@@ -96,11 +96,6 @@ def test_beziergs_config_loads_with_bezier_nodes() -> None:
     assert config["model"]["BezierNodes"]["optim"]["traj"]["lr"] == pytest.approx(xyz_lr * 0.01)
 
 
-def test_beziergs_config_caps_background_gaussians() -> None:
-    config = load_config(paths.CONFIGS_DIR / "methods" / "beziergs.yaml")
-    assert config["model"]["Background"]["ctrl"]["max_points"] > 0
-
-
 def test_beziergs_fastgs_config_file() -> None:
     params = drivestudio.TrainDrivestudioParams(method="beziergs", fastgs=True)
     assert params.config_file.name == "beziergs_fastgs.yaml"
