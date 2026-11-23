@@ -243,6 +243,11 @@ class VanillaGaussians(nn.Module):
                 self.step < self.ctrl_cfg.stop_split_at
                 and self.step % reset_interval > max(self.num_train_images, self.ctrl_cfg.refine_interval)
             )
+            # drive2sim: trần số Gaussian như densify_until_num_points của BezierGS; không đặt
+            # ctrl.max_points thì không giới hạn. Dưới trần lại (sau khi cull) thì densify tiếp.
+            max_points = self.ctrl_cfg.get("max_points", None)
+            if max_points is not None and self.num_points >= max_points:
+                do_densification = False
             # split & duplicate
             print(f"Class {self.class_prefix} current points: {self.num_points} @ step {self.step}")
             if do_densification:

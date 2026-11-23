@@ -1,0 +1,27 @@
+# Approach BezierGS: dựng cảnh bằng trainer DriveStudio với method BezierGS (ICCV 2025): nền 3DGS
+# thường, vật động là các nhóm Gaussian đi theo đường Bézier bậc 3. Cần box 3D và mask vật động
+# tinh (prep.masks_segformer với dynamic: true). Định dạng file: CONTRACTS mục 4.1.
+#
+# DriveStudio chỉ có một config cho method này (drive2sim/configs/methods/beziergs.yaml): renderer
+# 3DGS, tắt CamPose (bảng CONFIG_FILES trong drive2sim/stages/train/drivestudio.py). Không có
+# export.preview: tool đó chỉ xuất RigidNodes, còn vật động của BezierGS nằm trong BezierNodes.
+schema_version: d2s-approach/0.3
+approach_id: beziergs
+name: "BezierGS"
+version: 0.1.0
+codebase: drivestudio
+level: L1
+requires:
+  camera_models: [opencv_pinhole]
+  cuboids: required
+  split_strategies: [every_nth_frame]
+
+stages:
+  - {stage: prep.masks_segformer, params: {dynamic: true}}
+  - stage: train.drivestudio
+    params:
+      method: beziergs
+      renderer: 3dgs
+      campose: false
+  - {stage: eval.standard}
+  - {stage: export.ply_world}
