@@ -554,7 +554,7 @@ function LocalEnvironment({ approachId, stages }: { approachId: string; stages: 
         ) : (
         <span className="small">
           {t("new.env.install")} <code>{data.install}</code>
-          <InfoTip>{t(data.env === "nurec" ? "new.env.install_hint_nurec" : "new.env.install_hint", { file: data.file ?? "" })}</InfoTip>
+          <InfoTip>{t(data.env === "nurec" || data.env === "xsim" ? `new.env.install_hint_${data.env}` : "new.env.install_hint", { file: data.file ?? "" })}</InfoTip>
         </span>
         )}
         {data.env === "nurec" && (
