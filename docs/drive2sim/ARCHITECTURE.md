@@ -484,7 +484,7 @@ drivestudio_plus/                          branch drive2sim
 │   │   ├── utils/                         camera, geometry, logging, misc, visualization, backup
 │   │   └── tools/                         train.py, eval.py, viewer.py, export_ply.py, gather_results.py (thay dần bằng stage và CLI)
 │   ├── core/                              identifiers.py, schema.py, files.py, split.py, camera.py (khớp Mei → OpenCV fisheye) (đã có); transforms.py (chưa có)
-│   ├── ingest/                            detect.py (source inspect), dispatch.py (chọn chuỗi), drivestudio.py (converter chung cho 7 dataset), kitti360.py (converter KITTI-360), kitti360_boxes.py (box 3D KITTI-360), images.py, manifest.py, validate.py
+│   ├── ingest/                            detect.py (source inspect), dispatch.py (chọn chuỗi), drivestudio.py (converter chung cho 7 dataset), kitti360.py (converter KITTI-360), kitti360_boxes.py (box 3D KITTI-360), phenikaa.py (converter PHENIKAA), images.py, manifest.py, validate.py
 │   ├── stages/                            commands.py, scene_view.py; prep/masks_segformer.py, prep/smpl.py, train/drivestudio.py, eval/standard.py, export/ply_world.py, export/preview.py (đã có); init/, render/ (khung)
 │   ├── engine/                            stage.py, registry.py, resolve.py, approaches.py, workdir.py, scenes.py, cache.py, run.py, report.py, housekeeping.py (xoá, dọn cache), pack.py (gói bàn giao), remote.py (phần chung của executor Kaggle và Colab: kiểm tra commit, ghép output tải về)
 │   ├── approaches/                        omnire.yaml, streetgs.yaml
