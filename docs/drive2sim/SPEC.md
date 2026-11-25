@@ -176,7 +176,9 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 - Số Gaussian của cả model, số Gaussian và dung lượng của file PLY xuất ra.
 - Cấu hình máy đã chạy run (GPU, VRAM của GPU, driver, CPU, RAM, phiên bản PyTorch và CUDA), vì thời gian, VRAM và tốc độ chỉ so được giữa các run chạy trên cùng loại máy.
 - Độ sâu render so với độ sâu LiDAR trên ảnh test (AbsRel, RMSE, `delta < 1,25`), và metric từng ảnh test kèm vị trí camera (CONTRACTS mục 6.3), để tìm đoạn đường hỏng.
-- Benchmark nhiều run (CONTRACTS mục 6.5, `d2s benchmark`): xếp hạng theo Avg trong từng nhóm, hai run chênh dưới 0,3 dB PSNR coi là ngang rồi xét thêm chi phí. Đã đo: R1, R4 (độ sâu), R5, R7, R8; chưa đo: R2 (KID khi lệch làn), R3 (export gap `.ply`), `ghost_ratio`, ATE và chunk (R6).
+- Camera chỉ test: split có thể có camera không bao giờ train (ví dụ `image_01` của KITTI-360); metric trên camera đó (PSNR, LPIPS, thô và sau chỉnh màu affine từng ảnh) là `shifted` trong `summary.json` (CONTRACTS mục 6.3), và các metric chung chỉ tính trên camera đã train.
+- Export gap của `.ply` nền tĩnh (PSNR render gốc trừ PSNR render từ `.ply`, cùng mask nền tĩnh, stage `eval.ply`); "không áp dụng" cho method không xuất được `.ply`.
+- Benchmark nhiều run (CONTRACTS mục 6.5, `d2s benchmark`): xếp hạng theo Avg trong từng nhóm; run kém run tốt nhất dưới ngưỡng hoà (mặc định 0,3 dB PSNR, hoặc `max(0,3 dB, 2σ)` đo từ ba seed) coi là ngang, rồi phân xử lần lượt bằng PSNR sau chỉnh màu ở camera chỉ test (R2), export gap (R3), thời gian train (chỉ khi cùng GPU; khác GPU thì không chọn người thắng). Độ sâu so với LiDAR (R4), chi phí mỗi 100 m ở track B (R6), đoạn hỏng theo nhóm camera (R7) báo kèm, không đổi thứ hạng. Đã đo: R1, R4, R7, R8; xong trong code, chưa chạy thật: R2, R3, hiệu chỉnh seed; chưa có: KID khi lệch làn, PSNR quanh chỗ nối chunk (R6); chủ ý không đo: `ghost_ratio`, `static_psnr` như tiêu chí xếp hạng, ATE tự tính.
 - Với mỗi run, ghi rõ LiDAR được dùng ở stage nào, hoặc không dùng.
 - Ghi rõ các mục cấu hình đã dùng, để so sánh theo từng khâu.
 
