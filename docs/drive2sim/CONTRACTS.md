@@ -484,8 +484,8 @@ Tóm tắt metric theo protocol của SPEC mục 9, do `eval.standard` ghi vào 
 
 ```json
 {
-  "schema_version": "d2s-summary/0.4",
-  "protocol": {"version": "0.3", "image_dtype": "uint8", "resolution": "downscale_when_loading=[2, 2, 2], downscale=1",
+  "schema_version": "d2s-summary/0.6",
+  "protocol": {"version": "0.4", "image_dtype": "uint8", "resolution": "downscale_when_loading=[2, 2, 2], downscale=1",
                "lpips": {"net": "alex", "package": "torchmetrics", "package_version": "0.10.3"}},
   "split_id": "every8_allcams",
   "overall": {"psnr": 27.1, "ssim": 0.83, "lpips": 0.21,
@@ -497,11 +497,16 @@ Tóm tắt metric theo protocol của SPEC mục 9, do `eval.standard` ghi vào 
   "num_iters": 30000,
   "render_fps": 38.6,
   "render_resolution": "800x450",
-  "speedups": ["fastgs", "fastergs.fused_adam", "fastergs.fused_ssim"]
+  "speedups": ["fastgs", "fastergs.fused_adam", "fastergs.fused_ssim"],
+  "depth": {"abs_rel": 0.12, "rmse": 3.4, "delta_1_25": 0.93}
 }
 ```
 
 Các con số trong ví dụ chỉ minh hoạ định dạng. Metric vùng người, vùng xe chỉ có khi cảnh có box.
+
+- `depth` (từ `d2s-summary/0.6`, protocol `0.4`): độ sâu render so với độ sâu LiDAR trên ảnh test, yêu cầu R4 của benchmark. Chỉ đo ở điểm ảnh có tia LiDAR trúng (`lidar_depth_map` của loader, cùng đại lượng với loss depth), hợp lệ và có độ sâu render dương; ảnh có dưới 50 điểm như vậy bị bỏ; mỗi ảnh có trọng số bằng nhau. `abs_rel` = trung bình `|pred − lidar| / lidar`, `rmse` tính bằng mét, `delta_1_25` = tỉ lệ điểm có `max(pred/lidar, lidar/pred) < 1,25`. Để trống khi cảnh không có LiDAR hoặc run đo bằng protocol cũ. Chưa chạy thật trên GPU (mục 7.1 của ARCHITECTURE).
+- `d2s/stages/eval.standard/frames.jsonl` (từ protocol `0.4`): mỗi dòng một JSON là metric của một ảnh test: `frame_index` (khung trong timeline của camera), `camera_index` (vị trí camera trong manifest), `time` (thời gian chuẩn hoá, có thể `null`), `position` (toạ độ camera trong hệ thế giới của cảnh, mét), `psnr`, `ssim`, `lpips`, `depth` (`abs_rel`, `rmse`, `delta_1_25`, `num_points`, hoặc `null`). `d2s benchmark` dùng file này để tìm đoạn đường hỏng. Run đo bằng protocol 0.3 trở xuống không có file này; `eval.standard` đo lại từ checkpoint nếu còn (mục 6.3 phía trên).
+- Protocol `0.4` không đổi cách tính PSNR, SSIM, LPIPS so với `0.3`, chỉ thêm `depth` và `frames.jsonl`, nên số của hai protocol so được với nhau. `eval.ncore` (Instant NuRec) ghi `protocol.version` là `ncore-0.3` vì SSIM và vùng hợp lệ của nó khác; `d2s benchmark` cảnh báo khi một nhóm trộn các protocol khác nhau.
 
 - Cách đo (`protocol.version` `0.3`): cuối `train.py`, sau bước train cuối, model vẽ lại mọi ảnh của tập test; ảnh render được làm tròn về 8 bit như ảnh gốc rồi so với ảnh camera từng ảnh một, sau đó lấy trung bình. PSNR là `−10·log10(MSE)`; SSIM dùng `skimage.metrics.structural_similarity`; LPIPS dùng `torchmetrics` với backbone `alex`. Khi loader đánh dấu điểm ảnh không hợp lệ (`valid_masks`: mắt cá ngoài vùng nhìn dùng được, thân xe), cả ba metric chỉ xét điểm ảnh hợp lệ: PSNR trên các điểm đó, SSIM lấy trung bình bản đồ SSIM trên các điểm đó, LPIPS đo trên khung bao vùng hợp lệ với ảnh gốc dán vào điểm không hợp lệ (điểm không hợp lệ còn lại trong khung, như góc ảnh mắt cá, vẫn làm LPIPS loãng đi một chút). Ảnh không có điểm hợp lệ nào bị bỏ qua. `eval.standard` chỉ đọc kết quả này, không đo lại. Thay đổi từ `0.1`: `0.1` so ảnh render ở dạng số thực. Thay đổi từ `0.2`: `0.2` tính SSIM, LPIPS trên toàn ảnh sau khi tô đen vùng không hợp lệ ở cả hai ảnh, nên vùng đó được tính là khớp hoàn toàn và SSIM, LPIPS của camera có `valid_masks` tốt hơn thực tế; thêm metric theo camera. Hai run khác protocol không so SSIM, LPIPS của các camera này với nhau.
 - Metric theo vùng (lấy từ metric test của DriveStudio): `human_psnr` vùng người (gồm cả xe đạp, xe máy vì người ngồi trên đó đổi dáng), `vehicle_psnr` vùng xe, `dynamic_psnr` vùng mọi vật động (`masked_psnr` của DriveStudio), `occupied_psnr` vùng **không phải bầu trời** (`Non-Sky PSNR`, không phải vùng vật động). Vùng người, xe, vật động là hình chữ nhật bao quanh box 3D chiếu lên ảnh.
@@ -542,6 +547,56 @@ Các giá trị trong ví dụ chỉ minh hoạ định dạng. Trường nào k
 - `machines`: các máy đã chạy run theo thứ tự; chạy tiếp trên máy có cấu hình khác (ví dụ phiên Kaggle mới được cấp GPU khác) thì thêm một máy. `gpu` ở ngoài là GPU của máy chạy gần nhất.
 - Cách đọc, không cần nạp PyTorch: CPU từ `/proc/cpuinfo`, RAM từ `/proc/meminfo`, GPU (tên, VRAM, driver, số GPU) từ `nvidia-smi`; phiên bản `pytorch`, `gsplat` từ metadata gói đã cài, `cuda` từ đuôi phiên bản PyTorch (`+cu117` → `11.7`).
 - Thay đổi từ `0.1`: thêm `machines`; các trường phiên bản và `gpu` ghi lúc chạy thay vì lúc tạo run. Thay đổi từ `0.2`: mỗi máy có thêm `stages`, các stage đã thật sự chạy trên máy đó (stage dùng lại kết quả cũ không tính); `same_machine` bỏ qua trường này. Báo cáo lấy GPU của máy đã chạy stage `train.*` (run train trên Kaggle rồi xuất lại gói xem trước trên máy cá nhân không thành "nhiều GPU"); `env.json` cũ chưa có `stages` thì gộp mọi máy. Các trường cấp trên (`gpu`, `executor`, phiên bản) là của lần chạy gần nhất.
+
+### 6.5 Benchmark: `benchmarks/<tên>.yaml` và kết quả
+
+Benchmark so các run đã có kết quả (thiết kế ở báo cáo tuần 03 mục 4.2, yêu cầu R1–R8). File định nghĩa nằm trong thư mục làm việc, do người viết tay; mỗi mục là một nhóm run được xếp hạng với nhau. `bench_track` là track của benchmark (`A` dựng từng cảnh, `B` quãng đường dài, `C` feed-forward), **không phải** loại camera pinhole hay fisheye. Track `A` bắt buộc có `cell`: `A-LB` (có LiDAR và box), `A-L` (chỉ LiDAR), `A-0` (không cả hai); track khác không có `cell`. Mọi run trong một mục phải cùng cảnh và split.
+
+```yaml
+schema_version: d2s-benchmark/0.1
+entries:
+  - bench_track: A
+    cell: A-L
+    scene_id: kitti360_drive-0003
+    split_id: every10_front2
+    runs: [20261124-101500-pvg-a1b2, 20261124-103000-deformablegs-c3d4]
+```
+
+`d2s benchmark <file> [--out <kết quả.json>]` đọc các file kết quả đã có của run (không chạy GPU) và ghi `d2s-benchresult`:
+
+```json
+{
+  "schema_version": "d2s-benchresult/0.1",
+  "tie_threshold_db": 0.3,
+  "groups": [
+    {
+      "bench_track": "A",
+      "cell": "A-L",
+      "scene_id": "kitti360_drive-0003",
+      "split_id": "every10_front2",
+      "winner_run_id": "20261124-103000-deformablegs-c3d4",
+      "rows": [
+        {"run_id": "20261124-103000-deformablegs-c3d4", "approach_id": "deformablegs", "rank": 1,
+         "tied_with_best": true, "psnr": 24.8, "ssim": 0.78, "lpips": 0.26, "avg_error": 0.0405,
+         "psnr_pinhole": 24.8, "depth": {"abs_rel": 0.12, "rmse": 3.4, "delta_1_25": 0.93},
+         "ply_gaussians": 640000, "ply_size_mb": 151.2, "train_time_s": 5400, "peak_vram_mb": 6100,
+         "render_fps": 41.0, "gpu": "NVIDIA GeForce RTX 4090",
+         "bad_segments": [{"start_m": 60.0, "end_m": 100.0, "num_frames": 5, "min_psnr": 19.5}],
+         "frames_measured": 20}
+      ],
+      "warnings": []
+    }
+  ]
+}
+```
+
+Các con số trong ví dụ chỉ minh hoạ định dạng. Quy tắc:
+- **Xếp hạng trong nhóm** theo Avg của Mip-NeRF (mục 6.3; thấp là tốt). Run kém run tốt nhất dưới `tie_threshold_db` (0,3 dB PSNR) được coi là **ngang** (`tied_with_best`), và các run ngang được xếp theo export gap (nhỏ trước, chưa đo xếp sau) rồi thời gian train. Lệch làn và độ sạch cảnh nền chưa đo nên chưa xét. `winner_run_id` là run xếp hạng 1; `null` khi không run nào có kết quả.
+- **Đoạn đường hỏng** (R7): PSNR một khung test là trung bình các camera của khung; đoạn hỏng là từ 5 khung test liền nhau trở lên, mỗi khung thấp hơn trung vị quá 2 dB. `start_m`, `end_m` là quãng đường dọc đường gấp khúc qua vị trí camera của các khung test (giữa hai khung test liền nhau là khung train nên đường thực dài hơn một chút). Cần `frames.jsonl` (mục 6.3); `frames_measured` bằng 0 nghĩa là chưa đo, không phải không có đoạn hỏng.
+- `psnr_pinhole`, `psnr_fisheye` (R5): trung bình PSNR theo camera, nhóm camera theo `model` trong manifest (`opencv_fisheye`, `ftheta` là fisheye).
+- `export_gap_db` (R3) đọc từ `d2s/stages/eval.ply/ply_gap.json` nếu có; chưa có stage đó nên hiện luôn để trống.
+- Trường để trống nghĩa là **chưa đo**. Chưa đo được: KID khi lệch làn (R2), `ghost_ratio`, `static_psnr` (R4, chưa có định nghĩa), ATE và PSNR quanh chỗ nối chunk (R6).
+- `warnings` nêu khi nhóm không so được trực tiếp: run chưa có kết quả, GPU khác nhau (thời gian, VRAM, FPS), protocol khác nhau.
 
 ## 7. Gói xem trước
 
@@ -857,6 +912,7 @@ Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dà
 | `d2s colab push <run_id> [--branch <branch>] [--gpu <GPU>] [--session <tên>]` / `d2s colab status <run_id>` / `d2s colab logs <run_id> [--follow]` / `d2s colab pull <run_id> [--keep-session]` / `d2s colab stop <run_id>` | Chạy run trên VM Colab (mục 9.3): đẩy và chạy job tách khỏi kết nối, xem trạng thái và log cuối, đọc log tới khi xong, tải kết quả về (run xong thì tắt phiên), tắt phiên; `push` do `run start --executor colab` tự gọi |
 | `d2s colab account list` / `d2s colab account use <email>` / `d2s colab account forget <email>` / `d2s colab account login` / `d2s colab update` | Tài khoản Google của lệnh `colab` (mục 9.3): liệt kê (dấu `*` là tài khoản đang dùng), chuyển, bỏ khỏi danh sách, thêm (in đường dẫn đăng nhập Google rồi hỏi mã xác thực trong terminal); cập nhật google-colab-cli |
 | `d2s report <run_id>...` | Bảng so sánh nhiều run |
+| `d2s benchmark <file.yaml> [--out <file.json>]` | Bảng benchmark theo file định nghĩa (mục 6.5): xếp hạng từng nhóm run, chọn run thắng, liệt kê đoạn đường hỏng; chỉ đọc file kết quả của run, không chạy GPU |
 | `d2s pack <run_id>... --output <file.tar> [--dry-run]` | Gói đầy đủ các run đã chọn, gồm mọi checkpoint, cảnh chuẩn và cache được tham chiếu. `--dry-run` chỉ kiểm kê đường dẫn và dung lượng. Không ghi đè file có sẵn, không gói run đang chạy. Kèm mô hình SMPL cần thiết tại smpl_models/SMPL_NEUTRAL.pkl; bỏ view/viewer tạm có thể dựng lại và thông tin đăng nhập; không lấy dữ liệu gốc ngoài cảnh chuẩn. |
 | `d2s export ply <run_id>` / `d2s export preview <run_id>` | Chạy lại stage export cho một run |
 | `d2s cache list [--scene <scene_id>]` / `d2s cache gc [--scene <scene_id>]` | Xem, dọn cache |

@@ -26,6 +26,7 @@ from typing import Optional
 
 from drive2sim.cli import (
     approach,
+    benchmark,
     cache,
     colab,
     export,
@@ -99,6 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
         approach,
         run,
         report,
+        benchmark,
         export,
         pack,
         cache,

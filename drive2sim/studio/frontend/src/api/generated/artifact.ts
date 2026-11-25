@@ -5,6 +5,7 @@ export type ArtifactType =
   | "scene_subset"
   | "masks"
   | "smpl"
+  | "ncore_clip"
   | "depth_prior"
   | "points_init"
   | "model"

@@ -92,12 +92,23 @@ def do_evaluation(
             for camera, values in render_results.get("per_camera", {}).items():
                 for name, value in values.items():
                     eval_dict[f"image_metrics/test/per_camera/{camera}/{name}"] = value
+            # drive2sim: depth against LiDAR as image_metrics/test/depth/<abs_rel|rmse|delta_1_25>;
+            # absent when the scene has no LiDAR or no test image had enough LiDAR points.
+            for name, value in (render_results.get("depth") or {}).items():
+                eval_dict[f"image_metrics/test/depth/{name}"] = value
             if args.enable_wandb:
                 wandb.log(eval_dict)
             test_metrics_file = f"{cfg.log_dir}/metrics{post_fix}/images_test_{current_time}.json"
             with open(test_metrics_file, "w") as f:
                 json.dump(eval_dict, f, default=float)  # drive2sim: numpy float32 metrics
             logger.info(f"Image evaluation metrics saved to {test_metrics_file}")
+            # drive2sim: one JSON line per measured test image (frames_test_<time>.jsonl) for the
+            # benchmark's per-distance analysis (drive2sim/engine/benchmark.py).
+            frames_file = f"{cfg.log_dir}/metrics{post_fix}/frames_test_{current_time}.jsonl"
+            with open(frames_file, "w") as f:
+                for record in render_results.get("frames", []):
+                    f.write(json.dumps(record, default=float) + "\n")
+            logger.info(f"Per-image metrics saved to {frames_file}")
 
         if args.enable_wandb:
             for k, v in vis_frame_dict.items():

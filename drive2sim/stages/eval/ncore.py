@@ -33,13 +33,16 @@ from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import NoParams, Stage, StageContext
 from drive2sim.external import nurec
 from drive2sim.stages.commands import LOG_FILE, run_logged
-from drive2sim.stages.eval.standard import PROTOCOL_VERSION, SUMMARY_FILE
+from drive2sim.stages.eval.standard import SUMMARY_FILE
 from drive2sim.stages.prep.ncore import CLIP_FILE
 from drive2sim.stages.train.nurec import MERGED_PLY, STATS_FILE
 
 VIEWS_FILE = "views.npz"
 METRICS_FILE = "metrics.json"
 NOTE_FILE = "nurec_eval.json"
+# Phiên bản protocol riêng của stage này: SSIM và vùng hợp lệ (ngoài mask thân xe, alpha > 0,9)
+# khác ``eval.standard``, nên số đo không được coi là cùng bộ đo với protocol của stage đó.
+NCORE_PROTOCOL_VERSION = "ncore-0.3"
 
 
 def clip_test_indices(clip: dict, scene_frames: list[int]) -> list[int]:
@@ -99,7 +102,7 @@ def make_summary(
     return Summary(
         schema_version=SCHEMA_VERSIONS["summary"],
         protocol=EvalProtocol(
-            version=PROTOCOL_VERSION,
+            version=NCORE_PROTOCOL_VERSION,
             image_dtype="uint8",
             resolution=str(overall.get("render_resolution", "unknown")),
             lpips=LpipsSetting(

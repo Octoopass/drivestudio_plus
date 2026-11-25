@@ -23,6 +23,9 @@ export type RenderFps = number | null;
 export type RenderResolution = string | null;
 export type Speedups = string[];
 export type EvalTimeS = number | null;
+export type AbsRel = number;
+export type Rmse = number;
+export type Delta125 = number;
 
 /**
  * Schema của file ``summary.json``: tóm tắt kết quả đánh giá của một run.
@@ -51,6 +54,8 @@ export type EvalTimeS = number | null;
  *         video), giây; phần còn lại của thời gian stage train ngoài ``train_time_s`` và giá trị
  *         này là khởi động, nạp dữ liệu, lưu checkpoint, vẽ ảnh kiểm tra định kỳ (thêm từ
  *         ``d2s-summary/0.5``); để trống nếu không biết.
+ *     depth: Độ sâu render so với LiDAR (thêm từ ``d2s-summary/0.6``, protocol 0.4); để trống
+ *         nếu cảnh không có LiDAR hoặc run đo bằng protocol cũ.
  */
 export interface Summary {
   schema_version: SchemaVersion;
@@ -66,6 +71,7 @@ export interface Summary {
   render_resolution?: RenderResolution;
   speedups?: Speedups;
   eval_time_s?: EvalTimeS;
+  depth?: DepthMetrics | null;
 }
 /**
  * Protocol đánh giá đã dùng cho một run (SPEC mục 9).
@@ -120,4 +126,20 @@ export interface Metrics {
 }
 export interface PerCamera {
   [k: string]: Metrics;
+}
+/**
+ * Độ sâu render so với độ sâu LiDAR trên tập test (yêu cầu R4 của benchmark).
+ *
+ * Chỉ đo ở điểm ảnh có tia LiDAR trúng, hợp lệ và có độ sâu render dương; mỗi ảnh có trọng số
+ * bằng nhau. ``drive2sim/recon/rendering/depth_metrics.py`` tính các giá trị này.
+ *
+ * Attributes:
+ *     abs_rel: Sai số tương đối tuyệt đối trung bình, ``|pred - lidar| / lidar``; thấp là tốt.
+ *     rmse: Căn bậc hai của sai số bình phương trung bình, mét; thấp là tốt.
+ *     delta_1_25: Tỉ lệ điểm có ``max(pred/lidar, lidar/pred) < 1.25``; cao là tốt.
+ */
+export interface DepthMetrics {
+  abs_rel: AbsRel;
+  rmse: Rmse;
+  delta_1_25: Delta125;
 }

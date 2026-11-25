@@ -33,6 +33,7 @@ export type Model = "opencv_pinhole" | "opencv_fisheye" | "ftheta" | "ideal_pinh
 export type Resolution = [unknown, unknown];
 export type Shutter =
   "GLOBAL" | "ROLLING_TOP_TO_BOTTOM" | "ROLLING_LEFT_TO_RIGHT" | "ROLLING_BOTTOM_TO_TOP" | "ROLLING_RIGHT_TO_LEFT";
+export type MaxAngle = number | null;
 export type Lidars = string[];
 export type ReferenceSensor = string;
 export type NumFrames = number;
@@ -106,12 +107,17 @@ export interface ManifestSource {
  *         ``ideal_pinhole``.
  *     resolution: ``[width, height]`` tính bằng pixel.
  *     shutter: Loại shutter theo tên của NCore, ví dụ ``GLOBAL``.
+ *     max_angle: Góc lệch trục lớn nhất (rad) mà mô hình trong ``intrinsics/`` còn đúng, khi
+ *         converter phải chuyển gần đúng mô hình gốc của dataset (KITTI-360: Mei khớp sang
+ *         OpenCV fisheye tới 1,45 rad); ``None`` khi không có giới hạn như vậy. Thêm sau
+ *         ``d2s-manifest/1.1`` mà không tăng phiên bản (không bắt buộc).
  */
 export interface ManifestCamera {
   camera_id: CameraId;
   model: Model;
   resolution: Resolution;
   shutter: Shutter;
+  max_angle?: MaxAngle;
 }
 /**
  * Dòng thời gian tham chiếu của cảnh, dùng để đánh chỉ số khung.

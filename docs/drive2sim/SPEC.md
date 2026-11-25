@@ -175,6 +175,8 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 - Số iteration, VRAM cao nhất khi train, tốc độ render (FPS) kèm độ phân giải.
 - Số Gaussian của cả model, số Gaussian và dung lượng của file PLY xuất ra.
 - Cấu hình máy đã chạy run (GPU, VRAM của GPU, driver, CPU, RAM, phiên bản PyTorch và CUDA), vì thời gian, VRAM và tốc độ chỉ so được giữa các run chạy trên cùng loại máy.
+- Độ sâu render so với độ sâu LiDAR trên ảnh test (AbsRel, RMSE, `delta < 1,25`), và metric từng ảnh test kèm vị trí camera (CONTRACTS mục 6.3), để tìm đoạn đường hỏng.
+- Benchmark nhiều run (CONTRACTS mục 6.5, `d2s benchmark`): xếp hạng theo Avg trong từng nhóm, hai run chênh dưới 0,3 dB PSNR coi là ngang rồi xét thêm chi phí. Đã đo: R1, R4 (độ sâu), R5, R7, R8; chưa đo: R2 (KID khi lệch làn), R3 (export gap `.ply`), `ghost_ratio`, ATE và chunk (R6).
 - Với mỗi run, ghi rõ LiDAR được dùng ở stage nào, hoặc không dùng.
 - Ghi rõ các mục cấu hình đã dùng, để so sánh theo từng khâu.
 

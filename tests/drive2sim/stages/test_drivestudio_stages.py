@@ -575,11 +575,43 @@ def test_eval_remeasures_old_metrics_from_checkpoint(
     summary = files.load(output_dir / "summary.json", Summary)
     assert summary.overall.psnr == 21.0 and summary.per_camera
 
-    # Metric đã có per_camera: không đo lại.
+    # Có per_camera nhưng thiếu file từng ảnh (protocol 0.3): vẫn đo lại để có file đó.
     write_metrics(
         model,
         "images_test_2026-11-13_090000.json",
         {"psnr": 22.0, "ssim": 0.8, "lpips": 0.1, "per_camera/0/psnr": 22.0},
     )
     standard.EvalStandardStage().run(ctx, {"model": model}, standard.NoParams())
-    assert len(commands_run) == 1
+    assert len(commands_run) == 2
+
+    # Có cả per_camera và file từng ảnh (protocol 0.4): không đo lại, chép file sang output.
+    (model / "metrics" / "frames_test_2026-11-13_090000.jsonl").write_text('{"psnr": 22.0}\n')
+    standard.EvalStandardStage().run(ctx, {"model": model}, standard.NoParams())
+    assert len(commands_run) == 2
+    assert (output_dir / standard.FRAMES_FILE).read_text() == '{"psnr": 22.0}\n'
+
+
+def test_eval_summary_has_depth_when_measured(tmp_path: Path) -> None:
+    write_metrics(
+        tmp_path,
+        "images_test_2026-11-20_090000.json",
+        {
+            "psnr": 25.0,
+            "ssim": 0.8,
+            "lpips": 0.2,
+            "depth/abs_rel": 0.12,
+            "depth/rmse": 3.4,
+            "depth/delta_1_25": 0.93,
+        },
+    )
+    summary = make_summary(read_drivestudio_metrics(tmp_path), "every10_mixed4", tmp_path)
+    assert summary.depth is not None
+    assert (summary.depth.abs_rel, summary.depth.rmse, summary.depth.delta_1_25) == (
+        0.12,
+        3.4,
+        0.93,
+    )
+    assert summary.protocol.version == "0.4"
+    no_lidar = {"psnr": 25.0, "ssim": 0.8, "lpips": 0.2}
+    write_metrics(tmp_path, "images_test_2026-11-21_090000.json", no_lidar)
+    assert make_summary(read_drivestudio_metrics(tmp_path), "s", tmp_path).depth is None

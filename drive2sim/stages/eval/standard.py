@@ -34,6 +34,7 @@ Giới hạn hiện tại: tách đánh giá khỏi ``train.py`` là việc sau 
 
 import json
 import os
+import shutil
 import sys
 from importlib import metadata
 from pathlib import Path
@@ -43,7 +44,14 @@ import yaml
 from pydantic import BaseModel
 
 from drive2sim.core import files
-from drive2sim.core.schema import SCHEMA_VERSIONS, EvalProtocol, LpipsSetting, Metrics, Summary
+from drive2sim.core.schema import (
+    SCHEMA_VERSIONS,
+    DepthMetrics,
+    EvalProtocol,
+    LpipsSetting,
+    Metrics,
+    Summary,
+)
 from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import NoParams, Stage, StageContext
 from drive2sim.paths import SMPL_MODEL_ENV
@@ -58,17 +66,22 @@ from drive2sim.stages.train.drivestudio import (
     view_extras,
 )
 
+# 0.4: ghi thêm metric từng ảnh test (``frames_test_*.jsonl``) và độ sâu render so với LiDAR
+# (``depth``); cách đo PSNR, SSIM, LPIPS không đổi so với 0.3, nên số cũ so được.
 # 0.3: khi loader đánh dấu điểm ảnh không hợp lệ (``valid_masks``: camera mắt cá ngoài vùng nhìn
 # dùng được, thân xe), SSIM và LPIPS cũng chỉ tính trên điểm ảnh hợp lệ như PSNR; ảnh không có điểm
 # hợp lệ nào bị bỏ qua thay vì làm trung bình thành NaN; thêm metric theo camera.
 # 0.2: ảnh render được làm tròn về 8 bit trước khi đo, như ảnh gốc (SPEC mục 9); 0.1 đo ảnh render
 # ở dạng số thực.
-PROTOCOL_VERSION = "0.3"
+PROTOCOL_VERSION = "0.4"
 METRIC_PREFIX = "image_metrics/test/"
 SUMMARY_FILE = "summary.json"
 TRAIN_STATS_FILE = "train_stats.json"
 REPORT_FILE = "drivestudio_metrics.json"
 PER_CAMERA_PREFIX = "per_camera"
+DEPTH_PREFIX = "depth"
+FRAMES_PATTERN = "frames_test_*.jsonl"
+FRAMES_FILE = "frames.jsonl"
 REEVAL_DIR = "reeval"
 
 
@@ -105,6 +118,22 @@ def read_drivestudio_metrics(model_dir: Path, folder: str = "metrics") -> dict[s
 def has_per_camera(metrics: dict[str, float]) -> bool:
     """File metric có khoá theo camera không (ghi bằng code đo từ protocol 0.3)."""
     return any(key.startswith(PER_CAMERA_PREFIX + "/") for key in metrics)
+
+
+def latest_frames_file(model_dir: Path, folder: str = "metrics") -> Optional[Path]:
+    """File metric từng ảnh test mới nhất (``frames_test_*.jsonl``), nếu có.
+
+    Code đo từ protocol 0.4 ghi file này cạnh ``images_test_*.json``; run cũ không có.
+
+    Args:
+        model_dir: Thư mục kết quả của ``train.drivestudio``.
+        folder: Thư mục con chứa file metric; ``metrics_eval`` với kết quả đo lại.
+
+    Returns:
+        Đường dẫn file; ``None`` nếu chưa có.
+    """
+    candidates = sorted((model_dir / folder).glob(FRAMES_PATTERN))
+    return candidates[-1] if candidates else None
 
 
 def reeval_command(checkpoint: Path, view_root: Path, log_dir: Path) -> list[str]:
@@ -232,6 +261,11 @@ def make_summary(
         parts = key.split("/")
         if len(parts) == 3 and parts[0] == PER_CAMERA_PREFIX:
             per_camera.setdefault(_camera_name(parts[1], camera_ids), {})[parts[2]] = value
+    depth = {
+        key[len(DEPTH_PREFIX) + 1 :]: value
+        for key, value in metrics.items()
+        if key.startswith(DEPTH_PREFIX + "/")
+    }
     train_time = (train_stats or {}).get("train_time_s")
     eval_time = (train_stats or {}).get("eval_time_s")
     speedups = (train_stats or {}).get("speedups")
@@ -275,6 +309,7 @@ def make_summary(
         render_resolution=f"{int(width)}x{int(height)}" if width and height else None,
         eval_time_s=float(eval_time) if isinstance(eval_time, (int, float)) else None,
         speedups=speedups,
+        depth=DepthMetrics(**depth) if depth else None,
     )
 
 
@@ -282,7 +317,7 @@ def make_summary(
 class EvalStandardStage(Stage):
     """Đổi metric DriveStudio ghi khi train sang ``summary.json`` theo protocol chung."""
 
-    version: ClassVar[str] = "0.3.0"
+    version: ClassVar[str] = "0.4.0"
     cacheable: ClassVar[bool] = False
     uses_lidar: ClassVar[bool] = False
     inputs: ClassVar[dict[str, str]] = {
@@ -309,10 +344,15 @@ class EvalStandardStage(Stage):
             ``{"report": <thư mục stage>}``, chứa ``summary.json`` và ``drivestudio_metrics.json``.
         """
         metrics = read_drivestudio_metrics(inputs["model"])
+        frames = latest_frames_file(inputs["model"])
         checkpoint = inputs["model"] / FINAL_CHECKPOINT
-        if not has_per_camera(metrics) and checkpoint.is_file():
-            metrics = self.reevaluate(ctx, inputs, checkpoint)
+        # Metric thiếu khoá theo camera (protocol < 0.3) hoặc thiếu file từng ảnh (protocol < 0.4)
+        # được đo lại từ checkpoint bằng code đo hiện tại.
+        if (not has_per_camera(metrics) or frames is None) and checkpoint.is_file():
+            metrics, frames = self.reevaluate(ctx, inputs, checkpoint)
         (ctx.output_dir / REPORT_FILE).write_text(json.dumps(metrics, indent=2) + "\n")
+        if frames is not None:
+            shutil.copyfile(frames, ctx.output_dir / FRAMES_FILE)
         files.dump(
             make_summary(
                 metrics,
@@ -327,8 +367,12 @@ class EvalStandardStage(Stage):
 
     def reevaluate(
         self, ctx: StageContext, inputs: dict[str, Path], checkpoint: Path
-    ) -> dict[str, float]:
-        """Render lại tập test từ checkpoint bằng code đo hiện tại; trả metric mới."""
+    ) -> tuple[dict[str, float], Optional[Path]]:
+        """Render lại tập test từ checkpoint bằng code đo hiện tại.
+
+        Returns:
+            ``(metric mới, file metric từng ảnh test)``; file là ``None`` nếu code đo không ghi.
+        """
         extra = view_extras(inputs)
         view_root = ctx.output_dir / VIEW_DIR
         build_view(ctx.scene.root, view_root, exclude=(*MASK_ENTRIES, SMPL_ENTRY), extra=extra)
@@ -349,4 +393,7 @@ class EvalStandardStage(Stage):
             should_stop=ctx.should_stop,
             env=env,
         )
-        return read_drivestudio_metrics(log_dir, "metrics_eval")
+        return (
+            read_drivestudio_metrics(log_dir, "metrics_eval"),
+            latest_frames_file(log_dir, "metrics_eval"),
+        )

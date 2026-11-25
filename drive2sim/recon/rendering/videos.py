@@ -1,5 +1,5 @@
 import time
-from typing import Literal, Dict, List, Optional, Callable
+from typing import Dict, List, Optional, Callable
 from tqdm import tqdm, trange
 import numpy as np
 import os
@@ -15,6 +15,7 @@ from torch.nn import functional as F
 from skimage.metrics import structural_similarity as ssim
 
 from drive2sim.recon.data.base import SplitWrapper
+from drive2sim.recon.rendering.depth_metrics import compute_depth_metrics, mean_depth_metrics
 from drive2sim.recon.trainers.base import BasicTrainer
 from drive2sim.recon.utils.visualization import (
     to8b,
@@ -290,6 +291,10 @@ def render(
         human_psnrs, human_ssims = [], []
         vehicle_psnrs, vehicle_ssims = [], []
         occupied_psnrs, occupied_ssims = [], []
+        # drive2sim: one record per measured test image (position, metrics, depth vs LiDAR), for
+        # the benchmark's per-distance analysis; eval.py writes them to frames_test_*.jsonl.
+        frame_records: List[Dict] = []
+        depth_frames: List[Dict[str, float]] = []
 
     with torch.no_grad():
         indices = vis_indices if vis_indices is not None else range(len(dataset))
@@ -435,6 +440,29 @@ def render(
                     camera_metrics["psnr"].append(psnr)
                     camera_metrics["ssim"].append(float(ssim_score))
                     camera_metrics["lpips"].append(lpips)
+                    depth_values = None
+                    if "depth" in results and "lidar_depth_map" in image_infos:
+                        depth_valid = image_infos.get("valid_masks")
+                        depth_values = compute_depth_metrics(
+                            get_numpy(results["depth"]),
+                            get_numpy(image_infos["lidar_depth_map"]),
+                            None if depth_valid is None else get_numpy(depth_valid).astype(bool),
+                        )
+                    if depth_values is not None:
+                        depth_frames.append(depth_values)
+                    frame_records.append({
+                        "frame_index": int(image_infos["frame_idx"].flatten()[0]),
+                        "camera_index": int(cam_infos["cam_id"].flatten()[0]),
+                        "time": (
+                            float(image_infos["normed_time"].flatten()[0])
+                            if "normed_time" in image_infos else None
+                        ),
+                        "position": cam_infos["camera_to_world"][:3, 3].cpu().tolist(),
+                        "psnr": psnr,
+                        "ssim": float(ssim_score),
+                        "lpips": lpips,
+                        "depth": depth_values,
+                    })
                 
                 if "sky_masks" in image_infos:
                     occupied_mask = ~get_numpy(image_infos["sky_masks"]).astype(bool)
@@ -576,6 +604,9 @@ def render(
             camera: {name: non_zero_mean(values) for name, values in lists.items()}
             for camera, lists in sorted(per_camera_metrics.items())
         }
+    if compute_metrics:
+        results_dict["frames"] = frame_records
+        results_dict["depth"] = mean_depth_metrics(depth_frames)
     results_dict["occupied_psnr"] = non_zero_mean(occupied_psnrs) if compute_metrics else -1
     results_dict["occupied_ssim"] = non_zero_mean(occupied_ssims) if compute_metrics else -1
     results_dict["masked_psnr"] = non_zero_mean(masked_psnrs) if compute_metrics else -1

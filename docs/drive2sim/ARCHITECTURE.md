@@ -442,6 +442,41 @@ Nguồn: `drive2sim/recon/trainers/base.py`, `camera_rasterization_kwargs` (3DGS
 - Đăng nhập cần người (trang đăng nhập Google); Studio mở trang đó và nhận mã xác thực dán vào, nhưng phải gọi hàm nội bộ của google-colab-cli 0.8.0 (`colab/account_helper.py`), bản khác có thể đổi. Không có API để biết trước còn GPU hay không.
 - Chưa chạy thật trên Colab (mục 7.1).
 
+### 2.17 Benchmark: một bộ đo trong vòng render, gom bảng bằng Python thuần
+
+**Khái niệm.** Benchmark xếp hạng các run đã có kết quả theo mức phù hợp với closed-loop và chi phí, không chỉ PSNR trên ảnh nội suy (yêu cầu R1–R8, báo cáo tuần 03 mục 4.2). Mỗi nhóm run (track A, B, C của benchmark, ô A-LB, A-L, A-0, cùng cảnh và split) được xếp theo Avg của Mip-NeRF; run kém run tốt nhất dưới 0,3 dB PSNR được coi là ngang và xét thêm export gap rồi chi phí.
+
+**Lý do.** Các thực nghiệm tới tuần 03 mỗi lần đọc kết quả bằng tay từ `summary.json`. Thiết kế benchmark cần những thứ mà vòng render đang có dữ liệu nhưng chưa lưu (PSNR từng ảnh, độ sâu render và độ sâu LiDAR), nên đo thêm ngay trong `recon/rendering/videos.py::render` thay vì viết một stage render lần hai: ảnh test chỉ phải vẽ một lần, và số mới đo bằng đúng code cũ, nên PSNR, SSIM, LPIPS không đổi (protocol `0.4` chỉ thêm trường).
+
+**Cách làm.**
+- `recon/rendering/depth_metrics.py` (numpy thuần): AbsRel, RMSE, `delta < 1,25` trên điểm ảnh có LiDAR; `render` ghi thêm từng ảnh test vào `metrics/frames_test_*.jsonl` (vị trí camera, metric, depth). `eval.standard` chép thành `frames.jsonl` và đưa `depth` vào `summary.json` (`d2s-summary/0.6`); run cũ không có `frames.jsonl` được đo lại từ checkpoint như với protocol 0.3.
+- `engine/benchmark.py` chỉ đọc file kết quả của run (không GPU): tìm đoạn đường hỏng (R7), tách PSNR pinhole và fisheye (R5), xếp hạng, cảnh báo khi nhóm trộn GPU hoặc protocol. `d2s benchmark <file.yaml>` in bảng; định dạng ở CONTRACTS mục 6.5.
+- Thay đổi kèm: `summary_path` và bảng `d2s report` đọc `summary.json` của cả `eval.ncore`, và PLY của `export.nurec_ply`; trước đó run Instant NuRec không có metric nào trong `d2s report` và Studio. `eval.ncore` ghi `protocol.version` là `ncore-0.3` vì SSIM và vùng hợp lệ của nó khác `eval.standard`.
+
+**Ưu điểm.** Không thêm lần render; dữ liệu từng ảnh dùng được cho các phân tích sau (đoạn hỏng, lệch làn); phần gom bảng test được ở `.venv` nhẹ.
+
+**Nhược điểm.**
+- Run đã train mà không còn checkpoint thì không có `frames.jsonl`, và `d2s benchmark` ghi "chưa đo" cho đoạn hỏng.
+- `depth` đo ở khung test nên LiDAR của khung đó có thể dính xe đang chạy mà cảnh nền không có; chưa kiểm ảnh hưởng.
+- **Chưa làm:** export gap của `.ply` (R3; cần quyết định so với render nào, vì `.ply` không có trời, người và xe chỉ ở một khung), KID khi lệch làn (R2; cần render camera dịch ngang và thư viện KID), `ghost_ratio`, `static_psnr` (R4; chưa có định nghĩa), ATE và chunk (R6). `d2s benchmark` để trống các cột đó.
+- Chưa chạy thật trên GPU (mục 7.1).
+
+### 2.18 Chạy trên GPU thuê (vast.ai) bằng SSH và rsync, không thêm executor
+
+**Khái niệm.** vast.ai cho thuê máy có GPU theo giờ, truy cập bằng SSH; mỗi máy là một container Linux có toàn quyền root và ổ đĩa riêng.
+
+**Lý do.** Benchmark 13 run cần khoảng 23 GPU-giờ trên RTX 4090 (báo cáo tuần 03 mục 7), vượt quota Kaggle. Trên máy thuê, tool chạy như trên máy cá nhân (`--executor local`): không cần gói job, notebook hay API riêng, và run tạo trên máy thuê ghi đúng GPU vào `env.json`, nên thời gian, VRAM, FPS so được giữa các run cùng loại máy.
+
+**Cách làm.** `envs/vast.sh` (và `make vast-*`): `setup` chép cây code (cả file chưa commit, ghi commit và số file bẩn vào `COMMIT`), tạo conda env từ `envs/main.yml` và chạy `envs/install_main.sh` ở nền với `TORCH_CUDA_ARCH_LIST` theo GPU và wheel cache; `push-scene` chép `data/<scene_id>/`; `run` chạy `d2s run start ...` ở nền; `pull` kéo `runs/` và `cache/` về (chạy giữa chừng được).
+
+**Ưu điểm.** Không đổi engine, không sửa CONTRACTS cho gói job; Studio đọc thẳng run đã kéo về.
+
+**Nhược điểm.**
+- Không có trạng thái hay chạy tiếp tự động như Kaggle, Colab: máy bị thu hồi (loại interruptible) thì mất phần chưa `pull`; chạy tiếp bằng `d2s run resume` trên máy thuê.
+- Image phải có nvcc 12.x và GPU không phải Blackwell (RTX 50xx): `install_main.sh` ghim `torch 2.4.1+cu121` và build gsplat-geer, pytorch3d... từ mã nguồn (hàng chục phút ở lần đầu).
+- Dữ liệu lái xe có license riêng: chỉ để trên máy thuê ở chế độ riêng tư và xoá máy khi xong.
+- **Chưa chạy thật** (chưa có máy thuê); script mới kiểm cú pháp và chạy khô (`VAST_DRY_RUN=1`).
+
 ## 3. Cấu trúc repo đích
 
 ```
@@ -486,7 +521,7 @@ drivestudio_plus/                          branch drive2sim
 │   ├── core/                              identifiers.py, schema.py, files.py, split.py, camera.py (khớp Mei → OpenCV fisheye) (đã có); transforms.py (chưa có)
 │   ├── ingest/                            detect.py (source inspect), dispatch.py (chọn chuỗi), drivestudio.py (converter chung cho 7 dataset), kitti360.py (converter KITTI-360), kitti360_boxes.py (box 3D KITTI-360), images.py, manifest.py, validate.py
 │   ├── stages/                            commands.py, scene_view.py; prep/masks_segformer.py, prep/smpl.py, train/drivestudio.py, eval/standard.py, export/ply_world.py, export/preview.py (đã có); init/, render/ (khung)
-│   ├── engine/                            stage.py, registry.py, resolve.py, approaches.py, workdir.py, scenes.py, cache.py, run.py, report.py, housekeeping.py (xoá, dọn cache), pack.py (gói bàn giao), remote.py (phần chung của executor Kaggle và Colab: kiểm tra commit, ghép output tải về)
+│   ├── engine/                            stage.py, registry.py, resolve.py, approaches.py, workdir.py, scenes.py, cache.py, run.py, report.py, benchmark.py, housekeeping.py (xoá, dọn cache), pack.py (gói bàn giao), remote.py (phần chung của executor Kaggle và Colab: kiểm tra commit, ghép output tải về)
 │   ├── approaches/                        omnire.yaml, streetgs.yaml
 │   ├── kaggle/                            client.py, bundle.py, executor.py, packing.py (gói output), ingest.py (ingest trên Kaggle), names.py (tên notebook và dataset, CONTRACTS mục 10.1), setup.py, templates/run.ipynb, templates/ingest.ipynb
 │   ├── colab/                             client.py, executor.py, setup.py, accounts.py, account_helper.py, drive.py, templates/job.sh (mục 2.16)
@@ -494,9 +529,9 @@ drivestudio_plus/                          branch drive2sim
 │   ├── studio/                            api/ (app.py, state.py, events.py, jobs.py, kaggle_watch.py, colab_watch.py, remote_watch.py, routes/<nhóm>.py); frontend/ (Vite + React: src/pages/, src/components/, src/viewer/ (Spark), src/live.tsx, src/locales/, src/api/generated/, dist/ đã build); viz/ (khung)
 │   ├── external/              nurec/: Instant NuRec (môi trường, PLY; tools/ chạy bằng Python của NuRec)
 │   ├── scripts/                           công cụ phát triển chạy một lần: make_demo.py, check_kitti360_projection.py (chiếu LiDAR KITTI-360 lên ảnh, tỉ số cạnh)
-│   └── cli/                               main.py, output.py; source.py, scene.py, split.py, approach.py, run.py, report.py, export.py, pack.py, cache.py, kaggle.py, colab.py, studio.py, schema.py
+│   └── cli/                               main.py, output.py; source.py, scene.py, split.py, approach.py, run.py, report.py, benchmark.py, export.py, pack.py, cache.py, kaggle.py, colab.py, studio.py, schema.py
 ├── third_party/                           smplx (pip -e, import smplx); Humans4D (submodule, import hmr2); ncore (submodule, tag v19.9.0: converter NCore); gsplat-geer (submodule, fork `awun0105/3dgeer` nhánh `drive2sim`: gsplat-geer của Bosch `f15cee2` + `glm` + kỹ thuật kernel Faster-GS, cài bằng `envs/install_main.sh` bước 4)
-├── envs/                                  main.yml (conda: Python 3.10), install_main.sh (cài môi trường chính, dùng chung cho Kaggle), install_cuda.sh (CUDA 12.8 riêng khi nvcc của máy khác major) (mục 2.9)
+├── envs/                                  main.yml (conda: Python 3.10), install_main.sh (cài môi trường chính, dùng chung cho Kaggle), vast.sh (chạy trên GPU thuê vast.ai, mục 2.18), install_cuda.sh (CUDA 12.8 riêng khi nvcc của máy khác major) (mục 2.9)
 └── tests/drive2sim/           (khung)     cùng cây thư mục với drive2sim/; fixtures/
 ```
 
@@ -532,6 +567,9 @@ Chạy script bằng `python -m`, ví dụ `python -m drive2sim.recon.tools.trai
 | Codebase ngoài | `drive2sim/external/<codebase>/` | `worker.py`; môi trường ở `envs/<codebase>.yml` | Stage `train.external` với tham số `codebase: <tên>` |
 | Gói kết quả để bàn giao | `drive2sim/engine/pack.py` | `plan_pack`, `write_pack` | CLI gọi qua `cli/pack.py`; CONTRACTS 10.4 |
 | Lệnh CLI mới | `drive2sim/cli/<nhóm>.py` | hàm `<hành_động>` | Theo CONTRACTS mục 10.4 |
+| Gom kết quả nhiều run thành bảng benchmark | `drive2sim/engine/benchmark.py` | `run_benchmark`, `bad_segments`, `order_group`; CLI `cli/benchmark.py` | CONTRACTS mục 6.5 |
+| Metric đo thêm trong vòng render (numpy thuần, test được ở `.venv` nhẹ) | `drive2sim/recon/rendering/depth_metrics.py` | `compute_depth_metrics` | `render` trong `recon/rendering/videos.py` |
+| Chạy trên GPU thuê (vast.ai) | `envs/vast.sh`, target `vast-*` trong `Makefile` | | Mục 2.18 |
 | API cho Studio | `drive2sim/studio/api/routes/<nhóm>.py` | đường dẫn `/api/<nhóm số nhiều>/...`, verb, lỗi và sự kiện theo CONTRACTS mục 11 | `app.py` |
 | Màn hình Studio | `drive2sim/studio/frontend/src/pages/` | `PascalCase.tsx`; chuỗi giao diện trong `src/locales/vi.json`, `en.json` (CONTRACTS mục 10.6) | Router của frontend |
 | Gói output notebook Kaggle | `drive2sim/kaggle/packing.py` | `pack_output`, `unpack_output`, `pack_file_pattern` | Ô cuối notebook và `executor.pull_run`; CONTRACTS 9.2 |
@@ -692,7 +730,7 @@ Lệnh dạng `d2s <nhóm> <hành động>`. Danh sách đầy đủ, tuỳ ch�
 | `colab` | `push`, `status`, `logs`, `pull`, `stop` |
 | `export` | `ply`, `preview` |
 | `cache` | `list`, `gc` |
-| `report`, `pack`, `studio`, `serve` | (lệnh đơn) |
+| `report`, `benchmark`, `pack`, `studio`, `serve` | (lệnh đơn) |
 
 ## 5. Luồng dữ liệu
 
@@ -789,6 +827,8 @@ chạy cả các test đó, 496 test đạt, không bỏ qua test nào.
 | Metric theo camera và theo vùng hợp lệ (protocol `0.3`): `train.py` ghi PSNR, SSIM, LPIPS theo từng camera, `eval.standard` đổi chỉ số camera sang `camera_id` để điền `per_camera`; khi loader có `valid_masks` (mắt cá KITTI-360, Waymo, PhysicalAI) SSIM và LPIPS chỉ tính trên điểm ảnh hợp lệ như PSNR (trước đây vùng không hợp lệ bị tô đen ở cả hai ảnh nên SSIM, LPIPS bị đẩy lên tốt hơn thực tế); ảnh không có điểm hợp lệ bị bỏ qua thay vì làm trung bình thành NaN | Xong trong code; test trên CPU (`tests/drive2sim/recon/rendering/test_image_metrics.py`); **đã chạy thật** 17/11/2026 trên Quadro T2000: OmniRe + 3DGUT + FastGS + Faster-GS, KITTI-360 0003 ingest lại trên máy 20 khung, split `every5_mixed4` (68 ảnh train, 12 test, cả 4 camera), 500 bước: mọi stage xong (SMPL bỏ qua vì đoạn không có người), `per_camera` đủ 4 camera (PSNR `image_00` 18,7, `image_01` 18,9, `image_02` 16,2, `image_03` 15,0; chỉ để kiểm đường chạy, 500 bước chưa hội tụ), train 120 giây, VRAM đỉnh 2,2 GB. Loader KITTI-360 mắt cá, `export.ply_world`, `export.preview` cũng chạy qua trong run này. Run cũ giữ `summary.json` protocol `0.2`: SSIM, LPIPS của camera có `valid_masks` không so trực tiếp được với run mới | |
 | `converter_version` thêm hậu tố `.dirty-<hash8>` khi mã converter (`ingest/`, `recon/preprocess/`, `core/`) có thay đổi chưa commit, để khoá cache không trùng giữa hai bản code chưa commit | Xong; test với repo git tạm | |
 | `make test-gpu`: chạy toàn bộ test bằng conda env GPU, gồm test cần PyTorch mà `make check` bỏ qua | Xong | |
+| Benchmark lõi (mục 2.17): protocol `0.4` (metric từng ảnh `frames.jsonl`, `depth` so với LiDAR, `d2s-summary/0.6`), `engine/benchmark.py`, `d2s benchmark`, `d2s-benchmark`, `d2s-benchresult`; `d2s report` đọc cả `eval.ncore` | Code và test local hoàn tất; phần đo trong `render` (`videos.py`, `tools/eval.py`) **chưa chạy thật** vì máy phát triển không có GPU. Chưa làm: export gap `.ply`, KID lệch làn, `ghost_ratio`, `static_psnr`, ATE, chunk | |
+| Chạy trên GPU thuê vast.ai (`envs/vast.sh`, mục 2.18) | Script kiểm cú pháp và chạy khô; **chưa chạy trên máy thuê** | |
 | `sim/` (L2–L4) | Chưa làm | |
 
 Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiền xử lý (mask, SMPL); OmniRe, Street GS, PVG, Deformable-GS; renderer 3DGS / 3DGUT / 3DGEER; rolling shutter ở `ut`/`geer`; FastGS; `tools/eval.py`; video; `tools/viewer.py`; `tools/export_ply.py`; đọc NCore V4 cho PhysicalAI.
