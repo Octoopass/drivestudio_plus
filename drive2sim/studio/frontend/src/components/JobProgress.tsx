@@ -1,7 +1,55 @@
 // Thanh tiến độ của một việc nền (GET /api/jobs): việc báo progress (tải từ Drive) thì hiện phần
 // trăm, tốc độ và thời gian còn lại tính từ started_at; việc không báo thì thanh chạy liên tục.
+// JobActions: nút Huỷ (đang chờ, đang chạy) và Tải tiếp (đã huỷ, lỗi) cho việc huỷ được.
+import { Play, Square } from "lucide-react";
+import { useState } from "react";
+import { asApiError, post, seg } from "../api/client";
 import type { Job } from "../api/types";
 import { useI18n } from "../i18n";
+import { useLive } from "../live";
+import { useToast } from "./ui";
+
+export function jobActive(job: Job | null | undefined): boolean {
+  return job?.status === "queued" || job?.status === "running";
+}
+
+/** Huỷ hoặc tải tiếp một việc huỷ được; ``onRetried`` nhận việc mới. */
+export function JobActions({ job, onRetried }: { job: Job; onRetried?: (job: Job) => void }) {
+  const { t } = useI18n();
+  const live = useLive();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  if (!job.cancellable) return null;
+  const act = async (action: "cancel" | "retry") => {
+    setBusy(true);
+    try {
+      const result = await post<Job>(`/api/jobs/${seg(job.job_id)}/${action}`);
+      if (action === "retry") onRetried?.(result);
+      live.refreshJobs();
+    } catch (err) {
+      toast({ kind: "bad", title: t(action === "cancel" ? "job.cancel_failed" : "job.retry_failed"), detail: asApiError(err).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (jobActive(job)) {
+    return (
+      <button className="btn sm" type="button" onClick={() => void act("cancel")} disabled={busy}>
+        <Square size={15} />
+        {t("job.cancel")}
+      </button>
+    );
+  }
+  if (job.status === "cancelled" || job.status === "failed") {
+    return (
+      <button className="btn sm primary" type="button" onClick={() => void act("retry")} disabled={busy}>
+        <Play size={15} />
+        {t("job.retry")}
+      </button>
+    );
+  }
+  return null;
+}
 
 function bytes(value: number): string {
   if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(2)} GiB`;

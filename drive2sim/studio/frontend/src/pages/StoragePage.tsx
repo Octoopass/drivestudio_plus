@@ -1,10 +1,12 @@
-// Lưu trữ: kết quả trong cache/ (mask, SMPL... dùng chung giữa các approach) kèm dung lượng và run
-// nào còn dùng; nút dọn xem trước những gì sẽ xoá rồi mới xoá.
+// Lưu trữ: dữ liệu gốc đã tải lên uploads/ (UploadManager: thêm, dừng, tải tiếp, xoá) và kết quả
+// trong cache/ (mask, SMPL... dùng chung giữa các approach) kèm dung lượng và run nào còn dùng; nút
+// dọn cache xem trước những gì sẽ xoá rồi mới xoá.
 import { Eraser } from "lucide-react";
 import { useState } from "react";
 import { asApiError, post, useApi } from "../api/client";
 import type { CacheEntry, CacheList } from "../api/types";
 import { bytes, Confirm, Empty, ErrorBox, Loading, PageHead, useToast } from "../components/ui";
+import { UploadManager } from "../components/UploadManager";
 import { useI18n } from "../i18n";
 import { href } from "../router";
 
@@ -13,7 +15,7 @@ interface GcResult {
   freed_bytes: number;
 }
 
-export function StoragePage() {
+export function StoragePage({ focus }: { focus?: string }) {
   const { t } = useI18n();
   const toast = useToast();
   const cache = useApi<CacheList>("/api/cache");
@@ -42,6 +44,7 @@ export function StoragePage() {
           </button>
         }
       />
+      <UploadManager focus={focus} />
       <ErrorBox error={cache.error} />
       {cache.data && (
         <section className="panel">

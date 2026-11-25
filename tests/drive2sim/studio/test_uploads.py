@@ -1,5 +1,6 @@
 """Test tải dữ liệu gốc lên qua trình duyệt (``drive2sim/studio/api/uploads.py`` và route)."""
 
+import json
 import shutil
 from collections import namedtuple
 from pathlib import Path
@@ -43,8 +44,29 @@ def test_plan_write_resume_and_delete(tmp_path: Path) -> None:
     assert again["files"][0]["done"] and again["needed_bytes"] == 0
     listed = uploads.list_uploads(workdir)
     assert listed[0]["name"] == "kitti" and listed[0]["files"] == 1 and listed[0]["partial"] == 0
+    assert listed[0]["partial_bytes"] == 0 and listed[0]["used_by"] == []
+    assert listed[0]["modified"].endswith("+00:00")
     assert uploads.delete_upload(workdir, "kitti") == {"removed": ["uploads/kitti"]}
     assert uploads.list_uploads(workdir) == []
+
+
+def test_list_reports_partial_bytes_and_scenes_using_the_upload(tmp_path: Path) -> None:
+    workdir = Workdir(tmp_path)
+    uploads.plan_upload(workdir, "raw", [{"path": "seq/a.bin", "size": 100}])
+    uploads.write_chunk(workdir, "raw", "seq/a.bin", 0, 100, b"x" * 30)
+    for scene, raw_dir in [
+        ("scene_a", workdir.uploads_dir / "raw" / "seq"),
+        ("scene_b", tmp_path / "elsewhere"),
+    ]:
+        (workdir.data_dir / scene).mkdir(parents=True)
+        (workdir.data_dir / scene / "raw_source.json").write_text(
+            json.dumps({"raw_dir": str(raw_dir), "sequence": "s"})
+        )
+    (workdir.data_dir / "broken").mkdir()
+    (workdir.data_dir / "broken" / "raw_source.json").write_text("not json")
+    [item] = uploads.list_uploads(workdir)
+    assert item["partial"] == 1 and item["partial_bytes"] == 30 and item["files"] == 0
+    assert item["used_by"] == ["scene_a"]
 
 
 def test_refuses_bad_name_and_full_disk(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

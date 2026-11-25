@@ -11,10 +11,26 @@ import { useLive } from "../live";
 import { href } from "../router";
 import { runStatus, type RunItem } from "../runStatus";
 import { ago, Drawer, Empty, Status, useToast } from "./ui";
-import { clock, JobProgress } from "./JobProgress";
+import { clock, JobActions, JobProgress } from "./JobProgress";
 
 // việc có kết quả là cảnh hoặc run để mở; drive_pull trả thư mục, colab_session không trả gì
 const LINKED = new Set<Job["kind"]>(["ingest", "kaggle_push", "kaggle_pull", "colab_push", "colab_pull"]);
+const RUN_KINDS = new Set<Job["kind"]>(["kaggle_push", "kaggle_pull", "colab_push", "colab_pull"]);
+
+/** Nơi bấm thẻ việc nền sẽ mở: bộ dữ liệu (tải từ Drive), run (Kaggle, Colab), cảnh (ingest xong). */
+export function jobHref(job: Job): string | null {
+  if (job.kind === "drive_pull") {
+    const target = job.target ?? /→ uploads\/(\S+)$/.exec(job.label)?.[1];
+    return target ? href({ page: "storage", focus: target }) : href({ page: "storage" });
+  }
+  if (RUN_KINDS.has(job.kind)) {
+    // run_id có trong nhãn ("đẩy <run_id> lên Kaggle") từ lúc xếp hàng, kết quả chỉ có khi xong
+    const runId = job.result ?? /(\d{8}-\d{6}-[\w-]+)/.exec(job.label)?.[1];
+    return runId ? href({ page: "run", runId }) : null;
+  }
+  if (job.kind === "ingest" && job.status === "succeeded" && job.result) return href({ page: "scene", sceneId: job.result });
+  return null;
+}
 
 export function ActivityDrawer({ onClose }: { onClose: () => void }) {
   const { t, locale } = useI18n();
@@ -89,11 +105,34 @@ export function ActivityDrawer({ onClose }: { onClose: () => void }) {
         {live.jobs.length === 0 ? (
           <Empty title={t("activity.jobs.none")} />
         ) : (
-          live.jobs.map((job) => (
-            <div key={job.job_id} className="panel" style={{ padding: "12px 15px" }}>
-              <div className="row">
+          live.jobs.map((job) => {
+            const target = jobHref(job);
+            const open = () => {
+              if (!target) return;
+              window.location.hash = target;
+              onClose();
+            };
+            return (
+            <div
+              key={job.job_id}
+              className={`panel${target ? " job-card" : ""}`}
+              style={{ padding: "12px 15px" }}
+              role={target ? "link" : undefined}
+              tabIndex={target ? 0 : undefined}
+              title={target ? t("activity.jobs.go") : undefined}
+              onClick={(e) => {
+                // nút Huỷ / Tải tiếp và link bên trong tự xử lý
+                if ((e.target as HTMLElement).closest("button, a")) return;
+                open();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && e.target === e.currentTarget) open();
+              }}
+            >
+              <div className="row" style={{ gap: 8 }}>
                 <span className="grow ellipsis">{job.label}</span>
                 <Status value={job.status} />
+                <JobActions job={job} />
               </div>
               <div className="small faint">
                 {t(`activity.kind.${job.kind}`)}, {ago(job.created_at, locale)}
@@ -110,7 +149,8 @@ export function ActivityDrawer({ onClose }: { onClose: () => void }) {
                 </a>
               )}
             </div>
-          ))
+            );
+          })
         )}
       </section>
     </Drawer>

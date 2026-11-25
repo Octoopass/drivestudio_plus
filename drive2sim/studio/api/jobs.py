@@ -10,7 +10,10 @@ Tiến trình Studio không nạp model: các stage bọc DriveStudio chạy scr
 File này chứa:
 - ``RunQueue``: nhận run cần chạy, chạy bằng ``execute_run``, chuyển sự kiện tới ``EventBroker``.
 - ``BackgroundJobs``: chạy việc nền dài (ingest, Kaggle) ở luồng riêng, giữ trạng thái từng việc;
-  việc nào biết tiến độ (tải từ Drive) thì báo qua ``BackgroundJobs.report``.
+  việc nào biết tiến độ (tải từ Drive) thì báo qua ``BackgroundJobs.report``. Việc tải từ Drive
+  huỷ được (``cancel``) và chạy lại được (``retry``): phần đã tải nằm trong ``.part`` nên lần sau
+  đi tiếp từ đó.
+- ``JobCancelledError``: lỗi ``report`` ném ra trong việc đã bị huỷ.
 """
 
 import logging
@@ -152,6 +155,15 @@ class RunQueue:
         self._executor.shutdown(wait=True, cancel_futures=True)
 
 
+# Loại việc huỷ và chạy lại được: dừng giữa chừng không để lại gì sai (tải tiếp từ phần đã có).
+CANCELLABLE = frozenset({"drive_pull"})
+ACTIVE = ("queued", "running")
+
+
+class JobCancelledError(RuntimeError):
+    """Việc nền đã bị huỷ từ giao diện; ``report`` ném ra để việc dừng ở chỗ an toàn tiếp theo."""
+
+
 class BackgroundJobs:
     """Chạy việc nền dài (ingest, đẩy và tải Kaggle) và giữ trạng thái từng việc trong bộ nhớ.
 
@@ -170,8 +182,17 @@ class BackgroundJobs:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="d2s-ingest")
         self._stopping = threading.Event()
         self._local = threading.local()
+        self._works: dict[str, Callable[[], Optional[str]]] = {}
+        self._cancels: dict[str, threading.Event] = {}
+        self._threads: dict[str, int] = {}
 
-    def submit(self, kind: str, label: str, work: Callable[[], Optional[str]]) -> dict:
+    def submit(
+        self,
+        kind: str,
+        label: str,
+        work: Callable[[], Optional[str]],
+        target: Optional[str] = None,
+    ) -> dict:
         """Xếp một việc vào hàng đợi.
 
         Args:
@@ -181,9 +202,11 @@ class BackgroundJobs:
             work: Hàm làm việc, trả về ``scene_id`` hoặc ``run_id`` liên quan (để giao diện mở;
                 ``drive_pull`` trả thư mục đã tải); lỗi gì thì việc thành ``failed`` kèm thông báo
                 lỗi. Trong ``work`` gọi ``report`` để báo tiến độ.
+            target: Thư mục ``uploads/<tên>/`` việc ghi vào (``drive_pull``), để trang Lưu trữ
+                nối việc với bộ dữ liệu; việc khác để ``None``.
 
         Returns:
-            Trạng thái ban đầu của việc (``queued``).
+            Trạng thái ban đầu của việc (``queued``); ``cancellable`` cho biết huỷ, chạy lại được.
         """
         job_id = uuid.uuid4().hex[:12]
         job = {
@@ -197,20 +220,32 @@ class BackgroundJobs:
             "created_at": time.time(),
             "started_at": None,
             "finished_at": None,
+            "target": target,
+            "cancellable": kind in CANCELLABLE,
         }
         with self._lock:
             self._jobs[job_id] = job
+            self._works[job_id] = work
+            self._cancels[job_id] = threading.Event()
         self._executor.submit(self._run, job_id, work)
         return dict(job)
 
     def _run(self, job_id: str, work: Callable[[], Optional[str]]) -> None:
         """Chạy một việc và ghi kết quả vào trạng thái."""
+        cancel = self._cancels[job_id]
+        with self._lock:
+            if cancel.is_set():  # huỷ khi còn chờ: không chạy
+                return
+            self._threads[job_id] = threading.get_ident()
         self._update(job_id, status="running", started_at=time.time())
         self._local.job_id = job_id
         try:
             result = work()
         except Exception as error:
             message = str(error)
+            if cancel.is_set():
+                self._update(job_id, status="cancelled", error=None, finished_at=time.time())
+                return
             if self._stopping.is_set():
                 # Bị dừng vì tắt Studio (shutdown): không phải lỗi, không in traceback.
                 logger.warning("dừng việc %s vì tắt Studio", self._jobs[job_id]["label"])
@@ -222,6 +257,80 @@ class BackgroundJobs:
             self._update(job_id, status="succeeded", result=result, finished_at=time.time())
         finally:
             self._local.job_id = None
+            with self._lock:
+                self._threads.pop(job_id, None)
+            subprocs.clear_thread(threading.get_ident())
+
+    def cancel(self, job_id: str) -> dict:
+        """Huỷ một việc huỷ được (``CANCELLABLE``) đang chờ hoặc đang chạy.
+
+        Việc đang chờ thành ``cancelled`` ngay. Việc đang chạy: lệnh ngoài nó đang chạy (``colab``)
+        bị dừng, ``report`` sau ném ``JobCancelledError``; dừng xong thì ``cancelled``.
+
+        Returns:
+            Trạng thái của việc sau khi huỷ.
+
+        Raises:
+            KeyError: Không có việc này.
+            ValueError: Loại việc không huỷ được.
+        """
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                raise KeyError(job_id)
+            if job["kind"] not in CANCELLABLE:
+                raise ValueError(f"việc {job['kind']} không huỷ được")
+            if job["status"] not in ACTIVE:
+                return dict(job)
+            self._cancels[job_id].set()
+            thread = self._threads.get(job_id)
+            if thread is None:
+                job.update(status="cancelled", finished_at=time.time())
+        if thread is not None:
+            subprocs.terminate_thread(thread)
+        return self.get(job_id) or {}
+
+    def retry(self, job_id: str) -> dict:
+        """Chạy lại việc đã huỷ hoặc lỗi (loại ``CANCELLABLE``) thành một việc mới.
+
+        Returns:
+            Trạng thái của việc mới (``queued``).
+
+        Raises:
+            KeyError: Không có việc này.
+            ValueError: Loại việc không chạy lại được, hoặc việc chưa dừng.
+        """
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                raise KeyError(job_id)
+            if job["kind"] not in CANCELLABLE or job["status"] not in ("cancelled", "failed"):
+                raise ValueError("chỉ chạy lại được việc tải đã huỷ hoặc lỗi")
+            work = self._works[job_id]
+        active = self.active_for(job["target"]) if job["target"] else []
+        if active:
+            return active[0]
+        return self.submit(job["kind"], job["label"], work, target=job["target"])
+
+    def active_for(self, target: str) -> list[dict]:
+        """Các việc đang chờ hoặc đang chạy ghi vào ``uploads/<target>/``, cũ nhất trước."""
+        with self._lock:
+            found = [
+                dict(j)
+                for j in self._jobs.values()
+                if j.get("target") == target and j["status"] in ACTIVE
+            ]
+        return sorted(found, key=lambda j: j["created_at"])
+
+    def wait_stopped(self, job_ids: list[str], timeout: float = 30.0) -> bool:
+        """Chờ các việc rời trạng thái chờ, chạy; ``False`` nếu quá ``timeout`` giây."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with self._lock:
+                if all(self._jobs[j]["status"] not in ACTIVE for j in job_ids if j in self._jobs):
+                    return True
+            time.sleep(0.05)
+        return False
 
     def report(self, done: float, total: float, detail: str = "") -> None:
         """Báo tiến độ của việc đang chạy trên luồng hiện tại (gọi trong ``work``).
@@ -234,6 +343,8 @@ class BackgroundJobs:
         job_id = getattr(self._local, "job_id", None)
         if not job_id:
             return
+        if self._cancels[job_id].is_set():
+            raise JobCancelledError("đã huỷ")
         with self._lock:
             job = self._jobs[job_id]
             # ``first``: phần đã có lúc bắt đầu (tải tiếp), để tốc độ chỉ tính phần làm lần này

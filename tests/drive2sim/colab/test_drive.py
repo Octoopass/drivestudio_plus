@@ -8,6 +8,7 @@ import contextlib
 import io
 import shutil
 import subprocess
+import threading
 from collections import namedtuple
 from pathlib import Path
 from typing import Optional
@@ -166,6 +167,57 @@ def test_drive_routes_and_job_progress(
         assert done["result"].endswith("uploads/kitti")
         assert done["progress"]["done"] == done["progress"]["total"] == 10246
         assert done["started_at"] is not None
+
+
+class GatedVM(FakeVM):
+    """VM giả dừng ở khối tải đầu tiên tới khi test mở cổng (để huỷ giữa chừng)."""
+
+    started = threading.Event()
+    gate = threading.Event()
+
+    def download(self, session: str, remote: str, local: Path) -> None:
+        """Chờ cổng mở rồi chép như ``FakeVM``."""
+        GatedVM.started.set()
+        GatedVM.gate.wait(10)
+        super().download(session, remote, local)
+
+
+def test_drive_pull_cancel_resume_and_delete(
+    my_drive: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from drive2sim.studio.api.routes import colab as colab_routes
+
+    monkeypatch.setattr(colab_routes, "ColabClient", GatedVM)
+    workdir = Workdir(tmp_path / "work")
+    app = create_app(workdir, registry=StageRegistry(), frontend_dir=None)
+    jobs = app.state.studio.jobs
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        body = {"path": "kitti", "name": "kitti"}
+        job = client.post("/api/colab/drive/pull", json=body).json()
+        assert job["cancellable"] and job["target"] == "kitti"
+        # cùng thư mục đang tải: trả việc cũ, không tải hai lần
+        assert client.post("/api/colab/drive/pull", json=body).json()["job_id"] == job["job_id"]
+        assert GatedVM.started.wait(10)
+        assert client.post(f"/api/jobs/{job['job_id']}/cancel").status_code == 200
+        GatedVM.gate.set()
+        jobs.wait_idle()
+        state = client.get(f"/api/jobs/{job['job_id']}").json()
+        assert state["status"] == "cancelled" and state["error"] is None
+        [item] = client.get("/api/sources/uploads").json()["items"]
+        assert item["origin"] == "drive" and item["partial"] == 1
+        resumed = client.post("/api/colab/drive/pull/kitti/resume")
+        assert resumed.status_code == 202
+        jobs.wait_idle()
+        assert client.get(f"/api/jobs/{resumed.json()['job_id']}").json()["status"] == "succeeded"
+        [item] = client.get("/api/sources/uploads").json()["items"]
+        assert item["partial"] == 0 and item["files"] == 2
+        assert client.post(f"/api/jobs/{job['job_id']}/retry").status_code == 202
+        jobs.wait_idle()
+        assert client.post("/api/colab/drive/pull/other/resume").status_code == 400
+        assert client.post("/api/jobs/nope/cancel").status_code == 404
+        assert client.delete("/api/sources/uploads/kitti").json() == {"removed": ["uploads/kitti"]}
+        assert not (workdir.uploads_dir / ".origins" / "kitti.json").exists()
+        assert client.get("/api/sources/uploads").json()["items"] == []
 
 
 def make_kitti360(root: Path) -> None:
