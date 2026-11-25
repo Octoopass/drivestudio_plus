@@ -38,6 +38,8 @@ def get_layout(dataset_type: str):
         layout = layout_physicalai
     elif dataset_type == "kitti360":
         layout = layout_kitti360
+    elif dataset_type == "phenikaa":
+        layout = layout_phenikaa
     else:
         raise ValueError(f"dataset_type {dataset_type} not supported")
     return layout
@@ -433,9 +435,39 @@ def layout_kitti360(
         ValueError: Nếu không có camera KITTI-360 nào trong ``cam_names``.
     """
     positions = {"image_00": (0, 0), "image_01": (0, 1), "image_02": (1, 0), "image_03": (1, 1)}
+    return _tile_grid(imgs, cam_names, positions, "KITTI-360")
+
+
+def layout_phenikaa(
+    imgs: List[np.array], cam_names: List[str]
+) -> np.array:
+    """Ghép ảnh các camera PHENIKAA thành một ảnh (drive2sim).
+
+    Bố cục (nhìn từ trên, đầu xe hướng lên):
+
+        ######################################################
+        #  P_L  #  P_FL  #  P_F  #  P_FR  #  P_R  #   pinhole (P_L, P_R góc rộng)
+        ######################################################
+        #  F_L  #  F_F   #  P_B  #  F_B   #  F_R  #   mắt cá và pinhole sau
+        ######################################################
+
+    Như ``layout_kitti360``: ảnh đổi về cùng chiều rộng, hàng, cột trống thì bỏ.
+    """
+    positions = {
+        "CAM_P_L": (0, 0), "CAM_P_FL": (0, 1), "CAM_P_F": (0, 2), "CAM_P_FR": (0, 3),
+        "CAM_P_R": (0, 4), "CAM_F_L": (1, 0), "CAM_F_F": (1, 1), "CAM_P_B": (1, 2),
+        "CAM_F_B": (1, 3), "CAM_F_R": (1, 4),
+    }  # fmt: skip
+    return _tile_grid(imgs, cam_names, positions, "PHENIKAA")
+
+
+def _tile_grid(
+    imgs: List[np.array], cam_names: List[str], positions: dict, dataset: str
+) -> np.array:
+    """Đặt ảnh từng camera vào ô ``(hàng, cột)`` của ``positions``; bỏ hàng, cột trống."""
     selected = [(positions[name], imgs[idx]) for idx, name in enumerate(cam_names) if name in positions]
     if not selected:
-        raise ValueError("No KITTI-360 cameras found in cam_names")
+        raise ValueError(f"No {dataset} cameras found in cam_names")
     channel = selected[0][1].shape[-1]
     tile_width = max(img.shape[1] for _, img in selected)
     tiles = []
