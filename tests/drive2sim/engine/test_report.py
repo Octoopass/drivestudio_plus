@@ -245,3 +245,29 @@ def test_retired_approach_results_remain_readable(tmp_path: Path) -> None:
     rows = report_rows(workdir)
     assert len(rows) == 1 and rows[0].approach_id == "gsplat_3dgut"
     assert rows[0].train_params == {}
+
+
+def test_recon_time_stops_at_nurec_ply_stage() -> None:
+    record = make_record(
+        [
+            stage("train.nurec", 120.0),
+            stage("eval.ncore", 30.0),
+            stage("export.nurec_ply", 5.0),
+            stage("export.preview", 9.0),
+        ]
+    )
+    assert recon_time(record) == 155.0
+
+
+def test_summary_path_finds_ncore_summary(tmp_path: Path) -> None:
+    from drive2sim.engine.run import summary_path
+
+    default = tmp_path / "d2s" / "stages" / "eval.standard" / "summary.json"
+    assert summary_path(tmp_path) == default  # chưa có file nào: giữ đường dẫn mặc định
+    ncore = tmp_path / "d2s" / "stages" / "eval.ncore" / "summary.json"
+    ncore.parent.mkdir(parents=True)
+    ncore.write_text("{}", encoding="utf-8")
+    assert summary_path(tmp_path) == ncore
+    default.parent.mkdir(parents=True)
+    default.write_text("{}", encoding="utf-8")
+    assert summary_path(tmp_path) == default  # có cả hai: eval.standard được ưu tiên

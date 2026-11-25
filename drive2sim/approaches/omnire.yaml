@@ -166,3 +166,4 @@ stages:
   - {stage: eval.standard}
   - {stage: export.ply_world}
   - {stage: export.preview}
+  - {stage: eval.ply}

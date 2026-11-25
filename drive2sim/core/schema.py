@@ -107,16 +107,18 @@ IN_PACKAGE_CODEBASES: tuple[str, ...] = ("drivestudio",)
 # Phiên bản schema hiện tại của từng loại file.
 SCHEMA_VERSIONS: dict[str, str] = {
     "manifest": "d2s-manifest/1.2",
-    "split": "d2s-split/0.1",
+    "split": "d2s-split/0.2",
     "report": "d2s-report/0.1",
     "approach": "d2s-approach/0.3",
     "artifact": "d2s-artifact/0.2",
     "run": "d2s-run/0.3",
-    "summary": "d2s-summary/0.5",
+    "summary": "d2s-summary/0.7",
     "env": "d2s-env/0.3",
     "preview": "d2s-preview/0.2",
     "job": "d2s-job/0.1",
     "result": "d2s-result/0.1",
+    "benchmark": "d2s-benchmark/0.2",
+    "benchresult": "d2s-benchresult/0.2",
 }
 
 OPTION_REFERENCE_RE = re.compile(r"^\$\{options\.([a-z][a-z0-9_]*)\}$")
@@ -487,6 +489,9 @@ class Split(VersionedFile):
         strategy: Chiến lược, ``every_nth_frame:N`` hoặc ``custom``.
         frame_range: Khung đầu và khung cuối của đoạn dùng, tính cả hai đầu.
         cameras: Các camera dùng trong split, không trùng.
+        test_only_cameras: Các camera chỉ xuất hiện ở ``test``, không bao giờ train (ví dụ
+            ``image_01`` của KITTI-360 để đo R2); tập con của ``cameras`` và luôn còn ít nhất một
+            camera train. Rỗng với split không có camera chỉ test.
         train: Các cặp ``[chỉ số khung, camera_id]`` để train.
         test: Các cặp ``[chỉ số khung, camera_id]`` để test; không cặp nào nằm ở cả hai phần.
     """
@@ -497,6 +502,7 @@ class Split(VersionedFile):
     strategy: str
     frame_range: tuple[int, int]
     cameras: list[str] = Field(min_length=1)
+    test_only_cameras: list[str] = Field(default_factory=list)
     train: list[tuple[int, str]]
     test: list[tuple[int, str]]
 
@@ -538,6 +544,15 @@ class Split(VersionedFile):
         if len(set(self.cameras)) != len(self.cameras):
             raise ValueError("cameras must be unique")
         allowed_cameras = set(self.cameras)
+        unknown_test_only = set(self.test_only_cameras) - allowed_cameras
+        if unknown_test_only:
+            raise ValueError(
+                f"test_only_cameras not listed in cameras: {sorted(unknown_test_only)}"
+            )
+        if self.test_only_cameras and set(self.test_only_cameras) >= allowed_cameras:
+            raise ValueError(
+                "test_only_cameras cannot contain every camera: nothing left to train"
+            )
         for part_name, pairs in (("train", self.train), ("test", self.test)):
             if len(set(pairs)) != len(pairs):
                 raise ValueError(f"{part_name} has duplicate pairs")
@@ -551,6 +566,8 @@ class Split(VersionedFile):
                         f"{part_name} pair {[frame, camera_id]} uses a camera "
                         "not listed in cameras"
                     )
+                if part_name == "train" and camera_id in self.test_only_cameras:
+                    raise ValueError(f"train pair {[frame, camera_id]} uses a test-only camera")
         overlap = set(self.train) & set(self.test)
         if overlap:
             raise ValueError(f"pairs in both train and test: {sorted(overlap)[:5]}")
@@ -1164,6 +1181,51 @@ class Metrics(StrictModel):
     occupied_psnr: Optional[float] = None
 
 
+class DepthMetrics(StrictModel):
+    """Độ sâu render so với độ sâu LiDAR trên tập test (yêu cầu R4 của benchmark).
+
+    Chỉ đo ở điểm ảnh có tia LiDAR trúng, hợp lệ và có độ sâu render dương; mỗi ảnh có trọng số
+    bằng nhau. ``drive2sim/recon/rendering/depth_metrics.py`` tính các giá trị này.
+
+    Attributes:
+        abs_rel: Sai số tương đối tuyệt đối trung bình, ``|pred - lidar| / lidar``; thấp là tốt.
+        rmse: Căn bậc hai của sai số bình phương trung bình, mét; thấp là tốt.
+        delta_1_25: Tỉ lệ điểm có ``max(pred/lidar, lidar/pred) < 1.25``; cao là tốt.
+    """
+
+    abs_rel: float = Field(ge=0)
+    rmse: float = Field(ge=0)
+    delta_1_25: float = Field(ge=0, le=1)
+
+
+class ShiftedMetrics(StrictModel):
+    """Metric trên camera chỉ test, không train (yêu cầu R2 của benchmark, protocol 0.5).
+
+    Đo ở các ảnh test của camera trong ``Split.test_only_cameras``, ví dụ ``image_01`` của
+    KITTI-360 lệch khoảng 0,59 m so với ``image_00``. Camera chưa train nên không có ma trận chỉnh
+    màu học được; ``psnr_cc`` và ``lpips_cc`` đo sau khi khớp một phép affine màu 3x4 cho mỗi ảnh
+    (``drive2sim/recon/rendering/color_match.py``) và là số dùng để phân xử hoà.
+
+    Attributes:
+        cameras: ``camera_id`` của các camera chỉ test.
+        num_images: Số ảnh test đã đo.
+        psnr: PSNR thô trung bình theo ảnh, dB.
+        ssim: SSIM trung bình theo ảnh.
+        lpips: LPIPS thô trung bình theo ảnh.
+        psnr_cc: PSNR sau chỉnh màu, dB; để trống nếu file metric từng ảnh không có hoặc mọi ảnh
+            khớp màu thất bại.
+        lpips_cc: LPIPS sau chỉnh màu; để trống như ``psnr_cc``.
+    """
+
+    cameras: list[str] = Field(min_length=1)
+    num_images: int = Field(ge=1)
+    psnr: float
+    ssim: float
+    lpips: float
+    psnr_cc: Optional[float] = None
+    lpips_cc: Optional[float] = None
+
+
 class Summary(VersionedFile):
     """Schema của file ``summary.json``: tóm tắt kết quả đánh giá của một run.
 
@@ -1191,6 +1253,11 @@ class Summary(VersionedFile):
             video), giây; phần còn lại của thời gian stage train ngoài ``train_time_s`` và giá trị
             này là khởi động, nạp dữ liệu, lưu checkpoint, vẽ ảnh kiểm tra định kỳ (thêm từ
             ``d2s-summary/0.5``); để trống nếu không biết.
+        depth: Độ sâu render so với LiDAR (thêm từ ``d2s-summary/0.6``, protocol 0.4); để trống
+            nếu cảnh không có LiDAR hoặc run đo bằng protocol cũ.
+        shifted: Metric trên camera chỉ test (R2, thêm từ ``d2s-summary/0.7``, protocol 0.5); để
+            trống nếu split không có camera chỉ test. Khi có, ``overall`` chỉ tính trên các ảnh
+            test của camera đã train.
     """
 
     FILE_KIND: ClassVar[str] = "summary"
@@ -1206,6 +1273,8 @@ class Summary(VersionedFile):
     render_resolution: Optional[str] = None
     speedups: list[str] = []
     eval_time_s: Optional[float] = Field(default=None, ge=0)
+    depth: Optional[DepthMetrics] = None
+    shifted: Optional[ShiftedMetrics] = None
 
 
 class Machine(StrictModel):
@@ -1391,6 +1460,223 @@ class JobResult(VersionedFile):
         return self
 
 
+BenchTrack = Literal["A", "B", "C"]
+BenchCell = Literal["A-LB", "A-L", "A-0"]
+
+
+class BenchmarkEntry(StrictModel):
+    """Một nhóm run được xếp hạng với nhau trong benchmark.
+
+    ``bench_track`` là track của benchmark (A dựng từng cảnh, B quãng đường dài, C feed-forward),
+    không phải loại camera pinhole hay fisheye.
+
+    Attributes:
+        bench_track: Track benchmark: ``A``, ``B`` hoặc ``C``.
+        cell: Ô của track A theo đầu vào: ``A-LB`` (có LiDAR và box), ``A-L`` (chỉ LiDAR),
+            ``A-0`` (không LiDAR, không box); track khác để trống.
+        scene_id: Cảnh của các run.
+        split_id: Split của các run; các run trong một nhóm phải cùng cảnh và split.
+        runs: ``run_id`` của các run cần so.
+    """
+
+    bench_track: BenchTrack
+    cell: Optional[BenchCell] = None
+    scene_id: str
+    split_id: str
+    runs: list[str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _check_cell(self) -> "BenchmarkEntry":
+        """Track A phải có ``cell``; track khác không có.
+
+        Raises:
+            ValueError: Nếu không thoả.
+        """
+        if (self.bench_track == "A") != (self.cell is not None):
+            raise ValueError("cell is required for bench_track A and only for it")
+        return self
+
+
+class BenchmarkCalibration(StrictModel):
+    """Một cấu hình train lặp lại với nhiều seed để đo độ dao động của PSNR (yêu cầu R8).
+
+    Độ lệch chuẩn σ của PSNR các run này đặt ngưỡng hoà của benchmark: ``max(0,3 dB, 2σ)``. Các
+    run phải cùng một cấu hình, chỉ khác ``seed``; tool không kiểm điều đó.
+
+    Attributes:
+        scene_id: Cảnh của các run.
+        split_id: Split của các run.
+        runs: ``run_id`` của các run, ít nhất hai.
+    """
+
+    scene_id: str
+    split_id: str
+    runs: list[str] = Field(min_length=2)
+
+
+class BenchmarkFile(VersionedFile):
+    """Schema của file định nghĩa benchmark ``benchmarks/<tên>.yaml``.
+
+    Attributes:
+        calibration: Các run lặp theo seed để hiệu chỉnh ngưỡng hoà (thêm từ
+            ``d2s-benchmark/0.2``); thiếu thì dùng ngưỡng mặc định.
+        entries: Các nhóm run được xếp hạng riêng.
+    """
+
+    FILE_KIND: ClassVar[str] = "benchmark"
+    calibration: Optional[BenchmarkCalibration] = None
+    entries: list[BenchmarkEntry] = Field(min_length=1)
+
+
+class BadSegment(StrictModel):
+    """Một đoạn đường bị hỏng (yêu cầu R7): nhiều ảnh test liền nhau thấp hơn hẳn trung vị.
+
+    Attributes:
+        start_m: Quãng đường từ ảnh test đầu tiên tới đầu đoạn, mét (đường gấp khúc qua vị trí
+            camera của các ảnh test).
+        end_m: Quãng đường tới cuối đoạn, mét.
+        num_frames: Số khung test liền nhau trong đoạn.
+        min_psnr: PSNR thấp nhất trong đoạn, dB.
+    """
+
+    start_m: float
+    end_m: float
+    num_frames: int
+    min_psnr: float
+
+
+class BenchmarkRunRow(StrictModel):
+    """Kết quả của một run trong một nhóm benchmark; trường nào chưa đo thì để trống.
+
+    Attributes:
+        run_id: Run.
+        approach_id: Approach của run.
+        rank: Thứ hạng trong nhóm, bắt đầu từ 1.
+        tied_with_best: ``True`` nếu PSNR kém run có Avg tốt nhất dưới ngưỡng ngang nhau (gồm
+            chính run đó).
+        psnr: PSNR trên tập test, dB.
+        ssim: SSIM.
+        lpips: LPIPS.
+        avg_error: Chỉ số Avg của Mip-NeRF, thấp là tốt.
+        psnr_pinhole: PSNR trung bình các camera pinhole (R5), nếu có.
+        psnr_fisheye: PSNR trung bình các camera fisheye (R5), nếu có.
+        shift_psnr: PSNR thô trên camera chỉ test (R2), nếu split có camera chỉ test.
+        shift_lpips: LPIPS thô trên camera chỉ test (R2).
+        shift_psnr_cc: PSNR sau chỉnh màu trên camera chỉ test (R2); số dùng để phân xử hoà.
+        shift_lpips_cc: LPIPS sau chỉnh màu trên camera chỉ test (R2).
+        shift_cameras: ``camera_id`` của các camera chỉ test; rỗng nếu split không có.
+        depth: Độ sâu render so với LiDAR (R4), nếu đã đo.
+        export_gap_db: Chênh PSNR giữa render gốc và render ``.ply`` (R3), nếu đã đo.
+        export_applicable: ``False`` khi approach không xuất được ``.ply`` nền tĩnh (R3 không áp
+            dụng, khác với chưa đo); ``True`` khi có xuất hoặc không biết.
+        ply_gaussians: Số Gaussian trong ``scene.ply``.
+        ply_size_mb: Dung lượng ``scene.ply``, megabyte.
+        train_time_s: Thời gian train, giây.
+        recon_time_s: Tổng thời gian dựng cảnh từ stage đầu tới khi xuất xong ``scene.ply``, giây
+            (R8).
+        peak_vram_mb: VRAM cao nhất khi train, megabyte.
+        render_fps: Tốc độ render, khung mỗi giây.
+        gpu: GPU đã chạy run.
+        distance_m: Quãng đường đường gấp khúc qua các khung test của camera đã train, mét (R6).
+        train_s_per_100m: Thời gian train chia cho ``distance_m / 100`` (R6); chỉ điền ở track B.
+        ply_mb_per_100m: Dung lượng ``scene.ply`` chia cho ``distance_m / 100`` (R6); chỉ track B.
+        ate_rmse_m: ATE do method tự báo (``mcgs_eval.json``), mét; không tính lại (R6).
+        bad_segments: Các đoạn đường hỏng (R7) theo nhóm camera, khoá ``pinhole`` hoặc ``fisheye``
+            (chỉ nhóm có ảnh test); chỉ tính trên camera đã train. Rỗng nếu không đo được.
+        frames_measured: Số cặp (khung, camera đã train) có metric từng ảnh; 0 nếu run chưa có.
+    """
+
+    run_id: str
+    approach_id: str
+    rank: int = Field(ge=1)
+    tied_with_best: bool
+    psnr: Optional[float] = None
+    ssim: Optional[float] = None
+    lpips: Optional[float] = None
+    avg_error: Optional[float] = None
+    psnr_pinhole: Optional[float] = None
+    psnr_fisheye: Optional[float] = None
+    shift_psnr: Optional[float] = None
+    shift_lpips: Optional[float] = None
+    shift_psnr_cc: Optional[float] = None
+    shift_lpips_cc: Optional[float] = None
+    shift_cameras: list[str] = []
+    depth: Optional[DepthMetrics] = None
+    export_gap_db: Optional[float] = None
+    export_applicable: bool = True
+    ply_gaussians: Optional[int] = None
+    ply_size_mb: Optional[float] = None
+    train_time_s: Optional[float] = None
+    recon_time_s: Optional[float] = None
+    peak_vram_mb: Optional[int] = None
+    render_fps: Optional[float] = None
+    gpu: Optional[str] = None
+    distance_m: Optional[float] = None
+    train_s_per_100m: Optional[float] = None
+    ply_mb_per_100m: Optional[float] = None
+    ate_rmse_m: Optional[float] = None
+    bad_segments: dict[str, list[BadSegment]] = {}
+    frames_measured: int = Field(default=0, ge=0)
+
+    @field_validator("bad_segments", mode="before")
+    @classmethod
+    def _upgrade_legacy_bad_segments(cls, value: object) -> object:
+        """Đổi danh sách chung của ``d2s-benchresult/0.1`` thành ``{"all": danh sách}``.
+
+        Từ ``0.2`` ``bad_segments`` tách theo nhóm camera; file cũ (cùng số major nên vẫn được
+        đọc) không biết nhóm nên dùng khoá ``all``, không phải ``pinhole`` hay ``fisheye``.
+        """
+        if isinstance(value, list):
+            return {"all": value} if value else {}
+        return value
+
+
+class BenchmarkGroup(StrictModel):
+    """Kết quả xếp hạng của một nhóm run.
+
+    Attributes:
+        bench_track: Track benchmark.
+        cell: Ô của track A, nếu có.
+        scene_id: Cảnh.
+        split_id: Split.
+        winner_run_id: Run thắng theo quy tắc chọn method; ``None`` nếu nhóm không có run nào có
+            kết quả đánh giá, hoặc các run ngang nhau không phân xử được (khác GPU, thiếu thời gian
+            train) hoặc đo bằng protocol không so được.
+        decided_by: Bước đã chọn người thắng: ``avg`` (chỉ một run ngang run tốt nhất), ``r2``,
+            ``r3`` hoặc ``train_time``; ``None`` khi không có người thắng (thêm từ
+            ``d2s-benchresult/0.2``).
+        rows: Các run, theo thứ hạng.
+        warnings: Cảnh báo khi so (khác máy, khác protocol, run chưa có kết quả).
+    """
+
+    bench_track: BenchTrack
+    cell: Optional[BenchCell] = None
+    scene_id: str
+    split_id: str
+    winner_run_id: Optional[str] = None
+    decided_by: Optional[Literal["avg", "r2", "r3", "train_time"]] = None
+    rows: list[BenchmarkRunRow]
+    warnings: list[str] = []
+
+
+class BenchmarkResult(VersionedFile):
+    """Schema của file kết quả benchmark, do ``d2s benchmark --out`` ghi.
+
+    Attributes:
+        tie_threshold_db: Ngưỡng PSNR coi hai run là ngang nhau, dB.
+        tie_threshold_source: ``calibration`` khi ngưỡng đo từ các run lặp theo seed của file định
+            nghĩa, ``default`` khi dùng ngưỡng mặc định 0,3 dB (thêm từ ``d2s-benchresult/0.2``).
+        warnings: Cảnh báo chung của cả benchmark, ví dụ không hiệu chỉnh được ngưỡng.
+        groups: Kết quả từng nhóm, theo thứ tự trong file định nghĩa.
+    """
+
+    FILE_KIND: ClassVar[str] = "benchresult"
+    tie_threshold_db: float
+    tie_threshold_source: Literal["default", "calibration"] = "default"
+    warnings: list[str] = []
+    groups: list[BenchmarkGroup]
+
+
 # Tra lớp schema theo loại file trong schema_version, dùng bởi files.load_any.
 MODELS_BY_KIND: dict[str, type] = {
     "manifest": Manifest,
@@ -1404,4 +1690,6 @@ MODELS_BY_KIND: dict[str, type] = {
     "preview": Preview,
     "job": JobSpec,
     "result": JobResult,
+    "benchmark": BenchmarkFile,
+    "benchresult": BenchmarkResult,
 }

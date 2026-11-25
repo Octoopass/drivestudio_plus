@@ -931,9 +931,24 @@ def list_runs(workdir: Workdir, scene_id: Optional[str] = None) -> list[RunRecor
 def summary_path(run_dir: Path) -> Path:
     """Trả về đường dẫn ``summary.json`` của một run (CONTRACTS mục 6.3).
 
-    ``eval.standard`` ghi file này vào thư mục của nó: ``d2s/stages/eval.standard/summary.json``.
+    Stage ``eval.standard`` (approach của DriveStudio) và ``eval.ncore`` (Instant NuRec) đều ghi
+    file này vào thư mục của mình, ví dụ ``d2s/stages/eval.standard/summary.json``. Run có đủ cả
+    hai thì ``eval.standard`` được ưu tiên; không có file nào thì trả đường dẫn của
+    ``eval.standard`` (file chưa tồn tại) để nơi gọi kiểm ``is_file``.
+
+    Args:
+        run_dir: Thư mục run.
+
+    Returns:
+        Đường dẫn ``summary.json`` của stage ``eval.*`` đã ghi file.
     """
-    return Path(run_dir) / D2S_DIR / "stages" / "eval.standard" / "summary.json"
+    stages_dir = Path(run_dir) / D2S_DIR / "stages"
+    default = stages_dir / "eval.standard" / "summary.json"
+    if default.is_file():
+        return default
+    for candidate in sorted(stages_dir.glob("eval.*/summary.json")):
+        return candidate
+    return default
 
 
 def load_summary(run_dir: Path) -> Optional[Summary]:

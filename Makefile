@@ -95,7 +95,7 @@ load_ports() {
 }
 endef
 
-.PHONY: help setup test test-py39 test-gpu lint format check types build studio dev demo demo-data down status clean
+.PHONY: help setup test test-py39 test-gpu lint format check types build studio dev demo demo-data down status clean vast-check vast-setup vast-push vast-run vast-status vast-pull
 
 help:
 	@echo "drive2sim — lệnh có sẵn:"
@@ -116,6 +116,8 @@ help:
 	@echo "  make down        # dừng tiến trình đang giữ cổng của Studio"
 	@echo "  make status      # xem cổng nào đang chạy"
 	@echo "  make clean       # xoá __pycache__, .pytest_cache, .ruff_cache"
+	@echo "  make vast-setup  # GPU thuê vast.ai (VAST_HOST=root@ip VAST_PORT=...): vast-check, vast-setup,"
+	@echo "                   # vast-push SCENE=<id>, vast-run ARGS='...', vast-status, vast-pull [RUN=<id>]"
 	@echo ""
 	@echo "  Tham số: API_PORT=$(API_PORT) WEB_PORT=$(WEB_PORT) WORKDIR=$(if $(WORKDIR),$(WORKDIR),<mặc định>) DEMO=$(DEMO)"
 
@@ -230,6 +232,19 @@ status:
 	  if port_busy "$$port"; then echo "[status] $$label :$$port ĐANG CHẠY (PID $$(port_owner "$$port"))"
 	  else echo "[status] $$label :$$port trống"; fi
 	done
+
+# GPU thuê vast.ai qua SSH + rsync (envs/vast.sh; ARCHITECTURE mục 2.17). Cần VAST_HOST, VAST_PORT.
+vast-check vast-setup vast-status:
+	@bash envs/vast.sh $(patsubst vast-%,%,$@)
+
+vast-push:
+	@bash envs/vast.sh push-scene "$(SCENE)"
+
+vast-run:
+	@bash envs/vast.sh run $(ARGS)
+
+vast-pull:
+	@bash envs/vast.sh pull $(RUN)
 
 clean:
 	@find drive2sim tests -type d -name __pycache__ -prune -exec rm -rf {} +

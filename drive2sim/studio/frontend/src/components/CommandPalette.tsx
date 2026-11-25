@@ -21,6 +21,7 @@ const PAGES: { key: string; route: Route }[] = [
   { key: "nav.menu.new_run", route: { page: "new" } },
   { key: "nav.menu.runs", route: { page: "runs" } },
   { key: "nav.menu.compare", route: { page: "compare" } },
+  { key: "nav.menu.benchmark", route: { page: "benchmark" } },
   { key: "nav.menu.viewer", route: { page: "viewer" } },
   { key: "nav.menu.storage", route: { page: "storage" } },
 ];

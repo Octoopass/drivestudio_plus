@@ -13,6 +13,7 @@ export type FrameRange = [unknown, unknown];
  * @minItems 1
  */
 export type Cameras = [string, ...string[]];
+export type TestOnlyCameras = string[];
 export type Train = [unknown, unknown][];
 export type Test = [unknown, unknown][];
 
@@ -28,6 +29,9 @@ export type Test = [unknown, unknown][];
  *     strategy: Chiến lược, ``every_nth_frame:N`` hoặc ``custom``.
  *     frame_range: Khung đầu và khung cuối của đoạn dùng, tính cả hai đầu.
  *     cameras: Các camera dùng trong split, không trùng.
+ *     test_only_cameras: Các camera chỉ xuất hiện ở ``test``, không bao giờ train (ví dụ
+ *         ``image_01`` của KITTI-360 để đo R2); tập con của ``cameras`` và luôn còn ít nhất một
+ *         camera train. Rỗng với split không có camera chỉ test.
  *     train: Các cặp ``[chỉ số khung, camera_id]`` để train.
  *     test: Các cặp ``[chỉ số khung, camera_id]`` để test; không cặp nào nằm ở cả hai phần.
  */
@@ -38,6 +42,7 @@ export interface Split {
   strategy: Strategy;
   frame_range: FrameRange;
   cameras: Cameras;
+  test_only_cameras?: TestOnlyCameras;
   train: Train;
   test: Test;
 }

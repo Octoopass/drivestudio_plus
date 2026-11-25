@@ -74,7 +74,12 @@ class SceneDataset(abc.ABC):
         raise NotImplementedError
 
     def get_aabb(self) -> Tensor:
-        if self.lidar_source is not None:
+        # drive2sim: data.lidar_source.aabb_from_cameras (train.drivestudio lidar=False) tính vùng
+        # cảnh từ vị trí camera dù LiDAR đã nạp (để đo depth lúc đánh giá), nên LiDAR không ảnh
+        # hưởng tới khởi tạo hay biên cảnh của run không dùng LiDAR.
+        lidar_cfg = self.data_cfg.get("lidar_source", None)
+        from_cameras = bool(lidar_cfg is not None and lidar_cfg.get("aabb_from_cameras", False))
+        if self.lidar_source is not None and not from_cameras:
             aabb = self.lidar_source.get_aabb()
         else:
             aabb = self.pixel_source.get_aabb()

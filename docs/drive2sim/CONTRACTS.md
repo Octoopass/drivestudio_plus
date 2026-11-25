@@ -116,18 +116,21 @@ available:
 
 ```json
 {
-  "schema_version": "d2s-split/0.1",
+  "schema_version": "d2s-split/0.2",
   "split_id": "every8_allcams",
   "scene_id": "nuscenes_scene-0061",
   "strategy": "every_nth_frame:8",
   "frame_range": [0, 38],
   "cameras": ["CAM_FRONT", "CAM_FRONT_LEFT", "CAM_FRONT_RIGHT"],
+  "test_only_cameras": [],
   "train": [[0, "CAM_FRONT"], [0, "CAM_FRONT_LEFT"], [1, "CAM_FRONT"]],
   "test":  [[8, "CAM_FRONT"], [8, "CAM_FRONT_LEFT"], [8, "CAM_FRONT_RIGHT"]]
 }
 ```
 
 Mỗi phần tử là cặp `[frame_index, camera_id]`. Một cặp không được nằm ở cả `train` và `test`.
+
+`test_only_cameras` (từ `d2s-split/0.2`, mặc định rỗng; file `0.1` vẫn đọc được): các camera chỉ có mặt ở `test`, không bao giờ train, để đo ảnh ở camera lệch khỏi quỹ đạo train (R2, ví dụ `image_01` của KITTI-360 so với `image_00`). Phải là tập con của `cameras` và không được bằng cả `cameras`. Tạo bằng `d2s split create ... --test-only-cameras image_01`.
 
 `strategy` lấy một trong:
 - `every_nth_frame:N`: các khung N, 2N, 3N… (tính từ khung đầu của `frame_range`) làm test cho mọi camera trong `cameras`; các khung còn lại, kể cả khung đầu, làm train. Trùng với `test_image_stride` của DriveStudio (`split_train_test` trong `drive2sim/recon/data/driving_dataset.py`).
@@ -255,6 +258,7 @@ stages:                            # chạy lần lượt; ${...} được thay 
       fastgs: "${options.fastgs}"
   - {stage: eval.standard}
   - {stage: export.ply_world}
+  - {stage: eval.ply}
 ```
 
 Ví dụ trên là dạng đích: stage `init.*` chưa có (ARCHITECTURE mục 4.3), nên `drive2sim/approaches/omnire.yaml` hiện chưa có mục `init`; video do `train.py` ghi, chưa có stage `render.videos`.
@@ -367,7 +371,7 @@ Riêng `train.*`: chạy tiếp bằng `checkpoint_resume.pth` (model, optimizer
 | `depth_prior` | Depth metric theo camera và khung, mỗi ảnh một file `.npy` `float32`, mét; kèm tên model trong `artifact.json` |
 | `points_init` | `points_init.npz`: `points` `float32[M,3]` trong hệ `world`, `colors` `uint8[M,3]`, `track_ids` (tuỳ chọn) |
 | `model` | Thư mục log của codebase; với DriveStudio có `checkpoint_final.pth`, `config.yaml`, `metrics/`, `videos/`, `train_stats.json`, `cameras.json` (mục 6.1). Codebase khác cung cấp kết quả qua định dạng chung của các stage sau |
-| `eval_report` | Thư mục chứa `summary.json` (mục 6.3) và metric gốc của codebase |
+| `eval_report` | Thư mục chứa `summary.json` (mục 6.3) và metric gốc của codebase; `eval.ply` cũng ghi `ply_gap.json` (mục 6.5) vào thư mục của nó với loại này, vì chưa stage nào đọc nó như đầu vào |
 | `videos` | Video MP4 H.264 |
 | `export_ply` | PLY 3DGS trong hệ `world` |
 | `preview` | Gói xem trước cho Spark (mục 7) |
@@ -404,8 +408,9 @@ runs/<scene_id>/<approach_id>/<run_id>/
         │   ├── log.txt                  # stdout và stderr của train.py
         │   ├── artifact.json
         │   └── done
-        ├── eval.standard/               # summary.json, artifact.json, done
-        └── export.ply_world/            # scene.ply, scene.json, cameras.json, artifact.json, done
+        ├── eval.standard/               # summary.json, frames.jsonl, artifact.json, done
+        ├── export.ply_world/            # scene.ply, scene.json, cameras.json, artifact.json, done
+        └── eval.ply/                    # ply_gap.json, background/scene.ply, artifact.json, done
 ```
 
 Gốc thư mục run chỉ có `d2s/`, nên file của tool không trùng tên với file của codebase.
@@ -473,6 +478,7 @@ Huỷ run (`d2s run cancel`, `POST /api/runs/{run_id}/cancel`) chỉ ghi file `c
 - `stages[].error` chỉ có khi stage `failed`, cùng hình dạng lỗi với API (mục 11.3). Traceback đầy đủ nằm trong `d2s/log.txt`.
 - `duration_s` là thời gian máy thực sự chạy stage trong run này. Stage bị ngắt (huỷ, lỗi, hết phiên Kaggle) rồi chạy tiếp thì **cộng dồn** thời gian mọi lần chạy; `peak_vram_mb` lấy lớn nhất qua các lần. Stage đã `succeeded` từ lần trước giữ nguyên số đo cũ.
 - Stage dùng lại kết quả cũ (cache hoặc file `done`) có `duration_s` và `peak_vram_mb` bằng 0. Khi dùng lại từ cache, `reused_duration_s` ghi thời gian của lần chạy gốc (đọc từ `artifact.json`, mục 5.3), để tổng thời gian dựng cảnh không phụ thuộc run nào chạy trước.
+- `lidar_usage` liệt kê stage **dùng LiDAR để train** (`Stage.lidar_used(params)`), không phải stage chỉ nạp LiDAR. `train.drivestudio` với tham số `lidar=false` (ô A-0 của benchmark, mục 6.5; chỉ `pvg`, `deformablegs`) không có trong danh sách: nền khởi tạo từ điểm ngẫu nhiên, không có loss depth so với LiDAR, vùng cảnh (aabb) tính từ vị trí camera. LiDAR vẫn được nạp để đo depth lúc đánh giá nên cảnh phải có LiDAR (cảnh không LiDAR vẫn bị khoá). Đặt bằng `--set train.drivestudio.lidar=false`.
 - `peak_vram_mb` do engine đo chỉ thấy bộ nhớ GPU của tiến trình engine, nên bằng 0 với stage chạy một tiến trình con (`prep.*`, `train.drivestudio`, `export.ply_world`). VRAM của train lấy từ `train_stats.json` qua `summary.json` (mục 6.3).
 - `approach.quick` là `true` với run chạy thử nhanh (`--quick`): mọi stage có tham số `num_iters` train 3000 iteration, trừ khi người dùng tự đặt `num_iters` bằng `--set`. Run này để kiểm tra approach chạy hết từ đầu tới cuối; metric không so được với run đủ iteration, nên Studio gắn nhãn "thử nhanh" và không đưa run này vào bảng so sánh.
 - Thay đổi từ `0.1`: thêm `created_utc`, `stages[].params`, `stages[].error`. Thay đổi từ `0.2`: thêm `approach.quick`, `stages[].reused_duration_s`; `duration_s` cộng dồn khi chạy tiếp. File `0.1`, `0.2` vẫn đọc được.
@@ -484,8 +490,8 @@ Tóm tắt metric theo protocol của SPEC mục 9, do `eval.standard` ghi vào 
 
 ```json
 {
-  "schema_version": "d2s-summary/0.4",
-  "protocol": {"version": "0.3", "image_dtype": "uint8", "resolution": "downscale_when_loading=[2, 2, 2], downscale=1",
+  "schema_version": "d2s-summary/0.7",
+  "protocol": {"version": "0.5", "image_dtype": "uint8", "resolution": "downscale_when_loading=[2, 2, 2], downscale=1",
                "lpips": {"net": "alex", "package": "torchmetrics", "package_version": "0.10.3"}},
   "split_id": "every8_allcams",
   "overall": {"psnr": 27.1, "ssim": 0.83, "lpips": 0.21,
@@ -497,11 +503,22 @@ Tóm tắt metric theo protocol của SPEC mục 9, do `eval.standard` ghi vào 
   "num_iters": 30000,
   "render_fps": 38.6,
   "render_resolution": "800x450",
-  "speedups": ["fastgs", "fastergs.fused_adam", "fastergs.fused_ssim"]
+  "speedups": ["fastgs", "fastergs.fused_adam", "fastergs.fused_ssim"],
+  "depth": {"abs_rel": 0.12, "rmse": 3.4, "delta_1_25": 0.93},
+  "shifted": {"cameras": ["image_01"], "num_images": 24, "psnr": 21.4, "ssim": 0.71, "lpips": 0.31,
+              "psnr_cc": 23.1, "lpips_cc": 0.27}
 }
 ```
 
 Các con số trong ví dụ chỉ minh hoạ định dạng. Metric vùng người, vùng xe chỉ có khi cảnh có box.
+
+- `shifted` (từ `d2s-summary/0.7`, protocol `0.5`): metric trên camera chỉ test của split (`Split.test_only_cameras`, mục 3.1), yêu cầu R2 của benchmark; để trống khi split không có camera chỉ test. `cameras` là `camera_id` của các camera đó, `num_images` số ảnh test đã đo; `psnr`, `ssim`, `lpips` là trung bình theo ảnh cùng cách đo như `overall`; `psnr_cc`, `lpips_cc` đo sau khi khớp cho **mỗi ảnh** một phép affine màu 3×4 (bình phương tối thiểu trên điểm hợp lệ, `drive2sim/recon/rendering/color_match.py`) giữa render và ảnh thật, vì camera chưa train không có ma trận chỉnh màu học được; ảnh có phép khớp suy biến (gần như một màu, dưới 100 điểm hợp lệ) bị bỏ khỏi trung bình sau chỉnh màu. Bản sau chỉnh màu là số để phân xử hoà (mục 6.5).
+- Khi split có camera chỉ test, `overall.psnr`, `ssim`, `lpips` chỉ tính trên các ảnh test của **camera đã train** (R1), lấy từ `frames.jsonl`; các metric vùng (`human_psnr`, `vehicle_psnr`, `dynamic_psnr`, `occupied_psnr`) và `per_camera` giữ số của DriveStudio, gồm cả camera chỉ test. Split không có camera chỉ test thì `overall` y như protocol `0.4`. Thiếu `frames.jsonl` mà split có camera chỉ test là lỗi.
+- Protocol `0.5` chỉ thêm `shifted` và ba khoá của `frames.jsonl` (`psnr_cc`, `lpips_cc`, `psnr_static`, bên dưới); cách tính PSNR, SSIM, LPIPS trên camera đã train không đổi so với `0.4`, nên số hai protocol so được với nhau. `eval.standard` coi file `frames.jsonl` không có `psnr_cc` là do code đo cũ và đo lại từ checkpoint nếu còn.
+
+- `depth` (từ `d2s-summary/0.6`, protocol `0.4`): độ sâu render so với độ sâu LiDAR trên ảnh test, yêu cầu R4 của benchmark. Chỉ đo ở điểm ảnh có tia LiDAR trúng (`lidar_depth_map` của loader, cùng đại lượng với loss depth), hợp lệ và có độ sâu render dương; ảnh có dưới 50 điểm như vậy bị bỏ; mỗi ảnh có trọng số bằng nhau. `abs_rel` = trung bình `|pred − lidar| / lidar`, `rmse` tính bằng mét, `delta_1_25` = tỉ lệ điểm có `max(pred/lidar, lidar/pred) < 1,25`. Để trống khi cảnh không có LiDAR hoặc run đo bằng protocol cũ. Chưa chạy thật trên GPU (mục 7.1 của ARCHITECTURE).
+- `d2s/stages/eval.standard/frames.jsonl` (từ protocol `0.4`): mỗi dòng một JSON là metric của một ảnh test: `frame_index` (khung trong timeline của camera), `camera_index` (vị trí camera trong manifest), `time` (thời gian chuẩn hoá, có thể `null`), `position` (toạ độ camera trong hệ thế giới của cảnh, mét), `psnr`, `ssim`, `lpips`, `psnr_cc` và `lpips_cc` (sau chỉnh màu affine, từ protocol `0.5`; `null` khi phép khớp màu suy biến), `psnr_static` (từ protocol `0.5`: PSNR trên vùng nền tĩnh = hợp lệ, không phải trời, ngoài hình chiếu box vật động; `null` khi không còn điểm nào; stage `eval.ply` dùng làm số của render gốc), `depth` (`abs_rel`, `rmse`, `delta_1_25`, `num_points`, hoặc `null`). `d2s benchmark` dùng file này để tìm đoạn đường hỏng. Run đo bằng protocol 0.3 trở xuống không có file này; `eval.standard` đo lại từ checkpoint nếu còn (mục 6.3 phía trên).
+- Protocol `0.4` không đổi cách tính PSNR, SSIM, LPIPS so với `0.3`, chỉ thêm `depth` và `frames.jsonl`, nên số của hai protocol so được với nhau. `eval.ncore` (Instant NuRec) và `eval.mcgs` (MCGS-SLAM) ghi `protocol.version` là `ncore-0.3` vì SSIM và vùng hợp lệ của chúng khác (cùng script `ncore_eval_render.py`); `eval.mcgs` còn ghi `frames.jsonl` (không có `depth`); `d2s benchmark` cảnh báo khi một nhóm trộn các protocol khác nhau.
 
 - Cách đo (`protocol.version` `0.3`): cuối `train.py`, sau bước train cuối, model vẽ lại mọi ảnh của tập test; ảnh render được làm tròn về 8 bit như ảnh gốc rồi so với ảnh camera từng ảnh một, sau đó lấy trung bình. PSNR là `−10·log10(MSE)`; SSIM dùng `skimage.metrics.structural_similarity`; LPIPS dùng `torchmetrics` với backbone `alex`. Khi loader đánh dấu điểm ảnh không hợp lệ (`valid_masks`: mắt cá ngoài vùng nhìn dùng được, thân xe), cả ba metric chỉ xét điểm ảnh hợp lệ: PSNR trên các điểm đó, SSIM lấy trung bình bản đồ SSIM trên các điểm đó, LPIPS đo trên khung bao vùng hợp lệ với ảnh gốc dán vào điểm không hợp lệ (điểm không hợp lệ còn lại trong khung, như góc ảnh mắt cá, vẫn làm LPIPS loãng đi một chút). Ảnh không có điểm hợp lệ nào bị bỏ qua. `eval.standard` chỉ đọc kết quả này, không đo lại. Thay đổi từ `0.1`: `0.1` so ảnh render ở dạng số thực. Thay đổi từ `0.2`: `0.2` tính SSIM, LPIPS trên toàn ảnh sau khi tô đen vùng không hợp lệ ở cả hai ảnh, nên vùng đó được tính là khớp hoàn toàn và SSIM, LPIPS của camera có `valid_masks` tốt hơn thực tế; thêm metric theo camera. Hai run khác protocol không so SSIM, LPIPS của các camera này với nhau.
 - Metric theo vùng (lấy từ metric test của DriveStudio): `human_psnr` vùng người (gồm cả xe đạp, xe máy vì người ngồi trên đó đổi dáng), `vehicle_psnr` vùng xe, `dynamic_psnr` vùng mọi vật động (`masked_psnr` của DriveStudio), `occupied_psnr` vùng **không phải bầu trời** (`Non-Sky PSNR`, không phải vùng vật động). Vùng người, xe, vật động là hình chữ nhật bao quanh box 3D chiếu lên ảnh.
@@ -542,6 +559,74 @@ Các giá trị trong ví dụ chỉ minh hoạ định dạng. Trường nào k
 - `machines`: các máy đã chạy run theo thứ tự; chạy tiếp trên máy có cấu hình khác (ví dụ phiên Kaggle mới được cấp GPU khác) thì thêm một máy. `gpu` ở ngoài là GPU của máy chạy gần nhất.
 - Cách đọc, không cần nạp PyTorch: CPU từ `/proc/cpuinfo`, RAM từ `/proc/meminfo`, GPU (tên, VRAM, driver, số GPU) từ `nvidia-smi`; phiên bản `pytorch`, `gsplat` từ metadata gói đã cài, `cuda` từ đuôi phiên bản PyTorch (`+cu117` → `11.7`).
 - Thay đổi từ `0.1`: thêm `machines`; các trường phiên bản và `gpu` ghi lúc chạy thay vì lúc tạo run. Thay đổi từ `0.2`: mỗi máy có thêm `stages`, các stage đã thật sự chạy trên máy đó (stage dùng lại kết quả cũ không tính); `same_machine` bỏ qua trường này. Báo cáo lấy GPU của máy đã chạy stage `train.*` (run train trên Kaggle rồi xuất lại gói xem trước trên máy cá nhân không thành "nhiều GPU"); `env.json` cũ chưa có `stages` thì gộp mọi máy. Các trường cấp trên (`gpu`, `executor`, phiên bản) là của lần chạy gần nhất.
+
+### 6.5 Benchmark: `benchmarks/<tên>.yaml` và kết quả
+
+Benchmark so các run đã có kết quả (thiết kế ở báo cáo tuần 03 mục 4.2, yêu cầu R1–R8). File định nghĩa nằm trong thư mục làm việc, do người viết tay; mỗi mục là một nhóm run được xếp hạng với nhau. `bench_track` là track của benchmark (`A` dựng từng cảnh, `B` quãng đường dài, `C` feed-forward), **không phải** loại camera pinhole hay fisheye. Track `A` bắt buộc có `cell`: `A-LB` (có LiDAR và box), `A-L` (chỉ LiDAR), `A-0` (không cả hai); track khác không có `cell`. Mọi run trong một mục phải cùng cảnh và split.
+
+```yaml
+schema_version: d2s-benchmark/0.2
+calibration:                      # tuỳ chọn: một cấu hình train lặp theo seed, đo σ của PSNR
+  scene_id: kitti360_drive-0003
+  split_id: every10_front2
+  runs: [20261124-090000-pvg-s0s0, 20261124-091500-pvg-s1s1, 20261124-093000-pvg-s2s2]
+entries:
+  - bench_track: A
+    cell: A-L
+    scene_id: kitti360_drive-0003
+    split_id: every10_front2
+    runs: [20261124-101500-pvg-a1b2, 20261124-103000-deformablegs-c3d4]
+```
+
+`d2s benchmark <file> [--out <kết quả.json>]` đọc các file kết quả đã có của run (không chạy GPU) và ghi `d2s-benchresult`:
+
+```json
+{
+  "schema_version": "d2s-benchresult/0.2",
+  "tie_threshold_db": 0.3,
+  "tie_threshold_source": "default",
+  "warnings": [],
+  "groups": [
+    {
+      "bench_track": "A",
+      "cell": "A-L",
+      "scene_id": "kitti360_drive-0003",
+      "split_id": "every10_front2",
+      "winner_run_id": "20261124-103000-deformablegs-c3d4",
+      "decided_by": "train_time",
+      "rows": [
+        {"run_id": "20261124-103000-deformablegs-c3d4", "approach_id": "deformablegs", "rank": 1,
+         "tied_with_best": true, "psnr": 24.8, "ssim": 0.78, "lpips": 0.26, "avg_error": 0.0405,
+         "psnr_pinhole": 24.8,
+         "shift_psnr": 21.9, "shift_lpips": 0.31, "shift_psnr_cc": 23.4, "shift_lpips_cc": 0.27,
+         "shift_cameras": ["image_01"],
+         "depth": {"abs_rel": 0.12, "rmse": 3.4, "delta_1_25": 0.93},
+         "export_gap_db": 0.4, "export_applicable": true,
+         "ply_gaussians": 640000, "ply_size_mb": 151.2, "train_time_s": 5400, "recon_time_s": 6100,
+         "peak_vram_mb": 6100, "render_fps": 41.0, "gpu": "NVIDIA GeForce RTX 4090",
+         "distance_m": 480.0, "train_s_per_100m": null, "ply_mb_per_100m": null,
+         "ate_rmse_m": null,
+         "bad_segments": {"pinhole": [{"start_m": 60.0, "end_m": 100.0, "num_frames": 5,
+                                       "min_psnr": 19.5}]},
+         "frames_measured": 20}
+      ],
+      "warnings": []
+    }
+  ]
+}
+```
+
+Các con số trong ví dụ chỉ minh hoạ định dạng. Quy tắc:
+- **Xếp hạng trong nhóm** theo Avg của Mip-NeRF (mục 6.3; thấp là tốt). Run kém run có Avg tốt nhất dưới `tie_threshold_db` (mặc định 0,3 dB PSNR) được coi là **ngang** (`tied_with_best`, gồm cả chính run tốt nhất); tập run ngang xác định **một lần**, so với run có Avg tốt nhất. Trong tập ngang phân xử lần lượt: (1) R2, `shifted.psnr_cc` cao hơn, chênh dưới ngưỡng hoà coi như bằng; (2) R3, `export_gap_db` nhỏ hơn, chênh dưới 0,3 dB coi như bằng; (3) thời gian train ngắn hơn, **chỉ khi mọi run còn lại cùng GPU**. Một bước mà có run trong tập chưa đo hoặc không áp dụng thì bị bỏ qua cho cả tập (R3 không áp dụng cho method không xuất được `.ply`). `winner_run_id` là run thắng và `decided_by` là bước đã chọn nó (`avg` nếu chỉ một run ngang run tốt nhất, `r2`, `r3`, `train_time`); `winner_run_id` là `null` (kèm `warnings`) khi không run nào có kết quả, khi các run ngang nhau mà khác GPU hoặc thiếu thời gian train, hoặc khi các run đo bằng protocol không so được (`0.3`, `0.4`, `0.5` so được với nhau; `ncore-0.3` thì không), lúc đó chỉ liệt kê theo Avg. Lệch làn (KID) chưa đo nên chưa xét. R4, R6, R7 báo kèm, không đổi thứ hạng.
+- **Ngưỡng hoà** (R8): mặc định 0,3 dB. Khối `calibration` của file định nghĩa (từ `d2s-benchmark/0.2`) liệt kê ít nhất hai run **cùng một cấu hình, chỉ khác `seed`** (tool không kiểm điều đó); ngưỡng là `max(0,3 dB, 2σ)` với σ là độ lệch chuẩn mẫu của PSNR các run đó, tính một lần và dùng cho mọi nhóm, `tie_threshold_source` là `calibration`. Dưới hai run có kết quả thì dùng 0,3 dB (`tie_threshold_source` là `default`) kèm cảnh báo ở `warnings` của kết quả, không lỗi; run hiệu chỉnh không tồn tại thì lỗi. Hiệu chỉnh một lần (một cấu hình × 3 seed trên KITTI-360 A1), không lặp mỗi benchmark.
+- **R2** (`shift_*`, từ `d2s-benchresult/0.2`): đọc từ `summary.json` khối `shifted` (mục 6.3), trên camera chỉ test của split. `shift_psnr_cc` là số phân xử hoà thứ nhất. Để trống khi split không có camera chỉ test hoặc run đo bằng protocol dưới `0.5`.
+- **Đoạn đường hỏng** (R7, chỉ chẩn đoán, không vào xếp hạng): PSNR một khung test là trung bình các camera của khung **trong cùng nhóm camera**; `bad_segments` có khoá `pinhole` và `fisheye` (nhóm theo `model` trong manifest; chỉ nhóm có ảnh), mỗi khoá là danh sách đoạn hỏng của nhóm. Đoạn hỏng là từ 5 khung test liền nhau trở lên, mỗi khung thấp hơn trung vị của nhóm quá 2 dB. Ảnh của camera chỉ test bị bỏ (PSNR thấp hơn hẳn và vị trí lệch khỏi quỹ đạo, sẽ làm lệch trung vị và quãng đường). `start_m`, `end_m` là quãng đường dọc đường gấp khúc qua vị trí camera của các khung test (giữa hai khung test liền nhau là khung train nên đường thực dài hơn một chút). Cần `frames.jsonl` (mục 6.3); `frames_measured` (số cặp khung-camera đã train có metric) bằng 0 nghĩa là chưa đo, không phải không có đoạn hỏng. Trước `0.2`, `bad_segments` là một danh sách chung cho mọi camera; file `0.1` vẫn đọc được, danh sách đó thành khoá `all`.
+- `psnr_pinhole`, `psnr_fisheye`: trung bình PSNR theo camera **đã train**, nhóm camera theo `model` trong manifest (`opencv_fisheye`, `ftheta` là fisheye); camera chỉ test bị bỏ (số của nó nằm ở `shift_*`). Chiều báo cáo, không xếp hạng.
+- `export_gap_db` (R3) đọc từ `d2s/stages/eval.ply/ply_gap.json` nếu có. Stage `eval.ply` (`drive2sim/stages/eval/ply.py`; stage cuối của các approach xuất `.ply`, sau `export.ply_world` và `export.preview`, để một lỗi chưa gặp của stage mới không làm mất gói xem trước) xuất một `.ply` **chỉ nền tĩnh** (`export_ply.py --rigid_frame -1`, ở `eval.ply/background/scene.ply`), vẽ nó bằng renderer 3DGS chung (gsplat: 3DGS cho camera pinhole, 3DGUT cho camera còn lại, bất kể model train bằng renderer nào) ở các ảnh test của **camera đã train**, rồi so với ảnh thật trên **cùng mask** với render gốc: điểm ảnh hợp lệ, không phải trời, ngoài hình chiếu box vật động (không có box thì chỉ bỏ trời). PSNR của render gốc lấy từ `psnr_static` trong `frames.jsonl` (mục 6.3, protocol `0.5`; thiếu khoá này stage báo lỗi trước khi dùng GPU). `ply_gap.json`: `export_gap_db` = PSNR render gốc trừ PSNR render `.ply` (trung bình theo ảnh, trên các ảnh có cả hai; dương là `.ply` kém hơn), `native_psnr`, `ply_psnr`, `num_images`, `mask`, `per_group` (cùng bốn số cho `pinhole`, `fisheye`), `ply_gaussians`, `ply_size_mb`. Phần mất đi gồm Gaussian mờ bị lọc khi xuất, không có ma trận chỉnh màu từng ảnh (`AffineTransform`), và chênh lệch giữa renderer lúc train với renderer chung. Chưa chạy thật trên GPU. `export_applicable` là `false` khi danh sách stage của run (`run.json`) không có `export.ply_world` hay `export.nurec_ply`, tức method không xuất được `.ply` nền tĩnh (như SLAM dạng anchor và MLP): R3 **không áp dụng**, khác với chưa đo (`export_gap_db` trống, `export_applicable` `true`).
+- **R6** (track B): `distance_m` là độ dài đường gấp khúc qua các khung test của camera đã train; `train_s_per_100m` và `ply_mb_per_100m` là thời gian train và dung lượng `scene.ply` chia cho `distance_m / 100`, chỉ điền ở track `B` khi `distance_m > 0`. `ate_rmse_m` là ATE do method tự báo (`mcgs_eval.json` cạnh `summary.json`), không tính lại. Chưa có: PSNR quanh chỗ nối chunk (làm khi có run chunk đầu tiên).
+- **R8**: `train_time_s`, `recon_time_s` (tổng thời gian dựng cảnh tới khi xuất xong `scene.ply`), `peak_vram_mb`, `render_fps`, `gpu`. Chỉ so được giữa run cùng loại GPU; khác GPU thì bước phân xử thời gian train không chạy.
+- Trường để trống nghĩa là **chưa đo**. Chưa đo: KID khi lệch làn (R2, hoãn), PSNR quanh chỗ nối chunk (R6). Chủ ý **không đo**: `ghost_ratio` (chưa có định nghĩa, chỉ có nghĩa với method tách lớp nền và vật động), `static_psnr` như tiêu chí xếp hạng (R3 dùng PSNR nền tĩnh nhưng chỉ để tính export gap), ATE tự tính (chỉ method tự ước lượng pose có; ghi số do method báo), "kết quả xác định" (thay bằng một lần đo dao động theo seed để đặt ngưỡng hoà). Lý do ở ARCHITECTURE mục 2.17.
+- `warnings` nêu khi nhóm không so được trực tiếp: run chưa có kết quả, GPU khác nhau (thời gian, VRAM, FPS), protocol không so được, các run ngang nhau mà không phân xử được.
 
 ## 7. Gói xem trước
 
@@ -843,7 +928,7 @@ Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dà
 | `d2s scene delete <scene_id>` | Xoá dữ liệu chuẩn, split, cache và run của cảnh; hỏi xác nhận |
 | `d2s scene rig <scene_id>` | Ghi `reports/rig.json` (mục 3.3) cho cảnh đã ingest, rồi kiểm tra lại; cần PyTorch |
 | `d2s scene lidar-check <scene_id>` | Chiếu LiDAR lên ảnh, ghi `reports/lidar_check.json`, `reports/lidar_overlay/` (mục 3.4) rồi kiểm tra lại; mã thoát 1 khi có cảnh báo `projection.*`; cần PyTorch và ảnh trên máy |
-| `d2s split create <scene_id> --strategy every_nth_frame:8 [--cameras <id,...>] [--frame-range <đầu>,<cuối>] [--split <split_id>]` | Tạo split; mặc định mọi camera và cả cảnh, tên theo mục 10.1 |
+| `d2s split create <scene_id> --strategy every_nth_frame:8 [--cameras <id,...>] [--frame-range <đầu>,<cuối>] [--test-only-cameras <id,...>] [--split <split_id>]` | Tạo split; mặc định mọi camera và cả cảnh, tên theo mục 10.1. `--test-only-cameras` (từ `d2s-split/0.2`) là camera chỉ test, không train (mục 3.1), phải nằm trong cảnh; nên đặt `--split` riêng vì tên mặc định trùng split cùng camera mà train hết. API Studio (`POST .../splits`) chưa nhận trường này |
 | `d2s split list <scene_id>` / `d2s split show <scene_id> <split_id>` / `d2s split delete <scene_id> <split_id>` | Liệt kê, xem, xoá split |
 | `d2s approach list` / `d2s approach show <approach_id>` | Liệt kê approach; xem mục cấu hình, preset, ràng buộc |
 | `d2s approach check <approach_id> --scene <scene_id> --split <split_id> [--preset <tên>] [--set <mục>=<giá trị>]... [--quick]` | Kiểm tra điều kiện và in danh sách stage sẽ chạy, stage nào dùng lại cache; cảnh ingest bằng converter cũ (mục 2.2) thì in cảnh báo ra stderr, không chặn (`run start` cũng vậy) |
@@ -857,6 +942,7 @@ Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dà
 | `d2s colab push <run_id> [--branch <branch>] [--gpu <GPU>] [--session <tên>]` / `d2s colab status <run_id>` / `d2s colab logs <run_id> [--follow]` / `d2s colab pull <run_id> [--keep-session]` / `d2s colab stop <run_id>` | Chạy run trên VM Colab (mục 9.3): đẩy và chạy job tách khỏi kết nối, xem trạng thái và log cuối, đọc log tới khi xong, tải kết quả về (run xong thì tắt phiên), tắt phiên; `push` do `run start --executor colab` tự gọi |
 | `d2s colab account list` / `d2s colab account use <email>` / `d2s colab account forget <email>` / `d2s colab account login` / `d2s colab update` | Tài khoản Google của lệnh `colab` (mục 9.3): liệt kê (dấu `*` là tài khoản đang dùng), chuyển, bỏ khỏi danh sách, thêm (in đường dẫn đăng nhập Google rồi hỏi mã xác thực trong terminal); cập nhật google-colab-cli |
 | `d2s report <run_id>...` | Bảng so sánh nhiều run |
+| `d2s benchmark <file.yaml> [--out <file.json>]` | Bảng benchmark theo file định nghĩa (mục 6.5): xếp hạng từng nhóm run, chọn run thắng, liệt kê đoạn đường hỏng; chỉ đọc file kết quả của run, không chạy GPU |
 | `d2s pack <run_id>... --output <file.tar> [--dry-run]` | Gói đầy đủ các run đã chọn, gồm mọi checkpoint, cảnh chuẩn và cache được tham chiếu. `--dry-run` chỉ kiểm kê đường dẫn và dung lượng. Không ghi đè file có sẵn, không gói run đang chạy. Kèm mô hình SMPL cần thiết tại smpl_models/SMPL_NEUTRAL.pkl; bỏ view/viewer tạm có thể dựng lại và thông tin đăng nhập; không lấy dữ liệu gốc ngoài cảnh chuẩn. |
 | `d2s export ply <run_id>` / `d2s export preview <run_id>` | Chạy lại stage export cho một run |
 | `d2s cache list [--scene <scene_id>]` / `d2s cache gc [--scene <scene_id>]` | Xem, dọn cache |
@@ -960,6 +1046,7 @@ Route đã có (`drive2sim/studio/api/routes/`):
 | `POST /api/kaggle/setup/token` | Thân: `token`, `username` (chỉ với khoá kiểu cũ), `replace`. Ghi khoá vào đúng chỗ Kaggle CLI đọc, quyền `600`: token `KGAT_...` vào `~/.kaggle/access_token` (CLI không theo `KAGGLE_CONFIG_DIR` với token mới), khoá cũ vào `kaggle.json` của thư mục cấu hình (`KAGGLE_CONFIG_DIR`, `~/.kaggle`, hoặc `~/.config/kaggle` trên Linux khi chưa có `~/.kaggle`). Trả `kind`, `path`, `note` (khác `null` khi biến `KAGGLE_API_TOKEN` hoặc token mới được CLI đọc trước khoá vừa lưu). Không trả lại khoá; khoá sai dạng `400`, đã có khoá mà `replace` là `false` thì `409` | |
 | `GET /api/studio` | `{"workdir", "demo"}`: thư mục làm việc, và `demo` là `true` khi đó là thư mục dữ liệu mẫu (có file `DEMO`, do `drive2sim/scripts/make_demo.py` tạo); Studio hiện nhãn "Dữ liệu mẫu" | |
 | `GET /api/report` | Bảng so sánh (lọc `scene_id`, `split_id`, `run_id` lặp lại được); mỗi dòng có `train_params` (như `GET /api/runs`), `preset` (tên preset của run, hoặc `null`), metric của `summary.json`, `avg_error` (chỉ số gộp của Mip-NeRF: trung bình nhân của `10^(−PSNR/10)`, `√(1 − SSIM)`, LPIPS; thấp là tốt), cờ `quick`, `num_iters`, `train_resolution` (cỡ ảnh lúc train và đánh giá, `render_resolution` của `summary.json`, ví dụ `800x450`), `source_resolution` (cỡ ảnh gốc của camera trong split theo manifest, ví dụ `1600x900`; nhiều cỡ nối bằng ` / `), `train_images`, `test_images` (số ảnh, tức cặp khung–camera, của phần train và test trong split), `test_every` (N của split `every_nth_frame:N`, `null` với split khác), `train_time_s` (train thực), `recon_time_s` (tổng thời gian các stage từ đầu tới khi xuất xong `scene.ply`, stage dùng lại cache tính thời gian gốc), `render_fps`, `num_gaussians` (cả model), `ply_gaussians` và `ply_size_mb` (của `scene.ply`), `preview_gaussians` và `preview_size_mb` (tổng mọi file của gói xem trước), `occupied_psnr`, `gpu`, `software` (phiên bản PyTorch và gsplat từ `env.json`, ví dụ `PyTorch 2.4.1+cu121, gsplat 1.5.3`), và `stage_times` (`stage_id` → `{"seconds", "reused"}`, stage dùng lại cache tính thời gian gốc; không có trong CSV); `?format=csv` để xuất | `report` |
+| `GET /api/benchmarks`, `GET /api/benchmarks/{name}` | Liệt kê file định nghĩa `benchmarks/<tên>.yaml` trong thư mục làm việc (`{items: [{name}], total}`, rỗng khi chưa có thư mục); xem một benchmark: trả `d2s-benchresult` (mục 6.5) do `run_benchmark` dựng, giống `d2s benchmark` nhưng không ghi file. Chỉ đọc file kết quả, không chạy GPU, tính lại mỗi lần gọi. `name` không có đuôi `.yaml`, chỉ gồm chữ, số, `_`, `-`, `.` và không bắt đầu bằng `.` (sai thì `400`); không có file thì `404`; file sai schema hoặc run không hợp lệ thì `400` kèm thông báo | `benchmarks` |
 | `POST /api/sources/inspect` | Thân `{"path"}`; kết quả nhận dạng như `source inspect --json`; `404` nếu không có thư mục | `source inspect` |
 | `POST /api/sources/ingest` | Thân `path`, `source_type`, `version`, `sequence`, `scene_id`, `interpolate_n`; chọn chuỗi ngay (`400` kèm các lựa chọn nếu thiếu), rồi ingest nền; trả `202` kèm việc | `scene ingest` |
 | `GET /api/jobs`, `GET /api/jobs/{job_id}` | Việc nền (ingest, đẩy và tải Kaggle, Colab): `job_id`, `kind` (`ingest`, `kaggle_push`, `kaggle_pull`, `colab_push`, `colab_pull`, `colab_update`, `colab_session`, `drive_pull`), `label`, `status` (`queued`, `running`, `succeeded`, `failed`), `result` (`scene_id` hoặc `run_id`; `drive_pull` là thư mục đã tải), `error`, `progress` (`null` hoặc `{"done", "total", "detail", "at", "first"}` với việc biết tiến độ, hiện là `drive_pull` tính theo byte; `first` là phần đã có lúc bắt đầu, giao diện tính tốc độ và thời gian còn lại từ `started_at`, `at` và phần làm thêm), `created_at`, `started_at`, `finished_at`; giữ trong bộ nhớ tới khi tắt Studio. Tắt Studio (Ctrl+C) thoát ngay: lệnh `kaggle`, `colab` đang chạy bị dừng (việc thành `failed`, lỗi "dừng vì tắt Studio"; tải dở không ghép gì vào run), run đang chạy trên máy bị huỷ như nút huỷ (chạy tiếp được), ingest đang chạy vẫn chờ xong | |

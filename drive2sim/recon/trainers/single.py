@@ -89,8 +89,16 @@ class SingleTrainer(BasicTrainer):
                         **init_cfg.from_lidar, device=self.device
                     )
                 else:
-                    sampled_pts, sampled_color, sampled_time = \
-                        torch.empty(0, 3).to(self.device), torch.empty(0, 3).to(self.device), None
+                    # drive2sim: no LiDAR init (train.drivestudio lidar=False). PVG needs a time
+                    # for every point, so start from an empty (0, 1) tensor; the random points
+                    # added below then get time 0, as they do next to LiDAR points.
+                    sampled_pts, sampled_color = (
+                        torch.empty(0, 3).to(self.device), torch.empty(0, 3).to(self.device)
+                    )
+                    sampled_time = (
+                        torch.empty(0, 1).to(self.device)
+                        if isinstance(model, PeriodicVibrationGaussians) else None
+                    )
                 
                 random_pts = []
                 num_near_pts = init_cfg.get('near_randoms', 0)

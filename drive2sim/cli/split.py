@@ -36,6 +36,11 @@ def register(
     create.add_argument("scene_id")
     create.add_argument("--strategy", required=True, help="ví dụ every_nth_frame:8")
     create.add_argument("--cameras", help="camera_id cách nhau bằng dấu phẩy; mặc định mọi camera")
+    create.add_argument(
+        "--test-only-cameras",
+        help="camera_id chỉ test, không train (đo R2), cách nhau bằng dấu phẩy; "
+        "phải nằm trong --cameras",
+    )
     create.add_argument("--frame-range", help="khung đầu,khung cuối; mặc định cả cảnh")
     create.add_argument("--split", dest="split_id", help="tên split; mặc định theo CONTRACTS 10.1")
     create.set_defaults(handler=create_split)
@@ -74,7 +79,7 @@ def create_split(args: argparse.Namespace) -> int:
 
     Args:
         args: Tham số dòng lệnh: ``scene_id``, ``strategy``, ``cameras``, ``frame_range``,
-            ``split_id``.
+            ``split_id``, ``test_only_cameras``.
 
     Returns:
         Mã thoát ``0``.
@@ -92,6 +97,9 @@ def create_split(args: argparse.Namespace) -> int:
             cameras=args.cameras.split(",") if args.cameras else None,
             frame_range=_parse_frame_range(args.frame_range),
             split_id=args.split_id,
+            test_only_cameras=(
+                args.test_only_cameras.split(",") if args.test_only_cameras else None
+            ),
         )
     except scenes.SplitError as error:
         raise UsageError(str(error)) from None

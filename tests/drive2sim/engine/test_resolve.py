@@ -343,3 +343,17 @@ def test_real_approaches_blocked_without_lidar() -> None:
     with_lidar = Manifest.model_validate(MANIFEST)
     plan = resolve(load_approach("omnire"), with_lidar, split)
     assert plan.lidar_usage == ["train.drivestudio"]
+
+
+def test_lidar_off_run_has_empty_lidar_usage_but_scene_still_needs_lidar() -> None:
+    """Ô A-0: train không dùng LiDAR nên ``lidar_usage`` rỗng; LiDAR vẫn nạp để đo depth."""
+    load_builtin_stages()
+    split = Split.model_validate(SPLIT)
+    approach = load_approach("pvg")
+    off = {"train.drivestudio": {"lidar": False}}
+    plan = resolve(approach, Manifest.model_validate(MANIFEST), split, stage_params=off)
+    assert plan.lidar_usage == []
+    default = resolve(approach, Manifest.model_validate(MANIFEST), split)
+    assert default.lidar_usage == ["train.drivestudio"]
+    with pytest.raises(BlockedError):  # cảnh không có LiDAR vẫn bị khoá
+        resolve(approach, Manifest.model_validate(no_lidar_manifest()), split, stage_params=off)

@@ -11,6 +11,7 @@ import {
   Languages,
   LayoutDashboard,
   ListChecks,
+  ListOrdered,
   Monitor,
   Moon,
   PanelLeftClose,
@@ -55,6 +56,7 @@ const MENU: { group: string | null; items: MenuItem[] }[] = [
       { key: "nav.menu.new_run", route: { page: "new" }, pages: ["new"], icon: <Play size={ICON} /> },
       { key: "nav.menu.runs", route: { page: "runs" }, pages: ["runs", "run"], icon: <ListChecks size={ICON} /> },
       { key: "nav.menu.compare", route: { page: "compare" }, pages: ["compare"], icon: <Trophy size={ICON} /> },
+      { key: "nav.menu.benchmark", route: { page: "benchmark" }, pages: ["benchmark"], icon: <ListOrdered size={ICON} /> },
     ],
   },
   {
