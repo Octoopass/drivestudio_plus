@@ -75,6 +75,14 @@ def raw_kitti360_dir(scene_root: Path) -> Path:
     )
 
 
+def missing_raw_files(raw_dir: Path, sequence: str, cameras: list[str], lidar: bool) -> list[str]:
+    """Các archive của ``sequence`` mà converter sẽ mở nhưng không có trong ``raw_dir``."""
+    needed = [f"data_2d_raw/{sequence}_{camera}.tar" for camera in cameras]
+    if lidar:
+        needed.append(f"data_3d_raw/{sequence}.tar")
+    return [name for name in needed if not (raw_dir / name).is_file()]
+
+
 def build_command(
     raw_dir: Path,
     out_dir: Path,
@@ -150,6 +158,13 @@ class PrepNcoreStage(Stage):
         lidar = params.lidar and bool(manifest.lidars)
         options = params.model_copy(update={"lidar": lidar})
         sequence_id = f"{ctx.scene.scene_id}_{first}_{last}".replace("-", "_")
+        missing = missing_raw_files(raw, manifest.source.sequence_id, cameras, lidar)
+        if missing:
+            raise RuntimeError(
+                f"thư mục KITTI-360 gốc {raw} thiếu {len(missing)} file của chuỗi "
+                f"{manifest.source.sequence_id}: {', '.join(missing)}. Tải chuỗi này từ Drive "
+                "(trang Nguồn, ô Google Drive) vào cùng thư mục rồi chạy lại"
+            )
         ctx.progress(0.0, f"chuyển {len(wanted)} khung, {len(cameras)} camera sang NCore")
         run_logged(
             build_command(

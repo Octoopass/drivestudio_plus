@@ -490,3 +490,17 @@ def test_summary_follows_successful_eval_order(workdir: Workdir) -> None:
     record.stages[-1].status = "succeeded"
     files.dump(record, record_path)
     assert summary_path(run_dir) == stages / "eval.xsim" / "summary.json"
+
+
+def test_reset_stage_overrides_params(workdir: Workdir) -> None:
+    """``d2s export video --fps 30``: tham số mới ghép lên tham số đã lưu, rồi kiểm tra lại."""
+    from drive2sim.engine.resolve import ResolveError
+
+    registry = make_registry()
+    run_dir = new_run(workdir, registry)
+    execute_run(run_dir, workdir, registry)
+    record = reset_stage(run_dir, "init.toy", registry, params={"num_points": 7})
+    assert record.stages[0].params["num_points"] == 7
+    assert execute_run(run_dir, workdir, registry).status == "succeeded"
+    with pytest.raises(ResolveError):
+        reset_stage(run_dir, "init.toy", registry, params={"bogus": 1})

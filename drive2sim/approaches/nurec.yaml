@@ -4,7 +4,8 @@
 #
 # Đường dữ liệu: prep.ncore chuyển đoạn khung của split sang clip NCore V4 (hiện chỉ cảnh KITTI-360,
 # converter của Fisheye Fusion Lab), train.nurec chạy run_inference.py, eval.ncore chấm PLY trên
-# khung test bằng gsplat, export.nurec_ply đổi PLY sang hệ world của cảnh.
+# khung test bằng gsplat, export.nurec_ply đổi PLY sang hệ world của cảnh, render.nurec_video vẽ
+# video đi dọc cả đoạn (mọi khung, các camera của split).
 schema_version: d2s-approach/0.3
 approach_id: nurec
 name: "Instant NuRec"
@@ -82,3 +83,4 @@ stages:
       include_dynamic: "${options.include_dynamic}"
   - {stage: eval.ncore}
   - {stage: export.nurec_ply}
+  - {stage: render.nurec_video}

@@ -67,6 +67,32 @@ def _gpus() -> list[tuple[str, Optional[int], Optional[str]]]:
     return gpus
 
 
+def freest_gpu() -> Optional[int]:
+    """Chỉ số GPU còn nhiều VRAM trống nhất lúc này, theo ``nvidia-smi``.
+
+    Dùng khi máy có nhiều GPU mà người khác cũng chạy job: tiến trình con chỉ thấy GPU đó (qua
+    ``CUDA_VISIBLE_DEVICES``) thay vì mặc định GPU 0.
+
+    Returns:
+        Chỉ số GPU, hoặc ``None`` khi không có ``nvidia-smi``, không đọc được, hoặc chỉ có một GPU.
+    """
+    try:
+        done = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,memory.free", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )  # fmt: skip
+    except (OSError, subprocess.SubprocessError):
+        return None
+    free = []
+    for line in done.stdout.splitlines():
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            free.append((int(parts[1]), int(parts[0])))
+    if done.returncode != 0 or len(free) < 2:
+        return None
+    return max(free)[1]
+
+
 def current_machine() -> Machine:
     """Cấu hình phần cứng của máy đang chạy; trường nào không đọc được thì để trống.
 

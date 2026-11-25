@@ -34,7 +34,7 @@ def test_approach_loads_with_its_stages() -> None:
     approach = load_approach("nurec")
     assert approach.codebase == "external:nurec"
     assert [s.stage for s in approach.stages] == [
-        "prep.ncore", "train.nurec", "eval.ncore", "export.nurec_ply",
+        "prep.ncore", "train.nurec", "eval.ncore", "export.nurec_ply", "render.nurec_video",
     ]  # fmt: skip
 
 
@@ -84,7 +84,9 @@ def test_prep_ncore_only_for_kitti360_and_finds_raw_data(
     assert "--cameras image_00,image_02" in joined and command[-1] == "--no-lidar"
 
 
-def test_train_nurec_command_and_environment(nurec_home: Path, tmp_path: Path) -> None:
+def test_train_nurec_command_and_environment(
+    nurec_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     params = train_nurec.TrainNurecParams(
         model="pa-front", n_gaussians=200000, include_dynamic=True
     )
@@ -111,7 +113,9 @@ def test_train_nurec_command_and_environment(nurec_home: Path, tmp_path: Path) -
     assert train_nurec.chunks_for(auto, 120) == 7 and train_nurec.chunks_for(auto, 10) == 1
     assert train_nurec.chunks_for(auto, 1000) == 8
     assert train_nurec.chunks_for(train_nurec.TrainNurecParams(max_chunks=2), 120) == 2
+    monkeypatch.delenv("PYTORCH_CUDA_ALLOC_CONF", raising=False)
     env = train_nurec.nurec_env(tmp_path / "w.pth")
+    assert env["PYTORCH_CUDA_ALLOC_CONF"] == "expandable_segments:True"
     assert env["INSTANT_NUREC_FULL_PT"].endswith("w.pth") and env["HF_HUB_OFFLINE"] == "1"
 
 
@@ -204,3 +208,97 @@ def test_ply_transform_moves_points_and_orientations(tmp_path: Path) -> None:
     # rig FLU → camera OpenCV → Velodyne: trục tới của rig (x) thành trục tới của camera (z)
     cam0 = np.eye(4)
     assert np.allclose(ply.ncore_to_world(cam0) @ [1, 0, 0, 0], [0, 0, 1, 0])
+
+
+def test_video_stage_command_and_wiring(tmp_path: Path) -> None:
+    from drive2sim.engine.registry import REGISTRY, load_builtin_stages
+    from drive2sim.stages.render.nurec_video import NurecVideoParams, build_render_command
+
+    load_builtin_stages()
+    cls = REGISTRY.get("render.nurec_video")
+    assert cls.inputs == {"model": "model", "clip": "ncore_clip", "split": "split"}
+    command = build_render_command(
+        NurecVideoParams(), tmp_path / "s.ply", tmp_path / "v.npz", tmp_path / "f.mp4",
+        ["camera_front_left_00", "camera_fisheye_left_02"],
+    )  # fmt: skip
+    assert command[2].endswith("ncore_render_video.py") and "--no-gt" not in command
+    assert float(command[command.index("--fps") + 1]) == 30 and "--interp" in command
+    assert float(command[command.index("--speed") + 1]) == 1  # mặc định: tốc độ gốc
+    assert command[command.index("--cameras") + 1] == "camera_front_left_00,camera_fisheye_left_02"
+    assert "--no-gt" in build_render_command(
+        NurecVideoParams(with_gt=False, fps=5), tmp_path / "s.ply", tmp_path / "v.npz",
+        tmp_path / "f.mp4", ["c"],
+    )  # fmt: skip
+    with pytest.raises(ValueError):
+        NurecVideoParams(fps=0)
+
+
+def test_nurec_runs_on_the_freest_gpu(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """GPU dùng chung: NuRec chạy trên GPU còn trống nhiều nhất, trừ khi đã đặt sẵn."""
+    import subprocess
+
+    from drive2sim.engine import machine
+
+    out = "0, 1200\n1, 25000\n2, 24000\n"
+    monkeypatch.setattr(
+        subprocess, "run",
+        lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout=out, stderr=""),
+    )  # fmt: skip
+    assert machine.freest_gpu() == 1
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    monkeypatch.setattr(train_nurec.nurec, "nurec_python", lambda: tmp_path / "bin" / "python")
+    assert train_nurec.nurec_env(tmp_path / "w.pth")["CUDA_VISIBLE_DEVICES"] == "1"
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2")
+    assert "CUDA_VISIBLE_DEVICES" not in train_nurec.nurec_env(tmp_path / "w.pth")
+    out = "0, 1200\n"
+    assert machine.freest_gpu() is None  # một GPU: không cần chọn
+
+
+def test_missing_raw_files_lists_absent_archives(tmp_path: Path) -> None:
+    from drive2sim.stages.prep.ncore import missing_raw_files
+
+    seq = "2013_05_28_drive_0003_sync"
+    (tmp_path / "data_2d_raw").mkdir()
+    (tmp_path / "data_2d_raw" / f"{seq}_image_00.tar").write_bytes(b"")
+    assert missing_raw_files(tmp_path, seq, ["image_00", "image_02"], lidar=True) == [
+        f"data_2d_raw/{seq}_image_02.tar",
+        f"data_3d_raw/{seq}.tar",
+    ]
+    assert missing_raw_files(tmp_path, seq, ["image_00"], lidar=False) == []
+
+
+def test_render_command_passes_dense_gt(tmp_path: Path) -> None:
+    from drive2sim.stages.render.nurec_video import (
+        NurecVideoParams,
+        build_render_command,
+        dense_gt_command,
+    )
+
+    args = (tmp_path / "s.ply", tmp_path / "v.npz", tmp_path / "f.mp4", ["cam"])
+    dense = tmp_path / "gt_dense.npz"
+    command = build_render_command(NurecVideoParams(), *args, dense)
+    assert command[command.index("--gt-dense") + 1] == str(dense)
+    assert "--gt-dense" not in build_render_command(NurecVideoParams(with_gt=False), *args, dense)
+    assert "--gt-dense" not in build_render_command(NurecVideoParams(), *args)
+    assert "--gt-flow" in command
+    assert "--gt-flow" not in build_render_command(NurecVideoParams(gt_flow=False), *args)
+    assert "--gt-flow" not in build_render_command(NurecVideoParams(interpolate=False), *args)
+    assert command[command.index("--gt-flow-window") + 1] == "0.2"
+    assert "--gt-flow" not in build_render_command(NurecVideoParams(gt_flow_window=0), *args)
+    tool = dense_gt_command(tmp_path, "seq", tmp_path / "clip.json", dense, 360)
+    assert tool[2].endswith("kitti360_dense_gt.py") and "--sequence" in tool
+
+
+def test_dense_gt_between_skips_clip_frames() -> None:
+    source = (nurec.TOOLS_DIR / "kitti360_dense_gt.py").read_text(encoding="utf-8")
+    namespace: dict = {}
+    exec(source[source.index("def between") : source.index("\n\n\ndef main")], namespace)  # noqa: S102
+    assert namespace["between"]([102, 107, 112, 113]) == [103, 104, 105, 106, 108, 109, 110, 111]
+
+
+def test_ply_export_stage_uses_nurec_ply_when_present() -> None:
+    from drive2sim.engine.run import ply_export_stage
+
+    assert ply_export_stage(["train.nurec", "export.nurec_ply"]) == "export.nurec_ply"
+    assert ply_export_stage(["train.pvg", "export.ply_world"]) == "export.ply_world"
+    assert ply_export_stage([]) == "export.ply_world"

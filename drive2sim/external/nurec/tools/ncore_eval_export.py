@@ -83,7 +83,7 @@ def main():
     rig_world, rig_ts = poses.get_dynamic_pose("rig", "world")
     wanted = [c for c in a.cameras.split(",") if c]
 
-    rec = {k: [] for k in ("camera", "model", "viewmat", "K", "radial", "image", "mask", "frame")}
+    rec = {k: [] for k in ("camera", "model", "viewmat", "K", "radial", "image", "mask", "frame", "t_us")}
     for cam_id, cam in r.open_component_readers(CameraSensorComponent.Reader).items():
         if wanted and cam_id not in wanted:
             continue
@@ -112,6 +112,7 @@ def main():
             img = np.asarray(cam.get_frame_image(int(t_end)).convert("RGB"))
             rec["camera"].append(cam_id)
             rec["frame"].append(int(list(cam.frames_timestamps_us[:, 1]).index(t_end)))
+            rec["t_us"].append(int(t_end))  # drive2sim: video theo tốc độ gốc
             rec["model"].append(model)
             rec["viewmat"].append(np.linalg.inv(T_cam_world).astype(np.float32))
             rec["K"].append(K)
@@ -123,6 +124,7 @@ def main():
     out = {k: np.stack(rec[k]) for k in ("viewmat", "K", "radial")}
     out["camera"], out["model"] = np.array(rec["camera"]), np.array(rec["model"])
     out["frame"] = np.array(rec["frame"], dtype=np.int64)
+    out["t_us"] = np.array(rec["t_us"], dtype=np.int64)
     for k in ("image", "mask"):  # images differ in size between cameras
         arr = np.empty(len(rec[k]), dtype=object)
         arr[:] = rec[k]

@@ -208,7 +208,7 @@ export interface Job {
   job_id: string;
   kind: "ingest" | "kaggle_push" | "kaggle_pull" | "colab_push" | "colab_pull" | "colab_update" | "colab_session" | "drive_pull";
   label: string;
-  status: "queued" | "running" | "succeeded" | "failed";
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
   result: string | null;
   error: string | null;
   /** Việc biết tiến độ (drive_pull, theo byte); first là phần đã có lúc bắt đầu. */
@@ -216,6 +216,10 @@ export interface Job {
   created_at: number;
   started_at?: number | null;
   finished_at: number | null;
+  /** Thư mục uploads/<tên>/ việc ghi vào (drive_pull). */
+  target?: string | null;
+  /** Huỷ và tải tiếp được (POST /api/jobs/{id}/cancel, /retry). */
+  cancellable?: boolean;
 }
 
 /** Kết quả nhận dạng thư mục dữ liệu gốc (POST /api/sources/inspect). */

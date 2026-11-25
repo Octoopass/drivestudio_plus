@@ -217,6 +217,10 @@ kbd { font-family: var(--font-dense); font-size: 12.5px; border: 1px solid var(-
 
 /* ------------------------------------------------------------------ panel */
 
+tr.flash > td { animation: flash-row 2.4s ease-out; }
+@keyframes flash-row { 0%, 40% { background: color-mix(in srgb, var(--accent) 22%, transparent); } 100% { background: transparent; } }
+.job-card { cursor: pointer; transition: border-color 0.15s; }
+.job-card:hover, .job-card:focus-visible { border-color: var(--accent); outline: none; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; min-width: 0; box-shadow: var(--shadow-soft); }
 .panel-head { display: flex; align-items: center; gap: 12px; padding: 15px 20px; border-bottom: 1px solid var(--line); min-height: 61px; }
 .panel-head h2 { font-size: 16px; }

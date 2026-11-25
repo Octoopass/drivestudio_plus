@@ -44,6 +44,7 @@ from drive2sim.engine.environment import require_local_environment
 from drive2sim.engine.registry import produces_artifact
 from drive2sim.engine.render_check import render_readiness
 from drive2sim.engine.report import train_params
+from drive2sim.engine.resolve import ResolveError
 from drive2sim.engine.run import (
     D2S_DIR,
     LOG_FILE,
@@ -52,6 +53,7 @@ from drive2sim.engine.run import (
     list_runs,
     load_env,
     load_summary,
+    ply_export_stage,
     request_cancel,
     reset_stage,
     run_is_active,
@@ -69,19 +71,24 @@ from drive2sim.studio.api.state import state_of
 router = APIRouter(tags=["runs"])
 LOG_TAIL_LINES = 200
 FINISHED = ("succeeded", "failed", "cancelled")
-EXPORT_STAGES = {"ply": "export.ply_world", "preview": "export.preview"}
+EXPORT_STAGES = {
+    "ply": "export.ply_world",
+    "preview": "export.preview",
+    "video": "render.nurec_video",
+}
 
 
 class ExportBody(BaseModel):
     """Thân của ``POST /api/runs/{run_id}/export``.
 
     Attributes:
-        kind: ``ply`` (``export.ply_world``) hoặc ``preview`` (``export.preview``).
+        kind: ``ply`` (``export.ply_world``), ``preview`` (``export.preview``) hoặc ``video``
+            (``render.nurec_video``, video đi dọc đoạn đường của run Instant NuRec).
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["ply", "preview"]
+    kind: Literal["ply", "preview", "video"]
 
 
 class CreateRunBody(PlanBody):
@@ -285,13 +292,18 @@ def export_run(run_id: str, body: ExportBody, request: Request) -> dict:
         ``run.json`` sau khi đặt lại stage; run được xếp vào hàng đợi.
     """
     state = state_of(request)
-    run_dir, _ = _load(request, run_id)
+    run_dir, current = _load(request, run_id)
     stage_id = EXPORT_STAGES[body.kind]
+    if body.kind == "ply":  # run Instant NuRec: export.nurec_ply, không phải export.ply_world
+        stage_id = ply_export_stage([s.stage_id for s in current.stages])
     if stage_id not in state.registry:
         raise HTTPException(400, f"stage {stage_id} chưa có")
     _claim(request, run_dir, run_id)
     try:
         record = reset_stage(run_dir, stage_id, state.registry)
+    except ResolveError as error:  # ví dụ video NuRec cho run không có clip NCore
+        state.queue.release(run_dir)
+        raise HTTPException(400, f"run {run_id} không xuất được {body.kind}: {error}") from None
     except BaseException:
         state.queue.release(run_dir)
         raise
@@ -592,6 +604,7 @@ def run_splats(run_id: str, request: Request) -> dict:
     )
     return {
         "preview": preview,
-        "ply": url(stages_dir / "export.ply_world" / "scene.ply"),
+        "ply": url(stages_dir / "export.ply_world" / "scene.ply")
+        or url(stages_dir / "export.nurec_ply" / "scene.ply"),
         "cameras": cameras,
     }

@@ -131,6 +131,33 @@ def get_job(job_id: str, request: Request) -> dict:
     return job
 
 
+@router.post("/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: str, request: Request) -> dict:
+    """Huỷ việc tải từ Drive đang chờ hoặc đang chạy; phần đã tải giữ lại để tải tiếp.
+
+    Returns:
+        Trạng thái việc (``cancelled`` ngay nếu còn chờ; đang chạy thì thành ``cancelled`` sau
+        vài giây). Không có việc trả ``404``, loại việc không huỷ được trả ``400``.
+    """
+    try:
+        return state_of(request).jobs.cancel(job_id)
+    except KeyError:
+        raise HTTPException(404, f"không có việc {job_id}") from None
+
+
+@router.post("/api/jobs/{job_id}/retry", status_code=202)
+def retry_job(job_id: str, request: Request) -> dict:
+    """Tải tiếp việc tải từ Drive đã huỷ hoặc lỗi (một việc mới, đi tiếp từ phần đã có).
+
+    Returns:
+        Việc mới (hoặc việc đang chạy cho cùng thư mục). Không có việc trả ``404``.
+    """
+    try:
+        return state_of(request).jobs.retry(job_id)
+    except KeyError:
+        raise HTTPException(404, f"không có việc {job_id}") from None
+
+
 class UploadFile(BaseModel):
     """Một file trong lần tải: đường dẫn tương đối trong thư mục người dùng chọn và kích thước.
 
@@ -164,7 +191,8 @@ def list_uploads(request: Request) -> dict:
     """Các thư mục đã tải lên.
 
     Returns:
-        ``{"items": [{"name", "path", "path_abs", "files", "size_bytes", "partial"}], "total"}``.
+        ``{"items": [{"name", "path", "path_abs", "files", "size_bytes", "partial",
+        "partial_bytes", "modified", "used_by"}], "total"}`` (``uploads.list_uploads``).
     """
     items = uploads.list_uploads(state_of(request).workdir)
     return {"items": items, "total": len(items)}
@@ -203,7 +231,16 @@ async def upload_chunk(name: str, path: str, offset: int, total: int, request: R
 def delete_upload(name: str, request: Request) -> dict:
     """Xoá thư mục ``uploads/<tên>/``.
 
+    Việc tải từ Drive đang ghi vào thư mục này bị huỷ và chờ dừng trước; giao diện dừng việc tải
+    từ trình duyệt trước, và cảnh báo khi có cảnh đọc dữ liệu gốc từ đây.
+
     Returns:
-        ``{"removed": [...]}``.
+        ``{"removed": [...]}``; việc tải không dừng kịp trả ``409``.
     """
-    return uploads.delete_upload(state_of(request).workdir, name)
+    state = state_of(request)
+    active = [job["job_id"] for job in state.jobs.active_for(name)]
+    for job_id in active:
+        state.jobs.cancel(job_id)
+    if active and not state.jobs.wait_stopped(active):
+        raise HTTPException(409, "việc tải từ Drive chưa dừng kịp; thử xoá lại sau ít giây")
+    return uploads.delete_upload(state.workdir, name)
