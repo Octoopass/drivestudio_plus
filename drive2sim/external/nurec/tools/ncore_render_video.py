@@ -1,7 +1,7 @@
 """(drive2sim) Video đi dọc đoạn đường từ PLY của Instant NuRec, như render_flythrough của Fisheye Fusion Lab.
 
     <python môi trường chính> ncore_render_video.py <merged.ply> <views.npz> --out <video.mp4>
-        [--cameras a,b] [--fps 10] [--speed 1] [--height 360] [--no-gt]
+        [--cameras a,b] [--fps 10] [--speed 1] [--height 360] [--no-gt] [--interp]
 
 ``views.npz`` do ``ncore_eval_export.py --every 1`` ghi (mọi khung của clip NCore). Mỗi khung video
 là một hàng ảnh dựng của các camera (theo thứ tự ``--cameras``), mỗi ảnh co về cao ``--height``;
@@ -10,6 +10,10 @@ mặc định có thêm hàng ảnh thật ở trên để so. Camera mắt cá 
 ``--speed`` > 0: video theo mốc thời gian thật của khung (``t_us`` của views.npz), mỗi khung giữ
 trên màn hình đúng khoảng tới khung sau chia ``speed`` (1 là tốc độ gốc), video vẫn ``--fps``
 khung/giây; ``--speed 0`` hoặc views không có ``t_us``: mỗi khung nguồn một khung video.
+``--interp``: khung video nằm giữa hai khung nguồn được vẽ thật từ pose nội suy (quay theo slerp,
+dời theo tuyến tính, trên pose camera→world) thay vì lặp lại khung trước, nên video mượt ở fps cao
+dù nguồn thưa (KITTI-360 bộ ROSA: 0,5 s một ảnh). Hàng ảnh thật giữ ảnh của khung nguồn gần nhất
+(giữa hai khung không có ảnh thật).
 In ``progress <đã vẽ>/<tổng>`` sau mỗi khung để stage báo tiến độ.
 """
 from __future__ import annotations
@@ -42,6 +46,55 @@ def render(gaussians, viewmat, K, radial, model, w, h, dev):
     return (rgb[0].clamp(0, 1).cpu().numpy() * 255).astype(np.uint8)
 
 
+def _quat(R: np.ndarray) -> np.ndarray:
+    """Ma trận quay 3x3 → quaternion (w, x, y, z) chuẩn hoá."""
+    m = R
+    t = np.trace(m)
+    if t > 0:
+        s = np.sqrt(t + 1.0) * 2
+        q = [0.25 * s, (m[2, 1] - m[1, 2]) / s, (m[0, 2] - m[2, 0]) / s, (m[1, 0] - m[0, 1]) / s]
+    elif m[0, 0] > m[1, 1] and m[0, 0] > m[2, 2]:
+        s = np.sqrt(1.0 + m[0, 0] - m[1, 1] - m[2, 2]) * 2
+        q = [(m[2, 1] - m[1, 2]) / s, 0.25 * s, (m[0, 1] + m[1, 0]) / s, (m[0, 2] + m[2, 0]) / s]
+    elif m[1, 1] > m[2, 2]:
+        s = np.sqrt(1.0 + m[1, 1] - m[0, 0] - m[2, 2]) * 2
+        q = [(m[0, 2] - m[2, 0]) / s, (m[0, 1] + m[1, 0]) / s, 0.25 * s, (m[1, 2] + m[2, 1]) / s]
+    else:
+        s = np.sqrt(1.0 + m[2, 2] - m[0, 0] - m[1, 1]) * 2
+        q = [(m[1, 0] - m[0, 1]) / s, (m[0, 2] + m[2, 0]) / s, (m[1, 2] + m[2, 1]) / s, 0.25 * s]
+    q = np.asarray(q, np.float64)
+    return q / np.linalg.norm(q)
+
+
+def _rot(q: np.ndarray) -> np.ndarray:
+    w, x, y, z = q
+    return np.array([
+        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+    ])
+
+
+def interp_viewmat(va: np.ndarray, vb: np.ndarray, alpha: float) -> np.ndarray:
+    """View matrix (world→camera) ở giữa ``va`` và ``vb``: nội suy trên pose camera→world."""
+    if alpha <= 0:
+        return va
+    ca, cb = np.linalg.inv(va.astype(np.float64)), np.linalg.inv(vb.astype(np.float64))
+    qa, qb = _quat(ca[:3, :3]), _quat(cb[:3, :3])
+    dot = float(qa @ qb)
+    if dot < 0:
+        qb, dot = -qb, -dot
+    if dot > 0.9995:
+        q = qa + alpha * (qb - qa)
+    else:
+        theta = np.arccos(dot)
+        q = (np.sin((1 - alpha) * theta) * qa + np.sin(alpha * theta) * qb) / np.sin(theta)
+    c = np.eye(4)
+    c[:3, :3] = _rot(q / np.linalg.norm(q))
+    c[:3, 3] = (1 - alpha) * ca[:3, 3] + alpha * cb[:3, 3]
+    return np.linalg.inv(c).astype(va.dtype)
+
+
 def to_height(img: np.ndarray, height: int) -> np.ndarray:
     h, w = img.shape[:2]
     return cv2.resize(img, (max(2, round(w * height / h)), height), interpolation=cv2.INTER_AREA)
@@ -65,6 +118,8 @@ def main():
     p.add_argument("--height", type=int, default=360)
     p.add_argument("--max-side", type=int, default=1408)
     p.add_argument("--no-gt", action="store_true", help="chỉ hàng ảnh dựng")
+    p.add_argument("--interp", action="store_true",
+                   help="vẽ khung giữa hai khung nguồn từ pose nội suy thay vì lặp khung")
     a = p.parse_args()
     dev = "cuda"
     gaussians = load_ply(Path(a.ply), dev)
@@ -92,41 +147,57 @@ def main():
     out.parent.mkdir(parents=True, exist_ok=True)
     raw = out.with_suffix(".mp4v.mp4")
     writer = None
+    size = None
     for n, frame in enumerate(frames):
-        tiles_r, tiles_g = [], []
-        for cam in cameras:
-            i = by_frame[frame].get(cam)
-            if i is None:  # camera thiếu ở khung này: ô đen cùng cỡ
-                width = widths.get(cam, a.height)
-                tiles_r.append(np.zeros((a.height, width, 3), np.uint8))
-                tiles_g.append(np.zeros((a.height, width, 3), np.uint8))
-                continue
-            img = v["image"][i]
-            h, w = img.shape[:2]
-            s = min(1.0, a.max_side / max(h, w))
-            K = v["K"][i].copy()
-            if s < 1:
-                w, h = int(w * s), int(h * s)
-                img = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
-                K[:2] *= s
-            rgb = render(gaussians, v["viewmat"][i], K, v["radial"][i], str(v["model"][i]), w, h, dev)
-            tile_r = label(to_height(rgb, a.height), f"{cam} render")
-            tile_g = label(to_height(img, a.height), f"{cam} ground truth")
-            widths[cam] = tile_r.shape[1]
-            tiles_r.append(tile_r)
-            tiles_g.append(tile_g)
-        row = np.concatenate(tiles_r, 1)
-        if not a.no_gt:
-            row = np.concatenate([np.concatenate(tiles_g, 1), row], 0)
-        h0, w0 = row.shape[:2]
-        if writer is None:
-            size = (w0 - w0 % 2, h0 - h0 % 2)
-            writer = cv2.VideoWriter(str(raw), cv2.VideoWriter_fourcc(*"mp4v"), a.fps, size)
-        if (row.shape[1], row.shape[0]) != size:
-            row = cv2.resize(row, size)
-        bgr = cv2.cvtColor(row, cv2.COLOR_RGB2BGR)
-        for _ in range(repeats[n]):
-            writer.write(bgr)
+        following = by_frame[frames[n + 1]] if n + 1 < len(frames) else {}
+        # --interp: mỗi khung video vẽ lại từ pose nội suy; không thì vẽ một lần rồi lặp
+        steps = repeats[n] if a.interp and following else 1
+        tiles_g, gt_row = [], None
+        for step in range(steps):
+            alpha = step / steps
+            tiles_r = []
+            for cam in cameras:
+                i = by_frame[frame].get(cam)
+                if i is None:  # camera thiếu ở khung này: ô đen cùng cỡ
+                    width = widths.get(cam, a.height)
+                    tiles_r.append(np.zeros((a.height, width, 3), np.uint8))
+                    if step == 0:
+                        tiles_g.append(np.zeros((a.height, width, 3), np.uint8))
+                    continue
+                img = v["image"][i]
+                h, w = img.shape[:2]
+                s = min(1.0, a.max_side / max(h, w))
+                K = v["K"][i].copy()
+                if s < 1:
+                    w, h = int(w * s), int(h * s)
+                    K[:2] *= s
+                viewmat = v["viewmat"][i]
+                j = following.get(cam)
+                if alpha > 0 and j is not None:
+                    viewmat = interp_viewmat(viewmat, v["viewmat"][j], alpha)
+                rgb = render(gaussians, viewmat, K, v["radial"][i], str(v["model"][i]), w, h, dev)
+                tile_r = label(to_height(rgb, a.height), f"{cam} render")
+                widths[cam] = tile_r.shape[1]
+                tiles_r.append(tile_r)
+                if step == 0:
+                    shown = img if s >= 1 else cv2.resize(
+                        img, (w, h), interpolation=cv2.INTER_AREA
+                    )
+                    tiles_g.append(label(to_height(shown, a.height), f"{cam} ground truth"))
+            row = np.concatenate(tiles_r, 1)
+            if not a.no_gt:
+                if gt_row is None:
+                    gt_row = np.concatenate(tiles_g, 1)
+                row = np.concatenate([gt_row, row], 0)
+            h0, w0 = row.shape[:2]
+            if writer is None:
+                size = (w0 - w0 % 2, h0 - h0 % 2)
+                writer = cv2.VideoWriter(str(raw), cv2.VideoWriter_fourcc(*"mp4v"), a.fps, size)
+            if (row.shape[1], row.shape[0]) != size:
+                row = cv2.resize(row, size)
+            bgr = cv2.cvtColor(row, cv2.COLOR_RGB2BGR)
+            for _ in range(repeats[n] if steps == 1 else 1):
+                writer.write(bgr)
         print(f"progress {n + 1}/{len(frames)}", flush=True)
     if writer is None:
         sys.exit("views.npz không có khung nào")
@@ -145,7 +216,8 @@ def main():
         raw.replace(out)
     info = {"frames": len(frames), "video_frames": sum(repeats), "speed": a.speed if "t_us" in v else 0,
             "cameras": cameras, "fps": a.fps, "duration_s": sum(repeats) / a.fps,
-            "size": [int(size[0]), int(size[1])], "with_gt": not a.no_gt}
+            "size": [int(size[0]), int(size[1])], "with_gt": not a.no_gt,
+            "interpolated": bool(a.interp)}
     out.with_suffix(".json").write_text(json.dumps(info, indent=2) + "\n")
     print(f"wrote {out}: {len(frames)} frames, {sum(repeats) / a.fps:.1f} s")
 

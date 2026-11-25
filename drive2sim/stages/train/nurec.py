@@ -26,6 +26,7 @@ from typing import ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from drive2sim.engine import machine
 from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import Stage, StageContext
 from drive2sim.external import nurec
@@ -131,9 +132,20 @@ def build_command(
 
 
 def nurec_env(checkpoint: Path) -> dict[str, str]:
-    """Biến môi trường cho ``run_inference.py`` (như Fisheye Fusion Lab)."""
+    """Biến môi trường cho ``run_inference.py`` (như Fisheye Fusion Lab).
+
+    ``PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`` như stage train, eval khác: bước gộp
+    Gaussian (voxelize lớp tĩnh) xin một khối lớn liền; trên GPU dùng chung, vài GB bị giữ mà
+    phân mảnh là đủ hết bộ nhớ. Biến đã đặt ở môi trường ngoài thì giữ nguyên.
+
+    Máy nhiều GPU mà chưa đặt ``CUDA_VISIBLE_DEVICES``: chạy trên GPU còn trống nhiều nhất
+    (``machine.freest_gpu``), vì GPU 0 thường đã có job khác.
+    """
     python_bin = str(nurec.nurec_python().parent)
-    return {
+    env = {
+        "PYTORCH_CUDA_ALLOC_CONF": os.environ.get(
+            "PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True"
+        ),
         "INSTANT_NUREC_FULL_PT": str(checkpoint),
         "HF_HUB_OFFLINE": "1",
         "TRANSFORMERS_OFFLINE": "1",
@@ -143,6 +155,11 @@ def nurec_env(checkpoint: Path) -> dict[str, str]:
         "VIRTUAL_ENV": str(nurec.nurec_python().parent.parent),
         "PATH": python_bin + os.pathsep + os.environ.get("PATH", ""),
     }
+    if "CUDA_VISIBLE_DEVICES" not in os.environ:
+        gpu = machine.freest_gpu()
+        if gpu is not None:
+            env["CUDA_VISIBLE_DEVICES"] = str(gpu)
+    return env
 
 
 def _merged_ply(raw_dir: Path) -> Path:

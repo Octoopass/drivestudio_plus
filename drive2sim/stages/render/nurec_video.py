@@ -10,6 +10,8 @@ khung, cỡ 2 giây). Stage này vẽ PLY ở **mọi khung** của clip NCore c
    (H.264) và ``flythrough.json`` (số khung, fps, thời lượng). Mặc định video chạy đúng tốc độ gốc:
    mỗi khung giữ trên màn hình bằng khoảng thời gian thật tới khung sau (KITTI-360 trong NuRec
    thường 0,5 s một khung, nên 120 khung là cỡ 1 phút); ``speed`` khác 1 thì nhanh, chậm hơn.
+   ``interpolate`` (mặc định bật, 30 fps): khung video giữa hai khung nguồn được vẽ thật từ pose
+   camera nội suy, nên chuyển động mượt dù nguồn chỉ 2 ảnh/giây; tắt thì lặp khung nguồn.
 Tab Video của Studio liệt kê mọi MP4 trong thư mục stage nên video hiện ra ở đó.
 
 Nằm trong danh sách stage của approach ``nurec`` (sau ``export.nurec_ply``); run tạo trước đó thì
@@ -45,14 +47,17 @@ class NurecVideoParams(BaseModel):
             nguồn một khung video (bỏ qua mốc thời gian, nhanh như video của ``eval.ncore``).
         height: Chiều cao (pixel) của ảnh mỗi camera trong hàng.
         with_gt: Thêm hàng ảnh thật ở trên hàng ảnh dựng.
+        interpolate: Vẽ khung giữa hai khung nguồn từ pose nội suy (mượt; thời gian vẽ tăng theo
+            fps) thay vì lặp lại khung nguồn. Hàng ảnh thật vẫn giữ ảnh gần nhất.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    fps: float = Field(default=10, gt=0, le=60)
+    fps: float = Field(default=30, gt=0, le=60)
     speed: float = Field(default=1, ge=0, le=32)
     height: int = Field(default=360, ge=120, le=1080)
     with_gt: bool = True
+    interpolate: bool = True
 
 
 def build_render_command(
@@ -75,6 +80,8 @@ def build_render_command(
     ]  # fmt: skip
     if not params.with_gt:
         command.append("--no-gt")
+    if params.interpolate:
+        command.append("--interp")
     return command
 
 

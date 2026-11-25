@@ -2,9 +2,9 @@
 
 ``d2s export ply <run_id>`` chạy lại ``export.ply_world``; ``d2s export preview <run_id>`` chạy
 ``export.preview`` (gói xem trước cho Spark); ``d2s export video <run_id>`` chạy
-``render.nurec_video`` (video đi dọc đoạn đường của run Instant NuRec). Stage được thêm vào cuối
-run nếu approach không có,
-và các stage khác đã xong không chạy lại (CONTRACTS mục 10.4).
+``render.nurec_video`` (video đi dọc đoạn đường của run Instant NuRec; ``--fps`` đổi số khung mỗi
+giây, ``--no-interp`` lặp khung nguồn thay vì vẽ khung nội suy). Stage được thêm vào cuối run nếu
+approach không có, và các stage khác đã xong không chạy lại (CONTRACTS mục 10.4).
 """
 
 import argparse
@@ -31,6 +31,11 @@ def register(
     for name, stage_id in STAGES.items():
         parser = actions.add_parser(name, parents=[common], help=f"chạy lại {stage_id}")
         parser.add_argument("run_id")
+        if name == "video":
+            parser.add_argument("--fps", type=float, help="khung mỗi giây của video (mặc định 30)")
+            parser.add_argument(
+                "--no-interp", action="store_true", help="lặp khung nguồn, không vẽ khung nội suy"
+            )
         parser.set_defaults(handler=export, stage_id=stage_id)
 
 
@@ -45,7 +50,12 @@ def export(args: argparse.Namespace) -> int:
     """
     workdir = Workdir.from_env(args.workdir)
     run_dir = workdir.find_run(args.run_id)
-    reset_stage(run_dir, args.stage_id)
+    params: dict = {}
+    if getattr(args, "fps", None):
+        params["fps"] = args.fps
+    if getattr(args, "no_interp", False):
+        params["interpolate"] = False
+    reset_stage(run_dir, args.stage_id, params=params or None)
     record = execute_run(run_dir, workdir, sink=event_printer(args))
     emit(args, record.model_dump(mode="json"), f"run {record.run_id}: {record.status}")
     return 0 if record.status == "succeeded" else 1

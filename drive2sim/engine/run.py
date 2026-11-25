@@ -1023,7 +1023,12 @@ def request_cancel(run_dir: Path) -> RunRecord:
     return record
 
 
-def reset_stage(run_dir: Path, stage_id: str, registry: StageRegistry = REGISTRY) -> RunRecord:
+def reset_stage(
+    run_dir: Path,
+    stage_id: str,
+    registry: StageRegistry = REGISTRY,
+    params: Optional[dict] = None,
+) -> RunRecord:
     """Chuẩn bị chạy lại một stage của run, hoặc thêm stage đó vào cuối run nếu chưa có.
 
     Dùng cho ``d2s export ply|preview <run_id>``: stage export được chạy lại mà không chạy lại
@@ -1035,12 +1040,15 @@ def reset_stage(run_dir: Path, stage_id: str, registry: StageRegistry = REGISTRY
         run_dir: Thư mục run.
         stage_id: Stage cần chạy lại hoặc thêm, ví dụ ``export.ply_world``.
         registry: Bảng stage.
+        params: Tham số đổi cho lần chạy này, ghép lên tham số đã lưu của stage rồi kiểm tra lại
+            (ví dụ ``{"fps": 30}`` cho ``render.nurec_video``); ``None`` giữ nguyên.
 
     Returns:
         ``run.json`` sau khi sửa.
 
     Raises:
         KeyError: Nếu ``stage_id`` chưa đăng ký.
+        ValueError: Nếu ``params`` không hợp lệ với stage.
         ResolveError: Nếu stage cần một đầu vào mà không stage nào của run tạo ra.
     """
     run_dir = Path(run_dir)
@@ -1051,6 +1059,8 @@ def reset_stage(run_dir: Path, stage_id: str, registry: StageRegistry = REGISTRY
         stage = existing[0]
         stage.status = "pending"
         stage.error = None
+        if params:
+            stage.params = validate_params(stage_id, {**stage.params, **params}, registry)
         if not cls.cacheable:
             shutil.rmtree(run_dir / D2S_DIR / "stages" / stage_id, ignore_errors=True)
             # Kết quả cũ bị xoá và chạy lại từ đầu: đo lại thời gian và VRAM. Không đặt lại thì
@@ -1063,7 +1073,7 @@ def reset_stage(run_dir: Path, stage_id: str, registry: StageRegistry = REGISTRY
             StageRecord(
                 stage_id=stage_id,
                 status="pending",
-                params=validate_params(stage_id, {}, registry),
+                params=validate_params(stage_id, dict(params or {}), registry),
             )
         )
         wire_inputs([stage.stage_id for stage in record.stages], registry)
