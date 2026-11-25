@@ -86,11 +86,23 @@ def read_native_psnr(frames_path):
     return native
 
 
+def renderer_mode(camera_model, has_distortion):
+    """Rasterizer mode for the common renderer: ``default`` (3DGS), ``ut`` (3DGUT) or ``None``.
+
+    Pinhole cameras use plain 3DGS and every other camera 3DGUT, whatever mode the model was
+    trained with. A pinhole camera that carries lens-distortion coefficients (Waymo) cannot be
+    drawn in gsplat's default mode, so ``None`` keeps the mode the model was trained with.
+    """
+    if camera_group(camera_model) == "fisheye":
+        return "ut"
+    return None if has_distortion else "default"
+
+
 def render_ply_image(trainer, gaussians, image_infos, cam_infos):
     """Render the .ply Gaussians through the trainer's rasterizer settings for one test image.
 
-    Pinhole cameras use the default 3DGS mode and every other camera uses 3DGUT (``ut``), the
-    common renderers of the benchmark, whatever mode the model was trained with.
+    The mode comes from ``renderer_mode``. The .ply render touches no node model (no rigid, SMPL
+    or deformable nodes), so there is no per-frame node state to set up.
     """
     import torch.nn.functional as F
     from gsplat import spherical_harmonics
@@ -98,11 +110,13 @@ def render_ply_image(trainer, gaussians, image_infos, cam_infos):
     from drive2sim.recon.models.gaussians.basics import dataclass_gs
 
     cam_infos = dict(cam_infos)
-    cam_infos["render_mode"] = "default" if camera_group(cam_infos.get("camera_model", "pinhole")) == "pinhole" else "ut"
+    has_distortion = (
+        cam_infos.get("radial_coeffs") is not None or cam_infos.get("tangential_coeffs") is not None
+    )
+    mode = renderer_mode(cam_infos.get("camera_model", "pinhole"), has_distortion)
+    if mode is not None:
+        cam_infos["render_mode"] = mode
     # same camera as the model's own render: CamPose, when trained, refines both
-    for model in trainer.models.values():
-        if hasattr(model, "in_test_set"):
-            model.in_test_set = trainer.in_test_set
     cam = trainer.process_camera(cam_infos, image_infos["img_idx"].flatten()[0])
     viewdirs = F.normalize(gaussians["means"] - cam.camtoworlds[..., :3, 3], dim=-1)
     degree = int(round(gaussians["sh"].shape[1] ** 0.5)) - 1

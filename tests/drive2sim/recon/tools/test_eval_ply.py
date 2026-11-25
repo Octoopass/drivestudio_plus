@@ -19,6 +19,7 @@ from drive2sim.recon.tools.eval_ply import (  # noqa: E402
     camera_group,
     load_ply_gaussians,
     read_native_psnr,
+    renderer_mode,
 )
 from drive2sim.recon.tools.export_ply import gaussians_from_state, write_ply  # noqa: E402
 
@@ -61,3 +62,18 @@ def test_read_native_psnr_skips_missing_static_psnr(tmp_path: Path) -> None:
     ]
     path.write_text("\n".join(json.dumps(r) for r in records) + "\n\n")
     assert read_native_psnr(str(path)) == {(8, 0): 25.5, (16, 0): 24.0}
+
+
+@pytest.mark.parametrize(
+    "camera_model,has_distortion,expected",
+    [
+        ("pinhole", False, "default"),  # renderer chung: 3DGS gốc
+        ("fisheye", False, "ut"),  # renderer chung cho camera mắt cá: 3DGUT
+        ("ftheta", False, "ut"),
+        # pinhole có hệ số méo (Waymo): chế độ default của gsplat không vẽ được méo, giữ chế độ
+        # lúc train (UT hoặc GEER) thay vì ép default rồi lỗi
+        ("pinhole", True, None),
+    ],
+)
+def test_renderer_mode(camera_model: str, has_distortion: bool, expected: object) -> None:
+    assert renderer_mode(camera_model, has_distortion) == expected
