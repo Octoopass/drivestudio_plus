@@ -84,7 +84,9 @@ def test_prep_ncore_only_for_kitti360_and_finds_raw_data(
     assert "--cameras image_00,image_02" in joined and command[-1] == "--no-lidar"
 
 
-def test_train_nurec_command_and_environment(nurec_home: Path, tmp_path: Path) -> None:
+def test_train_nurec_command_and_environment(
+    nurec_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     params = train_nurec.TrainNurecParams(
         model="pa-front", n_gaussians=200000, include_dynamic=True
     )
@@ -111,7 +113,9 @@ def test_train_nurec_command_and_environment(nurec_home: Path, tmp_path: Path) -
     assert train_nurec.chunks_for(auto, 120) == 7 and train_nurec.chunks_for(auto, 10) == 1
     assert train_nurec.chunks_for(auto, 1000) == 8
     assert train_nurec.chunks_for(train_nurec.TrainNurecParams(max_chunks=2), 120) == 2
+    monkeypatch.delenv("PYTORCH_CUDA_ALLOC_CONF", raising=False)
     env = train_nurec.nurec_env(tmp_path / "w.pth")
+    assert env["PYTORCH_CUDA_ALLOC_CONF"] == "expandable_segments:True"
     assert env["INSTANT_NUREC_FULL_PT"].endswith("w.pth") and env["HF_HUB_OFFLINE"] == "1"
 
 
@@ -217,7 +221,7 @@ def test_video_stage_command_and_wiring(tmp_path: Path) -> None:
         ["camera_front_left_00", "camera_fisheye_left_02"],
     )  # fmt: skip
     assert command[2].endswith("ncore_render_video.py") and "--no-gt" not in command
-    assert float(command[command.index("--fps") + 1]) == 10
+    assert float(command[command.index("--fps") + 1]) == 30 and "--interp" in command
     assert float(command[command.index("--speed") + 1]) == 1  # mặc định: tốc độ gốc
     assert command[command.index("--cameras") + 1] == "camera_front_left_00,camera_fisheye_left_02"
     assert "--no-gt" in build_render_command(
@@ -226,3 +230,37 @@ def test_video_stage_command_and_wiring(tmp_path: Path) -> None:
     )  # fmt: skip
     with pytest.raises(ValueError):
         NurecVideoParams(fps=0)
+
+
+def test_nurec_runs_on_the_freest_gpu(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """GPU dùng chung: NuRec chạy trên GPU còn trống nhiều nhất, trừ khi đã đặt sẵn."""
+    import subprocess
+
+    from drive2sim.engine import machine
+
+    out = "0, 1200\n1, 25000\n2, 24000\n"
+    monkeypatch.setattr(
+        subprocess, "run",
+        lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout=out, stderr=""),
+    )  # fmt: skip
+    assert machine.freest_gpu() == 1
+    monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    monkeypatch.setattr(train_nurec.nurec, "nurec_python", lambda: tmp_path / "bin" / "python")
+    assert train_nurec.nurec_env(tmp_path / "w.pth")["CUDA_VISIBLE_DEVICES"] == "1"
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2")
+    assert "CUDA_VISIBLE_DEVICES" not in train_nurec.nurec_env(tmp_path / "w.pth")
+    out = "0, 1200\n"
+    assert machine.freest_gpu() is None  # một GPU: không cần chọn
+
+
+def test_missing_raw_files_lists_absent_archives(tmp_path: Path) -> None:
+    from drive2sim.stages.prep.ncore import missing_raw_files
+
+    seq = "2013_05_28_drive_0003_sync"
+    (tmp_path / "data_2d_raw").mkdir()
+    (tmp_path / "data_2d_raw" / f"{seq}_image_00.tar").write_bytes(b"")
+    assert missing_raw_files(tmp_path, seq, ["image_00", "image_02"], lidar=True) == [
+        f"data_2d_raw/{seq}_image_02.tar",
+        f"data_3d_raw/{seq}.tar",
+    ]
+    assert missing_raw_files(tmp_path, seq, ["image_00"], lidar=False) == []

@@ -297,21 +297,61 @@ def drive_pull(body: DrivePullBody, request: Request) -> dict:
 
     Kết quả của việc là đường dẫn tuyệt đối của thư mục đích, để ô nạp cảnh xem thư mục đó.
     """
+    return submit_drive_pull(state_of(request), body.session, body.path, body.name, body.include)
+
+
+@router.post("/drive/pull/{name}/resume", status_code=202)
+def drive_pull_resume(name: str, request: Request) -> dict:
+    """Tải tiếp ``uploads/<tên>/`` từ Drive với nguồn đã nhớ (sau khi huỷ, lỗi, tắt Studio).
+
+    Phiên Colab ghi trong nguồn phải còn và đã mount Drive; không thì việc lỗi, kết nối Drive lại
+    trong ngăn nạp cảnh rồi tải tiếp.
+
+    Returns:
+        Việc ``drive_pull`` mới (hoặc việc đang chạy cho cùng thư mục). Thư mục không tải từ Drive
+        trả ``400``.
+    """
     state = state_of(request)
-    drive.safe_drive_path(body.path)
-    for prefix in body.include:
+    origin = uploads.load_origin(state.workdir, name)
+    if not origin or origin.get("kind") != "drive":
+        raise ValueError(f"uploads/{name} không tải từ Drive; chọn lại thư mục để tải tiếp")
+    return submit_drive_pull(
+        state, origin["session"], origin["path"], name, list(origin.get("include") or [])
+    )
+
+
+def submit_drive_pull(
+    state: StudioState, session: str, path: str, name: str, include: list[str]
+) -> dict:
+    """Xếp việc tải ``MyDrive/<path>`` về ``uploads/<name>/`` và nhớ nguồn để tải tiếp.
+
+    Đã có việc đang chờ hoặc chạy cho cùng thư mục thì trả việc đó (không tải hai lần).
+    """
+    drive.safe_drive_path(path)
+    for prefix in include:
         drive.safe_drive_path(prefix)
-    target = state.workdir.uploads_dir / body.name
+    active = state.jobs.active_for(name)
+    if active:
+        return active[0]
+    target = state.workdir.uploads_dir / name
+    previous = uploads.load_origin(state.workdir, name)
+    if previous and previous.get("path") == path and previous.get("include") and include:
+        # tải thêm chuỗi vào cùng thư mục: nhớ cả mục cũ để "Tải tiếp" không bỏ sót
+        include = list(dict.fromkeys([*previous["include"], *include]))
+    uploads.save_origin(
+        state.workdir,
+        name,
+        {"kind": "drive", "session": session, "path": path, "include": include},
+    )
 
     def work() -> str:
         result = drive.pull_folder(
-            ColabClient(), body.session, body.path, target, progress=state.jobs.report,
-            include=body.include,
-        )  # fmt: skip
+            ColabClient(), session, path, target, progress=state.jobs.report, include=include
+        )
         return result["path_abs"]
 
-    what = f"{body.path} ({len(body.include)} mục chọn)" if body.include else body.path
-    return state.jobs.submit("drive_pull", f"Drive: {what} → uploads/{body.name}", work)
+    what = f"{path} ({len(include)} mục chọn)" if include else path
+    return state.jobs.submit("drive_pull", f"Drive: {what} → uploads/{name}", work, target=name)
 
 
 @router.get("/{run_id}")
