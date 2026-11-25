@@ -24,7 +24,7 @@ from drive2sim.core.schema import Manifest
 from drive2sim.engine import housekeeping, scenes
 from drive2sim.engine.rig import RigError, generate_lidar_check, generate_rig
 from drive2sim.engine.workdir import Workdir
-from drive2sim.ingest import kitti360
+from drive2sim.ingest import kitti360, phenikaa
 from drive2sim.ingest.detect import inspect_source
 from drive2sim.ingest.dispatch import IngestRequestError, plan_ingest, run_ingest
 from drive2sim.ingest.drivestudio import IngestError
@@ -87,6 +87,7 @@ INGEST_FLAGS = (
     ("--num-frames", "num_frames"),
     ("--cameras", "cameras"),
     ("--max-gap", "max_gap"),
+    ("--calib", "calib"),
 )
 
 
@@ -119,8 +120,13 @@ def add_ingest_options(ingest: argparse.ArgumentParser) -> None:
     )
     ingest.add_argument(
         "--cameras",
-        help="KITTI-360: camera cần ghi, cách nhau bằng dấu phẩy; mặc định "
-        "image_00,image_01,image_02,image_03",
+        help="KITTI-360, PHENIKAA: camera cần ghi, cách nhau bằng dấu phẩy; mặc định mọi "
+        "camera (KITTI-360: image_00..image_03; PHENIKAA: camera có đủ ảnh)",
+    )
+    ingest.add_argument(
+        "--calib",
+        help="PHENIKAA: thư mục calib (Camera_Intrinsics.json, Sensor_Extrinsics.json); mặc định "
+        "tìm calib/ cạnh các chuỗi",
     )
     ingest.add_argument(
         "--max-gap",
@@ -239,11 +245,15 @@ def ingest_scene(args: argparse.Namespace) -> int:
         )
     except IngestRequestError as error:
         raise UsageError(str(error)) from None
+    cameras = tuple(args.cameras.split(",")) if args.cameras else None
     options = kitti360.Kitti360Options(
         start_frame=args.start_frame,
         num_frames=args.num_frames,
-        cameras=tuple(args.cameras.split(",")) if args.cameras else kitti360.CAMERAS,
+        cameras=cameras if target.dataset == kitti360.DATASET and cameras else kitti360.CAMERAS,
         max_gap=args.max_gap,
+    )
+    phenikaa_options = phenikaa.PhenikaaOptions(
+        cameras=cameras, calib_dir=Path(args.calib) if args.calib else None
     )
     try:
         scene_dir = run_ingest(
@@ -254,6 +264,7 @@ def ingest_scene(args: argparse.Namespace) -> int:
             interpolate_n=args.interpolate_n,
             workers=args.workers,
             kitti360_options=options,
+            phenikaa_options=phenikaa_options,
         )
     except IngestError as error:
         raise CommandError(str(error)) from None
