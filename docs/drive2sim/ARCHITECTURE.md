@@ -540,6 +540,7 @@ drivestudio_plus/                          branch drive2sim
 │   │   │   ├── base/                      pixel_source, lidar_source, scene_dataset, split_wrapper
 │   │   │   ├── loaders/                   <dataset>.py: một loader mỗi dataset (mục 2.4)
 │   │   │   ├── driving_dataset.py
+│   │   │   ├── split_indices.py           chỉ số ảnh train/test, có camera chỉ test (thuần Python)
 │   │   │   └── dataset_meta.py
 │   │   ├── preprocess/                    dữ liệu gốc → thư mục DriveStudio
 │   │   │   ├── run.py                     điểm vào: python -m drive2sim.recon.preprocess.run --dataset <dataset>
