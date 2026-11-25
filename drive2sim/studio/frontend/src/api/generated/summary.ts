@@ -26,6 +26,16 @@ export type EvalTimeS = number | null;
 export type AbsRel = number;
 export type Rmse = number;
 export type Delta125 = number;
+/**
+ * @minItems 1
+ */
+export type Cameras = [string, ...string[]];
+export type NumImages = number;
+export type Psnr1 = number;
+export type Ssim1 = number;
+export type Lpips1 = number;
+export type PsnrCc = number | null;
+export type LpipsCc = number | null;
 
 /**
  * Schema của file ``summary.json``: tóm tắt kết quả đánh giá của một run.
@@ -56,6 +66,9 @@ export type Delta125 = number;
  *         ``d2s-summary/0.5``); để trống nếu không biết.
  *     depth: Độ sâu render so với LiDAR (thêm từ ``d2s-summary/0.6``, protocol 0.4); để trống
  *         nếu cảnh không có LiDAR hoặc run đo bằng protocol cũ.
+ *     shifted: Metric trên camera chỉ test (R2, thêm từ ``d2s-summary/0.7``, protocol 0.5); để
+ *         trống nếu split không có camera chỉ test. Khi có, ``overall`` chỉ tính trên các ảnh
+ *         test của camera đã train.
  */
 export interface Summary {
   schema_version: SchemaVersion;
@@ -72,6 +85,7 @@ export interface Summary {
   speedups?: Speedups;
   eval_time_s?: EvalTimeS;
   depth?: DepthMetrics | null;
+  shifted?: ShiftedMetrics | null;
 }
 /**
  * Protocol đánh giá đã dùng cho một run (SPEC mục 9).
@@ -142,4 +156,31 @@ export interface DepthMetrics {
   abs_rel: AbsRel;
   rmse: Rmse;
   delta_1_25: Delta125;
+}
+/**
+ * Metric trên camera chỉ test, không train (yêu cầu R2 của benchmark, protocol 0.5).
+ *
+ * Đo ở các ảnh test của camera trong ``Split.test_only_cameras``, ví dụ ``image_01`` của
+ * KITTI-360 lệch khoảng 0,59 m so với ``image_00``. Camera chưa train nên không có ma trận chỉnh
+ * màu học được; ``psnr_cc`` và ``lpips_cc`` đo sau khi khớp một phép affine màu 3x4 cho mỗi ảnh
+ * (``drive2sim/recon/rendering/color_match.py``) và là số dùng để phân xử hoà.
+ *
+ * Attributes:
+ *     cameras: ``camera_id`` của các camera chỉ test.
+ *     num_images: Số ảnh test đã đo.
+ *     psnr: PSNR thô trung bình theo ảnh, dB.
+ *     ssim: SSIM trung bình theo ảnh.
+ *     lpips: LPIPS thô trung bình theo ảnh.
+ *     psnr_cc: PSNR sau chỉnh màu, dB; để trống nếu file metric từng ảnh không có hoặc mọi ảnh
+ *         khớp màu thất bại.
+ *     lpips_cc: LPIPS sau chỉnh màu; để trống như ``psnr_cc``.
+ */
+export interface ShiftedMetrics {
+  cameras: Cameras;
+  num_images: NumImages;
+  psnr: Psnr1;
+  ssim: Ssim1;
+  lpips: Lpips1;
+  psnr_cc?: PsnrCc;
+  lpips_cc?: LpipsCc;
 }

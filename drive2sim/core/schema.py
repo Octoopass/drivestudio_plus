@@ -112,7 +112,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "approach": "d2s-approach/0.3",
     "artifact": "d2s-artifact/0.2",
     "run": "d2s-run/0.3",
-    "summary": "d2s-summary/0.6",
+    "summary": "d2s-summary/0.7",
     "env": "d2s-env/0.3",
     "preview": "d2s-preview/0.2",
     "job": "d2s-job/0.1",
@@ -1198,6 +1198,34 @@ class DepthMetrics(StrictModel):
     delta_1_25: float = Field(ge=0, le=1)
 
 
+class ShiftedMetrics(StrictModel):
+    """Metric trên camera chỉ test, không train (yêu cầu R2 của benchmark, protocol 0.5).
+
+    Đo ở các ảnh test của camera trong ``Split.test_only_cameras``, ví dụ ``image_01`` của
+    KITTI-360 lệch khoảng 0,59 m so với ``image_00``. Camera chưa train nên không có ma trận chỉnh
+    màu học được; ``psnr_cc`` và ``lpips_cc`` đo sau khi khớp một phép affine màu 3x4 cho mỗi ảnh
+    (``drive2sim/recon/rendering/color_match.py``) và là số dùng để phân xử hoà.
+
+    Attributes:
+        cameras: ``camera_id`` của các camera chỉ test.
+        num_images: Số ảnh test đã đo.
+        psnr: PSNR thô trung bình theo ảnh, dB.
+        ssim: SSIM trung bình theo ảnh.
+        lpips: LPIPS thô trung bình theo ảnh.
+        psnr_cc: PSNR sau chỉnh màu, dB; để trống nếu file metric từng ảnh không có hoặc mọi ảnh
+            khớp màu thất bại.
+        lpips_cc: LPIPS sau chỉnh màu; để trống như ``psnr_cc``.
+    """
+
+    cameras: list[str] = Field(min_length=1)
+    num_images: int = Field(ge=1)
+    psnr: float
+    ssim: float
+    lpips: float
+    psnr_cc: Optional[float] = None
+    lpips_cc: Optional[float] = None
+
+
 class Summary(VersionedFile):
     """Schema của file ``summary.json``: tóm tắt kết quả đánh giá của một run.
 
@@ -1227,6 +1255,9 @@ class Summary(VersionedFile):
             ``d2s-summary/0.5``); để trống nếu không biết.
         depth: Độ sâu render so với LiDAR (thêm từ ``d2s-summary/0.6``, protocol 0.4); để trống
             nếu cảnh không có LiDAR hoặc run đo bằng protocol cũ.
+        shifted: Metric trên camera chỉ test (R2, thêm từ ``d2s-summary/0.7``, protocol 0.5); để
+            trống nếu split không có camera chỉ test. Khi có, ``overall`` chỉ tính trên các ảnh
+            test của camera đã train.
     """
 
     FILE_KIND: ClassVar[str] = "summary"
@@ -1243,6 +1274,7 @@ class Summary(VersionedFile):
     speedups: list[str] = []
     eval_time_s: Optional[float] = Field(default=None, ge=0)
     depth: Optional[DepthMetrics] = None
+    shifted: Optional[ShiftedMetrics] = None
 
 
 class Machine(StrictModel):

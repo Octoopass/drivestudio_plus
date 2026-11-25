@@ -488,8 +488,8 @@ Tóm tắt metric theo protocol của SPEC mục 9, do `eval.standard` ghi vào 
 
 ```json
 {
-  "schema_version": "d2s-summary/0.6",
-  "protocol": {"version": "0.4", "image_dtype": "uint8", "resolution": "downscale_when_loading=[2, 2, 2], downscale=1",
+  "schema_version": "d2s-summary/0.7",
+  "protocol": {"version": "0.5", "image_dtype": "uint8", "resolution": "downscale_when_loading=[2, 2, 2], downscale=1",
                "lpips": {"net": "alex", "package": "torchmetrics", "package_version": "0.10.3"}},
   "split_id": "every8_allcams",
   "overall": {"psnr": 27.1, "ssim": 0.83, "lpips": 0.21,
@@ -502,14 +502,20 @@ Tóm tắt metric theo protocol của SPEC mục 9, do `eval.standard` ghi vào 
   "render_fps": 38.6,
   "render_resolution": "800x450",
   "speedups": ["fastgs", "fastergs.fused_adam", "fastergs.fused_ssim"],
-  "depth": {"abs_rel": 0.12, "rmse": 3.4, "delta_1_25": 0.93}
+  "depth": {"abs_rel": 0.12, "rmse": 3.4, "delta_1_25": 0.93},
+  "shifted": {"cameras": ["image_01"], "num_images": 24, "psnr": 21.4, "ssim": 0.71, "lpips": 0.31,
+              "psnr_cc": 23.1, "lpips_cc": 0.27}
 }
 ```
 
 Các con số trong ví dụ chỉ minh hoạ định dạng. Metric vùng người, vùng xe chỉ có khi cảnh có box.
 
+- `shifted` (từ `d2s-summary/0.7`, protocol `0.5`): metric trên camera chỉ test của split (`Split.test_only_cameras`, mục 3.1), yêu cầu R2 của benchmark; để trống khi split không có camera chỉ test. `cameras` là `camera_id` của các camera đó, `num_images` số ảnh test đã đo; `psnr`, `ssim`, `lpips` là trung bình theo ảnh cùng cách đo như `overall`; `psnr_cc`, `lpips_cc` đo sau khi khớp cho **mỗi ảnh** một phép affine màu 3×4 (bình phương tối thiểu trên điểm hợp lệ, `drive2sim/recon/rendering/color_match.py`) giữa render và ảnh thật, vì camera chưa train không có ma trận chỉnh màu học được; ảnh có phép khớp suy biến (gần như một màu, dưới 100 điểm hợp lệ) bị bỏ khỏi trung bình sau chỉnh màu. Bản sau chỉnh màu là số để phân xử hoà (mục 6.5).
+- Khi split có camera chỉ test, `overall.psnr`, `ssim`, `lpips` chỉ tính trên các ảnh test của **camera đã train** (R1), lấy từ `frames.jsonl`; các metric vùng (`human_psnr`, `vehicle_psnr`, `dynamic_psnr`, `occupied_psnr`) và `per_camera` giữ số của DriveStudio, gồm cả camera chỉ test. Split không có camera chỉ test thì `overall` y như protocol `0.4`. Thiếu `frames.jsonl` mà split có camera chỉ test là lỗi.
+- Protocol `0.5` chỉ thêm `shifted` và ba khoá của `frames.jsonl` (`psnr_cc`, `lpips_cc`, `psnr_static`, bên dưới); cách tính PSNR, SSIM, LPIPS trên camera đã train không đổi so với `0.4`, nên số hai protocol so được với nhau. `eval.standard` coi file `frames.jsonl` không có `psnr_cc` là do code đo cũ và đo lại từ checkpoint nếu còn.
+
 - `depth` (từ `d2s-summary/0.6`, protocol `0.4`): độ sâu render so với độ sâu LiDAR trên ảnh test, yêu cầu R4 của benchmark. Chỉ đo ở điểm ảnh có tia LiDAR trúng (`lidar_depth_map` của loader, cùng đại lượng với loss depth), hợp lệ và có độ sâu render dương; ảnh có dưới 50 điểm như vậy bị bỏ; mỗi ảnh có trọng số bằng nhau. `abs_rel` = trung bình `|pred − lidar| / lidar`, `rmse` tính bằng mét, `delta_1_25` = tỉ lệ điểm có `max(pred/lidar, lidar/pred) < 1,25`. Để trống khi cảnh không có LiDAR hoặc run đo bằng protocol cũ. Chưa chạy thật trên GPU (mục 7.1 của ARCHITECTURE).
-- `d2s/stages/eval.standard/frames.jsonl` (từ protocol `0.4`): mỗi dòng một JSON là metric của một ảnh test: `frame_index` (khung trong timeline của camera), `camera_index` (vị trí camera trong manifest), `time` (thời gian chuẩn hoá, có thể `null`), `position` (toạ độ camera trong hệ thế giới của cảnh, mét), `psnr`, `ssim`, `lpips`, `depth` (`abs_rel`, `rmse`, `delta_1_25`, `num_points`, hoặc `null`). `d2s benchmark` dùng file này để tìm đoạn đường hỏng. Run đo bằng protocol 0.3 trở xuống không có file này; `eval.standard` đo lại từ checkpoint nếu còn (mục 6.3 phía trên).
+- `d2s/stages/eval.standard/frames.jsonl` (từ protocol `0.4`): mỗi dòng một JSON là metric của một ảnh test: `frame_index` (khung trong timeline của camera), `camera_index` (vị trí camera trong manifest), `time` (thời gian chuẩn hoá, có thể `null`), `position` (toạ độ camera trong hệ thế giới của cảnh, mét), `psnr`, `ssim`, `lpips`, `psnr_cc` và `lpips_cc` (sau chỉnh màu affine, từ protocol `0.5`; `null` khi phép khớp màu suy biến), `psnr_static` (từ protocol `0.5`: PSNR trên vùng nền tĩnh = hợp lệ, không phải trời, ngoài hình chiếu box vật động; `null` khi không còn điểm nào; stage `eval.ply` dùng làm số của render gốc), `depth` (`abs_rel`, `rmse`, `delta_1_25`, `num_points`, hoặc `null`). `d2s benchmark` dùng file này để tìm đoạn đường hỏng. Run đo bằng protocol 0.3 trở xuống không có file này; `eval.standard` đo lại từ checkpoint nếu còn (mục 6.3 phía trên).
 - Protocol `0.4` không đổi cách tính PSNR, SSIM, LPIPS so với `0.3`, chỉ thêm `depth` và `frames.jsonl`, nên số của hai protocol so được với nhau. `eval.ncore` (Instant NuRec) và `eval.mcgs` (MCGS-SLAM) ghi `protocol.version` là `ncore-0.3` vì SSIM và vùng hợp lệ của chúng khác (cùng script `ncore_eval_render.py`); `eval.mcgs` còn ghi `frames.jsonl` (không có `depth`); `d2s benchmark` cảnh báo khi một nhóm trộn các protocol khác nhau.
 
 - Cách đo (`protocol.version` `0.3`): cuối `train.py`, sau bước train cuối, model vẽ lại mọi ảnh của tập test; ảnh render được làm tròn về 8 bit như ảnh gốc rồi so với ảnh camera từng ảnh một, sau đó lấy trung bình. PSNR là `−10·log10(MSE)`; SSIM dùng `skimage.metrics.structural_similarity`; LPIPS dùng `torchmetrics` với backbone `alex`. Khi loader đánh dấu điểm ảnh không hợp lệ (`valid_masks`: mắt cá ngoài vùng nhìn dùng được, thân xe), cả ba metric chỉ xét điểm ảnh hợp lệ: PSNR trên các điểm đó, SSIM lấy trung bình bản đồ SSIM trên các điểm đó, LPIPS đo trên khung bao vùng hợp lệ với ảnh gốc dán vào điểm không hợp lệ (điểm không hợp lệ còn lại trong khung, như góc ảnh mắt cá, vẫn làm LPIPS loãng đi một chút). Ảnh không có điểm hợp lệ nào bị bỏ qua. `eval.standard` chỉ đọc kết quả này, không đo lại. Thay đổi từ `0.1`: `0.1` so ảnh render ở dạng số thực. Thay đổi từ `0.2`: `0.2` tính SSIM, LPIPS trên toàn ảnh sau khi tô đen vùng không hợp lệ ở cả hai ảnh, nên vùng đó được tính là khớp hoàn toàn và SSIM, LPIPS của camera có `valid_masks` tốt hơn thực tế; thêm metric theo camera. Hai run khác protocol không so SSIM, LPIPS của các camera này với nhau.
