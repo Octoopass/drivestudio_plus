@@ -500,7 +500,7 @@ Nguồn: `drive2sim/recon/trainers/base.py`, `camera_rasterization_kwargs` (3DGS
 
 | Dataset | BezierGS: engine cho chạy (pinhole, có box) | BezierGS: đã train thật | MCGS-SLAM: `eval.mcgs` đọc được pose, ảnh |
 |---|---|---|---|
-| nuScenes, Waymo, Argoverse 2, PandaSet, nuPlan | Có, mọi số camera có config | Chỉ Waymo 017 (chuyển từ định dạng BezierGS, không qua ingest của tool) | Có, qua `get_camera2worlds` của loader; **chưa chạy loader thật** (test dùng loader giả) |
+| nuScenes, Waymo, Argoverse 2, PandaSet, nuPlan | Có, mọi số camera có config | Chỉ Waymo 017 (chuyển từ định dạng BezierGS, không qua ingest của tool) | Có, qua `get_camera2worlds` của loader. **Loader Waymo đã chạy thật** trên `waymo_017` (49 khung, CPU, 25/11/2026): ma trận xoay hợp lệ, xe đi 0,65 m mỗi khung, khớp ghi chú của BezierGS; nuScenes, Argoverse 2, PandaSet, nuPlan chưa (không có cảnh) |
 | KITTI | Có (1, 2 camera) | Chưa | Có (đọc trực tiếp) |
 | KITTI-360 | Có, chỉ split gồm 2 camera pinhole; split có camera mắt cá bị khoá | Chưa | Có (đọc trực tiếp, đã test bằng cảnh giả); chấm được cả camera mắt cá |
 | PhysicalAI (F-theta) | Bị khoá (renderer 3DGS chỉ nhận pinhole) | Không | Không: SLAM chỉ nhận pinhole |
