@@ -101,6 +101,7 @@ def create_split(
     cameras: Optional[Sequence[str]] = None,
     frame_range: Optional[tuple[int, int]] = None,
     split_id: Optional[str] = None,
+    test_only_cameras: Optional[Sequence[str]] = None,
 ) -> Split:
     """Tạo split ``every_nth_frame:N`` cho một cảnh và ghi vào ``data/<scene_id>/splits/``.
 
@@ -110,7 +111,9 @@ def create_split(
         strategy: Chuỗi chiến lược, ví dụ ``every_nth_frame:8``.
         cameras: Camera dùng trong split; mặc định mọi camera của cảnh.
         frame_range: Khung đầu và khung cuối, tính cả hai đầu; mặc định cả cảnh.
-        split_id: Tên split; mặc định theo ``default_split_id``.
+        split_id: Tên split; mặc định theo ``default_split_id``. Split có camera chỉ test nên
+            đặt tên riêng, vì tên mặc định trùng split cùng camera nhưng train hết.
+        test_only_cameras: Camera chỉ test, không train (đo R2); phải nằm trong ``cameras``.
 
     Returns:
         Split đã ghi.
@@ -125,7 +128,8 @@ def create_split(
     num_frames = scene.manifest.timeline.num_frames
     all_cameras = [camera.camera_id for camera in scene.manifest.cameras]
     cameras = list(cameras) if cameras else all_cameras
-    unknown = [camera for camera in cameras if camera not in all_cameras]
+    test_only_cameras = list(test_only_cameras) if test_only_cameras else []
+    unknown = [camera for camera in cameras + test_only_cameras if camera not in all_cameras]
     if unknown:
         raise SplitError(
             f"camera không có trong cảnh: {', '.join(unknown)}; cảnh có: {', '.join(all_cameras)}"
@@ -137,7 +141,7 @@ def create_split(
         )
     try:
         split_id = split_id or default_split_id(strategy, cameras, scene.manifest)
-        split = make_split(scene_id, cameras, frame_range, strategy, split_id)
+        split = make_split(scene_id, cameras, frame_range, strategy, split_id, test_only_cameras)
     except ValueError as error:
         raise SplitError(f"không tạo được split: {error}") from None
     path = workdir.split_path(scene_id, split.split_id)
