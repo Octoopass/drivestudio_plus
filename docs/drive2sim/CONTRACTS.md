@@ -589,10 +589,17 @@ entries:
       "rows": [
         {"run_id": "20261124-103000-deformablegs-c3d4", "approach_id": "deformablegs", "rank": 1,
          "tied_with_best": true, "psnr": 24.8, "ssim": 0.78, "lpips": 0.26, "avg_error": 0.0405,
-         "psnr_pinhole": 24.8, "depth": {"abs_rel": 0.12, "rmse": 3.4, "delta_1_25": 0.93},
-         "ply_gaussians": 640000, "ply_size_mb": 151.2, "train_time_s": 5400, "peak_vram_mb": 6100,
-         "render_fps": 41.0, "gpu": "NVIDIA GeForce RTX 4090",
-         "bad_segments": [{"start_m": 60.0, "end_m": 100.0, "num_frames": 5, "min_psnr": 19.5}],
+         "psnr_pinhole": 24.8,
+         "shift_psnr": 21.9, "shift_lpips": 0.31, "shift_psnr_cc": 23.4, "shift_lpips_cc": 0.27,
+         "shift_cameras": ["image_01"],
+         "depth": {"abs_rel": 0.12, "rmse": 3.4, "delta_1_25": 0.93},
+         "export_gap_db": 0.4, "export_applicable": true,
+         "ply_gaussians": 640000, "ply_size_mb": 151.2, "train_time_s": 5400, "recon_time_s": 6100,
+         "peak_vram_mb": 6100, "render_fps": 41.0, "gpu": "NVIDIA GeForce RTX 4090",
+         "distance_m": 480.0, "train_s_per_100m": null, "ply_mb_per_100m": null,
+         "ate_rmse_m": null,
+         "bad_segments": {"pinhole": [{"start_m": 60.0, "end_m": 100.0, "num_frames": 5,
+                                       "min_psnr": 19.5}]},
          "frames_measured": 20}
       ],
       "warnings": []
@@ -603,11 +610,14 @@ entries:
 
 Các con số trong ví dụ chỉ minh hoạ định dạng. Quy tắc:
 - **Xếp hạng trong nhóm** theo Avg của Mip-NeRF (mục 6.3; thấp là tốt). Run kém run có Avg tốt nhất dưới `tie_threshold_db` (mặc định 0,3 dB PSNR) được coi là **ngang** (`tied_with_best`, gồm cả chính run tốt nhất); tập run ngang xác định **một lần**, so với run có Avg tốt nhất. Trong tập ngang phân xử lần lượt: (1) R2, `shifted.psnr_cc` cao hơn, chênh dưới ngưỡng hoà coi như bằng; (2) R3, `export_gap_db` nhỏ hơn, chênh dưới 0,3 dB coi như bằng; (3) thời gian train ngắn hơn, **chỉ khi mọi run còn lại cùng GPU**. Một bước mà có run trong tập chưa đo hoặc không áp dụng thì bị bỏ qua cho cả tập (R3 không áp dụng cho method không xuất được `.ply`). `winner_run_id` là run thắng và `decided_by` là bước đã chọn nó (`avg` nếu chỉ một run ngang run tốt nhất, `r2`, `r3`, `train_time`); `winner_run_id` là `null` (kèm `warnings`) khi không run nào có kết quả, khi các run ngang nhau mà khác GPU hoặc thiếu thời gian train, hoặc khi các run đo bằng protocol không so được (`0.3`, `0.4`, `0.5` so được với nhau; `ncore-0.3` thì không), lúc đó chỉ liệt kê theo Avg. Lệch làn (KID) chưa đo nên chưa xét. R4, R6, R7 báo kèm, không đổi thứ hạng.
-- **Đoạn đường hỏng** (R7): PSNR một khung test là trung bình các camera của khung; đoạn hỏng là từ 5 khung test liền nhau trở lên, mỗi khung thấp hơn trung vị quá 2 dB. `start_m`, `end_m` là quãng đường dọc đường gấp khúc qua vị trí camera của các khung test (giữa hai khung test liền nhau là khung train nên đường thực dài hơn một chút). Cần `frames.jsonl` (mục 6.3); `frames_measured` bằng 0 nghĩa là chưa đo, không phải không có đoạn hỏng.
-- `psnr_pinhole`, `psnr_fisheye` (R5): trung bình PSNR theo camera, nhóm camera theo `model` trong manifest (`opencv_fisheye`, `ftheta` là fisheye).
-- `export_gap_db` (R3) đọc từ `d2s/stages/eval.ply/ply_gap.json` nếu có; chưa có stage đó nên hiện luôn để trống.
-- Trường để trống nghĩa là **chưa đo**. Chưa đo: KID khi lệch làn (R2, hoãn), export gap (R3), PSNR quanh chỗ nối chunk (R6, làm khi có run chunk đầu tiên). Chủ ý **không đo**: `ghost_ratio` (chưa có định nghĩa, chỉ có nghĩa với method tách lớp nền và vật động), `static_psnr` (hoãn tới khi cần so method chỉ dựng cảnh tĩnh như Instant NuRec), ATE (chỉ method tự ước lượng pose có; ghi số do method báo, không tính lại). Lý do ở ARCHITECTURE mục 2.17.
-- `warnings` nêu khi nhóm không so được trực tiếp: run chưa có kết quả, GPU khác nhau (thời gian, VRAM, FPS), protocol khác nhau.
+- **R2** (`shift_*`, từ `d2s-benchresult/0.2`): đọc từ `summary.json` khối `shifted` (mục 6.3), trên camera chỉ test của split. `shift_psnr_cc` là số phân xử hoà thứ nhất. Để trống khi split không có camera chỉ test hoặc run đo bằng protocol dưới `0.5`.
+- **Đoạn đường hỏng** (R7, chỉ chẩn đoán, không vào xếp hạng): PSNR một khung test là trung bình các camera của khung **trong cùng nhóm camera**; `bad_segments` có khoá `pinhole` và `fisheye` (nhóm theo `model` trong manifest; chỉ nhóm có ảnh), mỗi khoá là danh sách đoạn hỏng của nhóm. Đoạn hỏng là từ 5 khung test liền nhau trở lên, mỗi khung thấp hơn trung vị của nhóm quá 2 dB. Ảnh của camera chỉ test bị bỏ (PSNR thấp hơn hẳn và vị trí lệch khỏi quỹ đạo, sẽ làm lệch trung vị và quãng đường). `start_m`, `end_m` là quãng đường dọc đường gấp khúc qua vị trí camera của các khung test (giữa hai khung test liền nhau là khung train nên đường thực dài hơn một chút). Cần `frames.jsonl` (mục 6.3); `frames_measured` (số cặp khung-camera đã train có metric) bằng 0 nghĩa là chưa đo, không phải không có đoạn hỏng. Trước `0.2`, `bad_segments` là một danh sách chung cho mọi camera.
+- `psnr_pinhole`, `psnr_fisheye`: trung bình PSNR theo camera, nhóm camera theo `model` trong manifest (`opencv_fisheye`, `ftheta` là fisheye); chiều báo cáo, không xếp hạng.
+- `export_gap_db` (R3) đọc từ `d2s/stages/eval.ply/ply_gap.json` nếu có. `export_applicable` là `false` khi danh sách stage của run (`run.json`) không có `export.ply_world` hay `export.nurec_ply`, tức method không xuất được `.ply` nền tĩnh (như SLAM dạng anchor và MLP): R3 **không áp dụng**, khác với chưa đo (`export_gap_db` trống, `export_applicable` `true`).
+- **R6** (track B): `distance_m` là độ dài đường gấp khúc qua các khung test của camera đã train; `train_s_per_100m` và `ply_mb_per_100m` là thời gian train và dung lượng `scene.ply` chia cho `distance_m / 100`, chỉ điền ở track `B` khi `distance_m > 0`. `ate_rmse_m` là ATE do method tự báo (`mcgs_eval.json` cạnh `summary.json`), không tính lại. Chưa có: PSNR quanh chỗ nối chunk (làm khi có run chunk đầu tiên).
+- **R8**: `train_time_s`, `recon_time_s` (tổng thời gian dựng cảnh tới khi xuất xong `scene.ply`), `peak_vram_mb`, `render_fps`, `gpu`. Chỉ so được giữa run cùng loại GPU; khác GPU thì bước phân xử thời gian train không chạy.
+- Trường để trống nghĩa là **chưa đo**. Chưa đo: KID khi lệch làn (R2, hoãn), PSNR quanh chỗ nối chunk (R6). Chủ ý **không đo**: `ghost_ratio` (chưa có định nghĩa, chỉ có nghĩa với method tách lớp nền và vật động), `static_psnr` như tiêu chí xếp hạng (R3 dùng PSNR nền tĩnh nhưng chỉ để tính export gap), ATE tự tính (chỉ method tự ước lượng pose có; ghi số do method báo), "kết quả xác định" (thay bằng một lần đo dao động theo seed để đặt ngưỡng hoà). Lý do ở ARCHITECTURE mục 2.17.
+- `warnings` nêu khi nhóm không so được trực tiếp: run chưa có kết quả, GPU khác nhau (thời gian, VRAM, FPS), protocol không so được, các run ngang nhau mà không phân xử được.
 
 ## 7. Gói xem trước
 

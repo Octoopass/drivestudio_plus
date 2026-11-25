@@ -1540,16 +1540,30 @@ class BenchmarkRunRow(StrictModel):
         avg_error: Chỉ số Avg của Mip-NeRF, thấp là tốt.
         psnr_pinhole: PSNR trung bình các camera pinhole (R5), nếu có.
         psnr_fisheye: PSNR trung bình các camera fisheye (R5), nếu có.
+        shift_psnr: PSNR thô trên camera chỉ test (R2), nếu split có camera chỉ test.
+        shift_lpips: LPIPS thô trên camera chỉ test (R2).
+        shift_psnr_cc: PSNR sau chỉnh màu trên camera chỉ test (R2); số dùng để phân xử hoà.
+        shift_lpips_cc: LPIPS sau chỉnh màu trên camera chỉ test (R2).
+        shift_cameras: ``camera_id`` của các camera chỉ test; rỗng nếu split không có.
         depth: Độ sâu render so với LiDAR (R4), nếu đã đo.
         export_gap_db: Chênh PSNR giữa render gốc và render ``.ply`` (R3), nếu đã đo.
+        export_applicable: ``False`` khi approach không xuất được ``.ply`` nền tĩnh (R3 không áp
+            dụng, khác với chưa đo); ``True`` khi có xuất hoặc không biết.
         ply_gaussians: Số Gaussian trong ``scene.ply``.
         ply_size_mb: Dung lượng ``scene.ply``, megabyte.
         train_time_s: Thời gian train, giây.
+        recon_time_s: Tổng thời gian dựng cảnh từ stage đầu tới khi xuất xong ``scene.ply``, giây
+            (R8).
         peak_vram_mb: VRAM cao nhất khi train, megabyte.
         render_fps: Tốc độ render, khung mỗi giây.
         gpu: GPU đã chạy run.
-        bad_segments: Các đoạn đường hỏng (R7); rỗng nếu không có hoặc không đo được.
-        frames_measured: Số khung test có metric từng ảnh; 0 nếu run chưa có.
+        distance_m: Quãng đường đường gấp khúc qua các khung test của camera đã train, mét (R6).
+        train_s_per_100m: Thời gian train chia cho ``distance_m / 100`` (R6); chỉ điền ở track B.
+        ply_mb_per_100m: Dung lượng ``scene.ply`` chia cho ``distance_m / 100`` (R6); chỉ track B.
+        ate_rmse_m: ATE do method tự báo (``mcgs_eval.json``), mét; không tính lại (R6).
+        bad_segments: Các đoạn đường hỏng (R7) theo nhóm camera, khoá ``pinhole`` hoặc ``fisheye``
+            (chỉ nhóm có ảnh test); chỉ tính trên camera đã train. Rỗng nếu không đo được.
+        frames_measured: Số cặp (khung, camera đã train) có metric từng ảnh; 0 nếu run chưa có.
     """
 
     run_id: str
@@ -1562,15 +1576,26 @@ class BenchmarkRunRow(StrictModel):
     avg_error: Optional[float] = None
     psnr_pinhole: Optional[float] = None
     psnr_fisheye: Optional[float] = None
+    shift_psnr: Optional[float] = None
+    shift_lpips: Optional[float] = None
+    shift_psnr_cc: Optional[float] = None
+    shift_lpips_cc: Optional[float] = None
+    shift_cameras: list[str] = []
     depth: Optional[DepthMetrics] = None
     export_gap_db: Optional[float] = None
+    export_applicable: bool = True
     ply_gaussians: Optional[int] = None
     ply_size_mb: Optional[float] = None
     train_time_s: Optional[float] = None
+    recon_time_s: Optional[float] = None
     peak_vram_mb: Optional[int] = None
     render_fps: Optional[float] = None
     gpu: Optional[str] = None
-    bad_segments: list[BadSegment] = []
+    distance_m: Optional[float] = None
+    train_s_per_100m: Optional[float] = None
+    ply_mb_per_100m: Optional[float] = None
+    ate_rmse_m: Optional[float] = None
+    bad_segments: dict[str, list[BadSegment]] = {}
     frames_measured: int = Field(default=0, ge=0)
 
 

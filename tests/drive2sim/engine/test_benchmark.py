@@ -13,9 +13,23 @@ from typing import Optional
 
 import pytest
 
-from drive2sim.core.schema import BenchmarkEntry, DepthMetrics
+from drive2sim.core import files
+from drive2sim.core.schema import (
+    BenchmarkEntry,
+    DepthMetrics,
+    RunApproach,
+    RunRecord,
+    ShiftedMetrics,
+    StageRecord,
+)
 from drive2sim.engine import benchmark
-from drive2sim.engine.benchmark import TieInputs, bad_segments, order_group
+from drive2sim.engine.benchmark import (
+    GroupContext,
+    TieInputs,
+    bad_segments,
+    bad_segments_by_group,
+    order_group,
+)
 from drive2sim.engine.report import ReportRow, avg_error
 
 
@@ -238,6 +252,7 @@ def test_run_group_collects_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         },
         depth=DepthMetrics(abs_rel=0.1, rmse=2.0, delta_1_25=0.9),
         protocol=SimpleNamespace(version="0.4"),
+        shifted=None,
     )
     monkeypatch.setattr(benchmark, "load_summary", lambda run_dir: summary)
     frames_dir = tmp_path / "d2s" / "stages" / "eval.standard"
@@ -252,6 +267,7 @@ def test_run_group_collects_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ]
     workdir = SimpleNamespace(
         load_scene=lambda scene_id: SimpleNamespace(manifest=SimpleNamespace(cameras=cameras)),
+        load_split=lambda scene_id, split_id: SimpleNamespace(test_only_cameras=[]),
         run_dir=lambda scene_id, approach_id, run_id: tmp_path,
     )
     entry = BenchmarkEntry(
@@ -265,10 +281,226 @@ def test_run_group_collects_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert group.rows[1].tied_with_best
     assert (first.psnr_pinhole, first.psnr_fisheye) == (26.0, 22.0)
     assert first.depth is not None and first.frames_measured == 17
-    assert len(first.bad_segments) == 1
+    assert len(first.bad_segments["pinhole"]) == 1
     assert any("GPU khác nhau" in w for w in group.warnings)
     with pytest.raises(ValueError, match="không có hoặc không thuộc"):
         benchmark.run_group(
             workdir,  # type: ignore[arg-type]
             entry.model_copy(update={"runs": [run_a, "20261101-000002-omnire-cccc"]}),
         )
+
+
+# ---------------------------------------------------------------- R2, R3, R6, R7, R8 theo dòng
+
+
+def frames_for_cameras(num_frames: int, per_camera: dict[int, dict]) -> list[dict]:
+    """Bản ghi từng ảnh cho nhiều camera; ``per_camera[i]`` có ``psnr``, ``x`` (hàm của khung)."""
+    records = []
+    for index in range(num_frames):
+        for camera, spec in per_camera.items():
+            records.append(
+                {
+                    "frame_index": index,
+                    "camera_index": camera,
+                    "position": [spec["x"](index), 0.0, 0.0],
+                    "psnr": spec["psnr"](index),
+                }
+            )
+    return records
+
+
+def test_bad_segments_are_split_by_camera_group_and_skip_test_only() -> None:
+    frames = frames_for_cameras(
+        17,
+        {
+            0: {"x": lambda i: 10.0 * i, "psnr": lambda i: 25.0},  # pinhole tốt
+            1: {"x": lambda i: 10.0 * i, "psnr": lambda i: 10.0 if i < 5 else 25.0},  # chỉ test
+            2: {"x": lambda i: 10.0 * i, "psnr": lambda i: 17.0 if 6 <= i <= 10 else 22.0},
+        },
+    )
+    groups = bad_segments_by_group(frames, fisheye_indices={2}, exclude_indices={1})
+    assert groups["pinhole"] == [] and len(groups["fisheye"]) == 1
+    assert groups["fisheye"][0].num_frames == 5
+    # không loại camera chỉ test thì nó làm lộ một đoạn hỏng ở nhóm pinhole
+    leaked = bad_segments_by_group(frames, fisheye_indices={2}, exclude_indices=set())
+    assert len(leaked["pinhole"]) == 1
+
+
+def test_bad_segments_by_group_omits_groups_without_images() -> None:
+    frames = frames_with([25.0] * 6)
+    groups = bad_segments_by_group(frames, fisheye_indices={2}, exclude_indices=set())
+    assert set(groups) == {"pinhole"}
+
+
+def stage_summary(**fields: object) -> SimpleNamespace:
+    """``summary.json`` giả với đủ trường mà ``build_row`` đọc."""
+    base = {
+        "per_camera": {},
+        "depth": None,
+        "protocol": SimpleNamespace(version="0.5"),
+        "shifted": None,
+    }
+    return SimpleNamespace(**{**base, **fields})
+
+
+def write_frames(run_dir: Path, records: list[dict]) -> None:
+    frames_dir = run_dir / "d2s" / "stages" / "eval.standard"
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    (frames_dir / "frames.jsonl").write_text("\n".join(json.dumps(r) for r in records) + "\n")
+
+
+def test_row_reads_shifted_metrics(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    shifted = ShiftedMetrics(
+        cameras=["image_01"],
+        num_images=2,
+        psnr=21.0,
+        ssim=0.7,
+        lpips=0.3,
+        psnr_cc=23.1,
+        lpips_cc=0.27,
+    )
+    monkeypatch.setattr(benchmark, "load_summary", lambda run_dir: stage_summary(shifted=shifted))
+    row = benchmark.build_row(make_row("a", 25.0), tmp_path, GroupContext("A"), 1, True)
+    assert (row.shift_psnr, row.shift_lpips) == (21.0, 0.3)
+    assert (row.shift_psnr_cc, row.shift_lpips_cc) == (23.1, 0.27)
+    assert row.shift_cameras == ["image_01"]
+
+
+def test_row_without_shifted_leaves_r2_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(benchmark, "load_summary", lambda run_dir: stage_summary())
+    row = benchmark.build_row(make_row("a", 25.0), tmp_path, GroupContext("A"), 1, True)
+    assert row.shift_psnr_cc is None and row.shift_psnr is None and row.shift_cameras == []
+    monkeypatch.setattr(benchmark, "load_summary", lambda run_dir: None)
+    bare = benchmark.build_row(make_row("a", 25.0), tmp_path, GroupContext("A"), 1, True)
+    assert bare.shift_psnr_cc is None and bare.bad_segments == {}
+
+
+def test_export_applicable_depends_on_stage_list(tmp_path: Path) -> None:
+    assert benchmark.export_applicable(["train.drivestudio", "export.ply_world"])
+    assert benchmark.export_applicable(["train.nurec", "export.nurec_ply"])
+    assert not benchmark.export_applicable(["train.mcgs", "eval.mcgs"])
+    run = RunRecord(
+        schema_version="d2s-run/0.3",
+        run_id="20261112-081000-omnire-a1b2",
+        scene_id="nuscenes_scene-0061",
+        split_id="every8_allcams",
+        approach=RunApproach(approach_id="omnire", version="0.1.0"),
+        level="L1",
+        executor="local",
+        status="succeeded",
+        stages=[StageRecord(stage_id="train.mcgs", status="succeeded")],
+    )
+    files.dump(run, tmp_path / "d2s" / "run.json")
+    assert benchmark.run_stage_ids(tmp_path) == ["train.mcgs"]
+    assert benchmark.run_stage_ids(tmp_path / "missing") is None
+
+
+def test_row_marks_export_not_applicable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(benchmark, "load_summary", lambda run_dir: stage_summary())
+    stages = [StageRecord(stage_id="train.mcgs", status="succeeded")]
+    run = RunRecord(
+        schema_version="d2s-run/0.3",
+        run_id="20261112-081000-omnire-a1b2",
+        scene_id="nuscenes_scene-0061",
+        split_id="every8_allcams",
+        approach=RunApproach(approach_id="omnire", version="0.1.0"),
+        level="L1",
+        executor="local",
+        status="succeeded",
+        stages=stages,
+    )
+    files.dump(run, tmp_path / "d2s" / "run.json")
+    row = benchmark.build_row(make_row("a", 25.0), tmp_path, GroupContext("A"), 1, True)
+    assert row.export_applicable is False
+    plain = tmp_path / "other"
+    plain.mkdir()
+    assert benchmark.build_row(
+        make_row("a", 25.0), plain, GroupContext("A"), 1, True
+    ).export_applicable
+
+
+def test_per_100m_only_for_track_b(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(benchmark, "load_summary", lambda run_dir: stage_summary())
+    write_frames(tmp_path, frames_with([25.0] * 51))  # 50 khoảng 10 m = 500 m
+    run = make_row("a", 25.0, train_time_s=3600.0)
+    run.ply_size_mb = 200.0
+    run.recon_time_s = 4000.0
+    track_b = benchmark.build_row(run, tmp_path, GroupContext("B"), 1, True)
+    assert track_b.distance_m == pytest.approx(500.0)
+    assert track_b.train_s_per_100m == pytest.approx(720.0)
+    assert track_b.ply_mb_per_100m == pytest.approx(40.0)
+    assert track_b.recon_time_s == 4000.0
+    track_a = benchmark.build_row(run, tmp_path, GroupContext("A"), 1, True)
+    assert track_a.distance_m == pytest.approx(500.0)
+    assert track_a.train_s_per_100m is None and track_a.ply_mb_per_100m is None
+
+
+def test_distance_ignores_test_only_cameras(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(benchmark, "load_summary", lambda run_dir: stage_summary())
+    frames = frames_for_cameras(
+        6,
+        {
+            0: {"x": lambda i: 10.0 * i, "psnr": lambda i: 25.0},
+            1: {"x": lambda i: 0.0, "psnr": lambda i: 5.0},  # camera chỉ test, vị trí lệch hẳn
+        },
+    )
+    write_frames(tmp_path, frames)
+    context = GroupContext("B", test_only_indices={1})
+    row = benchmark.build_row(make_row("a", 25.0), tmp_path, context, 1, True)
+    assert row.distance_m == pytest.approx(50.0)
+    assert row.frames_measured == 6  # chỉ đếm ảnh của camera đã train
+
+
+def test_ate_is_read_from_mcgs_eval_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(benchmark, "load_summary", lambda run_dir: stage_summary())
+    write_frames(tmp_path, frames_with([25.0] * 6))
+    stage_dir = tmp_path / "d2s" / "stages" / "eval.standard"
+    (stage_dir / "mcgs_eval.json").write_text(json.dumps({"ate_rmse_m": 0.42}))
+    row = benchmark.build_row(make_row("a", 25.0), tmp_path, GroupContext("A"), 1, True)
+    assert row.ate_rmse_m == pytest.approx(0.42)
+    (stage_dir / "mcgs_eval.json").unlink()
+    again = benchmark.build_row(make_row("a", 25.0), tmp_path, GroupContext("A"), 1, True)
+    assert again.ate_rmse_m is None
+
+
+def test_run_group_settles_a_tie_with_r2(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    run_a, run_b = "20261101-000000-omnire-aaaa", "20261101-000001-pvg-bbbb"
+    rows = [make_row(run_a, 25.0, train_time_s=10.0), make_row(run_b, 24.9, train_time_s=900.0)]
+    monkeypatch.setattr(benchmark, "report_rows", lambda *args, **kwargs: rows)
+    shifted = {run_a: 22.0, run_b: 23.0}
+
+    def fake_summary(run_dir: Path) -> SimpleNamespace:
+        value = shifted[run_dir.name]
+        return stage_summary(
+            shifted=ShiftedMetrics(
+                cameras=["image_01"],
+                num_images=1,
+                psnr=value - 1,
+                ssim=0.7,
+                lpips=0.3,
+                psnr_cc=value,
+            )
+        )
+
+    monkeypatch.setattr(benchmark, "load_summary", fake_summary)
+    cameras = [
+        SimpleNamespace(camera_id="image_00", model="opencv_pinhole"),
+        SimpleNamespace(camera_id="image_01", model="opencv_pinhole"),
+    ]
+    split = SimpleNamespace(test_only_cameras=["image_01"])
+    workdir = SimpleNamespace(
+        load_scene=lambda scene_id: SimpleNamespace(manifest=SimpleNamespace(cameras=cameras)),
+        load_split=lambda scene_id, split_id: split,
+        run_dir=lambda scene_id, approach_id, run_id: tmp_path / run_id,
+    )
+    entry = BenchmarkEntry(
+        bench_track="A", cell="A-L", scene_id="s", split_id="x", runs=[run_a, run_b]
+    )
+    group = benchmark.run_group(workdir, entry)  # type: ignore[arg-type]
+    assert group.winner_run_id == run_b and group.decided_by == "r2"
+    assert [row.run_id for row in group.rows] == [run_b, run_a]
+    assert group.rows[0].shift_psnr_cc == 23.0

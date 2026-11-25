@@ -60,7 +60,7 @@ def benchmark(args: argparse.Namespace) -> int:
     for group in result.groups:
         title = f"track {group.bench_track}" + (f", ô {group.cell}" if group.cell else "")
         headers = [
-            "#", "run_id", "approach", "PSNR", "Avg", "pinhole", "fisheye", "AbsRel",
+            "#", "run_id", "approach", "PSNR", "Avg", "pinhole", "fisheye", "R2 cc", "AbsRel",
             "gap dB", "đoạn xấu", "phút", "VRAM",
         ]  # fmt: skip
         table = [
@@ -72,9 +72,10 @@ def benchmark(args: argparse.Namespace) -> int:
                 _value(r.avg_error, 4),
                 _value(r.psnr_pinhole),
                 _value(r.psnr_fisheye),
+                _value(r.shift_psnr_cc),
                 _value(r.depth.abs_rel if r.depth else None, 3),
-                _value(r.export_gap_db),
-                len(r.bad_segments) if r.frames_measured else "–",
+                _value(r.export_gap_db) if r.export_applicable else "n/a",
+                sum(len(v) for v in r.bad_segments.values()) if r.frames_measured else "–",
                 _value(r.train_time_s / 60 if r.train_time_s is not None else None, 1),
                 r.peak_vram_mb or "–",
             ]

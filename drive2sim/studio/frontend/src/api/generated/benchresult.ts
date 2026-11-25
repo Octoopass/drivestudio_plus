@@ -18,21 +18,31 @@ export type Lpips = number | null;
 export type AvgError = number | null;
 export type PsnrPinhole = number | null;
 export type PsnrFisheye = number | null;
+export type ShiftPsnr = number | null;
+export type ShiftLpips = number | null;
+export type ShiftPsnrCc = number | null;
+export type ShiftLpipsCc = number | null;
+export type ShiftCameras = string[];
 export type AbsRel = number;
 export type Rmse = number;
 export type Delta125 = number;
 export type ExportGapDb = number | null;
+export type ExportApplicable = boolean;
 export type PlyGaussians = number | null;
 export type PlySizeMb = number | null;
 export type TrainTimeS = number | null;
+export type ReconTimeS = number | null;
 export type PeakVramMb = number | null;
 export type RenderFps = number | null;
 export type Gpu = string | null;
+export type DistanceM = number | null;
+export type TrainSPer100M = number | null;
+export type PlyMbPer100M = number | null;
+export type AteRmseM = number | null;
 export type StartM = number;
 export type EndM = number;
 export type NumFrames = number;
 export type MinPsnr = number;
-export type BadSegments = BadSegment[];
 export type FramesMeasured = number;
 export type Rows = BenchmarkRunRow[];
 export type Warnings = string[];
@@ -92,16 +102,30 @@ export interface BenchmarkGroup {
  *     avg_error: Chỉ số Avg của Mip-NeRF, thấp là tốt.
  *     psnr_pinhole: PSNR trung bình các camera pinhole (R5), nếu có.
  *     psnr_fisheye: PSNR trung bình các camera fisheye (R5), nếu có.
+ *     shift_psnr: PSNR thô trên camera chỉ test (R2), nếu split có camera chỉ test.
+ *     shift_lpips: LPIPS thô trên camera chỉ test (R2).
+ *     shift_psnr_cc: PSNR sau chỉnh màu trên camera chỉ test (R2); số dùng để phân xử hoà.
+ *     shift_lpips_cc: LPIPS sau chỉnh màu trên camera chỉ test (R2).
+ *     shift_cameras: ``camera_id`` của các camera chỉ test; rỗng nếu split không có.
  *     depth: Độ sâu render so với LiDAR (R4), nếu đã đo.
  *     export_gap_db: Chênh PSNR giữa render gốc và render ``.ply`` (R3), nếu đã đo.
+ *     export_applicable: ``False`` khi approach không xuất được ``.ply`` nền tĩnh (R3 không áp
+ *         dụng, khác với chưa đo); ``True`` khi có xuất hoặc không biết.
  *     ply_gaussians: Số Gaussian trong ``scene.ply``.
  *     ply_size_mb: Dung lượng ``scene.ply``, megabyte.
  *     train_time_s: Thời gian train, giây.
+ *     recon_time_s: Tổng thời gian dựng cảnh từ stage đầu tới khi xuất xong ``scene.ply``, giây
+ *         (R8).
  *     peak_vram_mb: VRAM cao nhất khi train, megabyte.
  *     render_fps: Tốc độ render, khung mỗi giây.
  *     gpu: GPU đã chạy run.
- *     bad_segments: Các đoạn đường hỏng (R7); rỗng nếu không có hoặc không đo được.
- *     frames_measured: Số khung test có metric từng ảnh; 0 nếu run chưa có.
+ *     distance_m: Quãng đường đường gấp khúc qua các khung test của camera đã train, mét (R6).
+ *     train_s_per_100m: Thời gian train chia cho ``distance_m / 100`` (R6); chỉ điền ở track B.
+ *     ply_mb_per_100m: Dung lượng ``scene.ply`` chia cho ``distance_m / 100`` (R6); chỉ track B.
+ *     ate_rmse_m: ATE do method tự báo (``mcgs_eval.json``), mét; không tính lại (R6).
+ *     bad_segments: Các đoạn đường hỏng (R7) theo nhóm camera, khoá ``pinhole`` hoặc ``fisheye``
+ *         (chỉ nhóm có ảnh test); chỉ tính trên camera đã train. Rỗng nếu không đo được.
+ *     frames_measured: Số cặp (khung, camera đã train) có metric từng ảnh; 0 nếu run chưa có.
  */
 export interface BenchmarkRunRow {
   run_id: RunId;
@@ -114,14 +138,25 @@ export interface BenchmarkRunRow {
   avg_error?: AvgError;
   psnr_pinhole?: PsnrPinhole;
   psnr_fisheye?: PsnrFisheye;
+  shift_psnr?: ShiftPsnr;
+  shift_lpips?: ShiftLpips;
+  shift_psnr_cc?: ShiftPsnrCc;
+  shift_lpips_cc?: ShiftLpipsCc;
+  shift_cameras?: ShiftCameras;
   depth?: DepthMetrics | null;
   export_gap_db?: ExportGapDb;
+  export_applicable?: ExportApplicable;
   ply_gaussians?: PlyGaussians;
   ply_size_mb?: PlySizeMb;
   train_time_s?: TrainTimeS;
+  recon_time_s?: ReconTimeS;
   peak_vram_mb?: PeakVramMb;
   render_fps?: RenderFps;
   gpu?: Gpu;
+  distance_m?: DistanceM;
+  train_s_per_100m?: TrainSPer100M;
+  ply_mb_per_100m?: PlyMbPer100M;
+  ate_rmse_m?: AteRmseM;
   bad_segments?: BadSegments;
   frames_measured?: FramesMeasured;
 }
@@ -140,6 +175,9 @@ export interface DepthMetrics {
   abs_rel: AbsRel;
   rmse: Rmse;
   delta_1_25: Delta125;
+}
+export interface BadSegments {
+  [k: string]: BadSegment[];
 }
 /**
  * Một đoạn đường bị hỏng (yêu cầu R7): nhiều ảnh test liền nhau thấp hơn hẳn trung vị.
