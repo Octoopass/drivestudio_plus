@@ -71,6 +71,7 @@ def main():
         print(f"LPIPS unavailable: {error}")
         lpips_fn = None
     vid_frames: list[np.ndarray] = []
+    per_view: list[dict] = []  # drive2sim: kết quả từng view, theo thứ tự trong views.npz
     t0 = time.perf_counter()
     for i in range(len(v["camera"])):
         img = v["image"][i]
@@ -110,6 +111,7 @@ def main():
         per_cam.setdefault(cam, []).append(psnr)
         per_cam_ssim.setdefault(cam, []).append(ssim_val)
         per_cam_lpips.setdefault(cam, []).append(lp)
+        per_view.append({"camera": cam, "psnr": float(psnr), "ssim": float(ssim_val), "lpips": float(lp)})
         vis = (np.concatenate([gt, rgb], 1) * 255).astype(np.uint8)
         if cam == str(v["camera"][0]):
             vid_frames.append(cv2.cvtColor(vis, cv2.COLOR_RGB2BGR))
@@ -149,6 +151,7 @@ def main():
         "peak_vram_gib": float(torch.cuda.max_memory_allocated() / 2**30),
     }
     (out / "metrics.json").write_text(json.dumps(metrics, indent=2))
+    (out / "per_view.json").write_text(json.dumps(per_view))
     print(json.dumps(metrics, indent=2))
 
 

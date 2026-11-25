@@ -484,6 +484,33 @@ Nguồn: `drive2sim/recon/trainers/base.py`, `camera_rasterization_kwargs` (3DGS
 - Dữ liệu lái xe có license riêng: chỉ để trên máy thuê ở chế độ riêng tư và xoá máy khi xong.
 - **Chưa chạy thật** (chưa có máy thuê); script mới kiểm cú pháp và chạy khô (`VAST_DRY_RUN=1`).
 
+### 2.19 MCGS-SLAM như codebase ngoài (đang làm: mới có môi trường và căn quỹ đạo)
+
+**Khái niệm.** MCGS-SLAM (`github.com/mcgs-slam/mcgs-slam`, MIT, revision chốt `147eb3a`) là SLAM đa camera dùng 3DGS. Đây là method chọn cho track B (quãng đường dài) của benchmark (báo cáo tuần 03 mục 5.4).
+
+**Điều đọc được từ mã nguồn (25/11/2026), ảnh hưởng tới cách tích hợp.**
+- Môi trường khác hẳn môi trường chính: Python 3.8+, PyTorch 2.1.2, CUDA 11.8, gcc-11, build `droid_backends`, `lietorch_backends`, `simple-knn`, `diff-gaussian-rasterization`. `setup.py` chỉ biên dịch sm_60 tới sm_86: T4 của Kaggle (sm_75) chạy được; RTX 40xx (sm_89) cần thêm, `envs/install_mcgs.sh` tự vá. Nên là env riêng (`D2S_MCGS_DIR`), như Instant NuRec. Nhóm đã chạy thật MCGS-SLAM trên Kaggle T4 (notebook 12 trong thư mục `Phase 3/kaggle`, mẫu Waymo 100613, 17,4 phút, đỉnh 8,8 GB VRAM, ATE 1,19 m); `install_mcgs.sh` theo đúng script cài của lần chạy đó (micromamba, PyTorch pip `2.1.2+cu118`, mmcv dựng sẵn, PyGLM, `bdist_wheel -k` vì `setup.py` gọi `setup()` hai lần), không theo README từng chữ.
+- Chỉ camera pinhole, ảnh nhập là **thư mục ảnh theo camera**, tên file chứa timestamp, các camera phải trùng timestamp (sai lệch dưới 0,02 s); calib YAML có `intrinsic`, `baseline`, `T_cami_cam0`. Không hỗ trợ fisheye. KITTI-360 chỉ có 2 camera pinhole (cặp stereo), nên track B trên KITTI-360 chạy ở chế độ stereo, **không dùng được ưu điểm đa camera** làm lý do chọn method này.
+- Đầu ra: `traj_mcgs.txt` (TUM, **chỉ keyframe**), `3dgs_final.ply` (3DGS chuẩn), `psnr/after_opt/final_result_kf.json`. PSNR đó đo trên **keyframe đã dùng để train**, không phải ảnh giữ lại, nên con số 26,81 dB ở báo cáo tuần 03 mục 5.4 không so được với PSNR test của các method khác. Bản đồ Gaussian dùng pose và độ sâu đã nhân 0,2 so với quỹ đạo (`POSE_SCALE`).
+- Muốn có PSNR trên ảnh giữ lại thì phải bỏ khung test khỏi đầu vào, căn quỹ đạo về hệ cảnh (`external/mcgs/align.py`: Umeyama, ATE), nội suy pose khung test và render bản đồ bằng rasterizer của chính nó trong env của nó.
+
+**Đã có:** `envs/install_mcgs.sh` (4 bước, chạy tiếp được; công thức đã chạy trên Kaggle, bản chạy trên máy của dự án chưa), `drive2sim/external/mcgs/__init__.py` (đường dẫn, tên file đầu ra), `align.py` (Umeyama, ATE), `views.py` (`ScenePoses`, dựng view test) và stage `eval.mcgs`; đều có test.
+
+**Hỗ trợ dataset (kiểm bằng `tests/drive2sim/engine/test_dataset_support.py`, 25/11/2026).**
+
+| Dataset | BezierGS: engine cho chạy (pinhole, có box) | BezierGS: đã train thật | MCGS-SLAM: `eval.mcgs` đọc được pose, ảnh |
+|---|---|---|---|
+| nuScenes, Waymo, Argoverse 2, PandaSet, nuPlan | Có, mọi số camera có config | Chỉ Waymo 017 (chuyển từ định dạng BezierGS, không qua ingest của tool) | Có, qua `get_camera2worlds` của loader; **chưa chạy loader thật** (test dùng loader giả) |
+| KITTI | Có (1, 2 camera) | Chưa | Có (đọc trực tiếp) |
+| KITTI-360 | Có, chỉ split gồm 2 camera pinhole; split có camera mắt cá bị khoá | Chưa | Có (đọc trực tiếp, đã test bằng cảnh giả); chấm được cả camera mắt cá |
+| PhysicalAI (F-theta) | Bị khoá (renderer 3DGS chỉ nhận pinhole) | Không | Không: SLAM chỉ nhận pinhole |
+
+BezierGS thiếu box 3D thì bị khoá ngay lúc chọn approach (`requires.cuboids: required`), không chạy rồi mới lỗi. "Engine cho chạy" chỉ nói điều kiện và config dataset có đủ, không nói train thành công: BezierGS dùng chung nạp dữ liệu và `get_init_objects` với OmniRe, nên bằng chứng huấn luyện thật của họ OmniRe (nuScenes, KITTI-360) là bằng chứng gián tiếp. Phía huấn luyện của MCGS-SLAM (`prep.mcgs`, `train.mcgs`) chưa có, nên chưa dataset nào chạy MCGS-SLAM được qua tool; camera mắt cá không đi vào SLAM ở mọi dataset.
+
+**`eval.mcgs` (mức A, chưa chạy thật):** chấm `3dgs_final.ply` trên khung test của split. Căn quỹ đạo keyframe vào pose camera tham chiếu (`reference_camera`, mặc định `image_00`) bằng Umeyama, đổi pose thật của khung test sang hệ bản đồ (`world → slam = Rᵀ(p − t)/scale`, rồi co 0,2 lần), ghi `views.npz` và chạy `ncore_eval_render.py` của NuRec (gsplat, 3DGUT cho fisheye trong môi trường chính). Ghi `summary.json` (protocol `ncore-0.3`, cùng bộ đo với `eval.ncore`), `frames.jsonl` và `mcgs_eval.json` (ATE, tỉ lệ căn, `held_out`, giới hạn). Dùng `--set eval.mcgs.model_dir=<output của demo.py>` khi chưa có stage `train.mcgs`. Điểm cần đọc kèm: bản đồ chỉ dựng từ ảnh pinhole nên fisheye bị alpha thấp; pose test là pose thật đã căn; SH bậc 0; khung test chỉ "chưa thấy" khi `held_out`. `ncore_eval_render.py` ghi thêm `per_view.json` (kết quả từng view) để dựng `frames.jsonl`; `d2s benchmark` đọc `frames.jsonl` cạnh `summary.json` của stage `eval.*` đã ghi nó.
+
+**Chưa làm, cần một lần chạy thật để chốt (chưa tích hợp được bằng cách đọc mã):** ngữ nghĩa của `baseline` và thứ tự thư mục ảnh ở chế độ stereo hai camera (mã chỉ có ví dụ 4 thư mục có một thư mục lặp), chiều của phép biến đổi trong `baseline`, và cách lấy pose khung test. Sau đó mới viết stage `prep.mcgs`, `train.mcgs`, approach `mcgs.yaml` và notebook Kaggle (Kaggle executor hiện từ chối codebase ngoài, `engine/remote.py::require_main_codebase`).
+
 ## 3. Cấu trúc repo đích
 
 ```
@@ -577,6 +604,7 @@ Chạy script bằng `python -m`, ví dụ `python -m drive2sim.recon.tools.trai
 | Gom kết quả nhiều run thành bảng benchmark | `drive2sim/engine/benchmark.py` | `run_benchmark`, `bad_segments`, `order_group`; CLI `cli/benchmark.py` | CONTRACTS mục 6.5 |
 | Metric đo thêm trong vòng render (numpy thuần, test được ở `.venv` nhẹ) | `drive2sim/recon/rendering/depth_metrics.py` | `compute_depth_metrics` | `render` trong `recon/rendering/videos.py` |
 | Chạy trên GPU thuê (vast.ai) | `envs/vast.sh`, target `vast-*` trong `Makefile` | | Mục 2.18 |
+| Codebase ngoài chạy trong env riêng (MCGS-SLAM) | `drive2sim/external/<codebase>/` (đường dẫn, `align.py`), `envs/install_<codebase>.sh` | | Mục 2.19 |
 | API cho Studio | `drive2sim/studio/api/routes/<nhóm>.py` | đường dẫn `/api/<nhóm số nhiều>/...`, verb, lỗi và sự kiện theo CONTRACTS mục 11 | `app.py` |
 | Màn hình Studio | `drive2sim/studio/frontend/src/pages/` | `PascalCase.tsx`; chuỗi giao diện trong `src/locales/vi.json`, `en.json` (CONTRACTS mục 10.6) | Router của frontend |
 | Gói output notebook Kaggle | `drive2sim/kaggle/packing.py` | `pack_output`, `unpack_output`, `pack_file_pattern` | Ô cuối notebook và `executor.pull_run`; CONTRACTS 9.2 |
@@ -836,6 +864,7 @@ chạy cả các test đó, 496 test đạt, không bỏ qua test nào.
 | `make test-gpu`: chạy toàn bộ test bằng conda env GPU, gồm test cần PyTorch mà `make check` bỏ qua | Xong | |
 | Benchmark lõi (mục 2.17): protocol `0.4` (metric từng ảnh `frames.jsonl`, `depth` so với LiDAR, `d2s-summary/0.6`), `engine/benchmark.py`, `d2s benchmark`, `d2s-benchmark`, `d2s-benchresult`; `d2s report` đọc cả `eval.ncore` | Code và test local hoàn tất; phần đo trong `render` (`videos.py`, `tools/eval.py`) **chưa chạy thật** vì máy phát triển không có GPU. Chưa làm: export gap `.ply`, KID lệch làn, `ghost_ratio`, `static_psnr`, ATE, chunk | |
 | Chạy trên GPU thuê vast.ai (`envs/vast.sh`, mục 2.18) | Script kiểm cú pháp và chạy khô; **chưa chạy trên máy thuê** | |
+| MCGS-SLAM ngoài (mục 2.19): `envs/install_mcgs.sh`, `external/mcgs/` (căn quỹ đạo, dựng view test), stage `eval.mcgs` | Có test (13, ảnh và pose giả, bước vẽ giả); script cài và bước vẽ bằng gsplat **chưa chạy thật**. **Chưa có** `prep.mcgs`, `train.mcgs`, approach, notebook Kaggle: cần một lần chạy thật để chốt `baseline` stereo và cách đặt tên ảnh | |
 | `sim/` (L2–L4) | Chưa làm | |
 
 Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiền xử lý (mask, SMPL); OmniRe, Street GS, PVG, Deformable-GS; renderer 3DGS / 3DGUT / 3DGEER; rolling shutter ở `ut`/`geer`; FastGS; `tools/eval.py`; video; `tools/viewer.py`; `tools/export_ply.py`; đọc NCore V4 cho PhysicalAI.

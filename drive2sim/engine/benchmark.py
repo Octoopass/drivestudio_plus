@@ -31,7 +31,7 @@ from drive2sim.core.schema import (
     Summary,
 )
 from drive2sim.engine.report import ReportRow, report_rows
-from drive2sim.engine.run import D2S_DIR, load_summary
+from drive2sim.engine.run import D2S_DIR, load_summary, summary_path
 from drive2sim.engine.workdir import Workdir
 
 # Hai method chênh PSNR dưới ngưỡng này được coi là ngang nhau (báo cáo tuần 03 mục 4.2): các run
@@ -42,7 +42,6 @@ TIE_THRESHOLD_DB = 0.3
 BAD_SEGMENT_MIN_FRAMES = 5
 BAD_SEGMENT_DROP_DB = 2.0
 FRAMES_FILE = "frames.jsonl"
-EVAL_STAGE = "eval.standard"
 PLY_GAP_STAGE = "eval.ply"
 PLY_GAP_FILE = "ply_gap.json"
 FISHEYE_MODELS = frozenset({"opencv_fisheye", "ftheta"})
@@ -215,7 +214,8 @@ def build_row(
         Dòng kết quả; trường chưa đo để trống.
     """
     summary = load_summary(run_dir)
-    frames = read_frames(run_dir / D2S_DIR / "stages" / EVAL_STAGE / FRAMES_FILE)
+    # frames.jsonl nằm cạnh summary.json của stage eval.* đã ghi nó (eval.standard, eval.mcgs)
+    frames = read_frames(summary_path(run_dir).parent / FRAMES_FILE)
     return BenchmarkRunRow(
         run_id=row.run_id,
         approach_id=row.approach_id,
