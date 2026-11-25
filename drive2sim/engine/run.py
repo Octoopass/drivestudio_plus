@@ -1023,6 +1023,16 @@ def request_cancel(run_dir: Path) -> RunRecord:
     return record
 
 
+# Stage tự ghi ``scene.ply`` ở hệ world của cảnh thay cho ``export.ply_world`` (stage đó đọc
+# checkpoint train, mà approach này không có).
+PLY_EXPORT_OVERRIDES = ("export.nurec_ply",)
+
+
+def ply_export_stage(stage_ids: list[str]) -> str:
+    """Stage ghi scene.ply của run: export.nurec_ply nếu có, không thì export.ply_world."""
+    return next((s for s in PLY_EXPORT_OVERRIDES if s in stage_ids), "export.ply_world")
+
+
 def reset_stage(
     run_dir: Path,
     stage_id: str,

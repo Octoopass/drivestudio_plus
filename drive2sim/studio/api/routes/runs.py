@@ -51,6 +51,7 @@ from drive2sim.engine.run import (
     list_runs,
     load_env,
     load_summary,
+    ply_export_stage,
     request_cancel,
     reset_stage,
     run_is_active,
@@ -288,8 +289,10 @@ def export_run(run_id: str, body: ExportBody, request: Request) -> dict:
         ``run.json`` sau khi đặt lại stage; run được xếp vào hàng đợi.
     """
     state = state_of(request)
-    run_dir, _ = _load(request, run_id)
+    run_dir, current = _load(request, run_id)
     stage_id = EXPORT_STAGES[body.kind]
+    if body.kind == "ply":  # run Instant NuRec: export.nurec_ply, không phải export.ply_world
+        stage_id = ply_export_stage([s.stage_id for s in current.stages])
     if stage_id not in state.registry:
         raise HTTPException(400, f"stage {stage_id} chưa có")
     _claim(request, run_dir, run_id)
@@ -583,6 +586,7 @@ def run_splats(run_id: str, request: Request) -> dict:
     )
     return {
         "preview": preview,
-        "ply": url(stages_dir / "export.ply_world" / "scene.ply"),
+        "ply": url(stages_dir / "export.ply_world" / "scene.ply")
+        or url(stages_dir / "export.nurec_ply" / "scene.ply"),
         "cameras": cameras,
     }

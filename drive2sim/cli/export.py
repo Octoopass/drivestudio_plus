@@ -10,7 +10,9 @@ approach không có, và các stage khác đã xong không chạy lại (CONTRAC
 import argparse
 
 from drive2sim.cli.output import emit, event_printer
-from drive2sim.engine.run import execute_run, reset_stage
+from drive2sim.core import files
+from drive2sim.core.schema import RunRecord
+from drive2sim.engine.run import D2S_DIR, RUN_FILE, execute_run, ply_export_stage, reset_stage
 from drive2sim.engine.workdir import Workdir
 
 STAGES = {"ply": "export.ply_world", "preview": "export.preview", "video": "render.nurec_video"}
@@ -55,7 +57,11 @@ def export(args: argparse.Namespace) -> int:
         params["fps"] = args.fps
     if getattr(args, "no_interp", False):
         params["interpolate"] = False
-    reset_stage(run_dir, args.stage_id, params=params or None)
+    stage_id = args.stage_id
+    if stage_id == "export.ply_world":  # run Instant NuRec có stage PLY riêng
+        record = files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
+        stage_id = ply_export_stage([s.stage_id for s in record.stages])
+    reset_stage(run_dir, stage_id, params=params or None)
     record = execute_run(run_dir, workdir, sink=event_printer(args))
     emit(args, record.model_dump(mode="json"), f"run {record.run_id}: {record.status}")
     return 0 if record.status == "succeeded" else 1

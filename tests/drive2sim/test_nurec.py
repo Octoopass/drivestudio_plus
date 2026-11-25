@@ -293,3 +293,11 @@ def test_dense_gt_between_skips_clip_frames() -> None:
     namespace: dict = {}
     exec(source[source.index("def between") : source.index("\n\n\ndef main")], namespace)  # noqa: S102
     assert namespace["between"]([102, 107, 112, 113]) == [103, 104, 105, 106, 108, 109, 110, 111]
+
+
+def test_ply_export_stage_uses_nurec_ply_when_present() -> None:
+    from drive2sim.engine.run import ply_export_stage
+
+    assert ply_export_stage(["train.nurec", "export.nurec_ply"]) == "export.nurec_ply"
+    assert ply_export_stage(["train.pvg", "export.ply_world"]) == "export.ply_world"
+    assert ply_export_stage([]) == "export.ply_world"
