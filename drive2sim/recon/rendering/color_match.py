@@ -5,9 +5,11 @@ File này chứa (numpy thuần, không cần PyTorch):
   trên các điểm ảnh hợp lệ; trả ``None`` khi phép khớp suy biến.
 - ``apply_color_affine``: áp phép affine đó lên ảnh render và kẹp về ``[0, 1]``.
 - ``static_region_mask``: mask vùng nền tĩnh = hợp lệ, không phải trời, ngoài vật động.
+- ``export_gap``: PSNR render gốc trừ PSNR render từ ``.ply`` trên các ảnh chung (R3).
 
 ``drive2sim/recon/rendering/videos.py`` dùng hai hàm đầu để ghi ``psnr_cc``, ``lpips_cc`` cho từng
-ảnh test, và dùng ``static_region_mask`` để ghi ``psnr_static``. Lý do khớp màu: camera chỉ test
+ảnh test, và dùng ``static_region_mask`` để ghi ``psnr_static``; ``drive2sim/recon/tools/
+eval_ply.py`` dùng ``export_gap`` để ghi ``ply_gap.json``. Lý do khớp màu: camera chỉ test
 (R2) chưa từng train nên không có ma trận chỉnh màu (``AffineTransform``) học được; không khớp màu
 thì PSNR của nó lẫn sai lệch phơi sáng giữa hai camera vào chất lượng hình học. Xem
 ``docs/superpowers/specs/2026-11-25-benchmark-requirements.md`` mục R2, R3 và ARCHITECTURE mục 2.17.
@@ -97,3 +99,34 @@ def static_region_mask(
     if dynamic is not None:
         mask &= ~dynamic.astype(bool)
     return mask
+
+
+def export_gap(
+    native: dict[tuple[int, int], float], ply: dict[tuple[int, int], float]
+) -> Optional[dict[str, float]]:
+    """Tính export gap: PSNR render gốc trừ PSNR render từ ``.ply``, trên các ảnh chung.
+
+    Cả hai PSNR phải đo trên cùng mask nền tĩnh (``static_region_mask``) thì phép trừ mới nói về
+    độ mất mát khi xuất PLY chứ không về vùng đo. Chỉ lấy ảnh có ở cả hai bên, nên một bên thiếu
+    ảnh (render lỗi, mask rỗng) không làm lệch trung bình của bên kia. Gap âm là hợp lệ (PLY khớp
+    ảnh thật hơn model gốc) và được giữ nguyên dấu.
+
+    Args:
+        native: ``(chỉ số khung, chỉ số camera)`` → PSNR vùng nền tĩnh của render gốc, dB.
+        ply: Cùng khoá → PSNR vùng nền tĩnh của render từ ``.ply``, dB.
+
+    Returns:
+        ``{"export_gap_db", "native_psnr", "ply_psnr", "num_images"}`` với PSNR là trung bình theo
+        ảnh trên các ảnh chung; ``None`` khi không có ảnh chung nào.
+    """
+    common = sorted(set(native) & set(ply))
+    if not common:
+        return None
+    native_mean = sum(native[key] for key in common) / len(common)
+    ply_mean = sum(ply[key] for key in common) / len(common)
+    return {
+        "export_gap_db": native_mean - ply_mean,
+        "native_psnr": native_mean,
+        "ply_psnr": ply_mean,
+        "num_images": len(common),
+    }

@@ -9,6 +9,7 @@ np = pytest.importorskip("numpy")
 
 from drive2sim.recon.rendering.color_match import (  # noqa: E402
     apply_color_affine,
+    export_gap,
     fit_color_affine,
     static_region_mask,
 )
@@ -63,3 +64,22 @@ def test_static_region_mask_combines_masks() -> None:
     dyn[1, 0] = True
     assert static_region_mask((2, 2), valid, sky, dyn).tolist() == [[False, False], [False, True]]
     assert static_region_mask((2, 2)).all()
+
+
+def test_export_gap_uses_common_images_only() -> None:
+    native = {(8, 0): 26.0, (16, 0): 24.0, (24, 0): 30.0}
+    ply = {(8, 0): 25.0, (16, 0): 23.0}
+    result = export_gap(native, ply)
+    assert result["num_images"] == 2 and result["export_gap_db"] == pytest.approx(1.0)
+    assert result["native_psnr"] == pytest.approx(25.0) and result["ply_psnr"] == pytest.approx(
+        24.0
+    )
+
+
+def test_export_gap_without_common_images_is_none() -> None:
+    assert export_gap({(8, 0): 26.0}, {(16, 0): 25.0}) is None
+
+
+def test_export_gap_can_be_negative() -> None:
+    # PLY tốt hơn render gốc (ví dụ render gốc có lỗi ở nền không bị mask): giữ dấu, không cắt về 0
+    assert export_gap({(8, 0): 24.0}, {(8, 0): 25.0})["export_gap_db"] == pytest.approx(-1.0)
