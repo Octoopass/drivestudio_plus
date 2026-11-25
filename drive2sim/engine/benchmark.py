@@ -362,25 +362,31 @@ class GroupContext:
         bench_track: Track benchmark (``A``, ``B``, ``C``); chỉ track ``B`` tính chi phí mỗi 100 m.
         fisheye_ids: ``camera_id`` của các camera fisheye của cảnh.
         fisheye_indices: Vị trí các camera fisheye trong manifest (khớp ``camera_index``).
+        test_only_ids: ``camera_id`` của các camera chỉ test của split.
         test_only_indices: Vị trí các camera chỉ test của split trong manifest.
     """
 
     bench_track: str
     fisheye_ids: set[str] = field(default_factory=set)
     fisheye_indices: set[int] = field(default_factory=set)
+    test_only_ids: set[str] = field(default_factory=set)
     test_only_indices: set[int] = field(default_factory=set)
 
 
 def _camera_psnr(
-    summary: Optional[Summary], fisheye_ids: set[str], want_fisheye: bool
+    summary: Optional[Summary], context: GroupContext, want_fisheye: bool
 ) -> Optional[float]:
-    """PSNR trung bình các camera pinhole hoặc fisheye của run (R5); ``None`` nếu không có."""
+    """PSNR trung bình các camera pinhole hoặc fisheye **đã train** của run; ``None`` nếu không có.
+
+    ``per_camera`` của ``summary.json`` giữ số của DriveStudio, gồm cả camera chỉ test, nên các
+    camera đó bị bỏ: R1 theo loại camera chỉ tính trên camera đã train (R2 ở ``shifted``).
+    """
     if summary is None:
         return None
     values = [
         metrics.psnr
         for camera, metrics in summary.per_camera.items()
-        if (camera in fisheye_ids) == want_fisheye
+        if camera not in context.test_only_ids and (camera in context.fisheye_ids) == want_fisheye
     ]
     return statistics.fmean(values) if values else None
 
@@ -456,8 +462,8 @@ def build_row(
         ssim=row.ssim,
         lpips=row.lpips,
         avg_error=row.avg_error,
-        psnr_pinhole=_camera_psnr(summary, context.fisheye_ids, False),
-        psnr_fisheye=_camera_psnr(summary, context.fisheye_ids, True),
+        psnr_pinhole=_camera_psnr(summary, context, False),
+        psnr_fisheye=_camera_psnr(summary, context, True),
         shift_psnr=shifted.psnr if shifted else None,
         shift_lpips=shifted.lpips if shifted else None,
         shift_psnr_cc=shifted.psnr_cc if shifted else None,
@@ -533,6 +539,7 @@ def run_group(
         bench_track=entry.bench_track,
         fisheye_ids={c.camera_id for c in cameras if c.model in FISHEYE_MODELS},
         fisheye_indices={i for i, c in enumerate(cameras) if c.model in FISHEYE_MODELS},
+        test_only_ids=set(split.test_only_cameras),
         test_only_indices={
             i for i, c in enumerate(cameras) if c.camera_id in split.test_only_cameras
         },

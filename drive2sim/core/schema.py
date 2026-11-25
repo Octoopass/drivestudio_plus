@@ -1618,6 +1618,18 @@ class BenchmarkRunRow(StrictModel):
     bad_segments: dict[str, list[BadSegment]] = {}
     frames_measured: int = Field(default=0, ge=0)
 
+    @field_validator("bad_segments", mode="before")
+    @classmethod
+    def _upgrade_legacy_bad_segments(cls, value: object) -> object:
+        """Đổi danh sách chung của ``d2s-benchresult/0.1`` thành ``{"all": danh sách}``.
+
+        Từ ``0.2`` ``bad_segments`` tách theo nhóm camera; file cũ (cùng số major nên vẫn được
+        đọc) không biết nhóm nên dùng khoá ``all``, không phải ``pinhole`` hay ``fisheye``.
+        """
+        if isinstance(value, list):
+            return {"all": value} if value else {}
+        return value
+
 
 class BenchmarkGroup(StrictModel):
     """Kết quả xếp hạng của một nhóm run.

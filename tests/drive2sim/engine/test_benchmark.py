@@ -18,6 +18,7 @@ from drive2sim.core.schema import (
     BenchmarkEntry,
     BenchmarkFile,
     BenchmarkGroup,
+    BenchmarkRunRow,
     DepthMetrics,
     RunApproach,
     RunRecord,
@@ -352,6 +353,26 @@ def write_frames(run_dir: Path, records: list[dict]) -> None:
     (frames_dir / "frames.jsonl").write_text("\n".join(json.dumps(r) for r in records) + "\n")
 
 
+def test_camera_group_psnr_skips_test_only_cameras(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # per_camera của summary giữ số DriveStudio, gồm cả camera chỉ test; R1 theo loại camera chỉ
+    # tính trên camera đã train
+    per_camera = {
+        "image_00": SimpleNamespace(psnr=26.0),
+        "image_01": SimpleNamespace(psnr=20.0),
+        "image_02": SimpleNamespace(psnr=22.0),
+    }
+    monkeypatch.setattr(
+        benchmark, "load_summary", lambda run_dir: stage_summary(per_camera=per_camera)
+    )
+    context = GroupContext(
+        "A", fisheye_ids={"image_02"}, test_only_ids={"image_01"}, test_only_indices={1}
+    )
+    row = benchmark.build_row(make_row("a", 25.0), tmp_path, context, 1, True)
+    assert (row.psnr_pinhole, row.psnr_fisheye) == (26.0, 22.0)
+
+
 def test_row_reads_shifted_metrics(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     shifted = ShiftedMetrics(
         cameras=["image_01"],
@@ -609,3 +630,18 @@ def test_calibration_with_unknown_run_is_an_error(
     text = CALIBRATION_YAML % "r1, r_missing"
     with pytest.raises(ValueError, match="r_missing"):
         run_benchmark_with(tmp_path, monkeypatch, {"r1": 25.0, "r2": 25.1}, text)
+
+
+def test_legacy_bad_segments_list_maps_to_all_group() -> None:
+    # d2s-benchresult/0.1 ghi một danh sách chung; từ 0.2 là dict theo nhóm camera. Đọc được file
+    # cũ (cùng major) bằng khoá "all", không phải khoá của nhóm camera nào.
+    legacy = {
+        "run_id": "20261101-000000-omnire-aaaa",
+        "approach_id": "omnire",
+        "rank": 1,
+        "tied_with_best": True,
+        "bad_segments": [{"start_m": 0.0, "end_m": 40.0, "num_frames": 5, "min_psnr": 19.5}],
+    }
+    row = BenchmarkRunRow.model_validate(legacy)
+    assert list(row.bad_segments) == ["all"] and row.bad_segments["all"][0].num_frames == 5
+    assert BenchmarkRunRow.model_validate({**legacy, "bad_segments": []}).bad_segments == {}
