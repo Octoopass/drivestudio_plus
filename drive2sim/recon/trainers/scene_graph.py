@@ -32,6 +32,8 @@ class MultiTrainer(BasicTrainer):
             self.gaussian_classes["SMPLNodes"] = GSModelType.SMPLNodes
         if "DeformableNodes" in self.model_config:
             self.gaussian_classes["DeformableNodes"] = GSModelType.DeformableNodes
+        if "BezierNodes" in self.model_config:
+            self.gaussian_classes["BezierNodes"] = GSModelType.BezierNodes
            
         for class_name, model_cfg in self.model_config.items():
             # update model config for gaussian classes
@@ -106,7 +108,17 @@ class MultiTrainer(BasicTrainer):
             smplnode_pts_dict = dataset.get_init_smpl_objects(
                 **self.model_config["SMPLNodes"]["init"]
             )
-        allnode_pts_dict = {**rigidnode_pts_dict, **deformnode_pts_dict, **smplnode_pts_dict}
+        bezier_pts_dict = {}
+        if "BezierNodes" in self.model_config:
+            # Import trong hàm vì trainers/bezier.py import MultiTrainer từ file này.
+            from drive2sim.recon.trainers.bezier import collect_bezier_instances
+
+            bezier_pts_dict = collect_bezier_instances(
+                dataset, **self.model_config["BezierNodes"]["init"]
+            )
+        allnode_pts_dict = {
+            **rigidnode_pts_dict, **deformnode_pts_dict, **smplnode_pts_dict, **bezier_pts_dict
+        }
         
         # NOTE: Some gaussian classes may be empty (because no points for initialization)
         #       We will delete these classes from the model_config and models
@@ -176,6 +188,13 @@ class MultiTrainer(BasicTrainer):
                     model=model,
                     instance_pts_dict=smplnode_pts_dict
                 )
+
+            if class_name == 'BezierNodes':
+                # create_from_pcd có thể bỏ hết vật (quá ít khung hoặc điểm): node rỗng cũng bị xoá
+                empty = self.safe_init_models(
+                    model=model,
+                    instance_pts_dict=bezier_pts_dict
+                ) or model.num_points == 0
                 
             if empty:
                 empty_classes.append(class_name)

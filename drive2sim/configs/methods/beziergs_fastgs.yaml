@@ -1,0 +1,17 @@
+# BezierGS với quy tắc densify và prune kiểu FastGS (docs/methods/fastgs.md).
+# Thử nghiệm: chưa chạy thật với BezierNodes; score_thresh chưa chỉnh cho cảnh này, xem các dòng
+# 'FastGS @ step' trong log để chỉnh. Chỉ khác beziergs.yaml ở khối trainer.fastgs (kế thừa bằng
+# extends, CONTRACTS mục 10.5). BezierNodes kế thừa fastgs_filter_densify và fastgs_extra_culls từ
+# VanillaGaussians nên được chấm điểm cùng nền; mask động của BezierTrainer chỉ vẽ khi có gradient.
+extends: beziergs.yaml
+trainer:
+  fastgs:
+    enabled: true
+    num_views: 10             # số ảnh train chấm điểm mỗi lượt
+    loss_thresh: 0.1          # sai số L1 chuẩn hoá trên mức này thì pixel được coi là sai nhiều
+    score_thresh: 1.0         # trọng số blend của pixel sai trên mỗi ảnh thấy Gaussian, cần để densify
+    densify_unseen: false
+    prune: true
+    prune_from: 15000
+    prune_min_opacity: 0.1
+    prune_score_thresh: 0.9

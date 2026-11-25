@@ -79,6 +79,35 @@ def test_params_pick_existing_config() -> None:
     assert TrainDrivestudioParams(method="omnire", campose=True).config_file.name == "omnire.yaml"
 
 
+def test_beziergs_config_file() -> None:
+    params = drivestudio.TrainDrivestudioParams(method="beziergs")
+    assert params.config_file.name == "beziergs.yaml"
+
+
+def test_beziergs_config_loads_with_bezier_nodes() -> None:
+    config = load_config(paths.CONFIGS_DIR / "methods" / "beziergs.yaml")
+    assert config["trainer"]["type"].endswith("BezierTrainer")
+    assert "BezierNodes" in config["model"] and "RigidNodes" not in config["model"]
+    assert "CamPose" not in config["model"]
+    assert config["model"]["BezierNodes"]["bezier"]["order"] == 3
+    assert config["trainer"]["losses"]["bezier_icc"]["w"] == 0.01
+    # BezierGS giữ LR đường đi bằng 1% LR xyz; giá trị tuyệt đối chỉnh theo cảnh nên không ghim.
+    xyz_lr = config["trainer"]["gaussian_optim_general_cfg"]["xyz"]["lr"]
+    assert config["model"]["BezierNodes"]["optim"]["traj"]["lr"] == pytest.approx(xyz_lr * 0.01)
+
+
+def test_beziergs_fastgs_config_file() -> None:
+    params = drivestudio.TrainDrivestudioParams(method="beziergs", fastgs=True)
+    assert params.config_file.name == "beziergs_fastgs.yaml"
+
+
+def test_beziergs_fastgs_config_keeps_bezier_nodes_and_enables_fastgs() -> None:
+    config = load_config(paths.CONFIGS_DIR / "methods" / "beziergs_fastgs.yaml")
+    assert config["trainer"]["type"].endswith("BezierTrainer")
+    assert "BezierNodes" in config["model"] and "RigidNodes" not in config["model"]
+    assert config["trainer"]["fastgs"]["enabled"] is True
+
+
 def test_params_reject_missing_combination() -> None:
     with pytest.raises(ValidationError, match="chưa có config"):
         TrainDrivestudioParams(method="omnire", renderer="3dgut", campose=True)
