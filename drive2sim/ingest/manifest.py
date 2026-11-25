@@ -138,6 +138,9 @@ DRIVESTUDIO_OUTPUT_VERSION = 1
 KITTI360_OUTPUT_VERSION = 3
 # Tên converter KITTI-360 ghi trong manifest (``kitti360.CONVERTER``; không import để tránh vòng).
 _KITTI360_CONVERTER = "kitti360"
+# PHENIKAA (``phenikaa.CONVERTER``): 1 là bản đầu, 25/11/2026.
+PHENIKAA_OUTPUT_VERSION = 1
+_PHENIKAA_CONVERTER = "phenikaa"
 # Manifest viết trước ``d2s-manifest/1.1`` không có ``output_version``: coi là bản đầu, trừ khi
 # ``converter_version`` ghi một commit đã có đầu ra mới nhưng chưa ghi trường này. Commit 188fb9b
 # (trên origin/drive2sim) đã viết lại khớp Mei; notebook ingest đẩy ở commit đó ra đầu ra 2.
@@ -158,6 +161,8 @@ def current_output_version(converter: str) -> Optional[int]:
     """
     if converter == _KITTI360_CONVERTER:
         return KITTI360_OUTPUT_VERSION
+    if converter == _PHENIKAA_CONVERTER:
+        return PHENIKAA_OUTPUT_VERSION
     if converter.startswith("drivestudio."):
         return DRIVESTUDIO_OUTPUT_VERSION
     return None

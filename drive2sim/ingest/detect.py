@@ -30,14 +30,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from drive2sim.ingest import kitti360
+from drive2sim.ingest import kitti360, phenikaa
 from drive2sim.ingest.drivestudio import SOURCES
 from drive2sim.ingest.images import IMAGE_SUFFIXES, read_image_size
 from drive2sim.paths import SCENE_LISTS_DIR
 
 # Nguồn mà scene ingest chạy được: mọi dataset có script tiền xử lý của DriveStudio, cộng các
 # nguồn có converter tự viết trong drive2sim/ingest/ (KITTI-360).
-INGEST_SUPPORTED: frozenset[str] = frozenset(SOURCES) | {kitti360.DATASET}
+INGEST_SUPPORTED: frozenset[str] = frozenset(SOURCES) | {kitti360.DATASET, phenikaa.DATASET}
 _MAX_DEPTH = 3
 _MAX_INVENTORY = 20
 _MAX_SEARCH_DIRS = 200  # số thư mục con tối đa được xem khi tìm dataset nằm sâu hơn
@@ -275,6 +275,41 @@ def _detect_kitti360(root: Path, report: SourceReport) -> bool:
     return True
 
 
+def _detect_phenikaa(root: Path, report: SourceReport) -> bool:
+    """Nhận ra PHENIKAA: thư mục chuỗi có ``camera/CAM_*``, ``ego_pose/``, ``lidar/*.laz``.
+
+    ``root`` là một chuỗi hoặc thư mục chứa các chuỗi (thường kèm ``calib/``). Chưa có ID theo dõi
+    cho box nên chưa có ``instances/``.
+
+    Args:
+        root: Thư mục nguồn.
+        report: Kết quả, được điền thêm nếu nhận ra.
+
+    Returns:
+        ``True`` nếu là PHENIKAA.
+    """
+    sequences = phenikaa.find_sequences(root)
+    if not sequences or not any(
+        (path / "camera").glob("CAM_*") and any((path / "lidar").glob("*.laz"))
+        for path in sequences.values()
+    ):
+        return False
+    report.dataset = phenikaa.DATASET
+    report.versions[""] = list(sequences)
+    report.cameras = list(phenikaa.CAMERAS)
+    report.has_lidar = True
+    report.has_cuboids = False
+    report.notes.append(
+        "box 3D của PHENIKAA chưa có ID theo dõi: cảnh ingest chưa có instances/ (cần bước "
+        "tracking); camera pinhole được khử méo khi ingest"
+    )
+    try:
+        phenikaa.find_calib(next(iter(sequences.values())))
+    except phenikaa.IngestError as error:
+        report.errors.append(str(error))
+    return True
+
+
 def _detect_nuplan(root: Path, report: SourceReport) -> bool:
     """Nhận ra nuPlan: ``nuplan-v1.1/splits/<split>/*.db``; phiên bản là split."""
     for split_dir in _dirs(root / "nuplan-v1.1" / "splits", "*"):
@@ -318,6 +353,7 @@ def _detect_ncore(root: Path, report: SourceReport) -> bool:
 
 
 _DETECTORS = (
+    _detect_phenikaa,
     _detect_nuscenes,
     _detect_waymo,
     _detect_physicalai,
@@ -333,6 +369,7 @@ _DETECTORS = (
 # sâu), để mỗi thư mục xem tốn ít. PhysicalAI và NCore tìm đệ quy nên nếu có ở thư mục con thì
 # đã được nhận ra ở chính thư mục người dùng truyền.
 _SHALLOW_DETECTORS = (
+    _detect_phenikaa,
     _detect_nuscenes,
     _detect_waymo,
     _detect_nuplan,
