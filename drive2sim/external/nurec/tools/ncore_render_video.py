@@ -1,7 +1,7 @@
 """(drive2sim) Video đi dọc đoạn đường từ PLY của Instant NuRec, như render_flythrough của Fisheye Fusion Lab.
 
     <python môi trường chính> ncore_render_video.py <merged.ply> <views.npz> --out <video.mp4>
-        [--cameras a,b] [--fps 10] [--speed 1] [--height 360] [--no-gt] [--interp] [--gt-dense gt_dense.npz] [--gt-flow]
+        [--cameras a,b] [--fps 10] [--speed 1] [--height 360] [--no-gt] [--interp] [--gt-dense gt_dense.npz] [--gt-flow] [--gt-flow-window 0.2]
 
 ``views.npz`` do ``ncore_eval_export.py --every 1`` ghi (mọi khung của clip NCore). Mỗi khung video
 là một hàng ảnh dựng của các camera (theo thứ tự ``--cameras``), mỗi ảnh co về cao ``--height``;
@@ -16,7 +16,8 @@ dù nguồn thưa (KITTI-360 bộ ROSA: 0,5 s một ảnh). Hàng ảnh thật g
 trừ khi có ``--gt-dense`` (``kitti360_dense_gt.py``): khi đó khung video giữa hai khung nguồn dùng ảnh
 thật 10 Hz gần thời điểm đó nhất, nên cả hàng ảnh thật cũng mượt. Không có ảnh thật ở giữa mà có
 ``--gt-flow``: ảnh giữa được nội suy từ hai ảnh thật bằng optical flow DIS của OpenCV (warp hai chiều
-rồi trộn), ô ghi ``ground truth (interp)`` để không nhầm với ảnh thật.
+rồi trộn; chỗ flow không qua kiểm tra xuôi-ngược thì chỉ hoà dần hai ảnh, không bẻ hình), chỉ trong
+đoạn cuối ``--gt-flow-window`` của mỗi quãng (0,2: 20%; phần còn lại giữ ảnh thật), ô ghi ``ground truth (interp)`` để không nhầm với ảnh thật.
 In ``progress <đã vẽ>/<tổng>`` sau mỗi khung để stage báo tiến độ.
 """
 from __future__ import annotations
@@ -98,22 +99,46 @@ def interp_viewmat(va: np.ndarray, vb: np.ndarray, alpha: float) -> np.ndarray:
     return np.linalg.inv(c).astype(va.dtype)
 
 
-def flow_pair(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Optical flow DIS hai chiều (a→b, b→a) giữa hai ảnh RGB cùng cỡ."""
+def flow_pair(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Optical flow DIS hai chiều giữa hai ảnh RGB cùng cỡ và độ tin (0..1) của từng điểm ảnh.
+
+    Điểm tin được khi đi a→b rồi b→a quay về gần chỗ cũ (kiểm tra xuôi-ngược) ở cả hai phía và
+    không trượt ra ngoài ảnh; vật bị che, vật ra khỏi khung, chuyển động quá lớn thì không tin.
+    """
     dis = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
     ga, gb = (cv2.cvtColor(x, cv2.COLOR_RGB2GRAY) for x in (a, b))
-    return dis.calc(ga, gb, None), dis.calc(gb, ga, None)
+    fab, fba = dis.calc(ga, gb, None), dis.calc(gb, ga, None)
+    h, w = ga.shape
+    gx, gy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
+
+    def consistent(f: np.ndarray, g: np.ndarray) -> np.ndarray:
+        x, y = gx + f[..., 0], gy + f[..., 1]
+        back = cv2.remap(g, x, y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        err = np.linalg.norm(f + back, axis=-1)
+        mag = np.linalg.norm(f, axis=-1)
+        inside = (x >= 0) & (x <= w - 1) & (y >= 0) & (y <= h - 1)
+        return inside & (err < 1.0 + 0.05 * mag) & (mag < 0.12 * w)
+
+    ok = (consistent(fab, fba) & consistent(fba, fab)).astype(np.float32)
+    ok = cv2.erode(ok, np.ones((5, 5), np.uint8))
+    conf = cv2.GaussianBlur(ok, (0, 0), 6)
+    return fab, fba, conf
 
 
-def flow_mid(a: np.ndarray, b: np.ndarray, fab: np.ndarray, fba: np.ndarray, t: float) -> np.ndarray:
-    """Ảnh ở thời điểm ``t`` (0: a, 1: b): warp ngược từ cả hai phía theo flow rồi trộn tuyến tính."""
+def flow_mid(a: np.ndarray, b: np.ndarray, fab: np.ndarray, fba: np.ndarray, conf: np.ndarray,
+             t: float) -> np.ndarray:
+    """Ảnh ở thời điểm ``t`` (0: a, 1: b): warp hai phía theo flow rồi trộn; chỗ flow không tin
+    được (``conf`` thấp) thì chỉ hoà dần hai ảnh thật, không bẻ hình."""
     h, w = a.shape[:2]
     gx, gy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
     wa = cv2.remap(a, gx - t * fab[..., 0], gy - t * fab[..., 1], cv2.INTER_LINEAR,
                    borderMode=cv2.BORDER_REPLICATE)
     wb = cv2.remap(b, gx - (1 - t) * fba[..., 0], gy - (1 - t) * fba[..., 1], cv2.INTER_LINEAR,
                    borderMode=cv2.BORDER_REPLICATE)
-    return cv2.addWeighted(wa, 1 - t, wb, t, 0)
+    warped = (1 - t) * wa.astype(np.float32) + t * wb.astype(np.float32)
+    fade = (1 - t) * a.astype(np.float32) + t * b.astype(np.float32)
+    c = conf[..., None]
+    return np.clip(c * warped + (1 - c) * fade + 0.5, 0, 255).astype(np.uint8)
 
 
 def to_height(img: np.ndarray, height: int) -> np.ndarray:
@@ -144,6 +169,8 @@ def main():
     p.add_argument("--gt-dense", default="", help="gt_dense.npz: ảnh thật giữa các khung nguồn")
     p.add_argument("--gt-flow", action="store_true",
                    help="nội suy hàng ảnh thật giữa hai khung nguồn bằng optical flow")
+    p.add_argument("--gt-flow-window", type=float, default=0.2,
+                   help="phần cuối mỗi quãng được nội suy (0..1); phần trước giữ ảnh thật")
     a = p.parse_args()
     dev = "cuda"
     gaussians = load_ply(Path(a.ply), dev)
@@ -257,9 +284,12 @@ def main():
                 gt_now = None
                 if dense and alpha > 0 and n + 1 < len(frames):
                     gt_now = dense_row(frame, frames[n + 1], alpha, tiles_g)
-                if gt_now is None and alpha > 0 and any(pairs):
+                window = min(max(a.gt_flow_window, 0.0), 1.0)
+                blend = (alpha - (1 - window)) / window if window > 0 else 0.0
+                if gt_now is None and blend > 0 and any(pairs):
+                    blend = blend * blend * (3 - 2 * blend)  # vào, ra êm
                     gt_now = np.concatenate([
-                        label(flow_mid(*pair, alpha), f"{cam} ground truth (interp)") if pair else held
+                        label(flow_mid(*pair, blend), f"{cam} ground truth (interp)") if pair else held
                         for cam, pair, held in zip(cameras, pairs, tiles_g)
                     ], 1)
                 row = np.concatenate([gt_row if gt_now is None else gt_now, row], 0)
@@ -292,7 +322,8 @@ def main():
             "cameras": cameras, "fps": a.fps, "duration_s": sum(repeats) / a.fps,
             "size": [int(size[0]), int(size[1])], "with_gt": not a.no_gt,
             "interpolated": bool(a.interp), "dense_gt": bool(dense),
-            "gt_flow": bool(a.gt_flow and a.interp and not a.no_gt)}
+            "gt_flow": bool(a.gt_flow and a.interp and not a.no_gt and a.gt_flow_window > 0),
+            "gt_flow_window": a.gt_flow_window}
     out.with_suffix(".json").write_text(json.dumps(info, indent=2) + "\n")
     print(f"wrote {out}: {len(frames)} frames, {sum(repeats) / a.fps:.1f} s")
 

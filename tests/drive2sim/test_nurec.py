@@ -282,6 +282,8 @@ def test_render_command_passes_dense_gt(tmp_path: Path) -> None:
     assert "--gt-flow" in command
     assert "--gt-flow" not in build_render_command(NurecVideoParams(gt_flow=False), *args)
     assert "--gt-flow" not in build_render_command(NurecVideoParams(interpolate=False), *args)
+    assert command[command.index("--gt-flow-window") + 1] == "0.2"
+    assert "--gt-flow" not in build_render_command(NurecVideoParams(gt_flow_window=0), *args)
     tool = dense_gt_command(tmp_path, "seq", tmp_path / "clip.json", dense, 360)
     assert tool[2].endswith("kitti360_dense_gt.py") and "--sequence" in tool
 

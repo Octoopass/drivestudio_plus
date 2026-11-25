@@ -15,7 +15,8 @@ khung, cỡ 2 giây). Stage này vẽ PLY ở **mọi khung** của clip NCore c
    ``dense_gt`` (cảnh KITTI-360 còn dữ liệu gốc): ``kitti360_dense_gt.py`` lấy ảnh thật 10 Hz nằm
    giữa các khung clip từ ``data_2d_raw``, nên hàng ảnh thật cũng mượt; thiếu dữ liệu gốc thì bỏ
    qua. ``gt_flow`` (mặc định bật): không có ảnh thật ở giữa thì ảnh giữa hai ảnh thật được nội suy
-   bằng optical flow (ô ghi ``ground truth (interp)``); tắt thì hàng ảnh thật giữ ảnh gần nhất.
+   bằng optical flow (ô ghi ``ground truth (interp)``), chỉ ở đoạn cuối ``gt_flow_window`` của mỗi
+   quãng (mặc định 20%, phần còn lại giữ ảnh thật); tắt hoặc 0 thì hàng ảnh thật giữ ảnh gần nhất.
 Tab Video của Studio liệt kê mọi MP4 trong thư mục stage nên video hiện ra ở đó.
 
 Nằm trong danh sách stage của approach ``nurec`` (sau ``export.nurec_ply``); run tạo trước đó thì
@@ -58,6 +59,8 @@ class NurecVideoParams(BaseModel):
             các khung clip (cần dữ liệu gốc trên máy).
         gt_flow: Cùng ``interpolate``: không có ảnh thật ở giữa thì nội suy hàng ảnh thật bằng
             optical flow (ô ghi ``ground truth (interp)``); tắt thì giữ ảnh gần nhất.
+        gt_flow_window: Phần cuối mỗi quãng giữa hai ảnh thật được nội suy (0..1); phần trước
+            giữ nguyên ảnh thật. 0 là không nội suy, 1 là nội suy cả quãng.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -69,6 +72,7 @@ class NurecVideoParams(BaseModel):
     interpolate: bool = True
     dense_gt: bool = True
     gt_flow: bool = True
+    gt_flow_window: float = Field(default=0.2, ge=0, le=1)
 
 
 def build_render_command(
@@ -101,8 +105,8 @@ def build_render_command(
         command.append("--interp")
         if dense_gt is not None and params.with_gt:
             command += ["--gt-dense", str(dense_gt)]
-        if params.gt_flow and params.with_gt:
-            command.append("--gt-flow")
+        if params.gt_flow and params.with_gt and params.gt_flow_window > 0:
+            command += ["--gt-flow", "--gt-flow-window", str(params.gt_flow_window)]
     return command
 
 
