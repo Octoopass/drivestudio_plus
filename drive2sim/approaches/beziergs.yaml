@@ -25,3 +25,4 @@ stages:
       campose: false
   - {stage: eval.standard}
   - {stage: export.ply_world}
+  - {stage: eval.ply}

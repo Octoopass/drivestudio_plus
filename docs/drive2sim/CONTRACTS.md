@@ -258,6 +258,7 @@ stages:                            # chạy lần lượt; ${...} được thay 
       fastgs: "${options.fastgs}"
   - {stage: eval.standard}
   - {stage: export.ply_world}
+  - {stage: eval.ply}
 ```
 
 Ví dụ trên là dạng đích: stage `init.*` chưa có (ARCHITECTURE mục 4.3), nên `drive2sim/approaches/omnire.yaml` hiện chưa có mục `init`; video do `train.py` ghi, chưa có stage `render.videos`.
@@ -370,7 +371,7 @@ Riêng `train.*`: chạy tiếp bằng `checkpoint_resume.pth` (model, optimizer
 | `depth_prior` | Depth metric theo camera và khung, mỗi ảnh một file `.npy` `float32`, mét; kèm tên model trong `artifact.json` |
 | `points_init` | `points_init.npz`: `points` `float32[M,3]` trong hệ `world`, `colors` `uint8[M,3]`, `track_ids` (tuỳ chọn) |
 | `model` | Thư mục log của codebase; với DriveStudio có `checkpoint_final.pth`, `config.yaml`, `metrics/`, `videos/`, `train_stats.json`, `cameras.json` (mục 6.1). Codebase khác cung cấp kết quả qua định dạng chung của các stage sau |
-| `eval_report` | Thư mục chứa `summary.json` (mục 6.3) và metric gốc của codebase |
+| `eval_report` | Thư mục chứa `summary.json` (mục 6.3) và metric gốc của codebase; `eval.ply` cũng ghi `ply_gap.json` (mục 6.5) vào thư mục của nó với loại này, vì chưa stage nào đọc nó như đầu vào |
 | `videos` | Video MP4 H.264 |
 | `export_ply` | PLY 3DGS trong hệ `world` |
 | `preview` | Gói xem trước cho Spark (mục 7) |
@@ -407,8 +408,9 @@ runs/<scene_id>/<approach_id>/<run_id>/
         │   ├── log.txt                  # stdout và stderr của train.py
         │   ├── artifact.json
         │   └── done
-        ├── eval.standard/               # summary.json, artifact.json, done
-        └── export.ply_world/            # scene.ply, scene.json, cameras.json, artifact.json, done
+        ├── eval.standard/               # summary.json, frames.jsonl, artifact.json, done
+        ├── export.ply_world/            # scene.ply, scene.json, cameras.json, artifact.json, done
+        └── eval.ply/                    # ply_gap.json, background/scene.ply, artifact.json, done
 ```
 
 Gốc thư mục run chỉ có `d2s/`, nên file của tool không trùng tên với file của codebase.
@@ -620,7 +622,7 @@ Các con số trong ví dụ chỉ minh hoạ định dạng. Quy tắc:
 - **R2** (`shift_*`, từ `d2s-benchresult/0.2`): đọc từ `summary.json` khối `shifted` (mục 6.3), trên camera chỉ test của split. `shift_psnr_cc` là số phân xử hoà thứ nhất. Để trống khi split không có camera chỉ test hoặc run đo bằng protocol dưới `0.5`.
 - **Đoạn đường hỏng** (R7, chỉ chẩn đoán, không vào xếp hạng): PSNR một khung test là trung bình các camera của khung **trong cùng nhóm camera**; `bad_segments` có khoá `pinhole` và `fisheye` (nhóm theo `model` trong manifest; chỉ nhóm có ảnh), mỗi khoá là danh sách đoạn hỏng của nhóm. Đoạn hỏng là từ 5 khung test liền nhau trở lên, mỗi khung thấp hơn trung vị của nhóm quá 2 dB. Ảnh của camera chỉ test bị bỏ (PSNR thấp hơn hẳn và vị trí lệch khỏi quỹ đạo, sẽ làm lệch trung vị và quãng đường). `start_m`, `end_m` là quãng đường dọc đường gấp khúc qua vị trí camera của các khung test (giữa hai khung test liền nhau là khung train nên đường thực dài hơn một chút). Cần `frames.jsonl` (mục 6.3); `frames_measured` (số cặp khung-camera đã train có metric) bằng 0 nghĩa là chưa đo, không phải không có đoạn hỏng. Trước `0.2`, `bad_segments` là một danh sách chung cho mọi camera.
 - `psnr_pinhole`, `psnr_fisheye`: trung bình PSNR theo camera, nhóm camera theo `model` trong manifest (`opencv_fisheye`, `ftheta` là fisheye); chiều báo cáo, không xếp hạng.
-- `export_gap_db` (R3) đọc từ `d2s/stages/eval.ply/ply_gap.json` nếu có. `export_applicable` là `false` khi danh sách stage của run (`run.json`) không có `export.ply_world` hay `export.nurec_ply`, tức method không xuất được `.ply` nền tĩnh (như SLAM dạng anchor và MLP): R3 **không áp dụng**, khác với chưa đo (`export_gap_db` trống, `export_applicable` `true`).
+- `export_gap_db` (R3) đọc từ `d2s/stages/eval.ply/ply_gap.json` nếu có. Stage `eval.ply` (`drive2sim/stages/eval/ply.py`, đứng sau `export.ply_world` trong approach xuất `.ply`) xuất một `.ply` **chỉ nền tĩnh** (`export_ply.py --rigid_frame -1`, ở `eval.ply/background/scene.ply`), vẽ nó bằng renderer 3DGS chung (gsplat: 3DGS cho camera pinhole, 3DGUT cho camera còn lại, bất kể model train bằng renderer nào) ở các ảnh test của **camera đã train**, rồi so với ảnh thật trên **cùng mask** với render gốc: điểm ảnh hợp lệ, không phải trời, ngoài hình chiếu box vật động (không có box thì chỉ bỏ trời). PSNR của render gốc lấy từ `psnr_static` trong `frames.jsonl` (mục 6.3, protocol `0.5`; thiếu khoá này stage báo lỗi trước khi dùng GPU). `ply_gap.json`: `export_gap_db` = PSNR render gốc trừ PSNR render `.ply` (trung bình theo ảnh, trên các ảnh có cả hai; dương là `.ply` kém hơn), `native_psnr`, `ply_psnr`, `num_images`, `mask`, `per_group` (cùng bốn số cho `pinhole`, `fisheye`), `ply_gaussians`, `ply_size_mb`. Phần mất đi gồm Gaussian mờ bị lọc khi xuất, không có ma trận chỉnh màu từng ảnh (`AffineTransform`), và chênh lệch giữa renderer lúc train với renderer chung. Chưa chạy thật trên GPU. `export_applicable` là `false` khi danh sách stage của run (`run.json`) không có `export.ply_world` hay `export.nurec_ply`, tức method không xuất được `.ply` nền tĩnh (như SLAM dạng anchor và MLP): R3 **không áp dụng**, khác với chưa đo (`export_gap_db` trống, `export_applicable` `true`).
 - **R6** (track B): `distance_m` là độ dài đường gấp khúc qua các khung test của camera đã train; `train_s_per_100m` và `ply_mb_per_100m` là thời gian train và dung lượng `scene.ply` chia cho `distance_m / 100`, chỉ điền ở track `B` khi `distance_m > 0`. `ate_rmse_m` là ATE do method tự báo (`mcgs_eval.json` cạnh `summary.json`), không tính lại. Chưa có: PSNR quanh chỗ nối chunk (làm khi có run chunk đầu tiên).
 - **R8**: `train_time_s`, `recon_time_s` (tổng thời gian dựng cảnh tới khi xuất xong `scene.ply`), `peak_vram_mb`, `render_fps`, `gpu`. Chỉ so được giữa run cùng loại GPU; khác GPU thì bước phân xử thời gian train không chạy.
 - Trường để trống nghĩa là **chưa đo**. Chưa đo: KID khi lệch làn (R2, hoãn), PSNR quanh chỗ nối chunk (R6). Chủ ý **không đo**: `ghost_ratio` (chưa có định nghĩa, chỉ có nghĩa với method tách lớp nền và vật động), `static_psnr` như tiêu chí xếp hạng (R3 dùng PSNR nền tĩnh nhưng chỉ để tính export gap), ATE tự tính (chỉ method tự ước lượng pose có; ghi số do method báo), "kết quả xác định" (thay bằng một lần đo dao động theo seed để đặt ngưỡng hoà). Lý do ở ARCHITECTURE mục 2.17.

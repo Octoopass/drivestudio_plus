@@ -111,4 +111,5 @@ stages:
       fastergs: "${options.fastergs}"
   - {stage: eval.standard}
   - {stage: export.ply_world}
+  - {stage: eval.ply}
   - {stage: export.preview}
