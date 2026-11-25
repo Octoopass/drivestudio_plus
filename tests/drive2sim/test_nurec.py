@@ -146,8 +146,9 @@ def test_summary_from_render_metrics() -> None:
 
 def test_remote_executors_refuse_external_codebases() -> None:
     with pytest.raises(ValueError, match="codebase ngoài"):
-        remote.require_main_codebase("nurec", "Colab")
-    remote.require_main_codebase("streetgs", "Kaggle")
+        remote.require_remote_codebase("nurec", "Colab")
+    assert remote.require_remote_codebase("streetgs", "Kaggle") is False
+    assert remote.require_remote_codebase("xsim", "Kaggle") is True
 
 
 def test_install_flow_knows_nurec_and_skips_python_version(tmp_path: Path) -> None:

@@ -172,7 +172,7 @@ def start_run(body: CreateRunBody, request: Request) -> dict:
     if body.executor == "local":
         _require_local(request, plan.approach_id, [stage.stage_id for stage in plan.stages])
     else:
-        remote.require_main_codebase(plan.approach_id, body.executor.capitalize())
+        remote.require_remote_codebase(plan.approach_id, body.executor.capitalize())
     run_dir = create_run(plan, state.workdir, scene, split, executor=body.executor)
     if body.executor == "kaggle":
         kaggle.submit_push(state, run_dir.name)

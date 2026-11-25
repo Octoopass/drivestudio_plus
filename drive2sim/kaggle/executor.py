@@ -414,7 +414,9 @@ def wait_dataset_ready(
         waited += DATASET_POLL_S
 
 
-def build_notebook(bundles: dict[str, dict], commit: str, repo_url: str, branch: str) -> str:
+def build_notebook(
+    bundles: dict[str, dict], commit: str, repo_url: str, branch: str, xsim: bool = False
+) -> str:
     """Điền template notebook.
 
     Args:
@@ -422,6 +424,7 @@ def build_notebook(bundles: dict[str, dict], commit: str, repo_url: str, branch:
         commit: Commit notebook clone.
         repo_url: Repo để clone.
         branch: Branch để clone.
+        xsim: Có cài thêm môi trường XSIM (``envs/install_xsim.sh``) không.
 
     Returns:
         Nội dung file ``.ipynb``.
@@ -432,6 +435,7 @@ def build_notebook(bundles: dict[str, dict], commit: str, repo_url: str, branch:
         "repo_url": repo_url,
         "branch": branch,
         "bundles_json": json.dumps(bundles),
+        "xsim": "1" if xsim else "0",
     }
     notebook = json.loads(TEMPLATE.read_text("utf-8"))
     for cell in notebook["cells"]:
@@ -605,9 +609,12 @@ def push_runs(
     client = client or KaggleClient()
     username = client.username()
     commit, repo_url = code_source(branch)
+    # Kiểm codebase trước _prepare: _prepare có thể upload cảnh, cache lên Kaggle.
+    needs_xsim = False
+    for run_id in run_ids:
+        record = files.load(workdir.find_run(run_id) / D2S_DIR / RUN_FILE, RunRecord)
+        needs_xsim |= remote.require_remote_codebase(record.approach.approach_id, "Kaggle")
     prepared = [_prepare(client, workdir, run_id, username, rerun) for run_id in run_ids]
-    for one in prepared:
-        remote.require_main_codebase(one.record.approach.approach_id, "Kaggle")
     if len(prepared) == 1:
         one = prepared[0]
         defaults = {
@@ -629,7 +636,9 @@ def push_runs(
 
     with tempfile.TemporaryDirectory(dir=_staging(workdir)) as folder:
         folder_path = Path(folder)
-        notebook = build_notebook({p.run_id: p.bundle for p in prepared}, commit, repo_url, branch)
+        notebook = build_notebook(
+            {p.run_id: p.bundle for p in prepared}, commit, repo_url, branch, xsim=needs_xsim
+        )
         (folder_path / "run.ipynb").write_text(notebook, "utf-8")
         metadata = {
             "id": kernel,

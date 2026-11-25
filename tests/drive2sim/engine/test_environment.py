@@ -94,3 +94,24 @@ def test_smpl_optional_is_only_a_warning(monkeypatch: pytest.MonkeyPatch) -> Non
     assert pick["smpl_model"] == "warn"
     assert {c["id"]: c["level"] for c in sure["checks"]}["smpl_model"] == "missing"
     assert sure["level"] == "missing"
+
+
+def test_xsim_check_includes_main_environment_and_smpl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from drive2sim.external import xsim
+
+    monkeypatch.setattr(environment, "_gpus", lambda: [("GPU", 40960, "570")])
+    monkeypatch.setattr(
+        environment, "package_versions", lambda: dict.fromkeys(("pytorch", "cuda", "gsplat"))
+    )
+    monkeypatch.setattr(
+        xsim,
+        "environment_checks",
+        lambda: [{"id": "xsim_env", "level": "ok", "found": "x", "expected": "x"}],
+    )
+    result = environment.environment_check("external:xsim", needs_smpl=True, workdir_root=tmp_path)
+    ids = [check["id"] for check in result["checks"]]
+    assert ids.count("gpu") == 1 and {"pytorch", "smpl_model", "xsim_env"} <= set(ids)
+    assert result["level"] == "missing" and result["env"] == "xsim"
+    assert "install_main.sh" in result["message"] and "install_xsim.sh" not in result["message"]
