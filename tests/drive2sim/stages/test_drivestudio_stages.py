@@ -610,11 +610,17 @@ def test_eval_remeasures_old_metrics_from_checkpoint(
     standard.EvalStandardStage().run(ctx, {"model": model}, standard.NoParams())
     assert len(commands_run) == 2
 
-    # Có cả per_camera và file từng ảnh (protocol 0.4): không đo lại, chép file sang output.
+    # File từng ảnh của protocol 0.4 (chưa có psnr_cc): đo lại để có metric sau chỉnh màu.
     (model / "metrics" / "frames_test_2026-11-13_090000.jsonl").write_text('{"psnr": 22.0}\n')
     standard.EvalStandardStage().run(ctx, {"model": model}, standard.NoParams())
-    assert len(commands_run) == 2
-    assert (output_dir / standard.FRAMES_FILE).read_text() == '{"psnr": 22.0}\n'
+    assert len(commands_run) == 3
+
+    # Có cả per_camera và file từng ảnh có psnr_cc (protocol 0.5): không đo lại, chép file sang.
+    current = '{"psnr": 22.0, "psnr_cc": 22.5}\n'
+    (model / "metrics" / "frames_test_2026-11-13_090000.jsonl").write_text(current)
+    standard.EvalStandardStage().run(ctx, {"model": model}, standard.NoParams())
+    assert len(commands_run) == 3
+    assert (output_dir / standard.FRAMES_FILE).read_text() == current
 
 
 def test_eval_summary_has_depth_when_measured(tmp_path: Path) -> None:
@@ -637,7 +643,7 @@ def test_eval_summary_has_depth_when_measured(tmp_path: Path) -> None:
         3.4,
         0.93,
     )
-    assert summary.protocol.version == "0.4"
+    assert summary.protocol.version == "0.5"
     no_lidar = {"psnr": 25.0, "ssim": 0.8, "lpips": 0.2}
     write_metrics(tmp_path, "images_test_2026-11-21_090000.json", no_lidar)
     assert make_summary(read_drivestudio_metrics(tmp_path), "s", tmp_path).depth is None
