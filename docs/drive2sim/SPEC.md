@@ -155,6 +155,7 @@ Studio là giao diện web chạy trên máy đang dùng. Nhóm A–D chỉ cầ
 - Video của nhiều approach đặt cạnh nhau theo cùng camera, cùng thời điểm.
 - Biểu đồ PSNR theo thời gian train, VRAM, tốc độ render và số Gaussian (đánh dấu các run trên đường Pareto); PSNR theo vùng; phân rã thời gian dựng cảnh theo nhóm stage; đường cong train của nhiều run.
 - Xuất bảng và hình cho báo cáo.
+- Trang Benchmark: chọn một file `benchmarks/<tên>.yaml` trong thư mục làm việc; mỗi nhóm run (track, ô, cảnh, split) là một bảng xếp theo Avg, kèm người thắng và bước đã quyết định (Avg, R2, R3, thời gian train cùng GPU), ngưỡng hoà và nguồn của nó, cảnh báo, và các cột R2, R3, độ sâu, đoạn hỏng, chi phí (CONTRACTS mục 6.5). Chỉ đọc file kết quả của run, không chạy GPU. Studio chưa tạo hay sửa file định nghĩa; viết tay.
 
 **E. Tính năng theo mức của approach** (cần GPU CUDA)
 - L2: đặt quỹ đạo camera mới và render video; đổi mô hình camera khi render.
