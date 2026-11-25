@@ -596,7 +596,7 @@ Các con số trong ví dụ chỉ minh hoạ định dạng. Quy tắc:
 - **Đoạn đường hỏng** (R7): PSNR một khung test là trung bình các camera của khung; đoạn hỏng là từ 5 khung test liền nhau trở lên, mỗi khung thấp hơn trung vị quá 2 dB. `start_m`, `end_m` là quãng đường dọc đường gấp khúc qua vị trí camera của các khung test (giữa hai khung test liền nhau là khung train nên đường thực dài hơn một chút). Cần `frames.jsonl` (mục 6.3); `frames_measured` bằng 0 nghĩa là chưa đo, không phải không có đoạn hỏng.
 - `psnr_pinhole`, `psnr_fisheye` (R5): trung bình PSNR theo camera, nhóm camera theo `model` trong manifest (`opencv_fisheye`, `ftheta` là fisheye).
 - `export_gap_db` (R3) đọc từ `d2s/stages/eval.ply/ply_gap.json` nếu có; chưa có stage đó nên hiện luôn để trống.
-- Trường để trống nghĩa là **chưa đo**. Chưa đo được: KID khi lệch làn (R2), `ghost_ratio`, `static_psnr` (R4, chưa có định nghĩa), ATE và PSNR quanh chỗ nối chunk (R6).
+- Trường để trống nghĩa là **chưa đo**. Chưa đo: KID khi lệch làn (R2, hoãn), export gap (R3), PSNR quanh chỗ nối chunk (R6, làm khi có run chunk đầu tiên). Chủ ý **không đo**: `ghost_ratio` (chưa có định nghĩa, chỉ có nghĩa với method tách lớp nền và vật động), `static_psnr` (hoãn tới khi cần so method chỉ dựng cảnh tĩnh như Instant NuRec), ATE (chỉ method tự ước lượng pose có; ghi số do method báo, không tính lại). Lý do ở ARCHITECTURE mục 2.17.
 - `warnings` nêu khi nhóm không so được trực tiếp: run chưa có kết quả, GPU khác nhau (thời gian, VRAM, FPS), protocol khác nhau.
 
 ## 7. Gói xem trước

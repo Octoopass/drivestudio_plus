@@ -460,7 +460,12 @@ Nguồn: `drive2sim/recon/trainers/base.py`, `camera_rasterization_kwargs` (3DGS
 **Nhược điểm.**
 - Run đã train mà không còn checkpoint thì không có `frames.jsonl`, và `d2s benchmark` ghi "chưa đo" cho đoạn hỏng.
 - `depth` đo ở khung test nên LiDAR của khung đó có thể dính xe đang chạy mà cảnh nền không có; chưa kiểm ảnh hưởng.
-- **Chưa làm:** export gap của `.ply` (R3; cần quyết định so với render nào, vì `.ply` không có trời, người và xe chỉ ở một khung), KID khi lệch làn (R2; cần render camera dịch ngang và thư viện KID), `ghost_ratio`, `static_psnr` (R4; chưa có định nghĩa), ATE và chunk (R6). `d2s benchmark` để trống các cột đó.
+- **Chưa làm:** export gap của `.ply` (R3; cần quyết định so với render nào, vì `.ply` không có trời, người và xe chỉ ở một khung); KID khi lệch làn (R2; cần render camera dịch ngang, `torch-fidelity` và tải trọng số Inception; hoãn, vì chỉ là tiêu chí phụ khi hai method ngang nhau). `d2s benchmark` để trống các cột đó.
+- **Chủ ý không làm (25/11/2026, đã cân nhắc theo AGENTS mục 2.1):**
+  - `ghost_ratio`: tiêu chí "cảnh nền sạch" đứng sau lệch làn và chất lượng `.ply`, nên chỉ xét khi hai run chênh dưới 0,3 dB mà hai tiêu chí trước cũng chưa đo; ma trận 13 run mỗi nhóm chỉ có 1 đến 2 ứng viên; PVG và DeformableGS không tách lớp nền nên không đo được; chưa có định nghĩa.
+  - `static_psnr`: rẻ (cỡ 15 dòng trong vòng render) nhưng không quyết định nhóm nào; làm khi cần so Instant NuRec (chỉ dựng cảnh tĩnh) với method khác trên cùng thang.
+  - ATE: chỉ áp dụng cho method tự ước lượng pose (MCGS-SLAM, một run), method đã tự báo ATE; drivestudio dùng pose có sẵn. Ghi số của method vào ghi chú kết quả track B.
+- **Chunk (R6) làm sau:** chunk là các split có `frame_range` chồng nhau, mỗi chunk một run thường (`core/split.py`), nên không cần code train mới; phần cần thêm là nhóm "chunked" trong `d2s benchmark` gộp `frames.jsonl` các chunk lên một trục quãng đường và báo PSNR quanh chỗ nối. Chỉ làm khi có run chunk đầu tiên, vì chưa có số nào cho thấy chỗ nối là điểm yếu. Gộp `.ply` của các chunk chưa có thiết kế; R3 của track B để trống. Với stride 10 hai khung test cách nhau cỡ 15 m (KITTI-360 drive_0003: 1.289 m trên 864 khung), nên độ phân giải ở chỗ nối chỉ cỡ đó.
 - Chưa chạy thật trên GPU (mục 7.1).
 
 ### 2.18 Chạy trên GPU thuê (vast.ai) bằng SSH và rsync, không thêm executor
