@@ -107,7 +107,7 @@ IN_PACKAGE_CODEBASES: tuple[str, ...] = ("drivestudio",)
 # Phiên bản schema hiện tại của từng loại file.
 SCHEMA_VERSIONS: dict[str, str] = {
     "manifest": "d2s-manifest/1.2",
-    "split": "d2s-split/0.1",
+    "split": "d2s-split/0.2",
     "report": "d2s-report/0.1",
     "approach": "d2s-approach/0.3",
     "artifact": "d2s-artifact/0.2",
@@ -489,6 +489,9 @@ class Split(VersionedFile):
         strategy: Chiến lược, ``every_nth_frame:N`` hoặc ``custom``.
         frame_range: Khung đầu và khung cuối của đoạn dùng, tính cả hai đầu.
         cameras: Các camera dùng trong split, không trùng.
+        test_only_cameras: Các camera chỉ xuất hiện ở ``test``, không bao giờ train (ví dụ
+            ``image_01`` của KITTI-360 để đo R2); tập con của ``cameras`` và luôn còn ít nhất một
+            camera train. Rỗng với split không có camera chỉ test.
         train: Các cặp ``[chỉ số khung, camera_id]`` để train.
         test: Các cặp ``[chỉ số khung, camera_id]`` để test; không cặp nào nằm ở cả hai phần.
     """
@@ -499,6 +502,7 @@ class Split(VersionedFile):
     strategy: str
     frame_range: tuple[int, int]
     cameras: list[str] = Field(min_length=1)
+    test_only_cameras: list[str] = Field(default_factory=list)
     train: list[tuple[int, str]]
     test: list[tuple[int, str]]
 
@@ -540,6 +544,15 @@ class Split(VersionedFile):
         if len(set(self.cameras)) != len(self.cameras):
             raise ValueError("cameras must be unique")
         allowed_cameras = set(self.cameras)
+        unknown_test_only = set(self.test_only_cameras) - allowed_cameras
+        if unknown_test_only:
+            raise ValueError(
+                f"test_only_cameras not listed in cameras: {sorted(unknown_test_only)}"
+            )
+        if self.test_only_cameras and set(self.test_only_cameras) >= allowed_cameras:
+            raise ValueError(
+                "test_only_cameras cannot contain every camera: nothing left to train"
+            )
         for part_name, pairs in (("train", self.train), ("test", self.test)):
             if len(set(pairs)) != len(pairs):
                 raise ValueError(f"{part_name} has duplicate pairs")
@@ -553,6 +566,8 @@ class Split(VersionedFile):
                         f"{part_name} pair {[frame, camera_id]} uses a camera "
                         "not listed in cameras"
                     )
+                if part_name == "train" and camera_id in self.test_only_cameras:
+                    raise ValueError(f"train pair {[frame, camera_id]} uses a test-only camera")
         overlap = set(self.train) & set(self.test)
         if overlap:
             raise ValueError(f"pairs in both train and test: {sorted(overlap)[:5]}")

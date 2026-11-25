@@ -116,18 +116,21 @@ available:
 
 ```json
 {
-  "schema_version": "d2s-split/0.1",
+  "schema_version": "d2s-split/0.2",
   "split_id": "every8_allcams",
   "scene_id": "nuscenes_scene-0061",
   "strategy": "every_nth_frame:8",
   "frame_range": [0, 38],
   "cameras": ["CAM_FRONT", "CAM_FRONT_LEFT", "CAM_FRONT_RIGHT"],
+  "test_only_cameras": [],
   "train": [[0, "CAM_FRONT"], [0, "CAM_FRONT_LEFT"], [1, "CAM_FRONT"]],
   "test":  [[8, "CAM_FRONT"], [8, "CAM_FRONT_LEFT"], [8, "CAM_FRONT_RIGHT"]]
 }
 ```
 
 Mỗi phần tử là cặp `[frame_index, camera_id]`. Một cặp không được nằm ở cả `train` và `test`.
+
+`test_only_cameras` (từ `d2s-split/0.2`, mặc định rỗng; file `0.1` vẫn đọc được): các camera chỉ có mặt ở `test`, không bao giờ train, để đo ảnh ở camera lệch khỏi quỹ đạo train (R2, ví dụ `image_01` của KITTI-360 so với `image_00`). Phải là tập con của `cameras` và không được bằng cả `cameras`. Tạo bằng `d2s split create ... --test-only-cameras image_01`.
 
 `strategy` lấy một trong:
 - `every_nth_frame:N`: các khung N, 2N, 3N… (tính từ khung đầu của `frame_range`) làm test cho mọi camera trong `cameras`; các khung còn lại, kể cả khung đầu, làm train. Trùng với `test_image_stride` của DriveStudio (`split_train_test` trong `drive2sim/recon/data/driving_dataset.py`).
