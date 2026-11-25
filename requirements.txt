@@ -41,3 +41,6 @@ transformers==4.40.2   # drive2sim/recon/preprocess/masks/segformer_hf.py (Huggi
 
 # NCore (dữ liệu chuẩn, ARCHITECTURE.md mục 2.2); cùng phiên bản với submodule third_party/ncore
 nvidia-ncore==19.9.0
+
+# Đọc LiDAR .laz của PHENIKAA khi ingest (drive2sim/ingest/phenikaa.py)
+laspy[lazrs]==2.7.0
