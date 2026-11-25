@@ -1,34 +1,101 @@
 #!/usr/bin/env bash
-# Cài worker vào interpreter riêng trên máy thực thi.
+# Cài XSIM (codebase ngoài, ARCHITECTURE mục 2.9) vào D2S_XSIM_DIR (mặc định ~/.cache/drive2sim/xsim),
+# bốn bước chạy tiếp được:
+#   1. mã nguồn avision-team/XSIM đúng commit chốt, submodule pytoast và xsimgs theo gitlink, áp
+#      drive2sim/external/xsim/patches/runtime.patch;
+#   2. venv riêng (.venv, Python 3.11) bằng uv, PyTorch 2.8 CUDA 12.8;
+#   3. build pytoast rồi xsimgs (extension CUDA), cài requirements của XSIM với các gói git đã chốt
+#      commit trong envs/xsim-constraints.txt;
+#   4. cài XSIM và drive2sim của repo này dạng editable (worker luôn chạy đúng mã đang checkout),
+#      rồi kiểm import và GPU.
+#
+#   bash envs/install_xsim.sh [--python PY] [--from N]
+#
+# Studio chạy script này từ nút cài (drive2sim/engine/env_install.py), truyền --python là Python
+# đang chạy Studio; Python đó chỉ dùng để cài uv nếu thiếu, venv XSIM do uv dựng riêng.
+# nvcc phải cùng major với CUDA của PyTorch (12.x): khác thì cài CUDA 12.8 riêng bằng
+# envs/install_cuda.sh vào D2S_CUDA_PREFIX, như envs/install_main.sh.
 set -euo pipefail
-if [[ $# != 2 ]]; then
-  echo "Cách dùng: bash envs/install_xsim.sh <python-env-xsim> <thư-mục-nguồn>" >&2
-  exit 2
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DIR="${D2S_XSIM_DIR:-$HOME/.cache/drive2sim/xsim}"
+SRC="$DIR/XSIM"
+VENV="$DIR/.venv"
+PY="python3"
+FROM=1
+REVISION=5c86a33a036f3163f78eff5dcd8d3fc75c05d2a3
+PATCH="$REPO/drive2sim/external/xsim/patches/runtime.patch"
+CONSTRAINTS="$REPO/envs/xsim-constraints.txt"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --python) PY="$2"; shift 2 ;;
+    --from) FROM="$2"; shift 2 ;;
+    *) echo "không hiểu tham số $1" >&2; exit 2 ;;
+  esac
+done
+step() { echo; echo "=== $(date +%H:%M:%S) $*"; }
+echo "XSIM vào $DIR (đặt D2S_XSIM_DIR để đổi)"
+mkdir -p "$DIR"
+
+if [ "$FROM" -le 1 ]; then
+  step "1/4 mã nguồn XSIM"
+  if [ ! -d "$SRC/.git" ]; then
+    git clone --quiet --no-checkout https://github.com/avision-team/XSIM.git "$SRC"
+  fi
+  git -C "$SRC" fetch --quiet origin "$REVISION" || true
+  # Thư mục dành riêng cho tool: bỏ thay đổi ở file được theo dõi (kể cả bản vá cũ) trước khi áp
+  # bản vá hiện tại, để cài lại sau khi bản vá đổi không bị kẹt.
+  git -C "$SRC" checkout --quiet --force --detach "$REVISION"
+  [ "$(git -C "$SRC" rev-parse HEAD)" = "$REVISION" ] || { echo "revision XSIM không khớp" >&2; exit 1; }
+  git -C "$SRC" submodule update --quiet --init --recursive
+  git -C "$SRC" apply "$PATCH"
 fi
-# Giữ symlink của interpreter để pip cài vào đúng venv.
-python_bin=$(realpath -s "$1")
-source_dir=$(realpath -m "$2")
-root=$(cd "$(dirname "$0")/.." && pwd)
-revision=5c86a33a036f3163f78eff5dcd8d3fc75c05d2a3
-patch="$root/drive2sim/external/xsim/patches/runtime.patch"
-"$python_bin" -c 'import sys; assert sys.version_info[:2] in ((3,11),(3,12)), "XSIM cần Python 3.11 hoặc 3.12"'
-if [[ ! -e "$source_dir" ]]; then
-  git clone --no-checkout https://github.com/avision-team/XSIM.git "$source_dir"
-  git -C "$source_dir" checkout --detach "$revision"
+
+if [ "$FROM" -le 2 ]; then
+  step "2/4 môi trường Python 3.11 (uv)"
+  if command -v uv >/dev/null; then
+    UV=(uv)
+  else
+    "$PY" -m pip install --quiet uv || {
+      echo "không cài được uv bằng $PY: cài uv (https://docs.astral.sh/uv/) rồi chạy lại" >&2
+      exit 1
+    }
+    UV=("$PY" -m uv)
+  fi
+  [ -x "$VENV/bin/python" ] || "${UV[@]}" venv --quiet --seed --python 3.11 "$VENV"
+  "$VENV/bin/python" -m pip install --quiet 'torch==2.8.0' 'torchvision==0.23.0' \
+    --index-url https://download.pytorch.org/whl/cu128
+  "$VENV/bin/python" -m pip install --quiet setuptools wheel ninja 'pybind11>=3.0.4'
 fi
-cd "$source_dir"
-[[ "$(git rev-parse HEAD)" == "$revision" ]] || { echo "Revision XSIM không khớp" >&2; exit 1; }
-git submodule update --init --recursive
-if git apply --check "$patch" 2>/dev/null; then
-  git apply "$patch"
-else
-  git apply --reverse --check "$patch"
+
+if [ "$FROM" -le 3 ]; then
+  step "3/4 build pytoast, xsimgs và cài requirements của XSIM"
+  [ -d /usr/local/cuda/bin ] && export PATH="/usr/local/cuda/bin:$PATH"
+  nvcc_major="$(nvcc --version 2>/dev/null | sed -n 's/.*release \([0-9]*\)\..*/\1/p')"
+  if [ "$nvcc_major" != "12" ]; then
+    echo "nvcc ${nvcc_major:-không có} khác CUDA 12 của PyTorch: cài CUDA 12.8 riêng"
+    CUDA_HOME="$(bash "$REPO/envs/install_cuda.sh" "${D2S_CUDA_PREFIX:-$HOME/.cache/drive2sim/cuda-12.8}")"
+    export CUDA_HOME PATH="$CUDA_HOME/bin:$PATH"
+  fi
+  if [ -z "${TORCH_CUDA_ARCH_LIST:-}" ] && command -v nvidia-smi >/dev/null; then
+    TORCH_CUDA_ARCH_LIST="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | sort -u | paste -sd';')"
+    export TORCH_CUDA_ARCH_LIST
+  fi
+  echo "nvcc: $(command -v nvcc || echo 'không có'); TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST:-}"
+  cd "$SRC"
+  "$VENV/bin/python" -m pip install --no-build-isolation ./third_party/pytoast
+  "$VENV/bin/python" -m pip install --no-build-isolation ./third_party/xsimgs
+  # Gói git trong requirements.txt của XSIM không chốt commit: cài bản đã chốt trước, rồi cài phần
+  # còn lại của requirements.txt (bỏ các dòng git đó).
+  "$VENV/bin/python" -m pip install --no-build-isolation -r "$CONSTRAINTS"
+  grep -v '@git+' requirements.txt > "$DIR/requirements-nogit.txt"
+  "$VENV/bin/python" -m pip install --no-build-isolation -r "$DIR/requirements-nogit.txt"
+  "$VENV/bin/python" -m pip install scikit-image imageio-ffmpeg
 fi
-"$python_bin" -m pip install 'torch==2.8.0' 'torchvision==0.23.0' --index-url https://download.pytorch.org/whl/cu128
-"$python_bin" -m pip install setuptools wheel ninja 'pybind11>=3.0.4'
-"$python_bin" -m pip install --no-build-isolation ./third_party/pytoast
-"$python_bin" -m pip install --no-build-isolation ./third_party/xsimgs
-"$python_bin" -m pip install --no-build-isolation -r requirements.txt
-"$python_bin" -m pip install scikit-image imageio-ffmpeg
-"$python_bin" -m pip install -e . "$root"
-"$python_bin" -c 'import torch, toast, xsimgs._C, xsim; assert torch.cuda.is_available(), "Worker chưa thấy GPU CUDA"'
+
+if [ "$FROM" -le 4 ]; then
+  step "4/4 cài XSIM và drive2sim (editable), kiểm import và GPU"
+  "$VENV/bin/python" -m pip install -e "$SRC" -e "$REPO"
+  "$VENV/bin/python" -c 'import torch, toast, xsimgs._C, xsim, drive2sim; assert torch.cuda.is_available(), "worker XSIM chưa thấy GPU CUDA"; print("torch", torch.__version__, "GPU", torch.cuda.get_device_name(0))'
+fi
+echo "xong: Python của worker là $VENV/bin/python"

@@ -1,0 +1,6 @@
+# Gói git mà requirements.txt của XSIM (revision 5c86a33) để không chốt commit. envs/install_xsim.sh
+# cài các dòng này trước, rồi cài phần còn lại của requirements.txt. Commit lấy bằng
+# `git ls-remote <url> HEAD` ngày 25/11/2026; đổi commit thì kiểm lại import và build trên GPU.
+jetcon @ git+https://github.com/npatakin/jetcon@5822f2c5cb90f19f79607e5ce02207588f66f841
+plytorch @ git+https://github.com/npatakin/plytorch@e7a160abde8a967824b0d5ea9e806517d7fa7cf5
+nvdiffrast @ git+https://github.com/NVlabs/nvdiffrast@253ac4fcea7de5f396371124af597e6cc957bfae
