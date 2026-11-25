@@ -165,7 +165,7 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 
 ## 9. Đánh giá
 
-Với XSIM, worker train lưu checkpoint theo chu kỳ để có thể tiếp tục một run bị gián đoạn. Approach XSIM dùng embedding của camera đã có ảnh train để đánh giá các cặp test KITTI-360. Phần train và render native còn chờ kiểm chứng trên GPU.
+Với XSIM, worker train lưu checkpoint theo chu kỳ để có thể tiếp tục một run bị gián đoạn. Approach XSIM nhận gói quan sát xuất từ cùng loader DriveStudio như OmniRe và được chấm bằng cùng hàm, ảnh thật và mask, nên số đo so được với approach DriveStudio trên cùng cảnh, split, độ phân giải. Phần train và render native còn chờ kiểm chứng trên GPU.
 
 Khi pipeline có nhiều bước đánh giá, bảng so sánh hiển thị kết quả của bước đánh giá thành công cuối cùng theo thứ tự pipeline.
 
@@ -195,7 +195,7 @@ Khi pipeline có nhiều bước đánh giá, bảng so sánh hiển thị kết
 - Ingest gợi ý thư mục dataset đúng và báo thiếu sweeps trước khi chạy. Run local báo thiếu môi trường kèm cách cài. OmniRe tự bỏ SMPL chỉ khi nhãn xác nhận đoạn frame của split không có người; dữ liệu chưa biết không bị xem là không có người.
 
 - Nhẹ: một tiến trình phục vụ cả API lẫn giao diện; trạng thái lưu trong thư mục, không cần cơ sở dữ liệu.
-- Khi chuẩn bị cảnh KITTI-360 cho XSIM, tool giữ đúng chỉ số camera trong manifest và toàn bộ các cặp ảnh của split.
+- Approach chạy ở môi trường khác (XSIM) nhận dữ liệu qua gói quan sát xuất từ loader chung, không tự đọc lại thư mục cảnh.
 - XSIM hướng tới L1 trên local, Kaggle và Colab. Tiến độ và bằng chứng nằm trong [kế hoạch XSIM](XSIM_INTEGRATION_PLAN.md).
 - Approach từ codebase khác chạy trong môi trường riêng; các approach dòng DriveStudio dùng chung môi trường của repo.
 - Mọi run ghi kết quả theo cùng một định dạng, kèm cấu hình đầy đủ, phiên bản mã nguồn và thông tin phần cứng để chạy lại được.

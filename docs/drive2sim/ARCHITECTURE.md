@@ -605,8 +605,9 @@ Bảng gồm cả stage đã có và stage theo thiết kế đích; cột Trạ
 | `eval.ncore` | Đã có | Chấm PLY trên khung test của split: xuất view từ clip NCore, vẽ bằng gsplat, PSNR, SSIM, LPIPS → `summary.json` | không | `tools/ncore_eval_export.py`, `ncore_eval_render.py` |
 | `export.nurec_ply` | Đã có | PLY của NuRec đổi từ hệ world của clip NCore sang hệ world của DriveStudio | không | `drive2sim/external/nurec/ply.py` |
 | `train.external` | Chưa có (NuRec dùng `train.nurec`) | Worker chung cho codebase ngoài | không | Chưa có |
-| `eval.xsim` | Đã nối worker và scorer; chưa nghiệm thu GPU | Nạp model train và vẽ từng cặp test theo hệ thời gian train | có (dựng lại pipeline train) | `external/xsim/evaluation.py`, `scoring.py` |
-| `train.xsim` | Đã nối stage và worker, chưa chạy thật trên GPU | Train trên clip KITTI-360 và masks trong môi trường XSIM riêng | có | `external/xsim/worker.py`, `training.py` |
+| `eval.xsim` | Đã nối; chưa nghiệm thu GPU | Worker XSIM render ảnh test và video; chấm ở môi trường chính bằng ảnh thật, mask đánh giá của gói và scorer của `eval.standard` | có (render) | `external/xsim/evaluation.py`, `scoring.py` |
+| `prep.observations` | Đã có, chưa chạy trên cảnh thật | Xuất ảnh, mask, pose, LiDAR, box, SMPL từ `DrivingDataset` dựng như `train.drivestudio`, cho approach ở môi trường khác | không | `drive2sim/recon/tools/export_observations.py` |
+| `train.xsim` | Đã nối, chưa chạy thật trên GPU | Train XSIM gốc trên gói quan sát trong môi trường XSIM riêng | có | `external/xsim/worker.py`, `training.py` |
 | `eval.standard` | Đã có (chỉ đọc metric do `train.py` ghi) | Đánh giá theo protocol chung (SPEC mục 9) | không | `drive2sim/recon/tools/eval.py` (`do_evaluation`) |
 | `render.videos` | Chưa có (video do `train.py` ghi) | Video ảnh gốc, ảnh render, sai khác theo camera | không | `drive2sim/recon/rendering/videos.py` |
 | `export.ply_world` | Đã có | PLY 3DGS trong hệ world | không | `drive2sim/recon/tools/export_ply.py` |
@@ -734,7 +735,7 @@ chạy cả các test đó, 496 test đạt, không bỏ qua test nào.
 
 | Việc | Trạng thái | Commit |
 |---|---|---|
-| XSIM | Đã có môi trường riêng, stage chỉ mục và provider KITTI-360 cho camera, sweep và box. Chưa nghiệm thu worker GPU. | |
+| XSIM | Môi trường riêng (`envs/install_xsim.sh`), đầu vào là gói quan sát chung (`prep.observations`), chấm bằng scorer chung; Kaggle và Colab cài thêm venv XSIM. Chưa nghiệm thu GPU. | |
 | Bàn giao `d2s pack`, ingest và môi trường thân thiện, SMPL theo split | Code và test local hoàn tất; chưa nghiệm thu train GPU cho thay đổi loader; gói 11 run thật đã ghi trên USB và kiểm đủ 15.708 mã băm sau giải nén; Studio đọc 11 run, đã render thử một frame bằng GPU có sẵn | |
 | Kaggle: gói output thành tar theo run và mục cache | Code và test local hoàn tất; có đường tải file rời cho notebook cũ và khi gói lỗi; chưa chạy bước gói trên Kaggle thật | |
 | Docs thiết kế (SPEC, ARCHITECTURE, CONTRACTS) | Xong, cập nhật theo từng quyết định | |

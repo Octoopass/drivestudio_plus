@@ -1,7 +1,7 @@
 # Kế hoạch tích hợp XSIM vào drive2sim
 
 Ngày lập: 21/11/2026. Branch: `feat/xsim-integration`, tách từ `drive2sim` tại `cd993b7`.
-Trạng thái: **đang triển khai L1. Đã có script cài runtime, stage chỉ mục và provider KITTI-360. Chưa chạy train/eval trên GPU**.
+Trạng thái (25/11/2026): **đã patch đủ đường local, Kaggle, Colab với đầu vào chung (`prep.observations`) và chấm điểm chung. Chưa cài môi trường, chưa chạy train/eval trên GPU, chưa chạy `prep.observations` trên cảnh thật**. Mục 11 ghi thay đổi của đợt này.
 
 Mục 1–7 ghi phạm vi và thứ tự triển khai. Mục 8 ghi bằng chứng theo revision đã kiểm, mục 9 ghi kết quả thử và mục 10 liệt kê các điều kiện nghiệm thu.
 
@@ -401,8 +401,12 @@ Các đánh đổi phải được chốt trước phần implement phụ thuộ
 - [x] Script cài XSIM theo gitlink và patch factory/sampler, commit `f73a04c`.
 - [x] Stage chỉ mục scene/split và khoá cache theo nội dung, commit `80391fd`.
 - [x] Provider camera, box và sweep dạng lưới cầu theo khung, commit `edb7dce`. Kiểm tra CPU trên file Velodyne thật, còn phải nghiệm thu native runtime.
-- [ ] Worker train/eval/resume, Studio, backend remote và nghiệm thu L1.
-- [ ] Cài môi trường / chạy GPU / cloud: chưa thực hiện.
+- [x] Worker train/eval/resume, checkpoint giữa hai batch, video cho Studio (commit `91213d0`–`4cda0a5`).
+- [x] Đầu vào chung: `prep.observations` xuất gói quan sát từ `DrivingDataset` như `train.drivestudio`; provider XSIM chỉ đọc gói (mục 11).
+- [x] Chấm điểm chung: worker render PNG 8 bit, `eval.xsim` chấm ở môi trường chính như `eval.standard`.
+- [x] Môi trường: `envs/install_xsim.sh` dựng venv uv, drive2sim editable, pin gói git; `CODEBASE_ENV` có `external:xsim`; nút cài Studio.
+- [x] Kaggle và Colab cài thêm venv XSIM khi run dùng approach XSIM; kiểm codebase trước khi upload.
+- [ ] Cài môi trường / chạy GPU / cloud: chưa thực hiện, chờ người dùng đồng ý.
 - [ ] Push branch để chạy notebook từ đúng revision.
 
 ## 8. Phạm vi audit và phát hiện từ mã nguồn
@@ -676,3 +680,54 @@ thu local runtime, không bỏ yêu cầu hỗ trợ local của tool.
 Theo README hiện tại, train khuyến nghị >=24 GB, inference >=12 GB. T4 16 GB không tự đạt
 baseline; cấu hình giảm bộ nhớ cần tên/provenance và số đo riêng. Đây là thông tin tài liệu,
 không phải mức VRAM tối thiểu đã đo trong audit.
+
+## 11. Thay đổi ngày 25/11/2026: đầu vào và chấm điểm chung
+
+Review ngày 25/11 thấy adapter tự đọc lại thư mục cảnh KITTI-360 nên lệch loader DriveStudio:
+mask mắt cá thiếu viền tối và thân xe, ảnh thu nhỏ bằng nearest thay vì bilinear, độ phân giải
+mặc định khác OmniRe, lưới LiDAR ±90° bỏ khoảng 2/3 số điểm, fingerprint băm cả mã chấm điểm,
+drive2sim cài không editable trong venv XSIM, bảng kiểm môi trường báo XSIM sẵn sàng khi chưa
+cài. Đợt sửa:
+
+| Phần | Trước | Sau |
+|---|---|---|
+| Đầu vào | `prep.xsim` (chỉ mục) + provider đọc file ingest KITTI-360 | `prep.observations` dựng `DrivingDataset` bằng đúng câu lệnh `train.drivestudio` (method OmniRe, renderer để che pixel mắt cá), xuất gói `observations`; `BundleScene` chỉ đọc gói, mọi dataset loader DriveStudio đọc được |
+| Mask | Chỉ góc ống kính | `masks/train_*` = `egocar_masks` của loader (góc, viền tối, thân xe); `masks/eval_*` = `valid_masks` |
+| Độ phân giải | XSIM tự thu ảnh, nearest | Ảnh 8 bit đúng như loader giữ (`downscale_when_loading` của dataset, như OmniRe); XSIM không resize |
+| LiDAR | Lưới 128×2048 phủ ±90°; ô trống bị coi là có đo | Dải góc nâng đo từ dữ liệu, bước 0,2°; ô trống có gốc tia 0; chính sách `all`/`train`; in tỉ lệ điểm giữ |
+| Actor | Lớp KITTI tự map, không SMPL | Loại node của DriveStudio → loại box XSIM; SMPL từ `prep.smpl`/`prep.smpl_release` đổi bằng toast như XSIM gốc; mô hình SMPL chuyển sang `.pth` trong thư mục cài XSIM, đặt `SMPL_PATH` cho worker |
+| Chấm điểm | Trong venv XSIM, ảnh thật đọc riêng | Môi trường chính, ảnh thật và mask của gói, `compute_image_metrics`, LPIPS torchmetrics như `eval.standard` |
+| Fingerprint | Mọi `*.py` của adapter, cả tham số runtime | Chỉ module quyết định model và tham số model |
+| Môi trường | `pip install -e . "$root"` (drive2sim không editable), gói git không chốt | venv uv trong `D2S_XSIM_DIR`, `-e` cho cả hai, `envs/xsim-constraints.txt`; kiểm môi trường thật; nút cài Studio |
+| Remote | Kaggle, Colab từ chối XSIM | Cài thêm venv XSIM (Kaggle: ô riêng; Colab: tham số `xsim`, cache theo khoá riêng) |
+
+Giữ nguyên mã gốc XSIM ở revision chốt và bản vá `runtime.patch`. Khác cấu hình gốc có chủ ý:
+`undistort_images` tắt (xsimgs vẽ thẳng pinhole có méo và mắt cá), đọc mẫu đồng bộ từng bước thay
+cho hàng đợi prefetch (để checkpoint giữa hai batch). Chưa có bằng chứng chạy thật: gói quan sát
+trên cảnh thật, build xsimgs, train, render và chấm trên GPU đều chưa chạy.
+
+### Rà soát trước khi commit (25/11/2026)
+
+Rà soát tĩnh và kiểm CPU phát hiện, đã sửa: worker không đặt `SMPL_PATH`; `dynamic: true` làm cảnh
+không box lỗi ở stage mask; Studio từ chối nút cài `xsim`; bảng kiểm môi trường bỏ qua môi trường
+chính; `D2S_XSIM_PYTHON` bị khoá vì thiếu mã nguồn ở thư mục mặc định; chấm điểm nạp PyTorch trong
+tiến trình engine; cài lại sau khi đổi bản vá bị kẹt; `uv` không nằm trên PATH; người không có
+SMPL ở keyframe nào vẫn thành node SMPL; ô notebook thiếu `id`; hard link trỏ vào symlink; module
+stage import numpy làm `d2s` hỏng trên máy nhẹ (test Python 3.9 bắt được); mô hình SMPL bị chép
+vào cache.
+
+Đo trên 40 sweep thật của `kitti360_0003_local`: góc nâng −24,6° tới 7,9°; lưới mới 164×2048 giữ
+91,4% điểm, lưới cũ 128×2048 phủ ±90° giữ 30,4%. `convert_smpl.py` chạy trên file SMPL thật cho
+kết quả mà `load_smpl_model_data` của XSIM đọc được (6890 đỉnh, 24 khớp).
+
+Còn mở, chưa sửa:
+
+- Khởi tạo màu điểm: sweep ở khung test không có ảnh train cùng khung nên điểm của chúng không
+  được tô màu từ ảnh, XSIM nội suy từ điểm lân cận. XSIM gốc tô bằng mọi ảnh.
+- Loss L1, SSIM của XSIM nhân mask rồi lấy trung bình trên cả ảnh: vùng che lớn (mắt cá) làm
+  trọng số loss ảnh giảm so với loss LiDAR.
+- Khoá cache của `prep.observations` không gồm nội dung config method, dataset và mã loader: đổi
+  chúng thì phải tăng `version` của stage hoặc xoá cache.
+- `summary.json` của XSIM chưa có thời gian train, số Gaussian, VRAM train và PSNR theo vùng
+  người, xe, vật động.
+
