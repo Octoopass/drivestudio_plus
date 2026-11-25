@@ -61,6 +61,7 @@ Dataset = Literal[
     "pandaset",
     "kitti",
     "kitti360",
+    "phenikaa",
     "physicalai",
     "carla",
     "colmap",
