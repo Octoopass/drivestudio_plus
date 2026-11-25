@@ -615,3 +615,56 @@ def test_eval_summary_has_depth_when_measured(tmp_path: Path) -> None:
     no_lidar = {"psnr": 25.0, "ssim": 0.8, "lpips": 0.2}
     write_metrics(tmp_path, "images_test_2026-11-21_090000.json", no_lidar)
     assert make_summary(read_drivestudio_metrics(tmp_path), "s", tmp_path).depth is None
+
+
+def test_lidar_off_is_only_for_methods_without_boxes() -> None:
+    """``lidar=False`` (ô A-0): chỉ PVG, DeformableGS; OmniRe, Street GS cần LiDAR trong box."""
+    for method in ("pvg", "deformablegs"):
+        assert not TrainDrivestudioParams(method=method, campose=True, lidar=False).lidar
+    for method in ("omnire", "streetgs"):
+        with pytest.raises(ValidationError, match="lidar=False"):
+            TrainDrivestudioParams(method=method, lidar=False)  # có config, nhưng cần LiDAR
+    assert TrainDrivestudioParams(method="omnire").lidar  # mặc định vẫn dùng LiDAR
+
+
+def test_lidar_off_drops_lidar_init_and_depth_loss(tmp_path: Path) -> None:
+    for method in ("pvg", "deformablegs"):
+        on = load_config(TrainDrivestudioParams(method=method, campose=True).config_file)
+        assert "from_lidar" in on["model"]["Background"]["init"]
+        assert "depth" in on["trainer"]["losses"]
+        params = TrainDrivestudioParams(method=method, campose=True, lidar=False)
+        written = load_config(drivestudio.write_method_config(params, tmp_path))
+        init = written["model"]["Background"]["init"]
+        assert "from_lidar" not in init and init["near_randoms"] > 0  # chỉ còn điểm ngẫu nhiên
+        assert "depth" not in written["trainer"]["losses"]  # loss depth so với LiDAR
+        assert written["trainer"]["losses"]["rgb"] == on["trainer"]["losses"]["rgb"]
+    # lidar=True: config giữ nguyên
+    default = TrainDrivestudioParams(method="pvg", campose=True)
+    assert load_config(drivestudio.write_method_config(default, tmp_path)) == load_config(
+        default.config_file
+    )
+
+
+def test_lidar_off_takes_scene_extent_from_cameras(tmp_path: Path) -> None:
+    manifest = Manifest.model_validate(MANIFEST)
+    split = Split.model_validate(SPLIT)
+    view = tmp_path / "view"
+    on = build_command(
+        TrainDrivestudioParams(method="pvg", campose=True), split, manifest, view, tmp_path
+    )
+    assert not any("aabb_from_cameras" in part for part in on)
+    off = build_command(
+        TrainDrivestudioParams(method="pvg", campose=True, lidar=False),
+        split,
+        manifest,
+        view,
+        tmp_path,
+    )
+    assert "data.lidar_source.aabb_from_cameras=true" in [p.lower() for p in off]
+
+
+def test_lidar_off_run_does_not_list_the_train_stage_in_lidar_usage() -> None:
+    stage = TrainDrivestudioStage
+    assert stage.uses_lidar  # cảnh không có LiDAR vẫn bị khoá (LiDAR dùng để đo depth)
+    assert stage.lidar_used({"method": "pvg"}) and stage.lidar_used({"lidar": True})
+    assert not stage.lidar_used({"method": "pvg", "lidar": False})

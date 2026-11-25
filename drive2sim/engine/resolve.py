@@ -649,7 +649,7 @@ def _build_stages(
             params,
             sources,
             registry.get(stage_id).cacheable,
-            registry.get(stage_id).uses_lidar,
+            registry.get(stage_id).lidar_used(params),
         )
         for stage_id, params, sources in zip(stage_ids, all_params, wiring)
     ]
