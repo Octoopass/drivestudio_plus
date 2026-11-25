@@ -118,7 +118,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "job": "d2s-job/0.1",
     "result": "d2s-result/0.1",
     "benchmark": "d2s-benchmark/0.1",
-    "benchresult": "d2s-benchresult/0.1",
+    "benchresult": "d2s-benchresult/0.2",
 }
 
 OPTION_REFERENCE_RE = re.compile(r"^\$\{options\.([a-z][a-z0-9_]*)\}$")
@@ -1532,7 +1532,8 @@ class BenchmarkRunRow(StrictModel):
         run_id: Run.
         approach_id: Approach của run.
         rank: Thứ hạng trong nhóm, bắt đầu từ 1.
-        tied_with_best: ``True`` nếu PSNR kém run tốt nhất dưới ngưỡng ngang nhau.
+        tied_with_best: ``True`` nếu PSNR kém run có Avg tốt nhất dưới ngưỡng ngang nhau (gồm
+            chính run đó).
         psnr: PSNR trên tập test, dB.
         ssim: SSIM.
         lpips: LPIPS.
@@ -1582,7 +1583,11 @@ class BenchmarkGroup(StrictModel):
         scene_id: Cảnh.
         split_id: Split.
         winner_run_id: Run thắng theo quy tắc chọn method; ``None`` nếu nhóm không có run nào có
-            kết quả đánh giá.
+            kết quả đánh giá, hoặc các run ngang nhau không phân xử được (khác GPU, thiếu thời gian
+            train) hoặc đo bằng protocol không so được.
+        decided_by: Bước đã chọn người thắng: ``avg`` (chỉ một run ngang run tốt nhất), ``r2``,
+            ``r3`` hoặc ``train_time``; ``None`` khi không có người thắng (thêm từ
+            ``d2s-benchresult/0.2``).
         rows: Các run, theo thứ hạng.
         warnings: Cảnh báo khi so (khác máy, khác protocol, run chưa có kết quả).
     """
@@ -1592,6 +1597,7 @@ class BenchmarkGroup(StrictModel):
     scene_id: str
     split_id: str
     winner_run_id: Optional[str] = None
+    decided_by: Optional[Literal["avg", "r2", "r3", "train_time"]] = None
     rows: list[BenchmarkRunRow]
     warnings: list[str] = []
 

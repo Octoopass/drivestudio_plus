@@ -576,7 +576,7 @@ entries:
 
 ```json
 {
-  "schema_version": "d2s-benchresult/0.1",
+  "schema_version": "d2s-benchresult/0.2",
   "tie_threshold_db": 0.3,
   "groups": [
     {
@@ -585,6 +585,7 @@ entries:
       "scene_id": "kitti360_drive-0003",
       "split_id": "every10_front2",
       "winner_run_id": "20261124-103000-deformablegs-c3d4",
+      "decided_by": "train_time",
       "rows": [
         {"run_id": "20261124-103000-deformablegs-c3d4", "approach_id": "deformablegs", "rank": 1,
          "tied_with_best": true, "psnr": 24.8, "ssim": 0.78, "lpips": 0.26, "avg_error": 0.0405,
@@ -601,7 +602,7 @@ entries:
 ```
 
 Các con số trong ví dụ chỉ minh hoạ định dạng. Quy tắc:
-- **Xếp hạng trong nhóm** theo Avg của Mip-NeRF (mục 6.3; thấp là tốt). Run kém run tốt nhất dưới `tie_threshold_db` (0,3 dB PSNR) được coi là **ngang** (`tied_with_best`), và các run ngang được xếp theo export gap (nhỏ trước, chưa đo xếp sau) rồi thời gian train. Lệch làn và độ sạch cảnh nền chưa đo nên chưa xét. `winner_run_id` là run xếp hạng 1; `null` khi không run nào có kết quả.
+- **Xếp hạng trong nhóm** theo Avg của Mip-NeRF (mục 6.3; thấp là tốt). Run kém run có Avg tốt nhất dưới `tie_threshold_db` (mặc định 0,3 dB PSNR) được coi là **ngang** (`tied_with_best`, gồm cả chính run tốt nhất); tập run ngang xác định **một lần**, so với run có Avg tốt nhất. Trong tập ngang phân xử lần lượt: (1) R2, `shifted.psnr_cc` cao hơn, chênh dưới ngưỡng hoà coi như bằng; (2) R3, `export_gap_db` nhỏ hơn, chênh dưới 0,3 dB coi như bằng; (3) thời gian train ngắn hơn, **chỉ khi mọi run còn lại cùng GPU**. Một bước mà có run trong tập chưa đo hoặc không áp dụng thì bị bỏ qua cho cả tập (R3 không áp dụng cho method không xuất được `.ply`). `winner_run_id` là run thắng và `decided_by` là bước đã chọn nó (`avg` nếu chỉ một run ngang run tốt nhất, `r2`, `r3`, `train_time`); `winner_run_id` là `null` (kèm `warnings`) khi không run nào có kết quả, khi các run ngang nhau mà khác GPU hoặc thiếu thời gian train, hoặc khi các run đo bằng protocol không so được (`0.3`, `0.4`, `0.5` so được với nhau; `ncore-0.3` thì không), lúc đó chỉ liệt kê theo Avg. Lệch làn (KID) chưa đo nên chưa xét. R4, R6, R7 báo kèm, không đổi thứ hạng.
 - **Đoạn đường hỏng** (R7): PSNR một khung test là trung bình các camera của khung; đoạn hỏng là từ 5 khung test liền nhau trở lên, mỗi khung thấp hơn trung vị quá 2 dB. `start_m`, `end_m` là quãng đường dọc đường gấp khúc qua vị trí camera của các khung test (giữa hai khung test liền nhau là khung train nên đường thực dài hơn một chút). Cần `frames.jsonl` (mục 6.3); `frames_measured` bằng 0 nghĩa là chưa đo, không phải không có đoạn hỏng.
 - `psnr_pinhole`, `psnr_fisheye` (R5): trung bình PSNR theo camera, nhóm camera theo `model` trong manifest (`opencv_fisheye`, `ftheta` là fisheye).
 - `export_gap_db` (R3) đọc từ `d2s/stages/eval.ply/ply_gap.json` nếu có; chưa có stage đó nên hiện luôn để trống.

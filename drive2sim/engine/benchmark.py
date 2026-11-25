@@ -2,7 +2,8 @@
 
 File này chứa:
 - ``bad_segments``: tìm các đoạn đường hỏng (yêu cầu R7) từ metric từng ảnh test.
-- ``order_group``: xếp hạng các run trong một nhóm theo Avg, có xét ngưỡng ngang nhau.
+- ``order_group``: xếp hạng các run trong một nhóm theo Avg, rồi phân xử các run ngang nhau bằng
+  R2, R3 và thời gian train (cùng GPU).
 - ``build_row``: dựng một dòng kết quả (``BenchmarkRunRow``) từ ``summary.json``, ``frames.jsonl``
   và các file kết quả khác của run.
 - ``run_benchmark``: đọc file định nghĩa benchmark và trả ``BenchmarkResult`` cho mọi nhóm.
@@ -16,6 +17,7 @@ import json
 import math
 import statistics
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -37,6 +39,11 @@ from drive2sim.engine.workdir import Workdir
 # Hai method chênh PSNR dưới ngưỡng này được coi là ngang nhau (báo cáo tuần 03 mục 4.2): các run
 # cũ cho thấy hai cấu hình gần giống nhau đã lệch 0,05 tới 0,2 dB.
 TIE_THRESHOLD_DB = 0.3
+# Hai run ngang nhau có export gap (R3) chênh dưới ngưỡng này coi như bằng nhau, xét tiếp chi phí.
+EQUAL_GAP_DB = 0.3
+# Các protocol của eval.standard đo PSNR, SSIM, LPIPS trên camera đã train theo cùng một cách
+# (CONTRACTS 6.3), nên xếp hạng chung được; protocol khác (ví dụ ncore-0.3) thì không.
+COMPARABLE_PROTOCOLS = frozenset({"0.3", "0.4", "0.5"})
 # Đoạn đường hỏng: ít nhất ngần này khung test liền nhau, mỗi khung thấp hơn trung vị quá ngần
 # này dB (R7).
 BAD_SEGMENT_MIN_FRAMES = 5
@@ -131,43 +138,150 @@ def bad_segments(
     return segments
 
 
-def order_group(rows: Sequence[ReportRow], gaps: dict[str, Optional[float]]) -> list[str]:
-    """Xếp các run của một nhóm theo Avg; run ngang run tốt nhất xét thêm tiêu chí phụ.
+def _protocol_family(version: str) -> str:
+    """Nhóm protocol so được với nhau: ``0.3``, ``0.4``, ``0.5`` cùng một nhóm, còn lại riêng."""
+    return "drivestudio" if version in COMPARABLE_PROTOCOLS else version
 
-    Run tốt nhất là run có Avg thấp nhất. Run có PSNR kém nó dưới ``TIE_THRESHOLD_DB`` được coi
-    là ngang, và các run ngang được xếp theo export gap (nhỏ trước, chưa đo xếp sau) rồi chi phí
-    (thời gian train ngắn trước, chưa biết xếp sau). Lệch làn và độ sạch cảnh nền chưa đo nên chưa
-    xét (báo cáo tuần 03 mục 4.2). Các run còn lại xếp theo Avg; run chưa có kết quả ở cuối.
+
+@dataclass
+class TieInputs:
+    """Số liệu của một run dùng để phân xử các run ngang nhau (R2, R3), kèm protocol.
+
+    Trường để trống nghĩa là chưa đo; ``export_applicable`` ``False`` nghĩa là method không xuất
+    được ``.ply`` (khác chưa đo).
+
+    Attributes:
+        shift_psnr_cc: PSNR sau chỉnh màu trên camera chỉ test (R2).
+        export_gap_db: Chênh PSNR render gốc và render ``.ply`` (R3).
+        export_applicable: Method có xuất được ``.ply`` nền tĩnh không.
+        protocol: ``protocol.version`` của ``summary.json``.
+    """
+
+    shift_psnr_cc: Optional[float] = None
+    export_gap_db: Optional[float] = None
+    export_applicable: bool = True
+    protocol: Optional[str] = None
+
+
+@dataclass
+class RankOrder:
+    """Kết quả xếp hạng một nhóm.
+
+    Attributes:
+        run_ids: ``run_id`` theo thứ hạng từ 1: người thắng (nếu có), các run ngang còn lại theo
+            Avg, các run đã đo còn lại theo Avg, rồi run chưa đo.
+        tied: Các run ngang run có Avg tốt nhất (gồm chính nó), tính một lần.
+        winner: Run thắng, ``None`` khi không phân xử được.
+        decided_by: Bước phân xử đã chọn người thắng: ``avg``, ``r2``, ``r3`` hoặc
+            ``train_time``; ``None`` khi không có người thắng.
+        warnings: Lý do không phân xử được.
+    """
+
+    run_ids: list[str]
+    tied: set[str] = field(default_factory=set)
+    winner: Optional[str] = None
+    decided_by: Optional[str] = None
+    warnings: list[str] = field(default_factory=list)
+
+
+def order_group(
+    rows: Sequence[ReportRow],
+    inputs: dict[str, TieInputs],
+    threshold_db: float = TIE_THRESHOLD_DB,
+) -> RankOrder:
+    """Xếp các run của một nhóm theo Avg, rồi phân xử các run ngang nhau.
+
+    Quy tắc (yêu cầu 25/11, mục 3 của spec): run tốt nhất là run có Avg thấp nhất; run có PSNR kém
+    nó dưới ``threshold_db`` là ngang, tập này xác định một lần. Trong tập ngang phân xử lần lượt:
+    R2 (PSNR sau chỉnh màu ở camera chỉ test; chênh dưới ngưỡng coi như bằng), R3 (export gap
+    nhỏ hơn; chênh dưới ``EQUAL_GAP_DB`` coi như bằng), rồi thời gian train, chỉ khi mọi run cùng
+    GPU. Một bước chưa đo hoặc không áp dụng với một run nào của tập thì bị bỏ qua cho cả tập.
+    Các run đo bằng protocol không so được với nhau thì không xếp hạng tự động.
 
     Args:
         rows: Dòng báo cáo của các run trong nhóm.
-        gaps: ``run_id`` → export gap (dB), ``None`` nếu chưa đo.
+        inputs: ``run_id`` → ``TieInputs``; thiếu run nào thì coi như chưa đo gì.
+        threshold_db: Ngưỡng ngang nhau của PSNR, dB.
 
     Returns:
-        ``run_id`` theo thứ hạng từ 1.
+        ``RankOrder`` của nhóm.
     """
     measured = sorted(
         (r for r in rows if r.avg_error is not None and r.psnr is not None),
         key=lambda r: r.avg_error,
     )
-    unmeasured = [r for r in rows if r not in measured]
+    measured_ids = {r.run_id for r in measured}
+    unmeasured_ids = [r.run_id for r in rows if r.run_id not in measured_ids]
     if not measured:
-        return [r.run_id for r in unmeasured]
-    best_psnr = measured[0].psnr
-    tied = [r for r in measured if best_psnr - r.psnr < TIE_THRESHOLD_DB]
-    rest = [r for r in measured if r not in tied]
+        return RankOrder(run_ids=unmeasured_ids)
+    by_avg = [r.run_id for r in measured]
 
-    def tie_key(row: ReportRow) -> tuple:
-        gap = gaps.get(row.run_id)
-        return (
-            gap is None,
-            gap if gap is not None else 0.0,
-            row.train_time_s is None,
-            row.train_time_s or 0.0,
-            row.avg_error,
+    def inputs_of(run_id: str) -> TieInputs:
+        return inputs.get(run_id, TieInputs())
+
+    protocol_names = {inputs_of(r.run_id).protocol for r in measured} - {None}
+    if len({_protocol_family(name) for name in protocol_names}) > 1:
+        return RankOrder(
+            run_ids=by_avg + unmeasured_ids,
+            warnings=[
+                "các run đo bằng protocol khác nhau, không xếp hạng tự động: "
+                + ", ".join(sorted(protocol_names))
+            ],
         )
 
-    return [r.run_id for r in (*sorted(tied, key=tie_key), *rest, *unmeasured)]
+    best = measured[0]
+    tied_rows = [r for r in measured if best.psnr - r.psnr < threshold_db]
+    tied = {r.run_id for r in tied_rows}
+    warnings: list[str] = []
+    candidates = tied_rows
+    winner: Optional[ReportRow] = None
+    decided_by: Optional[str] = None
+
+    if len(candidates) == 1:
+        winner, decided_by = candidates[0], "avg"
+    if winner is None:
+        values = [inputs_of(r.run_id).shift_psnr_cc for r in candidates]
+        if all(v is not None for v in values):
+            top = max(values)
+            candidates = [r for r, v in zip(candidates, values) if top - v < threshold_db]
+            if len(candidates) == 1:
+                winner, decided_by = candidates[0], "r2"
+    if winner is None:
+        gaps = [inputs_of(r.run_id) for r in candidates]
+        if all(g.export_applicable and g.export_gap_db is not None for g in gaps):
+            lowest = min(g.export_gap_db for g in gaps)
+            candidates = [
+                r for r, g in zip(candidates, gaps) if g.export_gap_db - lowest < EQUAL_GAP_DB
+            ]
+            if len(candidates) == 1:
+                winner, decided_by = candidates[0], "r3"
+    if winner is None:
+        gpus = {r.gpu for r in candidates}
+        if (
+            len(gpus) == 1
+            and None not in gpus
+            and all(r.train_time_s is not None for r in candidates)
+        ):
+            winner = min(candidates, key=lambda r: r.train_time_s)
+            decided_by = "train_time"
+        else:
+            warnings.append(
+                "các run ngang nhau, khác GPU hoặc thiếu thời gian train nên không chọn được "
+                "người thắng: " + ", ".join(r.run_id for r in candidates)
+            )
+
+    ordered = [r.run_id for r in measured if r.run_id in tied]
+    if winner is not None:
+        ordered.remove(winner.run_id)
+        ordered.insert(0, winner.run_id)
+    rest = [run_id for run_id in by_avg if run_id not in tied]
+    return RankOrder(
+        run_ids=ordered + rest + unmeasured_ids,
+        tied=tied,
+        winner=winner.run_id if winner else None,
+        decided_by=decided_by,
+        warnings=warnings,
+    )
 
 
 def _camera_psnr(
@@ -240,10 +354,11 @@ def build_row(
     )
 
 
-def _group_warnings(
-    rows: Sequence[ReportRow], summaries: dict[str, Optional[Summary]]
-) -> list[str]:
-    """Cảnh báo khi các run của một nhóm không so được trực tiếp."""
+def _group_warnings(rows: Sequence[ReportRow]) -> list[str]:
+    """Cảnh báo khi các run của một nhóm không so được trực tiếp (run thiếu kết quả, khác GPU).
+
+    Cảnh báo protocol khác nhau và không chọn được người thắng do ``order_group`` trả về.
+    """
     warnings = []
     missing = [r.run_id for r in rows if r.psnr is None]
     if missing:
@@ -254,9 +369,6 @@ def _group_warnings(
             "các run chạy trên GPU khác nhau (" + "; ".join(sorted(gpus)) + "): thời gian, VRAM "
             "và FPS không so được"
         )
-    protocols = {s.protocol.version for s in summaries.values() if s is not None}
-    if len(protocols) > 1:
-        warnings.append(f"các run đo bằng protocol khác nhau: {', '.join(sorted(protocols))}")
     return warnings
 
 
@@ -284,28 +396,29 @@ def run_group(workdir: Workdir, entry: BenchmarkEntry) -> BenchmarkGroup:
     scene = workdir.load_scene(entry.scene_id)
     fisheye_ids = {c.camera_id for c in scene.manifest.cameras if c.model in FISHEYE_MODELS}
     run_dirs = {r.run_id: workdir.run_dir(r.scene_id, r.approach_id, r.run_id) for r in rows}
-    gaps = {run_id: _export_gap(path) for run_id, path in run_dirs.items()}
-    order = order_group(rows, gaps)
-    by_id = {r.run_id: r for r in rows}
-    best = by_id[order[0]]
-    result_rows = []
-    for rank, run_id in enumerate(order, start=1):
-        row = by_id[run_id]
-        tied = (
-            row.psnr is not None
-            and best.psnr is not None
-            and best.psnr - row.psnr < TIE_THRESHOLD_DB
-        )
-        result_rows.append(build_row(row, run_dirs[run_id], fisheye_ids, rank, tied))
     summaries = {run_id: load_summary(path) for run_id, path in run_dirs.items()}
+    inputs = {
+        run_id: TieInputs(
+            export_gap_db=_export_gap(run_dirs[run_id]),
+            protocol=summary.protocol.version if summary is not None else None,
+        )
+        for run_id, summary in summaries.items()
+    }
+    order = order_group(rows, inputs)
+    by_id = {r.run_id: r for r in rows}
+    result_rows = [
+        build_row(by_id[run_id], run_dirs[run_id], fisheye_ids, rank, run_id in order.tied)
+        for rank, run_id in enumerate(order.run_ids, start=1)
+    ]
     return BenchmarkGroup(
         bench_track=entry.bench_track,
         cell=entry.cell,
         scene_id=entry.scene_id,
         split_id=entry.split_id,
-        winner_run_id=best.run_id if best.psnr is not None else None,
+        winner_run_id=order.winner,
+        decided_by=order.decided_by,
         rows=result_rows,
-        warnings=_group_warnings(rows, summaries),
+        warnings=_group_warnings(rows) + order.warnings,
     )
 
 

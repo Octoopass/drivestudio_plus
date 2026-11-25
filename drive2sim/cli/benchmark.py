@@ -81,7 +81,8 @@ def benchmark(args: argparse.Namespace) -> int:
             for r in group.rows
         ]
         lines = [f"{title}: {group.scene_id}, {group.split_id}", format_table(headers, table)]
-        lines.append(f"thắng: {group.winner_run_id or '–'}  (* = ngang run tốt nhất)")
+        decided = f", quyết định bởi {group.decided_by}" if group.decided_by else ""
+        lines.append(f"thắng: {group.winner_run_id or '–'}{decided}  (* = ngang run tốt nhất)")
         lines.extend(f"cảnh báo: {w}" for w in group.warnings)
         blocks.append("\n".join(lines))
     emit(args, result.model_dump(mode="json"), "\n\n".join(blocks))

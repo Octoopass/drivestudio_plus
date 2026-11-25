@@ -7,6 +7,7 @@ export type Cell = ("A-LB" | "A-L" | "A-0") | null;
 export type SceneId = string;
 export type SplitId = string;
 export type WinnerRunId = string | null;
+export type DecidedBy = ("avg" | "r2" | "r3" | "train_time") | null;
 export type RunId = string;
 export type ApproachId = string;
 export type Rank = number;
@@ -58,7 +59,11 @@ export interface BenchmarkResult {
  *     scene_id: Cảnh.
  *     split_id: Split.
  *     winner_run_id: Run thắng theo quy tắc chọn method; ``None`` nếu nhóm không có run nào có
- *         kết quả đánh giá.
+ *         kết quả đánh giá, hoặc các run ngang nhau không phân xử được (khác GPU, thiếu thời gian
+ *         train) hoặc đo bằng protocol không so được.
+ *     decided_by: Bước đã chọn người thắng: ``avg`` (chỉ một run ngang run tốt nhất), ``r2``,
+ *         ``r3`` hoặc ``train_time``; ``None`` khi không có người thắng (thêm từ
+ *         ``d2s-benchresult/0.2``).
  *     rows: Các run, theo thứ hạng.
  *     warnings: Cảnh báo khi so (khác máy, khác protocol, run chưa có kết quả).
  */
@@ -68,6 +73,7 @@ export interface BenchmarkGroup {
   scene_id: SceneId;
   split_id: SplitId;
   winner_run_id?: WinnerRunId;
+  decided_by?: DecidedBy;
   rows: Rows;
   warnings?: Warnings;
 }
@@ -78,7 +84,8 @@ export interface BenchmarkGroup {
  *     run_id: Run.
  *     approach_id: Approach của run.
  *     rank: Thứ hạng trong nhóm, bắt đầu từ 1.
- *     tied_with_best: ``True`` nếu PSNR kém run tốt nhất dưới ngưỡng ngang nhau.
+ *     tied_with_best: ``True`` nếu PSNR kém run có Avg tốt nhất dưới ngưỡng ngang nhau (gồm
+ *         chính run đó).
  *     psnr: PSNR trên tập test, dB.
  *     ssim: SSIM.
  *     lpips: LPIPS.

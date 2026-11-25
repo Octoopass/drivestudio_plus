@@ -1,8 +1,8 @@
 """Kiểm tra ``drive2sim/engine/benchmark.py``: đoạn đường hỏng, thứ hạng và gom kết quả nhóm.
 
 - ``bad_segments``: ít nhất 5 khung test liền nhau thấp hơn trung vị quá 2 dB mới là một đoạn.
-- ``order_group``: xếp theo Avg, nhưng run kém run tốt nhất dưới 0,3 dB PSNR xét thêm export gap
-  rồi chi phí.
+- ``order_group``: xếp theo Avg; run kém run tốt nhất dưới ngưỡng PSNR là ngang và được phân xử
+  lần lượt bằng R2, R3, rồi thời gian train (chỉ khi cùng GPU).
 - ``run_group``: ghép dòng báo cáo, ``summary.json`` và ``frames.jsonl`` thành kết quả của nhóm.
 """
 
@@ -15,7 +15,7 @@ import pytest
 
 from drive2sim.core.schema import BenchmarkEntry, DepthMetrics
 from drive2sim.engine import benchmark
-from drive2sim.engine.benchmark import bad_segments, order_group
+from drive2sim.engine.benchmark import TieInputs, bad_segments, order_group
 from drive2sim.engine.report import ReportRow, avg_error
 
 
@@ -68,7 +68,11 @@ def test_bad_segments_average_cameras_of_a_frame_and_handle_empty() -> None:
 
 
 def make_row(
-    run_id: str, psnr: float, train_time_s: Optional[float] = 100.0, ssim: float = 0.8
+    run_id: str,
+    psnr: float,
+    train_time_s: Optional[float] = 100.0,
+    ssim: float = 0.8,
+    gpu: Optional[str] = "RTX 4090",
 ) -> ReportRow:
     lpips = 0.2
     return ReportRow(
@@ -81,32 +85,134 @@ def make_row(
         lpips=lpips,
         avg_error=avg_error(psnr, ssim, lpips),
         train_time_s=train_time_s,
+        gpu=gpu,
     )
+
+
+def tie_inputs(**by_run: dict) -> dict[str, TieInputs]:
+    """``TieInputs`` theo run: ``tie_inputs(a={"shift_psnr_cc": 22.0})``."""
+    return {run_id: TieInputs(**fields) for run_id, fields in by_run.items()}
+
+
+def abc_rows() -> list[ReportRow]:
+    # A 25.0/5000 s, B 24.8/3000 s, C 24.6/1000 s, cùng GPU
+    return [
+        make_row("A", 25.0, train_time_s=5000),
+        make_row("B", 24.8, train_time_s=3000),
+        make_row("C", 24.6, train_time_s=1000),
+    ]
 
 
 def test_order_group_by_avg_when_not_tied() -> None:
     rows = [make_row("b", 24.0), make_row("a", 25.0), make_row("c", 23.0)]
-    assert order_group(rows, {}) == ["a", "b", "c"]
+    order = order_group(rows, {})
+    assert order.run_ids == ["a", "b", "c"]
+    assert order.winner == "a" and order.decided_by == "avg" and order.tied == {"a"}
 
 
-def test_order_group_tie_uses_export_gap_then_cost() -> None:
+def test_tied_flag_is_relative_to_avg_best() -> None:
+    # C kém A 0,4 dB nên không ngang dù rẻ nhất; trước đây cờ ngang tính theo run đứng đầu sau
+    # khi xếp phụ nên có thể lệch.
+    order = order_group(abc_rows(), {})
+    assert order.tied == {"A", "B"}
+    assert order.winner == "B" and order.decided_by == "train_time"
+    assert order.run_ids == ["B", "A", "C"]
+
+
+def test_r2_decides_before_cost() -> None:
+    rows = [make_row("A", 25.0, train_time_s=100), make_row("B", 24.9, train_time_s=900)]
+    inputs = tie_inputs(A={"shift_psnr_cc": 22.0}, B={"shift_psnr_cc": 23.0})
+    order = order_group(rows, inputs)
+    assert order.winner == "B" and order.decided_by == "r2"
+
+
+def test_r2_within_threshold_falls_through_to_r3() -> None:
+    rows = [make_row("A", 25.0, train_time_s=900), make_row("B", 24.9, train_time_s=100)]
+    inputs = tie_inputs(
+        A={"shift_psnr_cc": 22.2, "export_gap_db": 0.1},
+        B={"shift_psnr_cc": 22.0, "export_gap_db": 0.9},
+    )
+    order = order_group(rows, inputs)
+    assert order.winner == "A" and order.decided_by == "r3"
+
+
+def test_r3_gap_within_equal_threshold_falls_through_to_cost() -> None:
+    rows = [make_row("A", 25.0, train_time_s=900), make_row("B", 24.9, train_time_s=100)]
+    inputs = tie_inputs(A={"export_gap_db": 0.5}, B={"export_gap_db": 0.7})
+    order = order_group(rows, inputs)
+    assert order.winner == "B" and order.decided_by == "train_time"
+
+
+def test_step_skipped_when_a_tied_run_lacks_value() -> None:
+    rows = [make_row("A", 25.0, train_time_s=900), make_row("B", 24.9, train_time_s=100)]
+    inputs = tie_inputs(A={"shift_psnr_cc": 23.5}, B={})  # B chưa đo R2: bỏ bước cho cả tập
+    order = order_group(rows, inputs)
+    assert order.winner == "B" and order.decided_by == "train_time"
+
+
+def test_r3_not_applicable_is_skipped() -> None:
+    rows = [make_row("A", 25.0, train_time_s=900), make_row("B", 24.9, train_time_s=100)]
+    inputs = tie_inputs(
+        A={"export_gap_db": 0.1}, B={"export_gap_db": 0.9, "export_applicable": False}
+    )
+    order = order_group(rows, inputs)
+    assert order.winner == "B" and order.decided_by == "train_time"
+
+
+def test_cost_step_needs_same_gpu() -> None:
     rows = [
-        make_row("best", 25.20, train_time_s=3000),
-        make_row("small_gap", 25.01, train_time_s=9000),
-        make_row("cheap", 25.05, train_time_s=1000),
-        make_row("far", 24.50, train_time_s=100),  # kém 0,70 dB: không ngang
+        make_row("A", 25.0, train_time_s=900, gpu="RTX 4090"),
+        make_row("B", 24.9, train_time_s=100, gpu="Tesla T4"),
     ]
-    gaps = {"best": 1.5, "small_gap": 0.2, "cheap": None, "far": 0.0}
-    # ngang nhau: export gap nhỏ trước, chưa đo sau; "far" không ngang nên xếp sau cùng
-    assert order_group(rows, gaps) == ["small_gap", "best", "cheap", "far"]
-    # cùng chưa đo gap: chi phí thấp trước
-    assert order_group(rows[:3], {})[0] == "cheap"
+    order = order_group(rows, {})
+    assert order.winner is None and order.decided_by is None
+    assert order.tied == {"A", "B"} and order.run_ids == ["A", "B"]
+    assert any("GPU" in warning for warning in order.warnings)
+
+
+def test_cost_step_needs_train_time_and_gpu() -> None:
+    rows = [make_row("A", 25.0, train_time_s=None), make_row("B", 24.9, train_time_s=100)]
+    assert order_group(rows, {}).winner is None
+    rows = [make_row("A", 25.0, gpu=None), make_row("B", 24.9, gpu=None)]
+    assert order_group(rows, {}).winner is None
+
+
+def test_mixed_protocol_has_no_winner() -> None:
+    rows = [make_row("A", 25.0), make_row("B", 24.9)]
+    inputs = tie_inputs(A={"protocol": "0.5"}, B={"protocol": "ncore-0.3"})
+    order = order_group(rows, inputs)
+    assert order.winner is None and order.tied == set() and order.decided_by is None
+    assert order.run_ids == ["A", "B"]
+    assert any("protocol" in warning for warning in order.warnings)
+
+
+def test_drivestudio_protocols_0_4_and_0_5_rank_together() -> None:
+    # 0.4 và 0.5 cùng cách đo R1 (CONTRACTS 6.3): xếp hạng được; run 0.4 chưa có R2 nên bỏ bước đó
+    rows = [make_row("A", 25.0, train_time_s=900), make_row("B", 24.9, train_time_s=100)]
+    inputs = tie_inputs(
+        A={"protocol": "0.4"}, B={"protocol": "0.5", "shift_psnr_cc": 23.0, "export_gap_db": 0.2}
+    )
+    order = order_group(rows, inputs)
+    assert order.winner == "B" and order.decided_by == "train_time"
+    assert order.warnings == []
+
+
+def test_old_runs_without_new_fields_rank_by_avg_and_cost() -> None:
+    inputs = {run_id: TieInputs(protocol="0.4") for run_id in "ABC"}
+    order = order_group(abc_rows(), inputs)
+    assert order.winner == "B" and order.decided_by == "train_time"
+
+
+def test_custom_threshold_changes_who_is_tied() -> None:
+    order = order_group(abc_rows(), {}, threshold_db=0.5)
+    assert order.tied == {"A", "B", "C"} and order.winner == "C"
 
 
 def test_order_group_unmeasured_last_and_all_unmeasured() -> None:
     nothing = ReportRow(run_id="n", scene_id="s", split_id="x", approach_id="omnire")
-    assert order_group([nothing, make_row("a", 25.0)], {}) == ["a", "n"]
-    assert order_group([nothing], {}) == ["n"]
+    assert order_group([nothing, make_row("a", 25.0)], {}).run_ids == ["a", "n"]
+    only = order_group([nothing], {})
+    assert only.run_ids == ["n"] and only.winner is None and only.tied == set()
 
 
 def test_benchmark_entry_requires_cell_only_for_track_a() -> None:
@@ -152,9 +258,11 @@ def test_run_group_collects_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         bench_track="A", cell="A-L", scene_id="s", split_id="x", runs=[run_a, run_b]
     )
     group = benchmark.run_group(workdir, entry)  # type: ignore[arg-type]
-    assert group.winner_run_id == run_b  # ngang nhau, cùng chưa đo gap: chi phí thấp hơn
+    # ngang nhau nhưng khác GPU: thời gian train không so được nên không có người thắng
+    assert group.winner_run_id is None and group.decided_by is None
     first = group.rows[0]
-    assert first.rank == 1 and first.tied_with_best
+    assert first.run_id == run_b and first.rank == 1 and first.tied_with_best
+    assert group.rows[1].tied_with_best
     assert (first.psnr_pinhole, first.psnr_fisheye) == (26.0, 22.0)
     assert first.depth is not None and first.frames_measured == 17
     assert len(first.bad_segments) == 1
