@@ -1,0 +1,7 @@
+# PHENIKAA with 3 camera(s); the train stage sets the camera indices from the split.
+extends: 10cams.yaml
+
+data:
+  pixel_source:
+    cameras: [0, 1, 2]
+    downscale_when_loading: [2, 2, 2]
