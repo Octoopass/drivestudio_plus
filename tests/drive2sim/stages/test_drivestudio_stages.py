@@ -228,6 +228,32 @@ def test_build_command_camera_index_follows_manifest(tmp_path: Path) -> None:
     assert not any(part.startswith("data.pixel_source.undistort=") for part in pinhole)
 
 
+def test_build_command_sets_test_only_positions(tmp_path: Path) -> None:
+    # test_only_cameras là vị trí trong data.pixel_source.cameras (thứ tự của split), không phải
+    # chỉ số trong manifest: image_02 ở manifest là 2, ở vị trí 0 của danh sách camera.
+    cameras = ["image_02", "image_01"]
+    split = Split.model_validate(
+        {
+            **SPLIT,
+            "schema_version": "d2s-split/0.2",
+            "scene_id": "kitti360_2013_05_28_drive_0003_sync",
+            "frame_range": [0, 19],
+            "cameras": cameras,
+            "test_only_cameras": ["image_02"],
+            "train": [[0, "image_01"]],
+            "test": [[8, "image_01"], [8, "image_02"]],
+        }
+    )
+    params = TrainDrivestudioParams(method="omnire", dataset="kitti360/2cams")
+    command = build_command(params, split, kitti360_manifest(), tmp_path, tmp_path)
+    assert option(command, "data.pixel_source.cameras") == "[2,1]"
+    assert option(command, "data.pixel_source.test_only_cameras") == "[0]"
+    plain = build_command(
+        params, Split.model_validate(SPLIT), Manifest.model_validate(MANIFEST), tmp_path, tmp_path
+    )
+    assert not any(part.startswith("data.pixel_source.test_only_cameras=") for part in plain)
+
+
 def test_dataset_config_for() -> None:
     assert dataset_config_for("nuscenes", 3) == "nuscenes/3cams"
     assert dataset_config_for("argoverse2", 7) == "argoverse/7cams"

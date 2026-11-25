@@ -421,6 +421,13 @@ def build_command(
         "data.pixel_source.test_image_stride": stride,
         "data.preload_device": params.preload_device,
     }
+    if split.test_only_cameras:
+        # DriveStudio đánh số camera chỉ test theo vị trí trong data.pixel_source.cameras (chính là
+        # thứ tự split.cameras), không theo chỉ số trong manifest. Chỉ đặt khi có camera chỉ test
+        # để cache key của run cũ không đổi.
+        options["data.pixel_source.test_only_cameras"] = [
+            split.cameras.index(camera_id) for camera_id in split.test_only_cameras
+        ]
     if not has_sky_masks:
         options["data.pixel_source.load_sky_mask"] = False
     if not has_smpl:
@@ -503,7 +510,7 @@ class TrainDrivestudioStage(Stage):
     thư mục log của DriveStudio, chứa ``checkpoint_final.pth``.
     """
 
-    version: ClassVar[str] = "0.2.0"
+    version: ClassVar[str] = "0.3.0"
     cacheable: ClassVar[bool] = False
     # Mọi config OmniRe, Street GS hiện có khởi tạo Gaussian từ LiDAR: nền từ điểm LiDAR
     # (model.Background.init.from_lidar), xe và người từ điểm LiDAR trong box. Cảnh không có
