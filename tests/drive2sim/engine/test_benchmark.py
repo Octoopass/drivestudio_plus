@@ -16,6 +16,8 @@ import pytest
 from drive2sim.core import files
 from drive2sim.core.schema import (
     BenchmarkEntry,
+    BenchmarkFile,
+    BenchmarkGroup,
     DepthMetrics,
     RunApproach,
     RunRecord,
@@ -29,6 +31,7 @@ from drive2sim.engine.benchmark import (
     bad_segments,
     bad_segments_by_group,
     order_group,
+    tie_threshold_from_psnrs,
 )
 from drive2sim.engine.report import ReportRow, avg_error
 
@@ -504,3 +507,105 @@ def test_run_group_settles_a_tie_with_r2(tmp_path: Path, monkeypatch: pytest.Mon
     assert group.winner_run_id == run_b and group.decided_by == "r2"
     assert [row.run_id for row in group.rows] == [run_b, run_a]
     assert group.rows[0].shift_psnr_cc == 23.0
+
+
+# ---------------------------------------------------------------- ngưỡng hoà hiệu chỉnh bằng seed
+
+
+def test_threshold_floor_is_0_3() -> None:
+    assert tie_threshold_from_psnrs([25.0, 25.1, 25.2]) == pytest.approx(0.3)
+
+
+def test_threshold_is_two_sigma() -> None:
+    assert tie_threshold_from_psnrs([25.0, 25.5, 26.0]) == pytest.approx(1.0)
+
+
+def test_threshold_needs_two_values() -> None:
+    assert tie_threshold_from_psnrs([25.0]) is None
+    assert tie_threshold_from_psnrs([]) is None
+
+
+def test_benchmark_file_0_1_still_loads(tmp_path: Path) -> None:
+    path = tmp_path / "old.yaml"
+    path.write_text(
+        "schema_version: d2s-benchmark/0.1\n"
+        "entries:\n"
+        "  - {bench_track: C, scene_id: s, split_id: x, runs: [r1]}\n"
+    )
+    assert files.load(path, BenchmarkFile).calibration is None
+
+
+CALIBRATION_YAML = (
+    "schema_version: d2s-benchmark/0.2\n"
+    "calibration: {scene_id: s, split_id: x, runs: [%s]}\n"
+    "entries:\n"
+    "  - {bench_track: A, cell: A-L, scene_id: s, split_id: x, runs: [r9]}\n"
+)
+
+
+def run_benchmark_with(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    psnrs: dict[str, Optional[float]],
+    yaml_text: Optional[str] = None,
+) -> tuple:
+    """Chạy ``run_benchmark`` với ``report_rows`` và ``run_group`` giả; trả (kết quả, ngưỡng)."""
+    definition = tmp_path / "bench.yaml"
+    definition.write_text(yaml_text or CALIBRATION_YAML % ", ".join(psnrs))
+    rows = [
+        make_row(run_id, psnr)
+        if psnr is not None
+        else ReportRow(run_id=run_id, scene_id="s", split_id="x", approach_id="omnire")
+        for run_id, psnr in psnrs.items()
+    ]
+    monkeypatch.setattr(benchmark, "report_rows", lambda *args, **kwargs: rows)
+    used: list[float] = []
+
+    def fake_group(workdir: object, entry: BenchmarkEntry, threshold_db: float) -> BenchmarkGroup:
+        used.append(threshold_db)
+        return BenchmarkGroup(
+            bench_track="A", cell="A-L", scene_id="s", split_id="x", rows=[], warnings=[]
+        )
+
+    monkeypatch.setattr(benchmark, "run_group", fake_group)
+    result = benchmark.run_benchmark(SimpleNamespace(), definition)  # type: ignore[arg-type]
+    return result, used
+
+
+def test_calibration_sets_the_threshold_for_every_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result, used = run_benchmark_with(tmp_path, monkeypatch, {"r1": 25.0, "r2": 25.5, "r3": 26.0})
+    assert result.tie_threshold_db == pytest.approx(1.0)
+    assert result.tie_threshold_source == "calibration"
+    assert used == [pytest.approx(1.0)] and result.warnings == []
+
+
+def test_calibration_with_one_measured_run_falls_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result, used = run_benchmark_with(tmp_path, monkeypatch, {"r1": 25.0, "r2": None})
+    assert result.tie_threshold_db == 0.3 and used == [0.3]
+    assert result.tie_threshold_source == "default"
+    assert len(result.warnings) == 1 and "hiệu chỉnh" in result.warnings[0]
+
+
+def test_no_calibration_uses_default_threshold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    text = (
+        "schema_version: d2s-benchmark/0.2\n"
+        "entries:\n"
+        "  - {bench_track: C, scene_id: s, split_id: x, runs: [r9]}\n"
+    )
+    result, used = run_benchmark_with(tmp_path, monkeypatch, {"r9": 25.0}, text)
+    assert result.tie_threshold_db == 0.3 and used == [0.3]
+    assert result.tie_threshold_source == "default" and result.warnings == []
+
+
+def test_calibration_with_unknown_run_is_an_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    text = CALIBRATION_YAML % "r1, r_missing"
+    with pytest.raises(ValueError, match="r_missing"):
+        run_benchmark_with(tmp_path, monkeypatch, {"r1": 25.0, "r2": 25.1}, text)

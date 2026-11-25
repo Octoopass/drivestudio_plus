@@ -117,7 +117,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "preview": "d2s-preview/0.2",
     "job": "d2s-job/0.1",
     "result": "d2s-result/0.1",
-    "benchmark": "d2s-benchmark/0.1",
+    "benchmark": "d2s-benchmark/0.2",
     "benchresult": "d2s-benchresult/0.2",
 }
 
@@ -1497,14 +1497,34 @@ class BenchmarkEntry(StrictModel):
         return self
 
 
+class BenchmarkCalibration(StrictModel):
+    """Một cấu hình train lặp lại với nhiều seed để đo độ dao động của PSNR (yêu cầu R8).
+
+    Độ lệch chuẩn σ của PSNR các run này đặt ngưỡng hoà của benchmark: ``max(0,3 dB, 2σ)``. Các
+    run phải cùng một cấu hình, chỉ khác ``seed``; tool không kiểm điều đó.
+
+    Attributes:
+        scene_id: Cảnh của các run.
+        split_id: Split của các run.
+        runs: ``run_id`` của các run, ít nhất hai.
+    """
+
+    scene_id: str
+    split_id: str
+    runs: list[str] = Field(min_length=2)
+
+
 class BenchmarkFile(VersionedFile):
     """Schema của file định nghĩa benchmark ``benchmarks/<tên>.yaml``.
 
     Attributes:
+        calibration: Các run lặp theo seed để hiệu chỉnh ngưỡng hoà (thêm từ
+            ``d2s-benchmark/0.2``); thiếu thì dùng ngưỡng mặc định.
         entries: Các nhóm run được xếp hạng riêng.
     """
 
     FILE_KIND: ClassVar[str] = "benchmark"
+    calibration: Optional[BenchmarkCalibration] = None
     entries: list[BenchmarkEntry] = Field(min_length=1)
 
 
@@ -1632,11 +1652,16 @@ class BenchmarkResult(VersionedFile):
 
     Attributes:
         tie_threshold_db: Ngưỡng PSNR coi hai run là ngang nhau, dB.
+        tie_threshold_source: ``calibration`` khi ngưỡng đo từ các run lặp theo seed của file định
+            nghĩa, ``default`` khi dùng ngưỡng mặc định 0,3 dB (thêm từ ``d2s-benchresult/0.2``).
+        warnings: Cảnh báo chung của cả benchmark, ví dụ không hiệu chỉnh được ngưỡng.
         groups: Kết quả từng nhóm, theo thứ tự trong file định nghĩa.
     """
 
     FILE_KIND: ClassVar[str] = "benchresult"
     tie_threshold_db: float
+    tie_threshold_source: Literal["default", "calibration"] = "default"
+    warnings: list[str] = []
     groups: list[BenchmarkGroup]
 
 

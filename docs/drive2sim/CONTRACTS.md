@@ -563,7 +563,11 @@ Các giá trị trong ví dụ chỉ minh hoạ định dạng. Trường nào k
 Benchmark so các run đã có kết quả (thiết kế ở báo cáo tuần 03 mục 4.2, yêu cầu R1–R8). File định nghĩa nằm trong thư mục làm việc, do người viết tay; mỗi mục là một nhóm run được xếp hạng với nhau. `bench_track` là track của benchmark (`A` dựng từng cảnh, `B` quãng đường dài, `C` feed-forward), **không phải** loại camera pinhole hay fisheye. Track `A` bắt buộc có `cell`: `A-LB` (có LiDAR và box), `A-L` (chỉ LiDAR), `A-0` (không cả hai); track khác không có `cell`. Mọi run trong một mục phải cùng cảnh và split.
 
 ```yaml
-schema_version: d2s-benchmark/0.1
+schema_version: d2s-benchmark/0.2
+calibration:                      # tuỳ chọn: một cấu hình train lặp theo seed, đo σ của PSNR
+  scene_id: kitti360_drive-0003
+  split_id: every10_front2
+  runs: [20261124-090000-pvg-s0s0, 20261124-091500-pvg-s1s1, 20261124-093000-pvg-s2s2]
 entries:
   - bench_track: A
     cell: A-L
@@ -578,6 +582,8 @@ entries:
 {
   "schema_version": "d2s-benchresult/0.2",
   "tie_threshold_db": 0.3,
+  "tie_threshold_source": "default",
+  "warnings": [],
   "groups": [
     {
       "bench_track": "A",
@@ -610,6 +616,7 @@ entries:
 
 Các con số trong ví dụ chỉ minh hoạ định dạng. Quy tắc:
 - **Xếp hạng trong nhóm** theo Avg của Mip-NeRF (mục 6.3; thấp là tốt). Run kém run có Avg tốt nhất dưới `tie_threshold_db` (mặc định 0,3 dB PSNR) được coi là **ngang** (`tied_with_best`, gồm cả chính run tốt nhất); tập run ngang xác định **một lần**, so với run có Avg tốt nhất. Trong tập ngang phân xử lần lượt: (1) R2, `shifted.psnr_cc` cao hơn, chênh dưới ngưỡng hoà coi như bằng; (2) R3, `export_gap_db` nhỏ hơn, chênh dưới 0,3 dB coi như bằng; (3) thời gian train ngắn hơn, **chỉ khi mọi run còn lại cùng GPU**. Một bước mà có run trong tập chưa đo hoặc không áp dụng thì bị bỏ qua cho cả tập (R3 không áp dụng cho method không xuất được `.ply`). `winner_run_id` là run thắng và `decided_by` là bước đã chọn nó (`avg` nếu chỉ một run ngang run tốt nhất, `r2`, `r3`, `train_time`); `winner_run_id` là `null` (kèm `warnings`) khi không run nào có kết quả, khi các run ngang nhau mà khác GPU hoặc thiếu thời gian train, hoặc khi các run đo bằng protocol không so được (`0.3`, `0.4`, `0.5` so được với nhau; `ncore-0.3` thì không), lúc đó chỉ liệt kê theo Avg. Lệch làn (KID) chưa đo nên chưa xét. R4, R6, R7 báo kèm, không đổi thứ hạng.
+- **Ngưỡng hoà** (R8): mặc định 0,3 dB. Khối `calibration` của file định nghĩa (từ `d2s-benchmark/0.2`) liệt kê ít nhất hai run **cùng một cấu hình, chỉ khác `seed`** (tool không kiểm điều đó); ngưỡng là `max(0,3 dB, 2σ)` với σ là độ lệch chuẩn mẫu của PSNR các run đó, tính một lần và dùng cho mọi nhóm, `tie_threshold_source` là `calibration`. Dưới hai run có kết quả thì dùng 0,3 dB (`tie_threshold_source` là `default`) kèm cảnh báo ở `warnings` của kết quả, không lỗi; run hiệu chỉnh không tồn tại thì lỗi. Hiệu chỉnh một lần (một cấu hình × 3 seed trên KITTI-360 A1), không lặp mỗi benchmark.
 - **R2** (`shift_*`, từ `d2s-benchresult/0.2`): đọc từ `summary.json` khối `shifted` (mục 6.3), trên camera chỉ test của split. `shift_psnr_cc` là số phân xử hoà thứ nhất. Để trống khi split không có camera chỉ test hoặc run đo bằng protocol dưới `0.5`.
 - **Đoạn đường hỏng** (R7, chỉ chẩn đoán, không vào xếp hạng): PSNR một khung test là trung bình các camera của khung **trong cùng nhóm camera**; `bad_segments` có khoá `pinhole` và `fisheye` (nhóm theo `model` trong manifest; chỉ nhóm có ảnh), mỗi khoá là danh sách đoạn hỏng của nhóm. Đoạn hỏng là từ 5 khung test liền nhau trở lên, mỗi khung thấp hơn trung vị của nhóm quá 2 dB. Ảnh của camera chỉ test bị bỏ (PSNR thấp hơn hẳn và vị trí lệch khỏi quỹ đạo, sẽ làm lệch trung vị và quãng đường). `start_m`, `end_m` là quãng đường dọc đường gấp khúc qua vị trí camera của các khung test (giữa hai khung test liền nhau là khung train nên đường thực dài hơn một chút). Cần `frames.jsonl` (mục 6.3); `frames_measured` (số cặp khung-camera đã train có metric) bằng 0 nghĩa là chưa đo, không phải không có đoạn hỏng. Trước `0.2`, `bad_segments` là một danh sách chung cho mọi camera.
 - `psnr_pinhole`, `psnr_fisheye`: trung bình PSNR theo camera, nhóm camera theo `model` trong manifest (`opencv_fisheye`, `ftheta` là fisheye); chiều báo cáo, không xếp hạng.

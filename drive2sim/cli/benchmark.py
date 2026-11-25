@@ -56,7 +56,8 @@ def benchmark(args: argparse.Namespace) -> int:
     if args.out:
         files.dump(result, args.out)
         info(args, f"đã ghi {args.out}")
-    blocks = []
+    blocks = [f"ngưỡng hoà: {result.tie_threshold_db:.2f} dB ({result.tie_threshold_source})"]
+    blocks[0] += "".join(f"\ncảnh báo: {w}" for w in result.warnings)
     for group in result.groups:
         title = f"track {group.bench_track}" + (f", ô {group.cell}" if group.cell else "")
         headers = [

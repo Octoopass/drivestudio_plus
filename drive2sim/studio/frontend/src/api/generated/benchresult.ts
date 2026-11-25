@@ -2,6 +2,8 @@
 
 export type SchemaVersion = string;
 export type TieThresholdDb = number;
+export type TieThresholdSource = "default" | "calibration";
+export type Warnings = string[];
 export type BenchTrack = "A" | "B" | "C";
 export type Cell = ("A-LB" | "A-L" | "A-0") | null;
 export type SceneId = string;
@@ -45,7 +47,7 @@ export type NumFrames = number;
 export type MinPsnr = number;
 export type FramesMeasured = number;
 export type Rows = BenchmarkRunRow[];
-export type Warnings = string[];
+export type Warnings1 = string[];
 export type Groups = BenchmarkGroup[];
 
 /**
@@ -53,11 +55,16 @@ export type Groups = BenchmarkGroup[];
  *
  * Attributes:
  *     tie_threshold_db: Ngưỡng PSNR coi hai run là ngang nhau, dB.
+ *     tie_threshold_source: ``calibration`` khi ngưỡng đo từ các run lặp theo seed của file định
+ *         nghĩa, ``default`` khi dùng ngưỡng mặc định 0,3 dB (thêm từ ``d2s-benchresult/0.2``).
+ *     warnings: Cảnh báo chung của cả benchmark, ví dụ không hiệu chỉnh được ngưỡng.
  *     groups: Kết quả từng nhóm, theo thứ tự trong file định nghĩa.
  */
 export interface BenchmarkResult {
   schema_version: SchemaVersion;
   tie_threshold_db: TieThresholdDb;
+  tie_threshold_source?: TieThresholdSource;
+  warnings?: Warnings;
   groups: Groups;
 }
 /**
@@ -85,7 +92,7 @@ export interface BenchmarkGroup {
   winner_run_id?: WinnerRunId;
   decided_by?: DecidedBy;
   rows: Rows;
-  warnings?: Warnings;
+  warnings?: Warnings1;
 }
 /**
  * Kết quả của một run trong một nhóm benchmark; trường nào chưa đo thì để trống.

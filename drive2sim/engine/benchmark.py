@@ -26,6 +26,7 @@ from drive2sim.core import files
 from drive2sim.core.schema import (
     SCHEMA_VERSIONS,
     BadSegment,
+    BenchmarkCalibration,
     BenchmarkEntry,
     BenchmarkFile,
     BenchmarkGroup,
@@ -501,12 +502,15 @@ def _group_warnings(rows: Sequence[ReportRow]) -> list[str]:
     return warnings
 
 
-def run_group(workdir: Workdir, entry: BenchmarkEntry) -> BenchmarkGroup:
+def run_group(
+    workdir: Workdir, entry: BenchmarkEntry, threshold_db: float = TIE_THRESHOLD_DB
+) -> BenchmarkGroup:
     """Xếp hạng các run của một nhóm benchmark.
 
     Args:
         workdir: Thư mục làm việc.
         entry: Nhóm trong file định nghĩa benchmark.
+        threshold_db: Ngưỡng hoà của PSNR, dB (``run_benchmark`` truyền ngưỡng đã hiệu chỉnh).
 
     Returns:
         Kết quả của nhóm.
@@ -544,7 +548,7 @@ def run_group(workdir: Workdir, entry: BenchmarkEntry) -> BenchmarkGroup:
         )
         for run_id, summary in summaries.items()
     }
-    order = order_group(rows, inputs)
+    order = order_group(rows, inputs, threshold_db)
     by_id = {r.run_id: r for r in rows}
     result_rows = [
         build_row(by_id[run_id], run_dirs[run_id], context, rank, run_id in order.tied)
@@ -562,8 +566,66 @@ def run_group(workdir: Workdir, entry: BenchmarkEntry) -> BenchmarkGroup:
     )
 
 
+def tie_threshold_from_psnrs(psnrs: Sequence[float]) -> Optional[float]:
+    """Ngưỡng hoà từ PSNR của các run lặp theo seed: ``max(0,3 dB, 2σ)``.
+
+    σ là độ lệch chuẩn mẫu. Sàn 0,3 dB giữ ngưỡng không nhỏ hơn mặc định khi các seed rất giống
+    nhau (σ nhỏ chủ yếu vì ít seed).
+
+    Args:
+        psnrs: PSNR của các run cùng cấu hình, khác seed.
+
+    Returns:
+        Ngưỡng, dB; ``None`` khi có dưới hai giá trị (không tính được σ).
+    """
+    if len(psnrs) < 2:
+        return None
+    return max(TIE_THRESHOLD_DB, 2 * statistics.stdev(psnrs))
+
+
+def _calibrate(
+    workdir: Workdir, calibration: Optional[BenchmarkCalibration]
+) -> tuple[float, str, list[str]]:
+    """Tính ngưỡng hoà của benchmark từ các run hiệu chỉnh.
+
+    Args:
+        workdir: Thư mục làm việc.
+        calibration: Khối ``calibration`` của file định nghĩa, hoặc ``None``.
+
+    Returns:
+        ``(ngưỡng dB, nguồn, cảnh báo)``; nguồn là ``calibration`` hoặc ``default``. Dưới hai run
+        có kết quả thì dùng ngưỡng mặc định kèm cảnh báo, không lỗi.
+
+    Raises:
+        ValueError: Nếu một run hiệu chỉnh không có hoặc không thuộc cảnh, split đã khai báo.
+    """
+    if calibration is None:
+        return TIE_THRESHOLD_DB, "default", []
+    rows = report_rows(workdir, calibration.scene_id, calibration.split_id, list(calibration.runs))
+    missing = [run_id for run_id in calibration.runs if run_id not in {r.run_id for r in rows}]
+    if missing:
+        raise ValueError(
+            f"run hiệu chỉnh không có hoặc không thuộc cảnh {calibration.scene_id}, split "
+            f"{calibration.split_id}: " + ", ".join(missing)
+        )
+    threshold = tie_threshold_from_psnrs([r.psnr for r in rows if r.psnr is not None])
+    if threshold is None:
+        measured = sum(r.psnr is not None for r in rows)
+        return (
+            TIE_THRESHOLD_DB,
+            "default",
+            [
+                f"hiệu chỉnh ngưỡng hoà cần ít nhất 2 run có kết quả, mới có {measured}: dùng "
+                f"ngưỡng mặc định {TIE_THRESHOLD_DB} dB"
+            ],
+        )
+    return threshold, "calibration", []
+
+
 def run_benchmark(workdir: Workdir, definition: Path) -> BenchmarkResult:
     """Đọc file định nghĩa benchmark và xếp hạng mọi nhóm.
+
+    Ngưỡng hoà tính một lần từ khối ``calibration`` (nếu có) rồi dùng cho mọi nhóm.
 
     Args:
         workdir: Thư mục làm việc.
@@ -577,8 +639,11 @@ def run_benchmark(workdir: Workdir, definition: Path) -> BenchmarkResult:
         OSError: Nếu không đọc được file.
     """
     parsed = files.load(definition, BenchmarkFile)
+    threshold, source, warnings = _calibrate(workdir, parsed.calibration)
     return BenchmarkResult(
         schema_version=SCHEMA_VERSIONS["benchresult"],
-        tie_threshold_db=TIE_THRESHOLD_DB,
-        groups=[run_group(workdir, entry) for entry in parsed.entries],
+        tie_threshold_db=threshold,
+        tie_threshold_source=source,
+        warnings=warnings,
+        groups=[run_group(workdir, entry, threshold) for entry in parsed.entries],
     )
