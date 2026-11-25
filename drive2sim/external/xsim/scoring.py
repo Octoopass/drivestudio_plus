@@ -1,56 +1,109 @@
-"""Chấm ảnh RGB của XSIM bằng protocol dùng chung với DriveStudio.
+"""Chấm ảnh render của XSIM trong môi trường chính, như ``eval.standard`` chấm DriveStudio.
 
-score_pairs kiểm tra danh sách quan sát, áp mask và lượng tử hoá ảnh render
-trước khi lấy trung bình theo ảnh và camera. Xem SPEC mục 9.
+``score_renders`` đọc ảnh render 8-bit worker ghi và ảnh thật của gói quan sát, nhân mask đánh giá
+của gói cho cả hai ảnh, rồi gọi ``compute_image_metrics`` với cùng LPIPS (torchmetrics, AlexNet,
+``normalize=True``) mà trainer DriveStudio dùng. Ảnh thật, mask và phiên bản thư viện đo vì thế
+giống hệt các approach DriveStudio. Stage ``eval.xsim`` chạy ``python -m
+drive2sim.external.xsim.scoring`` thành tiến trình con. Xem SPEC mục 9.
 """
 
+import argparse
+import json
 from collections import defaultdict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
+from pathlib import Path
 from statistics import mean
+from typing import Optional
 
+import numpy as np
 import torch
+from PIL import Image
 
 from drive2sim.core.schema import Metrics
+from drive2sim.external.xsim.bundle import Observations
 from drive2sim.recon.rendering.image_metrics import compute_image_metrics
 
 
-def score_pairs(
-    pairs: Iterable[tuple[int, int, torch.Tensor, torch.Tensor, torch.Tensor]],
-    expected: set[tuple[int, str]],
-    camera_names: dict[int, str],
+def _read(path: Path) -> torch.Tensor:
+    with Image.open(path) as image:
+        return torch.from_numpy(np.asarray(image.convert("RGB")).copy()).float() / 255
+
+
+def score_renders(
+    observations: Observations,
+    renders: Path,
+    test: set[tuple[int, str]],
     lpips: Callable,
-) -> tuple[Metrics, dict[str, Metrics]]:
-    """Đo metric trên đúng các cặp test và báo lỗi khi renderer bỏ hoặc lặp ảnh.
+    device: str = "cpu",
+) -> tuple[Metrics, dict[str, Metrics], int]:
+    """Đo metric trên đúng các cặp test; báo lỗi khi thiếu ảnh render.
 
     Args:
-        pairs: Iterator trả frame, sensor, RGB render, ground truth và mask của từng ảnh.
-        expected: Các cặp frame ingest và tên camera trong split test.
-        camera_names: Chỉ số sensor sang tên camera của manifest.
-        lpips: Module LPIPS nhận hai tensor BCHW trong miền [0, 1].
+        observations: Gói quan sát của run.
+        renders: Thư mục ``<frame>_<camera>.png`` do worker ghi.
+        test: Các cặp (khung, tên camera) của split test.
+        lpips: Module LPIPS nhận hai tensor BCHW trong [0, 1].
+        device: Thiết bị tính LPIPS.
 
     Returns:
-        Metric chung theo ảnh và metric riêng cho mỗi camera có pixel hợp lệ.
+        Metric chung theo ảnh, metric từng camera, và số ảnh được chấm.
+
+    Raises:
+        ValueError: Nếu thiếu ảnh render, sai kích thước, hoặc không ảnh nào có pixel hợp lệ.
     """
-    seen = set()
-    values = defaultdict(list)
-    for frame, sensor, rgb, gt, valid in pairs:
-        name = camera_names[sensor]
-        key = (frame, name)
-        if key in seen or key not in expected:
-            raise ValueError(f"Cặp ảnh XSIM ngoài split hoặc bị lặp: {key}")
-        seen.add(key)
-        mask = valid.bool()[..., None]
-        result = compute_image_metrics((rgb * 255).round() / 255 * mask, gt * mask, valid, lpips)
+    indices = observations.camera_indices
+    values: dict[str, list[tuple]] = defaultdict(list)
+    for frame, name in sorted(test):
+        camera = indices[name]
+        path = renders / f"{frame:03d}_{camera}.png"
+        if not path.is_file():
+            raise ValueError(f"thiếu ảnh render của cặp test ({frame}, {name})")
+        rgb = _read(path).to(device)
+        gt = _read(observations.image_path(frame, camera)).to(device)
+        if rgb.shape != gt.shape:
+            raise ValueError(f"ảnh render ({frame}, {name}) khác kích thước ảnh thật")
+        mask = observations.eval_mask(camera)
+        valid = None
+        if mask is not None:
+            valid = torch.from_numpy(mask.copy()).to(device)
+            rgb, gt = rgb * valid[..., None], gt * valid[..., None]
+        result = compute_image_metrics(rgb, gt, valid, lpips)
         if result is not None:
             values[name].append(result)
-    if seen != expected or not values:
-        raise ValueError("XSIM thiếu cặp ảnh test hoặc toàn bộ ảnh không có pixel hợp lệ")
+    if not values:
+        raise ValueError("không ảnh test nào có pixel hợp lệ")
 
     def average(rows: list[tuple]) -> Metrics:
-        """Lấy trung bình từng metric với trọng số bằng nhau cho mỗi ảnh."""
+        """Trung bình từng metric, mỗi ảnh một trọng số."""
         psnr, ssim, perceptual = map(mean, zip(*rows))
         return Metrics(psnr=psnr, ssim=ssim, lpips=perceptual)
 
-    return average([row for rows in values.values() for row in rows]), {
-        name: average(rows) for name, rows in values.items()
+    rows = [row for items in values.values() for row in items]
+    return average(rows), {name: average(items) for name, items in values.items()}, len(rows)
+
+
+def main(argv: Optional[list[str]] = None) -> None:
+    """Chấm các cặp test của split ghi trong gói, ghi ``overall``, ``per_camera``, ``count``."""
+    parser = argparse.ArgumentParser(description="Chấm ảnh render XSIM trên gói quan sát")
+    parser.add_argument("--observations", required=True, type=Path)
+    parser.add_argument("--renders", required=True, type=Path)
+    parser.add_argument("--out", required=True, type=Path)
+    args = parser.parse_args(argv)
+    from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
+
+    observations = Observations(args.observations)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    lpips = LearnedPerceptualImagePatchSimilarity(normalize=True).eval().to(device)
+    test = {(int(frame), str(name)) for frame, name in observations.split["test"]}
+    with torch.no_grad():
+        overall, per_camera, count = score_renders(observations, args.renders, test, lpips, device)
+    payload = {
+        "overall": overall.model_dump(),
+        "per_camera": {name: metrics.model_dump() for name, metrics in per_camera.items()},
+        "count": count,
     }
+    args.out.write_text(json.dumps(payload), encoding="utf-8")
+
+
+if __name__ == "__main__":
+    main()

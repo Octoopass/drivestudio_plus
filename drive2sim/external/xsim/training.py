@@ -1,4 +1,4 @@
-"""Dựng pipeline train KITTI-360 trong interpreter riêng của XSIM.
+"""Dựng pipeline train XSIM từ gói quan sát trong interpreter riêng của XSIM.
 
 Worker dùng build_training_pipeline để khởi tạo bằng tập train đã giới hạn
 ở provider. train_step lấy đúng một batch đồng bộ để checkpoint giữa hai bước
@@ -17,19 +17,28 @@ from xsim.modeling.scene import Scene
 from xsim.utils.data_move import torch_move
 
 from drive2sim.external.xsim.checkpoint import restore_checkpoint, save_checkpoint
-from drive2sim.external.xsim.provider import KittiScene
+from drive2sim.external.xsim.provider import BundleScene
 
 
 def build_training_pipeline(
-    provider: KittiScene, native_config: Path, device: str, downscale: float
+    provider: BundleScene,
+    native_config: Path,
+    device: str,
+    preload_images: bool = False,
+    num_workers: int = 0,
 ) -> tuple[Subset, NodeCollection]:
     """Dựng node và sampler từ đúng các quan sát mà provider train cho phép.
+
+    Ảnh trong gói đã ở độ phân giải loader DriveStudio dùng, nên XSIM không thu nhỏ hay khử méo
+    thêm (``image_downscale_factor`` 1, ``undistort_images`` tắt: xsimgs vẽ thẳng camera pinhole
+    có méo và mắt cá).
 
     Args:
         provider: Provider được tạo cho phần train của split.
         native_config: Đường dẫn YAML native gồm cấu hình initialization và nodes.
         device: Thiết bị chứa model và batch khi tính gradient.
-        downscale: Hệ số thu nhỏ ảnh so với độ phân giải ingest.
+        preload_images: Nạp sẵn mọi ảnh train vào RAM như cấu hình gốc của XSIM.
+        num_workers: Số tiến trình đọc dữ liệu của XSIM.
 
     Returns:
         Subset train và cây node trước khi tạo optimizer để có thể nạp checkpoint.
@@ -39,11 +48,15 @@ def build_training_pipeline(
     dataset_config["scene"] = {
         **dataset_config.get("scene", {}),
         "undistort_images": False,
-        "image_downscale_factor": downscale,
-        "image_resample": "nearest",
+        "image_downscale_factor": 1.0,
+        "image_resample": "bilinear",
         "load_segmentation": True,
     }
-    dataset_config["load"] = {"device": "cpu", "preload_images": False, "num_workers": 0}
+    dataset_config["load"] = {
+        "device": "cpu",
+        "preload_images": preload_images,
+        "num_workers": num_workers,
+    }
     dataset_config["batch"] = {**dataset_config.get("batch", {}), "max_lidars_per_batch": 1}
     dataset = SceneReconstructionDataset(provider, dataset_config)
     camera_ids = {

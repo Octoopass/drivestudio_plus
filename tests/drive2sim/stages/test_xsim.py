@@ -1,52 +1,16 @@
-"""Kiểm tra chỉ mục XSIM với camera chọn thưa và timestamp tuyệt đối lớn."""
+"""Kiểm tra chỉ mục quan sát XSIM và câu lệnh xuất gói của prep.observations."""
 
-import json
+import subprocess
+import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 from drive2sim.core.schema import Manifest, Split
-from drive2sim.engine.cache import input_key_for_split
-from drive2sim.engine.stage import NoParams, Scene
-from drive2sim.stages.prep.xsim import PrepXsimStage
+from drive2sim.stages.prep.observations import PrepObservationsParams, export_command
+from drive2sim.stages.train.drivestudio import TrainDrivestudioParams, build_command
 from tests.drive2sim.samples import MANIFEST, SPLIT
 
 
-def test_sparse_split_preserves_camera_index_and_time(tmp_path: Path) -> None:
-    scene_id = "kitti360_example"
-    manifest = Manifest.model_validate(
-        {
-            **MANIFEST,
-            "scene_id": scene_id,
-            "source": {**MANIFEST["source"], "dataset": "kitti360"},
-        }
-    )
-    split = Split.model_validate(
-        {
-            **SPLIT,
-            "scene_id": scene_id,
-            "strategy": "custom",
-            "frame_range": [2, 4],
-            "cameras": ["CAM_FISH"],
-            "train": [[2, "CAM_FISH"]],
-            "test": [[4, "CAM_FISH"]],
-        }
-    )
-    stamp = 1600000000000000
-    (tmp_path / "timestamps.txt").write_text("\n".join(str(stamp + i * 17) for i in range(10)))
-    (tmp_path / "frame_ids.txt").write_text("\n".join(str(20 + i * 2) for i in range(10)))
-    ctx = SimpleNamespace(
-        scene=Scene(scene_id, tmp_path, manifest), split=split, output_dir=tmp_path
-    )
-    PrepXsimStage().run(ctx, {}, NoParams())
-    index = json.loads((tmp_path / "scene.json").read_text())
-    assert index["camera_indices"] == {"CAM_FISH": 1}
-    assert index["source_frames"] == [24, 26, 28]
-    assert index["relative_time_us"] == [0, 17, 34]
-    changed = split.model_copy(update={"test": [(3, "CAM_FISH")]})
-    assert index["split_key"] != input_key_for_split(split.split_id, changed)
-
-
-def test_train_init_uses_only_observed_camera_pairs() -> None:
+def test_train_index_uses_only_observed_camera_pairs() -> None:
     split = Split.model_validate(
         {
             **SPLIT,
@@ -63,3 +27,69 @@ def test_train_init_uses_only_observed_camera_pairs() -> None:
     assert train.cameras == {2: [2, 3, 8], 3: [8]}
     assert train.cameras_for_lidar == [[(2, 0)], [(2, 1)], [(2, 2), (3, 0)]]
     assert train.lidar_for_camera == {2: [0, 1, 2], 3: [2]}
+
+
+def test_index_with_all_lidar_frames_links_only_matching_frames() -> None:
+    split = Split.model_validate(
+        {
+            **SPLIT,
+            "strategy": "custom",
+            "cameras": ["left"],
+            "train": [[2, "left"], [5, "left"]],
+            "test": [[3, "left"]],
+        }
+    )
+    from drive2sim.external.xsim.observations import ObservationIndex
+
+    # LiDAR của khung test 3 vẫn dùng được, ảnh khung 5 không có sweep cùng khung.
+    index = ObservationIndex.from_split(split, {"left": 0}, train=True, lidar_frames=[2, 3, 4])
+    assert index.lidar_frames == [2, 3, 4]
+    assert index.cameras_for_lidar == [[(0, 0)], [], []]
+    assert index.lidar_for_camera == {0: [0, None]}
+
+
+def test_export_command_is_the_train_command_of_the_same_data(tmp_path: Path) -> None:
+    manifest, split = Manifest.model_validate(MANIFEST), Split.model_validate(SPLIT)
+    view, out, config = tmp_path / "view", tmp_path / "out", tmp_path / "method.yaml"
+    params = PrepObservationsParams(renderer="3dgut", downscale_when_loading=2)
+    command = export_command(
+        params, split, manifest, view, out, True, False, config,
+        tmp_path / "index.json", tmp_path / "scene",
+    )  # fmt: skip
+    train = build_command(
+        TrainDrivestudioParams(
+            method="omnire",
+            renderer="3dgut",
+            overrides={"data.pixel_source.downscale_when_loading": [2]},
+            eval_at=[],
+        ),
+        split,
+        manifest,
+        view,
+        out,
+        True,
+        False,
+        config,
+    )
+    data = [item for item in train if item.startswith(("data.", "dataset=", "seed="))]
+    assert command[1:3] == ["-m", "drive2sim.recon.tools.export_observations"]
+    assert [item for item in command if "=" in item] == data
+    assert "data.pixel_source.fisheye_renderer_max_angle=1.536" in command
+    for flag in ("--output_root", "--project", "--run_name"):
+        assert flag not in command
+    assert command[command.index("--out") + 1] == str(out)
+
+
+def test_stages_load_without_numpy_or_torch() -> None:
+    """CLI, Studio nạp mọi stage trên máy nhẹ: module stage không import thư viện nặng."""
+    code = (
+        "import sys\n"
+        "for name in ('numpy', 'PIL', 'torch'): sys.modules[name] = None\n"
+        "from drive2sim.engine.registry import load_builtin_stages\n"
+        "load_builtin_stages()\n"
+    )
+    root = Path(__file__).resolve().parents[3]
+    result = subprocess.run(
+        [sys.executable, "-c", code], cwd=root, capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
