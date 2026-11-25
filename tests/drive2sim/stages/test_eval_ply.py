@@ -61,10 +61,12 @@ def test_stage_registers_with_report_input() -> None:
 
 
 @pytest.mark.parametrize("approach_id", EXPORT_APPROACHES)
-def test_eval_ply_follows_export_ply_world(approach_id: str) -> None:
+def test_eval_ply_runs_last(approach_id: str) -> None:
+    # sau eval.standard (cần frames.jsonl của nó) và export.ply_world, và là stage cuối: stage mới
+    # chưa chạy thật trên GPU nên nếu lỗi thì không làm mất export.preview
     stages = [entry.stage for entry in load_approach(approach_id).stages]
-    assert stages[stages.index("export.ply_world") + 1] == "eval.ply"
-    assert stages.index("eval.standard") < stages.index("export.ply_world")
+    assert stages[-1] == "eval.ply"
+    assert stages.index("eval.standard") < stages.index("export.ply_world") < len(stages) - 1
 
 
 def test_nurec_approach_has_no_eval_ply() -> None:

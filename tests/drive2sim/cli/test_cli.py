@@ -317,8 +317,8 @@ def test_exit_codes(workdir: Path, split_id: str, capsys: pytest.CaptureFixture)
         "train.drivestudio",
         "eval.standard",
         "export.ply_world",
-        "eval.ply",
         "export.preview",
+        "eval.ply",
     ]
     code, data = run_json(capsys, "approach", "check", "omnire", *base, "--quick")
     assert code == 0 and data["quick"] is True
