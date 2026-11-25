@@ -264,3 +264,30 @@ def test_missing_raw_files_lists_absent_archives(tmp_path: Path) -> None:
         f"data_3d_raw/{seq}.tar",
     ]
     assert missing_raw_files(tmp_path, seq, ["image_00"], lidar=False) == []
+
+
+def test_render_command_passes_dense_gt(tmp_path: Path) -> None:
+    from drive2sim.stages.render.nurec_video import (
+        NurecVideoParams,
+        build_render_command,
+        dense_gt_command,
+    )
+
+    args = (tmp_path / "s.ply", tmp_path / "v.npz", tmp_path / "f.mp4", ["cam"])
+    dense = tmp_path / "gt_dense.npz"
+    command = build_render_command(NurecVideoParams(), *args, dense)
+    assert command[command.index("--gt-dense") + 1] == str(dense)
+    assert "--gt-dense" not in build_render_command(NurecVideoParams(with_gt=False), *args, dense)
+    assert "--gt-dense" not in build_render_command(NurecVideoParams(), *args)
+    assert "--gt-flow" in command
+    assert "--gt-flow" not in build_render_command(NurecVideoParams(gt_flow=False), *args)
+    assert "--gt-flow" not in build_render_command(NurecVideoParams(interpolate=False), *args)
+    tool = dense_gt_command(tmp_path, "seq", tmp_path / "clip.json", dense, 360)
+    assert tool[2].endswith("kitti360_dense_gt.py") and "--sequence" in tool
+
+
+def test_dense_gt_between_skips_clip_frames() -> None:
+    source = (nurec.TOOLS_DIR / "kitti360_dense_gt.py").read_text(encoding="utf-8")
+    namespace: dict = {}
+    exec(source[source.index("def between") : source.index("\n\n\ndef main")], namespace)  # noqa: S102
+    assert namespace["between"]([102, 107, 112, 113]) == [103, 104, 105, 106, 108, 109, 110, 111]
