@@ -214,8 +214,11 @@ def main(argv: list[str] | None = None) -> int:
             scenario.apply_ego_control(carla.VehicleControl(brake=1.0))
             ego.set_target_velocity(carla.Vector3D())
             log.info("sẵn sàng: camera %s, tỉ lệ %.2f, %d khung/giây", camera, a.ratio, a.fps)
-            rendered, window_start, render_fps = 0, time.monotonic(), 0.0
-            last_frames = 0
+            # Đếm trong cửa sổ 1 giây: ảnh Gaussian, ảnh camera CARLA, số tick mô phỏng.
+            window_start = time.monotonic()
+            counted = {"gaussian": 0, "carla": 0}
+            fps = {"gaussian": 0.0, "carla": 0.0, "sim": 0.0}
+            ticks = 0
             while not state.stop.is_set():
                 began = time.monotonic()
                 with state.lock:
@@ -237,13 +240,16 @@ def main(argv: list[str] | None = None) -> int:
                 scenario.tick()
                 velocity = ego.get_velocity()
                 location = ego.get_location()
-                with state.lock:
-                    frames = state.frame_ids["gaussian"]
-                rendered += frames - last_frames
-                last_frames = frames
-                if time.monotonic() - window_start >= 1.0:
-                    render_fps = rendered / (time.monotonic() - window_start)
-                    rendered, window_start = 0, time.monotonic()
+                ticks += 1
+                elapsed = time.monotonic() - window_start
+                if elapsed >= 1.0:
+                    with state.lock:
+                        frames = dict(state.frame_ids)
+                    for kind in counted:
+                        fps[kind] = (frames[kind] - counted[kind]) / elapsed
+                        counted[kind] = frames[kind]
+                    fps["sim"] = ticks / elapsed
+                    ticks, window_start = 0, time.monotonic()
                 with state.lock:
                     state.info = {
                         "phase": "running",
@@ -254,7 +260,9 @@ def main(argv: list[str] | None = None) -> int:
                         "location": [round(location.x, 1), round(location.y, 1),
                                      round(location.z, 1)],
                         "sim_time_s": round(scenario.seconds_since_start(), 1),
-                        "render_fps": round(render_fps, 1),
+                        "render_fps": round(fps["gaussian"], 1),
+                        "carla_fps": round(fps["carla"], 1),
+                        "sim_fps": round(fps["sim"], 1),
                         "tick_ms": round(1000 * (time.monotonic() - began), 1),
                         "ratio": a.ratio,
                     }  # fmt: skip

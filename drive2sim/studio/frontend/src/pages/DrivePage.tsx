@@ -18,6 +18,9 @@ interface DriveInfo {
   speed_kmh?: number;
   sim_time_s?: number;
   render_fps?: number;
+  carla_fps?: number;
+  sim_fps?: number;
+  gpus?: { index: number; util: number; memory_used_mb: number; memory_total_mb: number; roles: string[] }[];
   ratio?: number;
   control?: { reverse?: boolean };
 }
@@ -292,6 +295,21 @@ export function DrivePage({ runId }: { runId?: string }) {
             </span>
             <span className={`tag ${reverse ? "warn" : "info"}`}>{reverse ? t("drive.gear_r") : t("drive.gear_d")}</span>
             <span className="small muted">{t("drive.fps_now", { fps: (info?.render_fps ?? 0).toFixed(0) })}</span>
+            <span className="small muted">{t("drive.carla_fps", { fps: (info?.carla_fps ?? 0).toFixed(0) })}</span>
+            <span className="small muted" title={t("drive.sim_fps_help")}>
+              {t("drive.sim_fps", { fps: (info?.sim_fps ?? 0).toFixed(0) })}
+            </span>
+            {(info?.gpus ?? []).map((g) => (
+              <span key={g.index} className={`tag ${g.util >= 90 ? "warn" : "info"}`} title={t("drive.gpu_help")}>
+                {t("drive.gpu", {
+                  index: g.index,
+                  roles: g.roles.map((r) => t(`drive.role_${r}`)).join(" + "),
+                  util: g.util,
+                  used: (g.memory_used_mb / 1024).toFixed(1),
+                  total: (g.memory_total_mb / 1024).toFixed(0),
+                })}
+              </span>
+            ))}
             <span className="small muted">{t("drive.sim_time", { s: (info?.sim_time_s ?? 0).toFixed(0) })}</span>
             <span className="small muted">{info?.camera}</span>
             {!focused && <span className="tag warn">{t("drive.click_to_focus")}</span>}

@@ -24,6 +24,7 @@ from typing import Optional
 
 from drive2sim.core import files
 from drive2sim.core.schema import RunRecord
+from drive2sim.engine.machine import gpu_usage
 from drive2sim.engine.run import D2S_DIR, RUN_FILE
 from drive2sim.engine.workdir import Workdir
 from drive2sim.stages.commands import run_logged
@@ -56,6 +57,10 @@ class CarlaDrive:
         self.http_port: Optional[int] = None
         self.processes: dict[str, object] = {}
         self.generation = 0  # tăng mỗi lần start/stop, để luồng bật cũ biết mình đã bị thay
+        # GPU của phiên: server render (và CARLA nếu phiên này bật nó); CARLA đã chạy sẵn từ trước
+        # thì không biết nó ở GPU nào.
+        self.gpus: dict[str, Optional[int]] = {}
+        self._usage: tuple[float, list[dict]] = (0.0, [])
 
     # ------------------------------------------------------------------ bật / tắt
     def start(self, run_id: str, camera: str = "", ratio: float = 0.5, fps: int = 20) -> dict:
@@ -130,7 +135,11 @@ class CarlaDrive:
                     )
             gpu = carla_stage.pick_gpu()
             env = carla_stage.carla_env(gpu)
+            with self.lock:
+                self.gpus = {"render": gpu, "carla": None}
             if not carla_stage.port_open(2000):
+                with self.lock:
+                    self.gpus["carla"] = gpu
                 self._set(generation, f"bật CARLA trên GPU {gpu} (lần đầu cỡ 30 giây)")
                 self._keep(
                     generation,
@@ -253,6 +262,8 @@ class CarlaDrive:
                 state, message = self.state, self.message
             else:
                 info = self._get_json("/state")
+                if info is not None:
+                    info["gpus"] = self._gpu_load()
         log_tail = ""
         if out is not None and state in ("starting", "error"):
             log_tail = "\n".join(
@@ -267,6 +278,26 @@ class CarlaDrive:
             "info": info,
             "log_tail": log_tail,
         }
+
+    def _gpu_load(self) -> list[dict]:
+        """Tải các GPU phiên đang dùng (``nvidia-smi``, đọc lại tối đa mỗi giây một lần).
+
+        Returns:
+            Mỗi GPU một dict như ``gpu_usage`` thêm ``roles`` (``render``, ``carla``). Số đo là
+            của cả GPU, gồm cả tiến trình khác chạy trên đó.
+        """
+        with self.lock:
+            roles = dict(self.gpus)
+            stamp, rows = self._usage
+        if time.monotonic() - stamp > 1.0:
+            rows = gpu_usage()
+            with self.lock:
+                self._usage = (time.monotonic(), rows)
+        used: dict[int, list[str]] = {}
+        for role, index in roles.items():
+            if index is not None:
+                used.setdefault(index, []).append(role)
+        return [{**row, "roles": used[row["index"]]} for row in rows if row["index"] in used]
 
     def control(self, body: dict) -> None:
         """Chuyển lệnh lái tới vòng lái."""
