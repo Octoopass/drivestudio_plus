@@ -123,7 +123,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "job": "d2s-job/0.1",
     "result": "d2s-result/0.1",
     "benchmark": "d2s-benchmark/0.2",
-    "benchresult": "d2s-benchresult/0.3",
+    "benchresult": "d2s-benchresult/0.4",
 }
 
 OPTION_REFERENCE_RE = re.compile(r"^\$\{options\.([a-z][a-z0-9_]*)\}$")
@@ -1580,7 +1580,12 @@ class BenchmarkRunRow(StrictModel):
         shift_lpips_cc: LPIPS sau chỉnh màu trên camera chỉ test (R2).
         shift_cameras: ``camera_id`` của các camera chỉ test; rỗng nếu split không có.
         depth: Độ sâu render so với LiDAR (R4), nếu đã đo.
-        export_gap_db: Chênh PSNR giữa render gốc và render ``.ply`` (R3), nếu đã đo.
+        export_gap_db: Chênh PSNR giữa render gốc và render ``.ply`` (R3), nếu đã đo; báo kèm.
+        ply_psnr: PSNR của render ``.ply`` nền tĩnh trên vùng nền tĩnh (R3), số phân xử hoà thứ hai
+            (thêm từ ``d2s-benchresult/0.4``).
+        export_static: ``False`` khi ``.ply`` xuất ra chưa phải nền tĩnh của cảnh đã train (PVG,
+            DeformableGS: tham số gốc, chưa tính theo thời gian), nên R3 không dùng để phân xử
+            (thêm từ ``d2s-benchresult/0.4``).
         export_applicable: ``False`` khi approach không xuất được ``.ply`` nền tĩnh (R3 không áp
             dụng, khác với chưa đo); ``True`` khi có xuất hoặc không biết.
         ply_gaussians: Số Gaussian trong ``scene.ply``.
@@ -1619,6 +1624,8 @@ class BenchmarkRunRow(StrictModel):
     shift_cameras: list[str] = []
     depth: Optional[DepthMetrics] = None
     export_gap_db: Optional[float] = None
+    ply_psnr: Optional[float] = None
+    export_static: bool = True
     export_applicable: bool = True
     ply_gaussians: Optional[int] = None
     ply_size_mb: Optional[float] = None

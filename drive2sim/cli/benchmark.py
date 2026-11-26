@@ -62,7 +62,7 @@ def benchmark(args: argparse.Namespace) -> int:
         title = f"track {group.bench_track}" + (f", ô {group.cell}" if group.cell else "")
         headers = [
             "#", "run_id", "approach", "PSNR", "Avg", "pinhole", "fisheye", "R2 cc", "AbsRel",
-            "gap dB", "đoạn xấu", "phút", "VRAM",
+            "R3 .ply", "gap dB", "đoạn xấu", "phút", "VRAM",
         ]  # fmt: skip
         table = [
             [
@@ -75,6 +75,9 @@ def benchmark(args: argparse.Namespace) -> int:
                 _value(r.psnr_fisheye),
                 _value(r.shift_psnr_cc),
                 _value(r.depth.abs_rel if r.depth else None, 3),
+                (_value(r.ply_psnr) + ("" if r.export_static else "†"))
+                if r.export_applicable
+                else "n/a",
                 _value(r.export_gap_db) if r.export_applicable else "n/a",
                 sum(len(v) for v in r.bad_segments.values()) if r.frames_measured else "–",
                 _value(r.train_time_s / 60 if r.train_time_s is not None else None, 1),
@@ -84,7 +87,10 @@ def benchmark(args: argparse.Namespace) -> int:
         ]
         lines = [f"{title}: {group.scene_id}, {group.split_id}", format_table(headers, table)]
         decided = f", quyết định bởi {group.decided_by}" if group.decided_by else ""
-        lines.append(f"thắng: {group.winner_run_id or '–'}{decided}  (* = ngang run tốt nhất)")
+        lines.append(
+            f"thắng: {group.winner_run_id or '–'}{decided}  (* = ngang run tốt nhất; "
+            "† = .ply chưa phải nền tĩnh, R3 không phân xử)"
+        )
         lines.extend(f"cảnh báo: {w}" for w in group.warnings)
         blocks.append("\n".join(lines))
     emit(args, result.model_dump(mode="json"), "\n\n".join(blocks))
