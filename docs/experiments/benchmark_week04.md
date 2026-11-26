@@ -1,6 +1,6 @@
 # Benchmark tuần 04: Waymo (pinhole) và KITTI-360 chuỗi 0003
 
-Ma trận chạy (11 run ưu tiên 1, khoảng 27 GPU-giờ trên RTX 4090 thuê, ước lượng; đã bỏ #1–#3 chạy thử R2, #7, #8 hiệu chỉnh seed, #14 chạy thử NuRec) nằm ở Sheet "Ma trận chạy benchmark tuần 04" của nhóm; số thứ tự run (#1, #2, ...) dưới đây khớp tab **Ma trận** của Sheet. Yêu cầu R1–R8 và quy tắc xếp hạng: `docs/drive2sim/ARCHITECTURE.md` mục 2.17, CONTRACTS mục 6.5.
+Ma trận chạy (11 run ưu tiên 1, khoảng 27 GPU-giờ trên RTX 4090 thuê, ước lượng; đã bỏ các run chạy thử R2, hiệu chỉnh seed và chạy thử NuRec) nằm ở Sheet "Ma trận chạy benchmark tuần 04" của nhóm; số thứ tự run (#1–#14, đánh số lại 26/11) dưới đây khớp tab **Ma trận** của Sheet. Yêu cầu R1–R8 và quy tắc xếp hạng: `docs/drive2sim/ARCHITECTURE.md` mục 2.17, CONTRACTS mục 6.5.
 
 Script chuẩn bị: `drive2sim/scripts/setup_benchmark_week04.py` (chỉ đọc và ghi file trong thư mục làm việc, không chạy GPU).
 
@@ -21,7 +21,7 @@ Mọi split dùng `every_nth_frame:8`.
 | `every8_5cams` | W1 | FRONT, FRONT_LEFT, FRONT_RIGHT, SIDE_LEFT, SIDE_RIGHT | khung 0–149 | W1: A-LB, A-L, A-0 |
 | `every8_stereo` | 200 khung | `image_00`, `image_01` (`image_01`) | cả cảnh | A1 (không còn run riêng) |
 | `every8_stereo_fisheye2` | 200 khung | + `image_02`, `image_03` (`image_01`) | cả cảnh | A2 |
-| `every8_mixed3` | dài | `image_00`, `image_02`, `image_03` (như A2, không có `image_01`) | cả cảnh | track C (Instant NuRec, #15). Cảnh 864 khung cần khoảng 48 đoạn NuRec (18 khung một đoạn) mà `train.nurec` giới hạn 8 đoạn: phải nâng giới hạn hoặc chạy theo 6 chunk của B2 trước khi chạy |
+| `every8_mixed3` | dài | `image_00`, `image_02`, `image_03` (như A2, không có `image_01`) | cả cảnh | track C (Instant NuRec, #9). Cảnh 864 khung cần khoảng 48 đoạn NuRec (18 khung một đoạn) mà `train.nurec` giới hạn 8 đoạn: phải nâng giới hạn hoặc chạy theo 6 chunk của B2 trước khi chạy |
 | `every8_stereo_a3` | dài | `image_00`, `image_01` (`image_01`) | khung gốc 560–779 | A3 |
 | `every8_pinhole2` | dài | `image_00`, `image_01` | cả cảnh | track B, MCGS-SLAM |
 | `every8_stereo_c1` … `c6` | dài | `image_00`, `image_01` (`image_01`) | 6 đoạn ~153 khung, chồng 10 khung | track B, drivestudio chia chunk |
@@ -44,7 +44,7 @@ python -m drive2sim.scripts.setup_benchmark_week04 definition         # ghi benc
 d2s benchmark benchmarks/week04.yaml --out benchmarks/week04.json
 ```
 
-`commands` in một lệnh cho mỗi run, đúng cấu hình mà `definition` dùng để nhận ra run (lệnh đã kiểm bằng `d2s approach check` trên cảnh 200 khung, trừ hai lệnh trên cảnh dài). Ô của run thắng (#9, #16, #17) in dạng `<thắng ...>`: điền approach và `--set` của run thắng. Run chạy thử (#1–#3, `--quick`) không vào file định nghĩa.
+`commands` in một lệnh cho mỗi run, đúng cấu hình mà `definition` dùng để nhận ra run (cấu hình đã kiểm bằng `d2s approach check` trên cảnh KITTI-360 200 khung; lệnh trên W1 và cảnh dài chưa kiểm vì chưa có hai cảnh này). Ô của run thắng (#4, #10, #11, #12) in dạng `<thắng ...>`: điền approach và `--set` của run thắng. Run chạy thử (`--quick`) không vào file định nghĩa.
 
 `definition` xếp run đã xong (`status: succeeded`, không `--quick`) vào nhóm theo cảnh, split, approach, lựa chọn (`approach.options`) và tham số `seed`, `lidar` của `train.drivestudio`:
 
@@ -54,17 +54,17 @@ d2s benchmark benchmarks/week04.yaml --out benchmarks/week04.json
 | A-L | `every8_5cams` (W1) | PVG, DeformableGS renderer 3DGS (có LiDAR) |
 | A-0 | `every8_5cams` (W1) | PVG, DeformableGS renderer 3DGS với `lidar=false` |
 | A-LB | `every8_stereo_fisheye2` | OmniRe 3DGUT + FastGS; OmniRe 3DGEER + FastGS |
-| A-L | `every8_stereo_fisheye2` | PVG, DeformableGS với renderer 3DGUT (#12) |
+| A-L | `every8_stereo_fisheye2` | PVG, DeformableGS với renderer 3DGUT (#7) |
 | A-LB, A-L | `every8_stereo_a3` | OmniRe (mọi cấu hình); PVG, DeformableGS |
 | B | `every8_pinhole2` | MCGS-SLAM |
 | C | `every8_mixed3` | Instant NuRec |
-| `calibration` | `every8_5cams` (W1) | OmniRe 3DGS + FastGS seed 0, 1, 2 nếu có (#7, #8 đã bỏ: dùng ngưỡng hoà mặc định 0,3 dB) |
+| `calibration` | `every8_5cams` (W1) | OmniRe 3DGS + FastGS seed 0, 1, 2 nếu có (ma trận không còn run hiệu chỉnh seed: dùng ngưỡng hoà mặc định 0,3 dB) |
 
 Nhiều run khớp một ô thì lấy run mới nhất và in các run bị bỏ. Nhóm chưa có run thì bỏ khỏi file; dưới hai seed thì không có khối `calibration` (`d2s benchmark` dùng ngưỡng hoà mặc định 0,3 dB).
 
 ## 3. Chưa làm được trong đợt này
 
-- **#12 (A-L với fisheye, A2)**: từ 26/11 PVG và DeformableGS có renderer 3DGUT, 3DGEER (tắt CamPose), nên #12 chạy được với `--set renderer=3dgut --set campose=false`; chưa chạy thật trên GPU. A2 A-L vì vậy so method thắng A-L ở cấu hình khác A1 (không CamPose).
-- **R3 của PVG, DeformableGS**: `export_ply.py` ghi tham số gốc của node `Background` (`_means`, `_opacities`). Với PVG đó là tâm chưa cộng dao động và độ đục chưa nhân suy giảm theo thời gian, nên mọi Gaussian (cả vệt của xe chạy) hiện cùng lúc; với DeformableGS là tâm chưa qua mạng biến dạng. Từ 26/11 `d2s benchmark` đánh dấu các run này `export_static: false` (bảng ghi `†`) và bỏ bước R3 khi phân xử các ô A-L, A-0; R3 cũng đổi từ export gap sang `ply_psnr` (PSNR tuyệt đối của `.ply` trên vùng nền tĩnh), gap chỉ báo kèm (CONTRACTS mục 6.5). PVG đã có cách xuất nền tĩnh: chỉ giữ Gaussian sống từ 20 khung trở lên (tham số gốc của PVG là mỗi Gaussian ở đỉnh của nó, nên không cần chọn thời điểm). **Kiểm trên run #5 trước khi bỏ `pvg` khỏi `TIME_VARYING_METHODS`:** xem `time_varying` trong `eval.ply/background/scene.json` (số giữ, số bỏ, phân vị độ dài đời), ảnh render `.ply` không còn vệt xe, và `ply_psnr` không kém `native_psnr` quá khoảng 2 dB; nếu vẫn kém thì giữ cờ và ghi R3 là không áp dụng cho PVG. DeformableGS còn lại: biến dạng ở một thời điểm, làm sau khi có checkpoint của #6.
-- **#17 trong bảng xếp hạng**: `d2s benchmark` chưa có nhóm "chunked" gộp `frames.jsonl` của các chunk (ARCHITECTURE mục 2.17), nên 6 run chunk chạy được nhưng chưa vào `week04.yaml`.
-- **#14**: chạy thử Instant NuRec trên clip mẫu NCore, ngoài cảnh KITTI-360, nên không có lệnh ở đây.
+- **#7 (A-L với fisheye, A2)**: từ 26/11 PVG và DeformableGS có renderer 3DGUT, 3DGEER (tắt CamPose), nên #7 chạy được với `--set renderer=3dgut --set campose=false`; chưa chạy thật trên GPU. A2 A-L vì vậy so method thắng A-L ở cấu hình khác A1 (không CamPose).
+- **R3 của PVG, DeformableGS**: `export_ply.py` ghi tham số gốc của node `Background` (`_means`, `_opacities`). Với PVG đó là tâm chưa cộng dao động và độ đục chưa nhân suy giảm theo thời gian, nên mọi Gaussian (cả vệt của xe chạy) hiện cùng lúc; với DeformableGS là tâm chưa qua mạng biến dạng. Từ 26/11 `d2s benchmark` đánh dấu các run này `export_static: false` (bảng ghi `†`) và bỏ bước R3 khi phân xử các ô A-L, A-0; R3 cũng đổi từ export gap sang `ply_psnr` (PSNR tuyệt đối của `.ply` trên vùng nền tĩnh), gap chỉ báo kèm (CONTRACTS mục 6.5). PVG đã có cách xuất nền tĩnh: chỉ giữ Gaussian sống từ 20 khung trở lên (tham số gốc của PVG là mỗi Gaussian ở đỉnh của nó, nên không cần chọn thời điểm). **Kiểm trên run #2 (PVG trên W1) trước khi bỏ `pvg` khỏi `TIME_VARYING_METHODS`:** xem `time_varying` trong `eval.ply/background/scene.json` (số giữ, số bỏ, phân vị độ dài đời), ảnh render `.ply` không còn vệt xe, và `ply_psnr` không kém `native_psnr` quá khoảng 2 dB; nếu vẫn kém thì giữ cờ và ghi R3 là không áp dụng cho PVG. DeformableGS còn lại: biến dạng ở một thời điểm, làm sau khi có checkpoint của #3.
+- **#11 trong bảng xếp hạng**: `d2s benchmark` chưa có nhóm "chunked" gộp `frames.jsonl` của các chunk (ARCHITECTURE mục 2.17), nên 6 run chunk chạy được nhưng chưa vào `week04.yaml`.
+- **#14 (SplatAD)**: chưa có approach trong tool, nên không có lệnh ở đây.

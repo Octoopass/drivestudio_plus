@@ -7,11 +7,12 @@ file trong thư mục làm việc (``D2S_WORKDIR``, mặc định gốc repo), k
     python -m drive2sim.scripts.setup_benchmark_week04 commands
     python -m drive2sim.scripts.setup_benchmark_week04 definition [--out benchmarks/week04.yaml]
 
-- ``splits``: tạo các split của W1, A1, A2, A3, B2 (và 6 chunk của B2) bằng ``engine.scenes``.
+- ``splits``: tạo các split của W1, A2, A3, B2 (và 6 chunk của B2) bằng ``engine.scenes``.
   A3 cho theo số hiệu khung gốc của KITTI-360 nên được đổi sang chỉ số khung của cảnh qua
   ``frame_ids.txt``; in thêm độ đổi hướng xe trong A3 để kiểm có rẽ. Cảnh chưa ingest thì bỏ qua
   và in lệnh ingest.
-- ``commands``: in lệnh ``d2s run start`` cho từng run của ma trận, theo số thứ tự ở Sheet.
+- ``commands``: in lệnh ``d2s run start`` cho từng run của ma trận, theo số thứ tự ở Sheet
+  (#1–#14 sau khi nhóm đánh số lại 26/11).
 - ``definition``: đọc ``run.json`` của các run đã xong, xếp vào nhóm của ma trận và ghi
   ``benchmarks/week04.yaml`` (CONTRACTS mục 6.5) cho ``d2s benchmark``. Run chạy thử (``--quick``)
   bị bỏ; một ô có nhiều run khớp thì lấy run mới nhất và báo.
@@ -38,10 +39,10 @@ from drive2sim.engine.run import list_runs
 from drive2sim.engine.workdir import Workdir, WorkdirError
 
 SHORT_SCENE = "kitti360_2013_05_28_drive_0003_sync"
-"""Cảnh của A1, A2 và track C: 200 khung đầu của chuỗi 0003 (khung gốc 1–220)."""
+"""Cảnh của A2: 200 khung đầu của chuỗi 0003 (khung gốc 1–220)."""
 
 LONG_SCENE = "kitti360_0003_long"
-"""Cảnh của A3 và B2: đoạn khung gốc 167–1030 của chuỗi 0003 (864 khung, khoảng 1,3 km)."""
+"""Cảnh của A3, B2 và track C: khung gốc 167–1030 của chuỗi 0003 (864 khung, khoảng 1,3 km)."""
 
 LONG_SCENE_INGEST = (
     "d2s kaggle ingest <người dùng>/d2s-raw-kitti360-0003 "
@@ -109,15 +110,15 @@ FIXED_SPLITS = (
         index_range=WAYMO_FRAMES,
         purpose="W1, pinhole xếp hạng (R2 không áp dụng)",
     ),
-    SplitPlan(SHORT_SCENE, "every8_stereo", STEREO, ("image_01",), purpose="A1, kiểm R2"),
     SplitPlan(
         SHORT_SCENE, "every8_stereo_fisheye2", STEREO + FISHEYE, ("image_01",), purpose="A2"
     ),
     SplitPlan(
-        SHORT_SCENE,
+        LONG_SCENE,
         "every8_mixed3",
         ("image_00",) + FISHEYE,
-        purpose="C (Instant NuRec; prep.ncore chưa bỏ camera chỉ test nên không có image_01)",
+        purpose="C, Instant NuRec trên cảnh dài, camera như A2 (prep.ncore chưa bỏ camera chỉ "
+        "test nên không có image_01)",
     ),
     SplitPlan(
         LONG_SCENE,
@@ -345,30 +346,11 @@ A_L_WINNER = "<thắng A-L: pvg|deformablegs>"
 A_LB_WINNER = "<thắng A-LB: omnire + các --set của run thắng>"
 
 RUN_COMMANDS = (
-    RunCommand("1", "omnire", SHORT_SCENE, "every8_stereo", OMNIRE_FASTGS, True, "smoke R2"),
-    RunCommand("2", "pvg", SHORT_SCENE, "every8_stereo", (), True, "smoke R2"),
-    RunCommand("3", "deformablegs", SHORT_SCENE, "every8_stereo", (), True, "smoke R2"),
-    RunCommand("4", "omnire", WAYMO_SCENE, WAYMO_SPLIT, OMNIRE_FASTGS, note="A-LB, seed 0"),
-    RunCommand("5", "pvg", WAYMO_SCENE, WAYMO_SPLIT, note="A-L"),
-    RunCommand("6", "deformablegs", WAYMO_SCENE, WAYMO_SPLIT, note="A-L"),
+    RunCommand("1", "omnire", WAYMO_SCENE, WAYMO_SPLIT, OMNIRE_FASTGS, note="A-LB"),
+    RunCommand("2", "pvg", WAYMO_SCENE, WAYMO_SPLIT, note="A-L"),
+    RunCommand("3", "deformablegs", WAYMO_SCENE, WAYMO_SPLIT, note="A-L"),
     RunCommand(
-        "7",
-        "omnire",
-        WAYMO_SCENE,
-        WAYMO_SPLIT,
-        OMNIRE_FASTGS + ("train.drivestudio.seed=1",),
-        note="hiệu chỉnh seed",
-    ),
-    RunCommand(
-        "8",
-        "omnire",
-        WAYMO_SCENE,
-        WAYMO_SPLIT,
-        OMNIRE_FASTGS + ("train.drivestudio.seed=2",),
-        note="hiệu chỉnh seed",
-    ),
-    RunCommand(
-        "9",
+        "4",
         A_L_WINNER,
         WAYMO_SCENE,
         WAYMO_SPLIT,
@@ -376,7 +358,7 @@ RUN_COMMANDS = (
         note="A-0",
     ),
     RunCommand(
-        "10",
+        "5",
         "omnire",
         SHORT_SCENE,
         "every8_stereo_fisheye2",
@@ -384,7 +366,7 @@ RUN_COMMANDS = (
         note="A-LB fisheye",
     ),
     RunCommand(
-        "11",
+        "6",
         "omnire",
         SHORT_SCENE,
         "every8_stereo_fisheye2",
@@ -392,35 +374,60 @@ RUN_COMMANDS = (
         note="A-LB fisheye",
     ),
     RunCommand(
-        "12",
+        "7",
         A_L_WINNER,
         SHORT_SCENE,
         "every8_stereo_fisheye2",
         ("renderer=3dgut", "campose=false"),
         note="A-L fisheye",
     ),
-    RunCommand("13", "mcgs", LONG_SCENE, "every8_pinhole2", note="track B"),
-    RunCommand("15", "nurec", SHORT_SCENE, "every8_mixed3", note="track C"),
-    RunCommand("16", A_LB_WINNER, LONG_SCENE, "every8_stereo_a3", note="A3"),
+    RunCommand("8", "mcgs", LONG_SCENE, "every8_pinhole2", note="track B"),
+    RunCommand(
+        "9",
+        "nurec",
+        LONG_SCENE,
+        "every8_mixed3",
+        note="track C; cảnh dài cần ~48 đoạn NuRec, tool giới hạn 8: chọn cách chia trước",
+    ),
+    RunCommand("10", A_LB_WINNER, LONG_SCENE, "every8_stereo_a3", note="A3"),
+    RunCommand(
+        "12",
+        A_L_WINNER,
+        LONG_SCENE,
+        "every8_stereo_a3",
+        note="A3, A-L (ưu tiên 2)",
+    ),
+    RunCommand("13", "beziergs", WAYMO_SCENE, WAYMO_SPLIT, note="W1, A-LB (ưu tiên 2)"),
 )
-SKIPPED_COMMANDS = (
-    "#14 (smoke Instant NuRec): chạy trên clip mẫu NCore, không qua cảnh KITTI-360",
-)
+CHUNK_RUN_NUMBER = 11  # #11: drivestudio chia chunk trên B2, một run cho mỗi chunk
+SKIPPED_COMMANDS = ("#14 (SplatAD, ưu tiên 2): chưa có approach, cần port vào trainer",)
 
 
 def print_commands(workdir: Workdir) -> int:
-    """In lệnh chạy từng run của ma trận, kể cả 6 chunk của B2 (#17)."""
-    for command in RUN_COMMANDS:
-        print(f"# {command.number} {command.note}\n{command.render()}")
+    """In lệnh chạy từng run của ma trận, kể cả 6 chunk của B2 (#11)."""
+
+    def show(commands: Sequence[RunCommand]) -> None:
+        for command in commands:
+            print(f"# {command.number} {command.note}\n{command.render()}")
+
+    show([c for c in RUN_COMMANDS if int(c.number) < CHUNK_RUN_NUMBER])
     num_frames = None
     try:
         num_frames = workdir.load_scene(LONG_SCENE).manifest.timeline.num_frames
     except WorkdirError:
         pass
     count = len(chunk_splits(num_frames)) if num_frames else CHUNK_COUNT
-    print("# 17 track B, drivestudio chia chunk: mỗi chunk một run, cùng cấu hình thắng A-LB")
+    print(
+        f"# {CHUNK_RUN_NUMBER} track B, drivestudio chia chunk: mỗi chunk một run, "
+        "cùng cấu hình thắng A-LB"
+    )
     for index in range(1, count + 1):
-        print(RunCommand("17", A_LB_WINNER, LONG_SCENE, f"every8_stereo_c{index}").render())
+        print(
+            RunCommand(
+                str(CHUNK_RUN_NUMBER), A_LB_WINNER, LONG_SCENE, f"every8_stereo_c{index}"
+            ).render()
+        )
+    show([c for c in RUN_COMMANDS if int(c.number) > CHUNK_RUN_NUMBER])
     for line in SKIPPED_COMMANDS:
         print(f"# không có lệnh: {line}")
     return 0
@@ -505,7 +512,7 @@ ENTRY_PLANS = (
         "A3 A-L",
     ),
     EntryPlan("B", None, LONG_SCENE, "every8_pinhole2", (Slot("mcgs"),), "B2 MCGS-SLAM"),
-    EntryPlan("C", None, SHORT_SCENE, "every8_mixed3", (Slot("nurec"),), "C Instant NuRec"),
+    EntryPlan("C", None, LONG_SCENE, "every8_mixed3", (Slot("nurec"),), "C Instant NuRec"),
 )
 CALIBRATION_SLOTS = tuple(
     Slot(OMNIRE_W1.approach_id, OMNIRE_W1.options, seed) for seed in (0, 1, 2)
@@ -597,11 +604,11 @@ def build_definition(runs: Sequence[RunRecord]) -> Definition:
         )
     else:
         notes.append(
-            f"hiệu chỉnh seed: mới có {len(calibration_runs)} run (cần ít nhất 2), "
-            "d2s benchmark dùng ngưỡng hoà mặc định 0,3 dB"
+            f"hiệu chỉnh seed: có {len(calibration_runs)} run (cần ít nhất 2; ma trận không còn "
+            "run hiệu chỉnh seed), d2s benchmark dùng ngưỡng hoà mặc định 0,3 dB"
         )
     notes.append(
-        "#17 (6 chunk của B2) chưa vào file định nghĩa: d2s benchmark chưa có nhóm chunked "
+        "#11 (6 chunk của B2) chưa vào file định nghĩa: d2s benchmark chưa có nhóm chunked "
         "(ARCHITECTURE mục 2.17)"
     )
     if not entries:
