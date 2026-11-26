@@ -82,7 +82,7 @@ cmd_bootstrap() {
   raw_ssh 'bash -s' << 'EOF'
 set -e
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq && apt-get install -y -qq rsync git curl tmux unzip > /dev/null
+apt-get update -qq && apt-get install -y -qq rsync git curl tmux unzip libgl1 libglib2.0-0 > /dev/null
 python3 -m pip install -q uv
 # kaggle trên PyPI không khai báo phụ thuộc six, nên lệnh kaggle báo ModuleNotFoundError nếu không thêm.
 uv tool install -q --with six kaggle || uv tool upgrade -q --with six kaggle

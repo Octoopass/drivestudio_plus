@@ -42,9 +42,12 @@ extras() {
   # Tiền xử lý Waymo cần tensorflow 2.11 + waymo-open-dataset, không hợp với env chính: venv riêng
   # (Python 3.10) có drive2sim, các gói ingest như notebook ingest Kaggle, và devkit Waymo.
   if [ ! -x "$WAYMO_VENV/bin/d2s" ]; then
-    uv venv --quiet --seed --python 3.10 "$WAYMO_VENV"
+    # unsafe-best-match: mặc định uv chỉ lấy setuptools từ index PyTorch (index phụ đứng trước), không có
+    # bản 67.6.0 mà waymo-open-dataset đòi, nên giải phụ thuộc lỗi.
+    uv venv --quiet --clear --seed --python 3.10 "$WAYMO_VENV"
     uv pip install --quiet --python "$WAYMO_VENV/bin/python" \
       --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cpu \
+      --index-strategy unsafe-best-match \
       -e . "torch==2.4.1" "waymo-open-dataset-tf-2-11-0==1.6.0" \
       "opencv-python-headless==4.11.0.86" "pyquaternion==0.9.9" "matplotlib<3.9" tqdm pillow
   fi
