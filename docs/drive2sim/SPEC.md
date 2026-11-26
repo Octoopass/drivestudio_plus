@@ -231,3 +231,14 @@ Thứ tự làm thật (`ARCHITECTURE.md` mục 7.4) là bộ khung trước, t�
 1. Định dạng bộ dữ liệu riêng của mentor.
 2. AD stack dùng để chạy thử ở mức L4 (agent có sẵn của CARLA hay planner tự viết) và tiêu chí chấm điểm (va chạm, lệch làn, hoàn thành tuyến hay tiêu chí khác).
 3. ~~Ngưỡng chênh PSNR chấp nhận được ở nghiệm thu tầng dữ liệu.~~ Không cần: nghiệm thu so dữ liệu từng bit (mục 13).
+
+
+Công cụ mask thân xe của Studio cho biết camera đang sửa, hướng dẫn điểm xanh/đỏ và báo đang
+nạp ảnh hoặc tạo mask. Người dùng có thể tẩy mask nháp hay mask đã lưu bằng cọ điều chỉnh
+kích thước, xem lại rồi lưu. Mỗi camera dùng một mask cố định cho các khung của cảnh.
+
+
+Khi nạp cảnh trong Studio, tên cảnh đã tồn tại hoặc đang được nạp phải được báo trước khi
+xếp việc. Hộp thoại giữ lựa chọn nguồn để người dùng sửa tên và thử lại. Ô tên nhận tên ngắn và
+hiển thị tên đầy đủ có tiền tố dataset trước khi nạp. Việc nạp thất bại
+không ngăn người dùng tạo yêu cầu tiếp theo.

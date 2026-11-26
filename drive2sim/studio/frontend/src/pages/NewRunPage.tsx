@@ -402,6 +402,11 @@ export function NewRunPage({
                   }))}
                 />
                 {check.lidar_usage.length === 0 && <p className="muted small">{t("new.plan.no_lidar")}</p>}
+                {(check.data_warnings ?? []).map((w) => (
+                  <p key={w} className="small" style={{ color: "var(--warn, #d97706)" }}>
+                    ⚠ {w}
+                  </p>
+                ))}
               </div>
             )}
             {!check && !checking && !checkError && <p className="muted">{t("new.plan.waiting")}</p>}

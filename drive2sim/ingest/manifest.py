@@ -32,6 +32,7 @@ from drive2sim import paths
 from drive2sim.core.instances import human_frame_ranges
 from drive2sim.core.schema import CAMERA_TRACK, SCHEMA_VERSIONS, Manifest, ManifestSource
 from drive2sim.engine.run import code_commit
+from drive2sim.ingest import ego_masks
 from drive2sim.ingest.images import IMAGE_SUFFIXES, read_image_size
 
 
@@ -138,8 +139,9 @@ DRIVESTUDIO_OUTPUT_VERSION = 1
 KITTI360_OUTPUT_VERSION = 3
 # Tên converter KITTI-360 ghi trong manifest (``kitti360.CONVERTER``; không import để tránh vòng).
 _KITTI360_CONVERTER = "kitti360"
-# PHENIKAA (``phenikaa.CONVERTER``): 1 là bản đầu, 25/11/2026.
-PHENIKAA_OUTPUT_VERSION = 1
+# PHENIKAA (``phenikaa.CONVERTER``): 1 là bản đầu, 25/11/2026; 2 thêm ``ego_masks/``,
+# ``instances/`` (box nối bằng tracking), 26/11/2026.
+PHENIKAA_OUTPUT_VERSION = 2
 _PHENIKAA_CONVERTER = "phenikaa"
 # Manifest viết trước ``d2s-manifest/1.1`` không có ``output_version``: coi là bản đầu, trừ khi
 # ``converter_version`` ghi một commit đã có đầu ra mới nhưng chưa ghi trường này. Commit 188fb9b
@@ -315,6 +317,11 @@ def build_manifest(
             "available": {
                 "lidar": bool(lidars),
                 "cuboids": "gt" if has_cuboids else "none",
+                # Có camera nào dùng mask thân xe không (chi tiết từng camera: ego_masks.py).
+                "egocar_mask": any(
+                    ego_masks.has_mask(scene_dir, dataset, camera_id, index)
+                    for index, camera_id in enumerate(camera_ids)
+                ),
                 "human_frames": (
                     human_frame_ranges(scene_dir) if (scene_dir / "instances").exists() else []
                 ),

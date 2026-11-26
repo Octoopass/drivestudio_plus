@@ -21,9 +21,9 @@ data:
     undistort: False # pinhole images are undistorted at ingest; fisheye images are rendered natively
     test_image_stride: 0 # use every Nth timestep for the test set. if 0, use all images for training and none for testing
     load_sky_mask: True # whether to load sky mask
-    load_dynamic_mask: False # no dynamic masks until boxes have track IDs
-    load_objects: False # PHENIKAA boxes have no track IDs yet (no instances/)
-    load_smpl: False # no humans without tracked boxes
+    load_dynamic_mask: True # boxes tracked at ingest (drive2sim/ingest/phenikaa_tracking.py)
+    load_objects: True # instances/ written from tracked label boxes
+    load_smpl: True # train.drivestudio turns it off when the scene has no humanpose/smpl.pkl
     sampler: # error based image sampler
       buffer_downscale: 8 # downscale factor for the buffer wrt load_size
       buffer_ratio: 0.5 # the percentage of images sampled according to the error buffer

@@ -298,10 +298,10 @@ def _detect_phenikaa(root: Path, report: SourceReport) -> bool:
     report.versions[""] = list(sequences)
     report.cameras = list(phenikaa.CAMERAS)
     report.has_lidar = True
-    report.has_cuboids = False
+    report.has_cuboids = True
     report.notes.append(
-        "box 3D của PHENIKAA chưa có ID theo dõi: cảnh ingest chưa có instances/ (cần bước "
-        "tracking); camera pinhole được khử méo khi ingest"
+        "box 3D của PHENIKAA không có ID theo dõi: converter tự nối box qua các khung "
+        "(phenikaa_tracking); camera pinhole được khử méo khi ingest; mask thân xe kèm theo tool"
     )
     try:
         phenikaa.find_calib(next(iter(sequences.values())))
@@ -440,6 +440,51 @@ def _find_candidates(root: Path) -> list[dict[str, str]]:
     return found
 
 
+VIDEO_SUFFIXES = (".mp4", ".webm", ".avi", ".mov", ".mkv")
+# Từ khoá tên thư mục của các cảm biến mà không converter nào dùng.
+UNUSED_SENSOR_WORDS = ("radar", "ultrasonic", "sonar", "thermal", "event")
+
+
+def _unused_data(root: Path) -> list[str]:
+    """Loại dữ liệu có trong nguồn mà tool không dùng, để báo cho người dùng biết.
+
+    Duyệt tới độ sâu ``_MAX_DEPTH`` (thư mục ẩn bỏ qua): file video (tool dựng cảnh từ ảnh từng
+    khung, không đọc video) và thư mục mang tên cảm biến trong ``UNUSED_SENSOR_WORDS`` (radar...).
+
+    Returns:
+        Mỗi loại một câu, ví dụ ``"video: 3 file .mp4"``; rỗng nếu không có.
+    """
+    videos: Counter[str] = Counter()
+    sensors: dict[str, list[str]] = {}
+    stack = [(root, 0)]
+    while stack:
+        directory, depth = stack.pop()
+        try:
+            entries = list(directory.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            if entry.name.startswith("."):
+                continue
+            if entry.is_dir():
+                lowered = entry.name.lower()
+                word = next((w for w in UNUSED_SENSOR_WORDS if w in lowered), None)
+                if word:
+                    sensors.setdefault(word, []).append(entry.relative_to(root).as_posix())
+                elif depth < _MAX_DEPTH:
+                    stack.append((entry, depth + 1))
+            elif entry.suffix.lower() in VIDEO_SUFFIXES:
+                videos[entry.suffix.lower()] += 1
+    found = []
+    if videos:
+        listed = ", ".join(f"{count} file {suffix}" for suffix, count in videos.most_common())
+        found.append(f"video: {listed}")
+    for word, folders in sorted(sensors.items()):
+        shown = ", ".join(sorted(folders)[:3]) + (" ..." if len(folders) > 3 else "")
+        found.append(f"{word}: {len(folders)} thư mục ({shown})")
+    return found
+
+
 def _inventory(root: Path) -> list[dict[str, object]]:
     """Liệt kê thư mục ảnh và các nhóm file cùng đuôi, tới độ sâu 3.
 
@@ -496,7 +541,13 @@ def inspect_source(path: Path) -> SourceReport:
     if not root.is_dir():
         raise FileNotFoundError(f"không có thư mục {root}")
     report = SourceReport(path=root)
+    unused = _unused_data(root)
     if any(detect(root, report) for detect in _DETECTORS):
+        if unused:
+            report.notes.append(
+                "nguồn có dữ liệu mà tool không dùng (bỏ qua khi ingest, không ảnh hưởng cảnh): "
+                + "; ".join(unused)
+            )
         if not report.ingest_supported:
             report.notes.append(
                 f"nhận ra {report.dataset} nhưng scene ingest chưa hỗ trợ nguồn này"
@@ -515,6 +566,15 @@ def inspect_source(path: Path) -> SourceReport:
     report.inventory = _inventory(root)
     report.notes.append(
         "không nhận ra dataset nào đã biết; cần viết converter mới, bắt đầu từ converter gần "
-        "nhất về hình dạng dữ liệu (ARCHITECTURE mục 4.2)"
+        "nhất về hình dạng dữ liệu (ARCHITECTURE mục 4.2). Một cảnh dựng được cần ít nhất: ảnh "
+        "từng khung của mỗi camera, thông số trong và vị trí gắn của camera (calib), pose xe theo "
+        "khung; LiDAR và box 3D tuỳ phương pháp"
     )
+    if unused:
+        report.notes.append("tool không đọc trực tiếp: " + "; ".join(unused))
+    if any(item.startswith("video") for item in unused):
+        report.notes.append(
+            "chỉ có video: tách thành ảnh từng khung trước (ví dụ ffmpeg); không có calib, pose "
+            "thì phải ước lượng bằng COLMAP, tool chưa có converter cho COLMAP"
+        )
     return report

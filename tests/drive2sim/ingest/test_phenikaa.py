@@ -32,6 +32,17 @@ VEHICLE_TO_PINHOLE = [[0, -1, 0, 0.1], [0, 0, -1, 1.8], [1, 0, 0, -1.3], [0, 0, 
 VEHICLE_TO_FISHEYE = [[0, 1, 0, 0.0], [0, 0, -1, 1.3], [-1, 0, 0, -2.0], [0, 0, 0, 1]]
 
 
+@pytest.fixture(autouse=True)
+def no_tool_masks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Asset mask thân xe trỏ tới thư mục trống: mask thật là ảnh 1920 px, chuỗi giả nhỏ hơn."""
+    from drive2sim import paths
+
+    folder = tmp_path / "assets"
+    folder.mkdir()
+    monkeypatch.setattr(paths, "EGO_MASKS_DIR", folder)
+    return folder
+
+
 def pose(yaw: float, x: float) -> list[float]:
     """Ego pose 3x4 dạng một dòng như file ``ego_pose/<mốc>.txt``, toạ độ toàn cục lớn."""
     c, s = math.cos(yaw), math.sin(yaw)
@@ -92,7 +103,7 @@ def test_detects_sequences_and_quotes_suggestion(tmp_path: Path) -> None:
 
     report = inspect_source(make_source(tmp_path / "raw"))
     assert report.dataset == "phenikaa" and report.versions == {"": ["TEST SEQ"]}
-    assert report.has_lidar is True and report.has_cuboids is False and not report.errors
+    assert report.has_lidar is True and report.has_cuboids is True and not report.errors
     assert "--sequence 'TEST SEQ'" in _suggestion(report)
 
 
@@ -156,3 +167,53 @@ def test_missing_calib_and_fisheye_fold(tmp_path: Path) -> None:
         run_ingest(raw, Workdir(tmp_path / "work"), plan_ingest(inspect_source(raw)))
     # Hệ số làm đa thức gập trước 90 độ thì góc dùng được dừng ở điểm gập.
     assert phenikaa.fisheye_max_angle([-0.5, 0.0, 0.0, 0.0]) < 1.0
+
+
+def test_ego_masks_reach_scene_and_loader(tmp_path: Path, no_tool_masks: Path) -> None:
+    """Mask của tool được chép vào ``ego_masks/``; loader dùng nó cho loss, chấm điểm và LiDAR."""
+    torch = pytest.importorskip("torch")
+    from drive2sim.recon.data.base.pixel_source import scene_ego_mask
+
+    assets = no_tool_masks
+    (assets / "phenikaa").mkdir()
+    mask = np.zeros((96, 128), np.uint8)
+    mask[80:, :] = 255  # nắp capo ở dưới ảnh
+    cv2.imwrite(str(assets / "phenikaa" / "CAM_P_F.png"), mask)
+    cv2.imwrite(str(assets / "phenikaa" / "CAM_F_L.png"), np.zeros((10, 10), np.uint8))
+    raw = make_source(tmp_path / "raw")
+    target = plan_ingest(inspect_source(raw))
+    # Mask sai kích thước (bộ camera khác) bị từ chối, không co giãn.
+    with pytest.raises(IngestError, match="không khớp"):
+        run_ingest(raw, Workdir(tmp_path / "bad"), target)
+    (assets / "phenikaa" / "CAM_F_L.png").unlink()
+    scene = run_ingest(raw, Workdir(tmp_path / "work"), target)
+    assert sorted(p.name for p in (scene / "ego_masks").iterdir()) == ["CAM_P_F.png"]
+    loaded = scene_ego_mask(str(scene), "CAM_P_F", (96, 128))
+    assert loaded is not None and np.array(loaded)[90, 5] == 255
+    assert scene_ego_mask(str(scene), "CAM_F_L", (72, 128)) is None
+    with pytest.raises(ValueError, match="khác ảnh"):
+        scene_ego_mask(str(scene), "CAM_P_F", (72, 128))
+
+    from drive2sim.recon.data.loaders.standard import StandardCameraData
+
+    camera = StandardCameraData(
+        dataset_name="phenikaa", data_path=str(scene), cam_id=0,
+        start_timestep=0, end_timestep=3, device=torch.device("cpu"),
+    )  # fmt: skip
+    assert camera.egocar_mask is not None and camera.egocar_mask[90].all()
+    camera.normalized_time = None  # pixel source đặt hai trường này khi dựng cả cảnh
+    camera.unique_img_idx = torch.arange(3)
+    image, _ = camera.get_image(0)
+    assert not image["valid_masks"][90].any() and image["valid_masks"][10].all()
+    assert image["egocar_masks"][90].all()
+
+
+def test_existing_scene_is_rejected_before_reading_source(tmp_path: Path) -> None:
+    from drive2sim.engine.workdir import Workdir
+    from drive2sim.ingest.drivestudio import IngestError
+    from drive2sim.ingest.phenikaa import ingest_phenikaa
+
+    workdir = Workdir(tmp_path / "work")
+    workdir.scene_dir("phenikaa_complex-city").mkdir(parents=True)
+    with pytest.raises(IngestError, match="đã có"):
+        ingest_phenikaa(tmp_path / "source-does-not-exist", workdir, "COMPLEX CITY")

@@ -19,13 +19,16 @@ Converter ghi theo **khung thư mục KITTI của DriveStudio** như KITTI-360 (
 - ``extrinsics/<chỉ số>.txt``: camera → xe (nghịch đảo của ``Sensor_Extrinsics.json``).
 - ``lidar/<khung>.bin``: ``float32`` x, y, z, cường độ (0–1) trong hệ xe.
 - ``ego_pose/<khung>.txt``: xe → world, world là hệ xe ở khung đầu của cảnh.
+- ``ego_masks/<camera>.png``: mask thân xe (trắng) của 8 camera thấy thân xe, chép từ
+  ``drive2sim/assets/ego_masks/phenikaa/``.
 - ``frame_ids.txt`` (số thứ tự khung trong chuỗi gốc), ``timestamps.txt`` (micro giây).
 
-Chưa ghi box: nhãn PHENIKAA không có ID theo dõi nên chưa dựng được ``instances/`` (cần bước
-tracking riêng); manifest ghi ``cuboids: none``. Box gốc vẫn ở thư mục dữ liệu gốc.
+- ``instances/``, ``dynamic_masks/{all,human,vehicle}/``: nhãn ``label/`` không có ID theo dõi nên
+  được nối qua các khung bằng ``phenikaa_tracking`` (box gốc, ID do tool gán), ghi như KITTI-360;
+  số liệu tracking nằm trong ``reports/ingest.json``.
 
 Giới hạn đã biết: ma trận camera mắt cá có skew khoảng 0,4–0,5 (``K[0, 1]``) mà mô hình mắt cá của
-tool không có, nên bị bỏ (lệch dưới 1 pixel); chưa có mask thân xe.
+tool không có, nên bị bỏ (lệch dưới 1 pixel).
 
 Cần ``numpy``, ``opencv-python`` và ``laspy[lazrs]`` (môi trường ``drive2sim``), chỉ nạp khi
 ingest.
@@ -47,10 +50,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
+from drive2sim import paths
 from drive2sim.core import files, identifiers
 from drive2sim.core.schema import ReportSummary, ValidationReport
 from drive2sim.engine.workdir import Workdir
+from drive2sim.ingest import ego_masks, kitti360_boxes, phenikaa_tracking
 from drive2sim.ingest.drivestudio import IngestError, default_scene_id
+from drive2sim.ingest.images import read_image_size, write_mask_png
 from drive2sim.ingest.manifest import build_manifest
 from drive2sim.ingest.validate import validate_scene
 
@@ -74,6 +80,8 @@ CAMERAS: tuple[str, ...] = (
     "CAM_F_R",
     "CAM_F_B",
 )
+# Camera không thấy thân xe (đã xem ảnh trung vị của cả ba chuỗi, 26/11/2026).
+NO_EGO_BODY = ("CAM_P_FL", "CAM_P_B")
 CALIB_DIR = "calib"
 INTRINSICS_FILE = "Camera_Intrinsics.json"
 EXTRINSICS_FILE = "Sensor_Extrinsics.json"
@@ -251,6 +259,89 @@ def _place_image(source: Path, target: Path) -> None:
         shutil.copy2(source, target)
 
 
+def _copy_ego_masks(cameras: list[str], scene_dir: Path) -> list[str]:
+    """Chép mask thân xe của tool (``EGO_MASKS_DIR/phenikaa``) vào ``ego_masks/`` của cảnh.
+
+    Mask vẽ trên ảnh đã ingest (pinhole đã khử méo theo calib hiện tại, mắt cá ảnh gốc), nên chỉ
+    đúng với bộ calib này; mask khác kích thước ảnh của camera thì báo lỗi. Camera trong
+    ``NO_EGO_BODY`` (đã xem: không thấy thân xe) được ghi ``none`` vào ``ego_masks/status.json``.
+
+    Returns:
+        Các camera đã có mask.
+    """
+    import cv2
+
+    copied = []
+    for camera in cameras:
+        source = paths.EGO_MASKS_DIR / DATASET / f"{camera}.png"
+        if not source.is_file():
+            continue
+        mask = cv2.imread(str(source), cv2.IMREAD_GRAYSCALE)
+        image = cv2.imread(str(scene_dir / "images" / f"000_{cameras.index(camera)}.jpg"))
+        if mask is None or image is None or mask.shape != image.shape[:2]:
+            raise IngestError(f"mask thân xe {source.name} không khớp kích thước ảnh {camera}")
+        (scene_dir / "ego_masks").mkdir(exist_ok=True)
+        shutil.copyfile(source, scene_dir / "ego_masks" / source.name)
+        copied.append(camera)
+    for camera in cameras:
+        if camera in NO_EGO_BODY:
+            ego_masks.set_state(scene_dir, camera, "none")
+    return copied
+
+
+def _write_objects(
+    sequence_dir: Path,
+    stamps: list[str],
+    ego_poses: list[list[list[float]]],
+    scene_dir: Path,
+    cam_to_ego: list[list[list[float]]],
+    models: list[str],
+    intrinsic_values: list[list[float]],
+) -> dict:
+    """Nối box ``label/`` thành vật (``phenikaa_tracking``), ghi ``instances/`` và mask vật động.
+
+    Định dạng như KITTI-360 (``kitti360_boxes.build_instances``, ``dynamic_mask_rects``): world của
+    cảnh đã là hệ xe ở khung đầu nên ``world_from_global`` là ma trận đơn vị.
+
+    Returns:
+        Số liệu tracking (``phenikaa_tracking.tracking_stats``) để ghi vào ``reports/ingest.json``;
+        ``{}`` khi chuỗi không có nhãn.
+    """
+    labels = []
+    for t, stamp in enumerate(stamps):
+        path = sequence_dir / "label" / f"{stamp}.txt"
+        labels.append(phenikaa_tracking.read_labels(path, ego_poses[t]) if path.is_file() else [])
+    if not any(labels):
+        return {}
+    boxes, stats = phenikaa_tracking.track(labels)
+    identity = [[float(i == j) for j in range(4)] for i in range(4)]
+    info, frame_instances = kitti360_boxes.build_instances(boxes, range(len(stamps)), identity)
+    (scene_dir / "instances").mkdir(exist_ok=True)
+    (scene_dir / "instances" / "instances_info.json").write_text(json.dumps(info, indent=1))
+    (scene_dir / "instances" / "frame_instances.json").write_text(
+        json.dumps(frame_instances, indent=1)
+    )
+    sizes = [
+        read_image_size(scene_dir / "images" / f"000_{index}.jpg") for index in range(len(models))
+    ]
+    for group in kitti360_boxes.MASK_GROUPS:
+        (scene_dir / "dynamic_masks" / group).mkdir(parents=True, exist_ok=True)
+    for t, ego in enumerate(ego_poses):
+        for index, model in enumerate(models):
+            width, height = sizes[index]
+            rects = kitti360_boxes.dynamic_mask_rects(
+                info, t, ego, cam_to_ego[index], model, intrinsic_values[index], width, height
+            )
+            for group, group_rects in rects.items():
+                write_mask_png(
+                    scene_dir / "dynamic_masks" / group / f"{t:03d}_{index}.png",
+                    width,
+                    height,
+                    group_rects,
+                )
+    return stats
+
+
 def ingest_phenikaa(
     raw_dir: Path,
     workdir: Workdir,
@@ -277,6 +368,15 @@ def ingest_phenikaa(
     Raises:
         IngestError: Nếu thiếu chuỗi, calib, ảnh hoặc cảnh đã có.
     """
+    scene_id = scene_id or default_scene_id(DATASET, sequence)
+    identifiers.check_scene_id(scene_id)
+    scene_dir = workdir.scene_dir(scene_id)
+    if scene_dir.exists():
+        raise IngestError(
+            f"cảnh {scene_id} đã có ở {workdir.relative(scene_dir)}; xoá cảnh đó hoặc đặt "
+            "scene_id khác"
+        )
+
     try:
         import cv2
         import numpy as np
@@ -323,20 +423,12 @@ def ingest_phenikaa(
         raise IngestError(f"{sequence}: thiếu LiDAR ở {len(missing_lidar)} mốc")
     calibration = read_calibration(calib_dir, cameras)
 
-    scene_id = scene_id or default_scene_id(DATASET, sequence)
-    identifiers.check_scene_id(scene_id)
-    scene_dir = workdir.scene_dir(scene_id)
-    if scene_dir.exists():
-        raise IngestError(
-            f"cảnh {scene_id} đã có ở {workdir.relative(scene_dir)}; xoá cảnh đó hoặc đặt "
-            "scene_id khác"
-        )
     temp_dir = workdir.data_dir / ".ingest" / scene_id
     shutil.rmtree(temp_dir, ignore_errors=True)
     try:
         for name in ("images", "lidar", "ego_pose", "extrinsics", "intrinsics", "reports"):
             (temp_dir / name).mkdir(parents=True)
-        models, max_angles, notes = [], [], {}
+        models, max_angles, notes, intrinsic_values, cam_to_ego = [], [], {}, [], []
         maps = {}
         for index, camera in enumerate(cameras):
             calib = calibration[camera]
@@ -353,10 +445,12 @@ def ingest_phenikaa(
                 models.append("opencv_pinhole")
                 max_angles.append(None)
                 notes[camera] = {"undistorted_from": int(calib["dist"].size)}
+            intrinsic_values.append([float(v) for v in values])
             (temp_dir / "intrinsics" / f"{index}.txt").write_text(
                 "".join(f"{v:.18e}\n" for v in values)
             )
             camera_to_vehicle = np.linalg.inv(calib["vehicle_to_camera"])
+            cam_to_ego.append(camera_to_vehicle.tolist())
             (temp_dir / "extrinsics" / f"{index}.txt").write_text(_matrix_text(camera_to_vehicle))
 
         poses = []
@@ -385,6 +479,11 @@ def ingest_phenikaa(
                     cv2.imwrite(str(target), image, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
                 else:
                     _place_image(source, target)
+        masks = _copy_ego_masks(cameras, temp_dir)
+        scene_poses = [(world_from_global @ pose).tolist() for pose in poses]
+        tracking = _write_objects(
+            sequence_dir, stamps, scene_poses, temp_dir, cam_to_ego, models, intrinsic_values
+        )
         (temp_dir / "frame_ids.txt").write_text("".join(f"{t}\n" for t in range(len(stamps))))
         (temp_dir / "timestamps.txt").write_text("".join(f"{_microseconds(s)}\n" for s in stamps))
         (temp_dir / "reports" / "ingest.json").write_text(
@@ -396,6 +495,8 @@ def ingest_phenikaa(
                     "lidar_points": points,
                     "cameras": notes,
                     "cameras_skipped": [c for c in CAMERAS if c not in cameras],
+                    "ego_masks": masks,
+                    "tracking": tracking,
                 },
                 indent=2,
                 ensure_ascii=False,

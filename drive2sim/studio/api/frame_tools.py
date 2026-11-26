@@ -12,7 +12,7 @@ Hai công cụ kiểm tra dữ liệu của Fisheye Fusion Lab, chuyển sang c�
   ảnh chồng ở tab Kiểm tra, ``depth_colors``); điểm rơi lên thân xe tô xám (loader bỏ chúng). Calib
   đúng thì điểm nằm khít mép cột, xe, nhà. Nhanh (không cần PyTorch) nên xem được từng khung;
   ``tests/drive2sim/studio/test_frame_tools.py`` kiểm phép chiếu này trùng phép chiếu của loader
-  (``recon/data/loaders/kitti360.py``), và trên cảnh KITTI-360 thật mọi pixel loader chiếu ra đều
+  (``recon/data/loaders/standard.py``), và trên cảnh KITTI-360 thật mọi pixel loader chiếu ra đều
   trùng. Dataset khác (calib theo khung như nuScenes): route trả ảnh chồng do loader tạo sẵn
   (``reports/lidar_overlay/``, ``recon/tools/lidar_overlay.py``) cho các khung có.
 
@@ -194,7 +194,7 @@ def lidar_overlay(
     colors = depth_colors(depth)
     # Điểm rơi lên thân xe (mask ego của dataset) vẽ xám: loader bỏ chúng, model không học.
     pixels = uv[valid].astype(int)
-    ego = _ego_mask(manifest, index, image.shape[1], image.shape[0])
+    ego = _ego_mask(scene_root, manifest, index, image.shape[1], image.shape[0])
     if ego is not None:
         colors[ego[pixels[:, 1], pixels[:, 0]]] = EGO_GREY
     for (x, y), color in zip(pixels, colors):
@@ -220,18 +220,23 @@ def depth_colors(depth: "np.ndarray") -> "np.ndarray":
     return cv2.applyColorMap(levels, cv2.COLORMAP_TURBO).reshape(-1, 3).copy()
 
 
-def _ego_mask(manifest: Manifest, index: int, width: int, height: int) -> "np.ndarray | None":
+def _ego_mask(
+    scene_root: Path, manifest: Manifest, index: int, width: int, height: int
+) -> "np.ndarray | None":
     """Mask thân xe (``True`` là thân xe) cỡ ``width`` x ``height``; ``None`` nếu không có.
 
-    Tìm như loader: theo ``camera_id`` (KITTI-360) rồi theo chỉ số camera (các dataset khác).
+    Tìm như loader: mask đi kèm cảnh (``ego_masks/<camera_id>.png``), rồi asset của tool theo
+    ``camera_id`` (KITTI-360) và theo chỉ số camera (các dataset khác).
     """
     import cv2
 
     from drive2sim.paths import EGO_MASKS_DIR
 
+    camera_id = manifest.cameras[index].camera_id
     folder = EGO_MASKS_DIR / manifest.source.dataset
-    for name in (manifest.cameras[index].camera_id, str(index)):
-        path = folder / f"{name}.png"
+    candidates = [scene_root / "ego_masks" / f"{camera_id}.png"]
+    candidates += [folder / f"{name}.png" for name in (camera_id, str(index))]
+    for path in candidates:
         if path.is_file():
             mask = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
             if mask is not None:

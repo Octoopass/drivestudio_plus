@@ -251,7 +251,7 @@ def test_validate_clean_and_broken(tmp_path: Path) -> None:
     manifest = manifest_for(scene_dir)
     report = validate_scene(scene_dir, manifest)
     assert report.summary.errors == 0 and report.summary.warnings == 0
-    assert [c.check_id for c in report.checks] == ["projection.not_run"]
+    assert [c.check_id for c in report.checks] == ["ego_mask.summary", "projection.not_run"]
 
     (scene_dir / "images" / "001_2.jpg").unlink()
     (scene_dir / "intrinsics" / "3.txt").unlink()

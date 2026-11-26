@@ -801,3 +801,27 @@ table.centered td.block-head { text-align: left; }
 /* Nút xuất hình dưới biểu đồ (components/figureExport.tsx) */
 .exportable { display: flex; flex-direction: column; gap: 6px; }
 .export-row { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+
+
+/* Mask thân xe: camera đang chọn và phản hồi thao tác đặt cạnh ảnh đang sửa. */
+.egomask-layout { display: grid; grid-template-columns: 164px minmax(0, 1fr); gap: 14px; align-items: start; }
+.egomask-workspace { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.egomask-cameras { display: flex; flex-direction: column; gap: 8px; }
+.egomask-summary { order: -1; flex-basis: 100%; }
+.egomask-modes { display: flex; flex-wrap: wrap; gap: 8px; }
+.egomask-modes .btn[aria-pressed="true"] { color: var(--accent-ink); border-color: var(--accent); background: var(--accent-soft); }
+.egomask-actions .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.egomask-camera { display: grid; gap: 6px; padding: 11px 12px; text-align: left; color: var(--text); background: var(--panel); border: 1px solid var(--line-strong); border-radius: 10px; cursor: pointer; font: inherit; font-size: 12px; }
+.egomask-camera[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.egomask-camera:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.egomask-camera:disabled { cursor: wait; opacity: .7; }
+.egomask-camera-name { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 650; }
+.egomask-guide { display: flex; gap: 12px 24px; flex-wrap: wrap; padding: 12px 14px; background: var(--raised); border-radius: 10px; font-size: 13px; }
+.egomask-guide > span, .egomask-guide label { display: flex; align-items: center; gap: 8px; }
+.egomask-image { position: relative; max-width: 960px; min-height: 180px; user-select: none; overflow: hidden; background: var(--sunken); border: 1px solid var(--line-strong); border-radius: 10px; }
+.egomask-canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.egomask-loading { position: absolute; inset: 0; display: flex; gap: 10px; align-items: center; justify-content: center; padding: 24px; background: color-mix(in srgb, var(--panel) 85%, transparent); color: var(--text); text-align: center; font-size: 14px; }
+.egomask-spinner { flex-shrink: 0; animation: egomask-spin 1s linear infinite; }
+@keyframes egomask-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .egomask-spinner { animation: none; } }
+@media (max-width: 600px) { .egomask-layout { grid-template-columns: 106px minmax(0, 1fr); gap: 8px; } .egomask-camera { padding: 8px; font-size: 11px; overflow-wrap: anywhere; } .egomask-guide label { flex-wrap: wrap; } .egomask-image { min-height: 100px; } }

@@ -56,6 +56,8 @@ export interface CheckResult {
   lidar_usage: string[];
   stages: { stage_id: string; params: Record<string, unknown>; cache_hit: boolean }[];
   blocked_choices: Record<string, { choice: OptionValue; message: string }[]>;
+  /** Cảnh báo không khoá, ví dụ camera chưa xử lý mask thân xe. */
+  data_warnings?: string[];
 }
 
 export interface RunDetail extends RunRecord {

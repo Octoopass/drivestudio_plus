@@ -20,8 +20,10 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
+from drive2sim.core import identifiers
 from drive2sim.ingest.detect import SourceReport, inspect_source
 from drive2sim.ingest.dispatch import plan_ingest, run_ingest
+from drive2sim.ingest.drivestudio import default_scene_id
 from drive2sim.ingest.reports import scene_reports
 from drive2sim.studio.api import uploads
 from drive2sim.studio.api.state import state_of
@@ -80,7 +82,10 @@ def inspect(body: InspectBody) -> dict:
 
 @router.post("/api/sources/ingest", status_code=202)
 def ingest(body: IngestBody, request: Request) -> dict:
-    """Ingest một chuỗi ở nền.
+    """Kiểm tra tên cảnh trước khi xếp việc ingest vào hàng đợi.
+
+    Tên đã tồn tại hoặc đang được một việc ingest giữ trả 409 ngay, nên người dùng có thể
+    sửa tên trong hộp thoại rồi gửi lại. Việc thất bại không tiếp tục giữ tên cảnh.
 
     Returns:
         Việc vừa xếp hàng: ``{"job_id", "status": "queued", "label", ...}``.
@@ -95,12 +100,18 @@ def ingest(body: IngestBody, request: Request) -> dict:
         interpolate_n=body.interpolate_n,
     )
 
+    scene_id = body.scene_id or default_scene_id(target.dataset, target.sequence)
+    identifiers.check_scene_id(scene_id)
+    scene_dir = state.workdir.scene_dir(scene_id)
+    if scene_dir.exists() or scene_dir.is_symlink():
+        raise HTTPException(409, f"cảnh {scene_id} đã có; đặt tên cảnh khác để nạp")
+
     def work() -> str:
         scene_dir = run_ingest(
             raw_dir,
             state.workdir,
             target,
-            scene_id=body.scene_id,
+            scene_id=scene_id,
             interpolate_n=body.interpolate_n,
         )
         # Sơ đồ camera, ảnh chồng LiDAR; lỗi không làm hỏng cảnh vừa ingest (trang cảnh có nút
@@ -108,7 +119,16 @@ def ingest(body: IngestBody, request: Request) -> dict:
         scene_reports(scene_dir)
         return scene_dir.name
 
-    return state.jobs.submit("ingest", f"{target.dataset} {target.sequence}", work)
+    try:
+        return state.jobs.submit(
+            "ingest",
+            f"{target.dataset} {target.sequence}",
+            work,
+            target=f"scene:{scene_id}",
+            exclusive=True,
+        )
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from None
 
 
 @router.get("/api/jobs")

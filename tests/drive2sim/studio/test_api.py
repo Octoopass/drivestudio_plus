@@ -535,10 +535,15 @@ def test_source_inspect_and_ingest_job(
     done = client.get(f"/api/jobs/{job.json()['job_id']}").json()
     assert done["status"] == "succeeded" and done["result"] == "nuscenes_scene-0103"
     again = client.post("/api/sources/ingest", json={"path": str(raw), "sequence": "scene-0103"})
+    assert again.status_code == 409 and "đã có" in again.json()["error"]["message"]
+    assert client.get("/api/jobs").json()["total"] == 1
+    renamed = client.post(
+        "/api/sources/ingest",
+        json={"path": str(raw), "sequence": "scene-0103", "scene_id": "nuscenes_retry"},
+    )
+    assert renamed.status_code == 202
     client.app.state.studio.jobs.wait_idle()
-    failed = client.get(f"/api/jobs/{again.json()['job_id']}").json()
-    assert failed["status"] == "failed" and "đã có" in failed["error"]
-    assert client.get("/api/jobs").json()["total"] == 2
+    assert client.get(f"/api/jobs/{renamed.json()['job_id']}").json()["status"] == "succeeded"
     assert client.get("/api/jobs/nope").status_code == 404
 
 
@@ -625,3 +630,82 @@ def test_frame_lidar_falls_back_to_loader_overlays(client: TestClient, tmp_path:
     assert ok.headers["x-d2s-source"] == "loader"
     missing = client.get(f"/api/scenes/{SCENE}/frames/4/lidar?camera=CAM_FRONT")
     assert missing.status_code == 400 and "khung 3" in missing.text
+
+
+def test_ego_mask_erase_route_validates_stroke_and_returns_coverage(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from drive2sim.studio.api import ego_mask_tool
+
+    calls = []
+
+    def erase(root: Path, manifest: Manifest, camera: str, points: list, radius: int) -> float:
+        calls.append((camera, points, radius))
+        return 0.125
+
+    monkeypatch.setattr(ego_mask_tool, "erase", erase)
+    camera = MANIFEST["cameras"][0]["camera_id"]
+    url = f"/api/scenes/{SCENE}/egomask/{camera}/erase"
+    result = client.post(url, json={"points": [[10, 20], [30, 20]], "radius": 12})
+    assert result.status_code == 200 and result.json() == {"coverage": 0.125}
+    assert calls == [(camera, [(10.0, 20.0), (30.0, 20.0)], 12)]
+    assert client.post(url, json={"points": [], "radius": 12}).status_code == 400
+    assert client.post(url, json={"points": [[10, 20]], "radius": 0}).status_code == 400
+
+
+def test_ingest_rejects_active_name_and_can_retry_after_failure(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from drive2sim.studio.api.routes import sources
+    from tests.drive2sim.ingest.test_ingest import make_raw_nuscenes
+
+    raw = make_raw_nuscenes(tmp_path / "raw")
+    gate = threading.Event()
+    calls = []
+
+    def run_ingest(raw_dir: Path, workdir: Workdir, target: object, **kwargs: object) -> Path:
+        calls.append(kwargs["scene_id"])
+        assert gate.wait(10)
+        if len(calls) == 1:
+            raise RuntimeError("lỗi converter giả")
+        directory = workdir.scene_dir(str(kwargs["scene_id"]))
+        directory.mkdir(parents=True)
+        return directory
+
+    monkeypatch.setattr(sources, "run_ingest", run_ingest)
+    monkeypatch.setattr(sources, "scene_reports", lambda directory: None)
+    body = {"path": str(raw), "sequence": "scene-0103", "scene_id": "nuscenes_retry"}
+    try:
+        first = client.post("/api/sources/ingest", json=body)
+        assert first.status_code == 202
+        second = client.post("/api/sources/ingest", json=body)
+        assert second.status_code == 409
+        assert client.get("/api/jobs").json()["total"] == 1
+    finally:
+        gate.set()
+    client.app.state.studio.jobs.wait_idle()
+    assert client.get(f"/api/jobs/{first.json()['job_id']}").json()["status"] == "failed"
+    retry = client.post("/api/sources/ingest", json=body)
+    assert retry.status_code == 202
+    client.app.state.studio.jobs.wait_idle()
+    assert client.get(f"/api/jobs/{retry.json()['job_id']}").json()["status"] == "succeeded"
+    assert calls == ["nuscenes_retry", "nuscenes_retry"]
+
+
+def test_ingest_checks_explicit_scene_name_before_creating_job(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from drive2sim.studio.api.routes import sources
+    from tests.drive2sim.ingest.test_ingest import make_raw_nuscenes
+
+    raw = make_raw_nuscenes(tmp_path / "raw")
+
+    def must_not_run(*args: object, **kwargs: object) -> None:
+        pytest.fail("converter không được chạy khi tên đã có hoặc sai")
+
+    monkeypatch.setattr(sources, "run_ingest", must_not_run)
+    body = {"path": str(raw), "sequence": "scene-0103", "scene_id": SCENE}
+    assert client.post("/api/sources/ingest", json=body).status_code == 409
+    body["scene_id"] = "../bad"
+    assert client.post("/api/sources/ingest", json=body).status_code == 400
+    assert client.get("/api/jobs").json()["total"] == 0

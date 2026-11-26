@@ -877,3 +877,35 @@ XSIM và xsimgs dùng Apache-2.0. Checkout XSIM giữ THIRD_PARTY_LICENSES.md ch
 - Kiểm tra schema cho mọi file trong `drive2sim/approaches/`, kể cả `constraints` và `presets`.
 - Kiểm tra chạy tiếp: ngắt một run giữa chừng rồi chạy lại, so checkpoint và các file `done`.
 
+
+
+### Công cụ sửa mask thân xe (26/11/2026)
+
+**Quyết định.** `studio/frontend/src/components/EgoMaskEditor.tsx` hiển thị camera được chọn,
+hướng dẫn điểm xanh/đỏ, trạng thái chờ và cọ tẩy. Nét tẩy chuyển theo pixel ảnh gốc tới
+`studio/api/routes/scenes.py`, xử lý ở `studio/api/ego_mask_tool.py: erase`, ghi mask nháp.
+Mask đã lưu chỉ đổi khi người dùng xác nhận lưu. Chuyển camera bị khoá khi đang xử lý.
+
+**Lý do và ưu điểm.** Tẩy sửa được những mảng SAM2 chọn thừa mà không gọi lại model. Cọ chạy
+bằng OpenCV trên mask nhị phân, cùng đường lưu và đọc mask hiện có. Không cần môi trường SAM2
+để tẩy mask đã lưu.
+
+**Nhược điểm.** Nét tẩy cần một yêu cầu tới server khi thả chuột; ảnh trung vị và mask nháp
+vẫn nằm trong `reports/ego_mask/`. Chọn điểm SAM2 mới sẽ tạo lại mask từ các điểm, nên giao diện
+nhắc người dùng về việc này. Endpoint và đơn vị cọ được ghi trong CONTRACTS.
+
+
+### Chặn tên cảnh trùng trước khi nạp (26/11/2026)
+
+**Quyết định.** Route ingest kiểm tra định danh và thư mục cảnh trước khi tạo job.
+`BackgroundJobs.submit` hỗ trợ `exclusive` cho cùng loại việc và `target`; ingest giữ đích
+`scene:<scene_id>` trong khi chờ/chạy. Kiểm tra và ghi job dùng cùng khoá luồng. Job lỗi hoặc
+hoàn tất không giữ đích. Converter vẫn kiểm tra thư mục đích trước khi ghi.
+
+**Lý do và ưu điểm.** Tên trùng được báo 409 ngay trong hộp thoại, có thể sửa tên và gửi lại.
+Giao diện cảnh báo tên đã có từ danh sách cảnh, còn server kiểm tra lại để xử lý nhiều cửa sổ.
+Ô tên nhận tên ngắn, thêm tiền tố dataset và hiển thị định danh đầy đủ trước khi gửi,
+để người dùng nhập `test` vẫn lưu đúng dạng `phenikaa_test`.
+
+**Nhược điểm.** Giữ đích thuộc vòng đời server Studio; converter tiếp tục chịu trách nhiệm
+kiểm tra dữ liệu đích khi có tiến trình ngoài Studio. Không tạo thêm file trạng thái giữ chỗ.

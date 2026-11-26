@@ -35,6 +35,7 @@ from drive2sim.engine.registry import produces_artifact
 from drive2sim.engine.run import D2S_DIR, RUN_FILE, create_run, execute_run, request_cancel
 from drive2sim.engine.run import list_runs as read_runs
 from drive2sim.engine.workdir import Workdir
+from drive2sim.ingest import ego_masks
 from drive2sim.kaggle.executor import push_run
 
 
@@ -131,6 +132,9 @@ def start_run(args: argparse.Namespace) -> int:
     workdir, scene, split, plan = resolve_from_args(args)
     if args.executor == "local":
         _require_local(plan.approach_id, [stage.stage_id for stage in plan.stages], workdir)
+    warning = ego_masks.pending_warning(scene.root, scene.manifest, split.cameras)
+    if warning:
+        info(args, f"cảnh báo: {warning}")
     run_dir = create_run(plan, workdir, scene, split, executor=args.executor)
     info(args, f"tạo run {run_dir.name} ở {workdir.relative(run_dir)}")
     if args.executor != "local" and getattr(args, "no_push", False):

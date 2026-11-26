@@ -9,6 +9,7 @@ import { ago, Confirm, Empty, ErrorBox, InfoTip, Loading, Note, PageHead, Panel,
 import { useI18n } from "../i18n";
 import { lensGroup, lensOf, lensSummary, type Lens } from "../lens";
 import { SceneRig } from "../components/SceneRig";
+import { EgoMaskEditor } from "../components/EgoMaskEditor";
 import { LidarOverlay } from "../components/LidarOverlay";
 import { useLive } from "../live";
 import { go, href } from "../router";
@@ -206,6 +207,7 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
                   </table>
                 </div>
                 {manifest.available.lidar && <LidarOverlay sceneId={sceneId} kaggle={Boolean(kaggle)} onChange={scene.reload} />}
+                {!kaggle && <EgoMaskEditor sceneId={sceneId} />}
               </div>
             ))}
           {tab === "runs" &&

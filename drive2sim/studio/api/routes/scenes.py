@@ -14,6 +14,9 @@ File này chứa:
 - ``GET /api/scenes/{scene_id}/lidar``: ảnh chồng LiDAR (url) và số liệu
   ``reports/lidar_check.json`` hoặc ``null``; ``POST`` cùng đường dẫn chiếu lại và kiểm tra lại
   cảnh (cần PyTorch, ảnh trên máy).
+- ``/api/scenes/{scene_id}/egomask...``: công cụ vẽ mask thân xe (``ego_mask_tool.py``): trạng thái
+  mask từng camera, ảnh trung vị, mask (nháp hoặc đã lưu), tách mask bằng SAM2.1 theo điểm bấm,
+  lưu, xoá, xác nhận camera không thấy thân xe.
 - ``DELETE /api/scenes/{scene_id}``: xoá cảnh cùng split, cache, run của nó.
 - ``DELETE /api/scenes/{scene_id}/splits/{split_id}``: xoá split (còn run dùng thì ``409``).
 """
@@ -23,7 +26,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from drive2sim.core import files
 from drive2sim.engine import housekeeping, scenes
@@ -40,7 +43,7 @@ from drive2sim.ingest.images import IMAGE_SUFFIXES
 from drive2sim.ingest.manifest import outdated_output_version
 from drive2sim.ingest.reports import revalidate
 from drive2sim.ingest.validate import validate_scene
-from drive2sim.studio.api import frame_tools
+from drive2sim.studio.api import ego_mask_tool, frame_tools
 from drive2sim.studio.api.state import state_of
 
 router = APIRouter(prefix="/api/scenes", tags=["scenes"])
@@ -322,3 +325,128 @@ def delete_split(scene_id: str, split_id: str, request: Request) -> dict:
         ``{"removed": [đường dẫn đã xoá]}``.
     """
     return {"removed": housekeeping.delete_split(state_of(request).workdir, scene_id, split_id)}
+
+
+class EgoMaskPoints(BaseModel):
+    """Điểm bấm trên ảnh trung vị: ``[x, y, nhãn]`` (pixel ảnh gốc; 1 thân xe, 0 không phải)."""
+
+    model_config = ConfigDict(extra="forbid")
+    points: list[tuple[float, float, int]]
+
+
+class EgoMaskStroke(BaseModel):
+    """Nét tẩy có toạ độ pixel ảnh gốc và bán kính cọ."""
+
+    model_config = ConfigDict(extra="forbid")
+    points: list[tuple[float, float]] = Field(min_length=1, max_length=20000)
+    radius: int = Field(ge=1, le=256)
+
+
+def _ego_mask_call(  # noqa: ANN202
+    request: Request,
+    scene_id: str,
+    action,  # noqa: ANN001
+    revalidate_after: bool = False,
+):
+    scene = state_of(request).workdir.load_scene(scene_id)
+    try:
+        result = action(scene.root, scene.manifest)
+    except ego_mask_tool.EgoMaskError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from None
+    if revalidate_after:  # báo cáo kiểm tra có mục ego_mask.*: cập nhật theo lựa chọn mới
+        revalidate(scene.root)
+    return result
+
+
+@router.get("/{scene_id}/egomask")
+def get_ego_masks(scene_id: str, request: Request) -> dict:
+    """Mask thân xe của từng camera và SAM2 đã sẵn sàng chưa (``ego_mask_tool.status``)."""
+    return _ego_mask_call(request, scene_id, ego_mask_tool.status)
+
+
+@router.get("/{scene_id}/egomask/{camera}/median")
+def get_ego_mask_median(scene_id: str, camera: str, request: Request) -> Response:
+    """Ảnh trung vị của camera (JPEG, kích thước gốc): nền để bấm điểm."""
+    path = _ego_mask_call(
+        request,
+        scene_id,
+        lambda root, manifest: ego_mask_tool.median_image(root, manifest, camera),
+    )
+    return Response(path.read_bytes(), media_type="image/jpeg")
+
+
+@router.get("/{scene_id}/egomask/{camera}/overlay")
+def get_ego_mask_overlay(
+    scene_id: str, camera: str, request: Request, draft: bool = False
+) -> Response:
+    """Mask (nháp hoặc đã lưu) dạng PNG trong suốt; chưa có mask thì ``400``."""
+    png = _ego_mask_call(
+        request,
+        scene_id,
+        lambda root, manifest: ego_mask_tool.overlay_png(root, manifest, camera, draft),
+    )
+    return Response(png, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@router.post("/{scene_id}/egomask/{camera}/segment")
+def segment_ego_mask(scene_id: str, camera: str, body: EgoMaskPoints, request: Request) -> dict:
+    """Tách mask nháp bằng SAM2.1 theo các điểm bấm.
+
+    Returns:
+        ``{"coverage": tỉ lệ ảnh mask che}``.
+    """
+    coverage = _ego_mask_call(
+        request,
+        scene_id,
+        lambda root, manifest: ego_mask_tool.segment(root, manifest, camera, body.points),
+    )
+    return {"coverage": coverage}
+
+
+@router.post("/{scene_id}/egomask/{camera}/erase")
+def erase_ego_mask(scene_id: str, camera: str, body: EgoMaskStroke, request: Request) -> dict:
+    """Tẩy một nét thành mask nháp và trả tỉ lệ diện tích còn bị che."""
+    coverage = _ego_mask_call(
+        request,
+        scene_id,
+        lambda root, manifest: ego_mask_tool.erase(
+            root, manifest, camera, body.points, body.radius
+        ),
+    )
+    return {"coverage": coverage}
+
+
+@router.post("/{scene_id}/egomask/{camera}/save")
+def save_ego_mask(scene_id: str, camera: str, request: Request) -> dict:
+    """Lưu mask nháp thành ``ego_masks/<camera>.png`` của cảnh."""
+    _ego_mask_call(
+        request,
+        scene_id,
+        lambda root, manifest: ego_mask_tool.save(root, manifest, camera),
+        revalidate_after=True,
+    )
+    return {"saved": camera}
+
+
+@router.post("/{scene_id}/egomask/{camera}/none")
+def mark_ego_mask_none(scene_id: str, camera: str, request: Request) -> dict:
+    """Xác nhận camera không thấy thân xe (xoá mask của cảnh nếu có)."""
+    _ego_mask_call(
+        request,
+        scene_id,
+        lambda root, manifest: ego_mask_tool.mark_none(root, manifest, camera),
+        revalidate_after=True,
+    )
+    return {"none": camera}
+
+
+@router.delete("/{scene_id}/egomask/{camera}")
+def delete_ego_mask(scene_id: str, camera: str, request: Request) -> dict:
+    """Xoá mask thân xe (và mask nháp) của camera."""
+    _ego_mask_call(
+        request,
+        scene_id,
+        lambda root, manifest: ego_mask_tool.delete(root, manifest, camera),
+        revalidate_after=True,
+    )
+    return {"deleted": camera}
