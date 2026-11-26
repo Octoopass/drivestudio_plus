@@ -643,7 +643,7 @@ def test_eval_summary_has_depth_when_measured(tmp_path: Path) -> None:
         3.4,
         0.93,
     )
-    assert summary.protocol.version == "0.5"
+    assert summary.protocol.version == "0.6"
     no_lidar = {"psnr": 25.0, "ssim": 0.8, "lpips": 0.2}
     write_metrics(tmp_path, "images_test_2026-11-21_090000.json", no_lidar)
     assert make_summary(read_drivestudio_metrics(tmp_path), "s", tmp_path).depth is None

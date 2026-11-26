@@ -261,3 +261,12 @@ hiệu lực để resume trên local/Kaggle/Colab không đổi dữ liệu khi
 và trung vị không ảnh hưởng cache. Mask ưu tiên bản cảnh, xác nhận none, rồi asset; mask cảm biến
 vẫn được giữ. Run cũ chưa có snapshot giữ hành vi lịch sử. NuRec dùng mask chính thức qua cùng
 rectifier với ảnh.
+
+
+### Đánh giá sau tích hợp (26/11/2026)
+
+Camera chỉ test không vào context NuRec hoặc refinement; refinement chỉ lấy `split.train`.
+`overall` tách khỏi `shifted`, gồm cả metric khớp màu. Nếu image_00 chỉ test thì approach báo
+không khả dụng. NuRec vẫn dùng khung test theo thời gian của camera context. MCGS khử méo RGB
+và mask pinhole theo cùng bản đồ OpenCV trước khi chấm. Protocol 0.6 chuẩn hoá pixel ngoài mask
+trong scorer, benchmark tách NuRec protocol 0.5 lịch sử khỏi scorer chung.

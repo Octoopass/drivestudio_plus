@@ -78,7 +78,7 @@ from drive2sim.stages.train.drivestudio import (
 # hợp lệ nào bị bỏ qua thay vì làm trung bình thành NaN; thêm metric theo camera.
 # 0.2: ảnh render được làm tròn về 8 bit trước khi đo, như ảnh gốc (SPEC mục 9); 0.1 đo ảnh render
 # ở dạng số thực.
-PROTOCOL_VERSION = "0.5"
+PROTOCOL_VERSION = "0.6"
 METRIC_PREFIX = "image_metrics/test/"
 SUMMARY_FILE = "summary.json"
 TRAIN_STATS_FILE = "train_stats.json"
@@ -436,7 +436,7 @@ def make_summary(
 class EvalStandardStage(Stage):
     """Đổi metric DriveStudio ghi khi train sang ``summary.json`` theo protocol chung."""
 
-    version: ClassVar[str] = "0.5.0"
+    version: ClassVar[str] = "0.6.0"
     cacheable: ClassVar[bool] = False
     uses_lidar: ClassVar[bool] = False
     inputs: ClassVar[dict[str, str]] = {

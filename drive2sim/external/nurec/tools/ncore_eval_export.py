@@ -72,7 +72,9 @@ def main():
     p.add_argument("--every", type=int, default=4, help="use every Nth frame of each camera")
     p.add_argument("--cameras", default="", help="comma-separated camera ids (default: all)")
     p.add_argument("--frame-indices", default="", help="comma-separated frame indices to export (drive2sim: the split's test frames); overrides --every")
+    p.add_argument("--views-json", default="", help="drive2sim: sensor -> selected clip-frame indices")
     a = p.parse_args()
+    selected = json.loads(Path(a.views_json).read_text()) if a.views_json else None
 
     meta = json.loads(Path(a.json).read_text())
     base = UPath(a.json).parent
@@ -108,6 +110,9 @@ def main():
         picked = [int(i) for i in a.frame_indices.split(",") if i] if a.frame_indices else None
         stamps = stamps[[i for i in picked if 0 <= i < len(stamps)]] if picked is not None else stamps[:: a.every]
         for t_end in stamps:
+            frame_index = int(list(cam.frames_timestamps_us[:, 1]).index(t_end))
+            if selected is not None and str(frame_index) not in selected.get(cam_id, {}):
+                continue
             T_cam_world = interp_pose(rig_world, rig_ts, int(t_end)) @ T_cam_rig
             img = np.asarray(cam.get_frame_image(int(t_end)).convert("RGB"))
             rec["camera"].append(cam_id)

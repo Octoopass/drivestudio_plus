@@ -94,7 +94,7 @@ def main():
     a = p.parse_args()
     plan = json.loads(Path(a.views_json).read_text()) if a.views_json else None
     if plan is not None:
-        from drive2sim.recon.rendering.videos import compute_image_metrics, compute_psnr
+        from drive2sim.recon.rendering.videos import color_matched_metrics, compute_image_metrics, compute_psnr
         from drive2sim.recon.utils.geometry import camera_model_rays
         masks_dir = Path(plan["masks_dir"]) if plan.get("masks_dir") else None
         fov_cache: dict = {}
@@ -130,6 +130,8 @@ def main():
             stem = plan["views"].get(cam, {}).get(str(int(v["frame"][i])))
             if stem is None:  # not a test pair of the split (e.g. other camera of a mixed split)
                 continue
+        region_values = {}
+        psnr_cc, lpips_cc = None, None
         img = v["image"][i]
         h, w = img.shape[:2]
         s = min(1.0, a.max_side / max(h, w))
@@ -170,6 +172,8 @@ def main():
                 continue
             rgb_t, gt_t = torch.from_numpy(rgb).to(dev), torch.from_numpy(gt).to(dev)
             psnr, ssim_val, lp = compute_image_metrics(rgb_t, gt_t, torch.from_numpy(valid).to(dev), lpips_fn)
+            if cam in plan.get("shifted_sensors", []):
+                psnr_cc, lpips_cc = color_matched_metrics(rgb_t, gt_t, torch.from_numpy(valid).to(dev), lpips_fn)
             covered &= valid
             coverage.append(float(covered.sum() / valid.sum()))
             if covered.any():
@@ -180,8 +184,11 @@ def main():
                     continue
                 region = (~region if name == "occupied_psnr" else region) & valid
                 if region.any():
-                    regions[name].append(float(compute_psnr(rgb_t[torch.from_numpy(region).to(dev)],
-                                                            gt_t[torch.from_numpy(region).to(dev)])))
+                    value = float(compute_psnr(rgb_t[torch.from_numpy(region).to(dev)],
+                                               gt_t[torch.from_numpy(region).to(dev)]))
+                    regions[name].append(value)
+                    region_values[name] = value
+
         else:
             mse = float(((rgb - gt) ** 2)[valid].mean()) if valid.any() else float("nan")
             psnr = -10 * np.log10(mse) if valid.any() else float("nan")
@@ -202,6 +209,8 @@ def main():
         per_view.append({
             "camera": cam, "psnr": finite_or_none(psnr), "ssim": finite_or_none(ssim_val),
             "lpips": finite_or_none(lp), "coverage": view_coverage,
+            "psnr_cc": finite_or_none(psnr_cc) if psnr_cc is not None else None,
+            "lpips_cc": finite_or_none(lpips_cc) if lpips_cc is not None else None, **region_values,
         })
         vis = (np.concatenate([gt, rgb], 1) * 255).astype(np.uint8)
         if cam == str(v["camera"][0]):

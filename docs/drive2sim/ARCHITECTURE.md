@@ -1055,3 +1055,18 @@ cảnh lớn khi chỉ sửa mask. Xoá cache thủ công không giải quyết 
 **Nhược điểm.** Mỗi run thêm vài PNG; base64 tăng dung lượng khoảng một phần ba. Cache khoá cũ
 không dùng cho run mới, run cũ thiếu snapshot dùng cảnh hiện tại. Chưa đo tổng dung lượng.
 **Tiến độ (mục 7.1).** Đã có code và test local cho snapshot/cache/remote; chưa chạy cloud thật.
+
+
+### Đánh giá NuRec và MCGS sau tích hợp (26/11/2026)
+
+**Quyết định.** `train.nurec` bỏ camera chỉ test khỏi context, refinement xuất đúng từng cặp
+train qua `train_views.json` và `--views-json`; `eval.ncore` tách overall/shifted và metric
+khớp màu. `external/mcgs/views.py` khử méo RGB và valid mask pinhole theo cùng K/map OpenCV,
+loại biên ngoài ảnh. Scorer chung chuẩn hoá phần ngoài mask về 0 trước SSIM, protocol 0.6.
+Benchmark tách NuRec 0.5 cũ khỏi nhóm DriveStudio 0.3–0.6. Các module vẫn ở vị trí mục 3/3.1.
+
+**Ưu điểm.** Giữ đúng vai trò camera chỉ test, hình học RGB/mask và metric ở biên mask.
+**Nhược điểm và lựa chọn khác.** Camera image_00 chỉ test làm NuRec không khả dụng; giữ context
+cũ sẽ gây rò dữ liệu. Khử méo cần resample, thay vì bỏ hệ số méo và chấm sai không gian ảnh.
+NuRec vẫn dùng khung test theo thời gian của camera context. Kết quả lịch sử không bị sửa.
+**Tiến độ (mục 7.1).** Code và test CPU đã có; chưa nghiệm thu train/render GPU hoặc cloud thật.

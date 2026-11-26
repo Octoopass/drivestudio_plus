@@ -1177,3 +1177,14 @@ bốn file của gói job. Chỉ nhận tên camera trong manifest và kiểm di
 không có digest vẫn đọc được. Cảnh ảo ở `<workdir>/.runtime/<run_id>/scene_view/000/` được dựng
 lại tại máy chạy, không đóng gói cùng run. `prep.ncore` tạo mask hiệu lực trong output và truyền
 `--ego-masks` cho converter để rectify cùng RGB.
+
+
+### Protocol đánh giá sau tích hợp (26/11/2026)
+
+Camera `test_only_cameras` không vào context hoặc refinement NuRec. `train_views.json` là
+sensor → chỉ số khung clip → tên mask, truyền qua `--views-json` của exporter để giữ đúng cặp
+`split.train`. Camera chỉ test vào `shifted`, kèm PSNR/LPIPS khớp màu nếu có phép khớp hợp lệ;
+`overall` chỉ gộp camera có train. Camera image_00 chỉ test bị từ chối trước khi chạy.
+MCGS khử méo RGB và valid mask pinhole theo cùng K/map, vẫn dùng protocol riêng hiện có.
+Protocol chung 0.6 chuẩn hoá pixel không hợp lệ ngay trong scorer. Benchmark nhận diện run
+`eval.ncore` protocol 0.5 cũ thành nhóm riêng, không viết lại kết quả lịch sử.

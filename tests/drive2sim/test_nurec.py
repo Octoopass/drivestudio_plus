@@ -456,3 +456,153 @@ def test_summary_preserves_scoring_protocol_and_coverage() -> None:
     summary = make_summary(metrics, "every8", {}, coverage=0.2)
     assert summary.protocol.version == "0.5"
     assert summary.coverage == 0.8
+
+
+def test_shifted_metrics_exclude_held_out_camera_and_keep_color_matched_values() -> None:
+    metrics = {
+        "front": {"psnr_mean": 30.0, "ssim_mean": 0.9, "lpips_mean": 0.1, "views": 2},
+        "right": {"psnr_mean": 10.0, "ssim_mean": 0.3, "lpips_mean": 0.7, "views": 3},
+        "_summary": {
+            "psnr_mean": 18.0,
+            "ssim_mean": 0.54,
+            "lpips_mean": 0.46,
+            "dynamic_psnr": 999.0,
+            "protocol_version": "0.6",
+        },
+    }
+    per_view = [
+        {"camera": "front", "dynamic_psnr": 26.0},
+        {"camera": "right", "dynamic_psnr": 5.0, "psnr_cc": 24.0, "lpips_cc": 0.2},
+        {"camera": "right", "dynamic_psnr": 5.0, "psnr_cc": None, "lpips_cc": None},
+    ]
+    result = make_summary(
+        metrics,
+        "every8",
+        {"image_00": "front", "image_01": "right"},
+        test_only_cameras=("image_01",),
+        per_view=per_view,
+    )
+    assert result.overall.psnr == 30 and result.overall.dynamic_psnr == 26
+    assert result.shifted.cameras == ["image_01"] and result.shifted.num_images == 3
+    assert result.shifted.psnr == 10 and result.shifted.psnr_cc == 24
+    assert result.shifted.lpips_cc == 0.2 and len(result.per_camera) == 2
+
+
+def test_nurec_rejects_reference_camera_reserved_for_test() -> None:
+    split = SimpleNamespace(test_only_cameras=["image_00"])
+    assert "image_00" in train_nurec.TrainNurecStage.unavailable_reason(SimpleNamespace(), split)
+
+
+def test_nurec_context_command_does_not_use_test_only_camera(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "clip"
+    source.mkdir()
+    (source / "clip.json").write_text(
+        json.dumps(
+            {
+                "clip": "sequence.json",
+                "frame_ids": list(range(100)),
+                "sensors": {"image_00": "front", "image_02": "left", "image_03": "right"},
+            }
+        )
+    )
+    checkpoint = tmp_path / "weights.pth"
+    checkpoint.write_bytes(b"weights")
+    monkeypatch.setattr(nurec, "checkpoint_path", lambda model: checkpoint)
+
+    def stop_after_command(command: list[str], *args: object, **kwargs: object) -> None:
+        cameras = command[command.index("--camera-id") + 1]
+        assert "right" not in cameras and cameras == "front"
+        raise RuntimeError("captured command")
+
+    monkeypatch.setattr(train_nurec, "run_logged", stop_after_command)
+    ctx = SimpleNamespace(
+        output_dir=tmp_path,
+        split=SimpleNamespace(test_only_cameras=["image_03"]),
+        progress=lambda *args: None,
+        should_stop=lambda: False,
+    )
+    with pytest.raises(RuntimeError, match="captured command"):
+        train_nurec.TrainNurecStage().run(ctx, {"clip": source}, train_nurec.TrainNurecParams())
+
+
+def test_refinement_uses_train_pairs_with_dense_held_out_camera(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from drive2sim.stages.train import nurec_refine
+
+    source = tmp_path / "clip"
+    model = tmp_path / "model"
+    out = tmp_path / "out"
+    for directory in (source, model, out):
+        directory.mkdir()
+    (model / "scene_nurec.ply").write_bytes(b"ply")
+    (source / "clip.json").write_text(
+        json.dumps(
+            {
+                "clip": "sequence.json",
+                "frame_ids": [10, 11, 12],
+                "scene_frame_ids": [10, 11, 12],
+                "scene_frames": [0, 2],
+                "sensors": {"image_00": "front", "image_01": "right"},
+            }
+        )
+    )
+    commands = []
+
+    def fake_run(command: list[str], *args: object, **kwargs: object) -> None:
+        commands.append(command)
+        if "--views-json" in command:
+            plan = json.loads(Path(command[command.index("--views-json") + 1]).read_text())
+            assert plan == {"front": {"0": "000_0", "2": "002_0"}}
+            assert command[command.index("--cameras") + 1] == "front"
+            assert command[command.index("--frame-indices") + 1] == "0,2"
+        else:
+            (out / "refine.json").write_text(
+                json.dumps({"refine_time_s": 1.0, "gaussians_after": 10})
+            )
+
+    monkeypatch.setattr(nurec_refine, "run_logged", fake_run)
+    split = SimpleNamespace(
+        cameras=["image_00", "image_01"],
+        test_only_cameras=["image_01"],
+        train=[(0, "image_00"), (2, "image_00")],
+        test=[(1, "image_00"), (0, "image_01"), (1, "image_01"), (2, "image_01")],
+    )
+    ctx = SimpleNamespace(
+        output_dir=out,
+        split=split,
+        scene=SimpleNamespace(
+            manifest=SimpleNamespace(cameras=[SimpleNamespace(camera_id=c) for c in split.cameras])
+        ),
+        progress=lambda *args: None,
+        report_peak_vram=lambda *args: None,
+        should_stop=lambda: False,
+    )
+    nurec_refine.TrainNurecRefineStage().run(
+        ctx, {"clip": source, "model": model}, nurec_refine.RefineParams(iters=1)
+    )
+    assert len(commands) == 2
+
+
+def test_official_ncore_mask_overrides_estimation_and_validates_size(tmp_path: Path) -> None:
+    import ast
+
+    image = pytest.importorskip("PIL.Image")
+    source = (nurec.TOOLS_DIR / "kitti360_to_ncore.py").read_text()
+    tree = ast.parse(source)
+    helper = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "official_ego_mask"
+    )
+    namespace = {"Image": image, "Path": Path, "Optional": __import__("typing").Optional}
+    exec(compile(ast.Module(body=[helper], type_ignores=[]), "mask_helper", "exec"), namespace)
+    read = namespace["official_ego_mask"]
+    assert read(None, "image_02", 32, 24) is None
+    assert read(tmp_path, "image_02", 32, 24).getextrema() == (0, 0)
+    image.new("L", (32, 24), 255).save(tmp_path / "image_02.png")
+    assert read(tmp_path, "image_02", 32, 24).getextrema() == (255, 255)
+    with pytest.raises(ValueError, match="kích thước"):
+        read(tmp_path, "image_02", 64, 24)

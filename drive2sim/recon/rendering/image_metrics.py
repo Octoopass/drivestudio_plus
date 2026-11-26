@@ -40,28 +40,22 @@ def compute_image_metrics(
     valid: Optional[Tensor],
     lpips_fn: Callable[[Tensor, Tensor], Tensor],
 ) -> Optional[tuple]:
-    """drive2sim: PSNR, SSIM and LPIPS of one rendered image, restricted to valid pixels.
+    """Đo PSNR, SSIM và LPIPS của một ảnh trên các pixel hợp lệ.
 
-    When the loader marks invalid pixels (``valid_masks``: fisheye outside the usable field of
-    view, ego-car body), all three metrics use only valid pixels, so a fisheye camera is measured
-    on the same footing as a pinhole one: PSNR uses the valid pixels and SSIM averages its
-    per-pixel map over them. LPIPS has no per-pixel map in torchmetrics, so it is measured on the
-    bounding box of the valid pixels with the ground truth pasted into the invalid ones (zero
-    difference there); invalid pixels inside that box (fisheye corners, ego-car body) still dilute
-    it a little. Without a mask the whole image is used, as in DriveStudio.
-
-    Before this, render_images zeroed invalid pixels in both images and measured SSIM and LPIPS on
-    the full frame, so the black region counted as a perfect match and inflated both scores.
+    DriveStudio, XSIM và NuRec gọi chung hàm này khi đánh giá. PSNR chỉ lấy pixel hợp lệ;
+    SSIM lấy trung bình bản đồ trên các pixel đó. Pixel không hợp lệ được đặt về 0 ở cả hai
+    ảnh trước bản đồ SSIM, nên ảnh thô và ảnh đã che cho cùng kết quả ở biên (protocol 0.6).
+    LPIPS dùng hộp bao vùng hợp lệ, thay pixel không hợp lệ bằng ground truth để sai khác ở
+    đó bằng 0. Các lỗ trong hộp bao vẫn làm metric LPIPS bị pha loãng một phần.
 
     Args:
-        rgb: Rendered image, (H, W, 3) in [0, 1].
-        gt: Ground-truth image, (H, W, 3) in [0, 1].
-        valid: Boolean mask (H, W), or None.
-        lpips_fn: LPIPS module taking two (1, 3, H, W) tensors.
+        rgb: Ảnh render dạng (H, W, 3), giá trị trong [0, 1].
+        gt: Ảnh thật cùng kích thước và miền giá trị.
+        valid: Mask (H, W), True là pixel được chấm; None chấm toàn ảnh.
+        lpips_fn: Hàm LPIPS nhận hai tensor (1, 3, H, W).
 
     Returns:
-        (psnr, ssim, lpips) as floats, or None when the mask has no valid pixel (the image is
-        then left out of the averages instead of turning them into NaN).
+        Bộ ba (psnr, ssim, lpips) dạng float, hoặc None nếu ảnh không có pixel hợp lệ.
     """
     if valid is None:
         psnr = compute_psnr(rgb, gt)
@@ -71,6 +65,8 @@ def compute_image_metrics(
         valid = valid.bool()
         if not valid.any():
             return None
+        rgb = rgb * valid[..., None]
+        gt = gt * valid[..., None]
         psnr = compute_psnr(rgb[valid], gt[valid])
         ssim_map = ssim(
             get_numpy(rgb), get_numpy(gt), data_range=1.0, channel_axis=-1, full=True

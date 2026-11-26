@@ -700,3 +700,29 @@ def test_legacy_bad_segments_list_maps_to_all_group() -> None:
     row = BenchmarkRunRow.model_validate(legacy)
     assert list(row.bad_segments) == ["all"] and row.bad_segments["all"][0].num_frames == 5
     assert BenchmarkRunRow.model_validate({**legacy, "bad_segments": []}).bad_segments == {}
+
+
+def test_legacy_ncore_protocol_0_5_is_separated_when_reading_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_a, run_b = "20261101-000000-nurec-aaaa", "20261101-000001-pvg-bbbb"
+    rows = [make_row(run_a, 25.0), make_row(run_b, 24.9)]
+    monkeypatch.setattr(benchmark, "report_rows", lambda *args, **kwargs: rows)
+    monkeypatch.setattr(benchmark, "load_summary", lambda run_dir: stage_summary())
+    monkeypatch.setattr(
+        benchmark,
+        "run_stage_ids",
+        lambda run_dir: ["eval.ncore"] if run_dir.name == run_a else ["eval.standard"],
+    )
+    cameras = [SimpleNamespace(camera_id="image_00", model="opencv_pinhole")]
+    workdir = SimpleNamespace(
+        load_scene=lambda _: SimpleNamespace(manifest=SimpleNamespace(cameras=cameras)),
+        load_split=lambda *args: SimpleNamespace(test_only_cameras=[]),
+        run_dir=lambda scene, approach, run: tmp_path / run,
+    )
+    entry = BenchmarkEntry(
+        bench_track="A", cell="A-L", scene_id="s", split_id="x", runs=[run_a, run_b]
+    )
+    group = benchmark.run_group(workdir, entry)
+    assert group.winner_run_id is None
+    assert any("protocol" in warning for warning in group.warnings)

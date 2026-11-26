@@ -4,8 +4,8 @@ Instant NuRec đoán Gaussian trong một lượt từ vài khung ngữ cảnh, 
 tương phản thấp hơn ảnh thật nhiều). Stage này lấy ``scene_nurec.ply`` của ``train.nurec`` làm
 điểm xuất phát rồi tối ưu tiếp như 3DGS:
 1. ``ncore_eval_export.py`` (môi trường NuRec): pose, thông số camera, ảnh, mask ego của mọi khung
-   train của split trong clip (khung có trong phần test của split bị bỏ, để ``eval.ncore`` vẫn
-   chấm trên khung chưa thấy).
+   train của split trong clip, lọc đúng từng cặp khung–camera qua ``train_views.json``.
+   Camera chỉ test không được xuất sang refinement.
 2. ``ncore_refine.py`` (môi trường chính, gsplat; camera mắt cá bằng 3DGUT): L1 + D-SSIM, giữ
    nguyên số Gaussian (``strategy: mcmc`` thêm Gaussian, còn thử nghiệm).
 
@@ -29,7 +29,7 @@ from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import Stage, StageContext
 from drive2sim.external import nurec
 from drive2sim.stages.commands import LOG_FILE, run_logged
-from drive2sim.stages.eval.ncore import clip_test_indices
+from drive2sim.stages.eval.ncore import clip_test_indices, clip_test_views
 from drive2sim.stages.prep.ncore import CLIP_FILE
 from drive2sim.stages.train.nurec import MERGED_PLY, STATS_FILE
 
@@ -85,7 +85,7 @@ def refine_command(params: RefineParams, ply: Path, views: Path, out: Path) -> l
 class TrainNurecRefineStage(Stage):
     """Tối ưu tiếp PLY của Instant NuRec trên các khung train của clip NCore."""
 
-    version: ClassVar[str] = "0.1.0"
+    version: ClassVar[str] = "0.2.0"
     cacheable: ClassVar[bool] = False
     uses_lidar: ClassVar[bool] = False
     inputs: ClassVar[dict[str, str]] = {"model": "model", "clip": "ncore_clip", "split": "split"}
@@ -113,10 +113,37 @@ class TrainNurecRefineStage(Stage):
             (out / STATS_FILE).write_text(json.dumps(stats, indent=2) + "\n")
             return {"model": out}
         clip = json.loads((inputs["clip"] / CLIP_FILE).read_text(encoding="utf-8"))
-        indices = train_indices(clip, [frame for frame, _ in ctx.split.test])
+        indices = clip_test_indices(
+            clip,
+            [
+                frame
+                for frame, camera in ctx.split.train
+                if camera not in ctx.split.test_only_cameras
+            ],
+        )
         if not indices:
             raise RuntimeError("không có khung train nào của split nằm trong clip NCore")
-        sensors = [clip["sensors"][c] for c in ctx.split.cameras if c in clip["sensors"]]
+        sensors = [
+            clip["sensors"][c]
+            for c in ctx.split.cameras
+            if c in clip["sensors"] and c not in ctx.split.test_only_cameras
+        ]
+        view_plan = out / "train_views.json"
+        view_plan.write_text(
+            json.dumps(
+                clip_test_views(
+                    clip,
+                    ctx.split.train,
+                    {
+                        c: clip["sensors"][c]
+                        for c in ctx.split.cameras
+                        if c in clip["sensors"] and c not in ctx.split.test_only_cameras
+                    },
+                    {camera.camera_id: i for i, camera in enumerate(ctx.scene.manifest.cameras)},
+                )
+            ),
+            encoding="utf-8",
+        )
         log = out / LOG_FILE
         views = out / VIEWS_FILE
         ctx.progress(0.02, f"xuất {len(indices)} khung train ({len(sensors)} camera)")
@@ -126,7 +153,7 @@ class TrainNurecRefineStage(Stage):
                     str(nurec.nurec_python()), "-u", str(nurec.TOOLS_DIR / "ncore_eval_export.py"),
                     str(inputs["clip"] / clip["clip"]), "--out", str(views),
                     "--frame-indices", ",".join(map(str, indices)),
-                    "--cameras", ",".join(sensors),
+                    "--cameras", ",".join(sensors), "--views-json", str(view_plan),
                 ],
                 log,
                 should_stop=ctx.should_stop,
