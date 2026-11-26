@@ -13,7 +13,7 @@ data:
   end_timestep: -1 # which timestep to end at, -1 means the last timestep
   preload_device: cuda # choose from ["cpu", "cuda"], cache the data on this device
   pixel_source: # image source and object annotations
-    type: drive2sim.recon.data.loaders.phenikaa.PhenikaaPixelSource
+    type: drive2sim.recon.data.loaders.standard.StandardPixelSource
     cameras: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] # which cameras to use
     # Factor 2 for every camera: pinhole 1920x1536 -> 960x768, fisheye 1920x1080 -> 960x540.
     downscale_when_loading: [2, 2, 2, 2, 2, 2, 2, 2, 2, 2] # the size of the images to load

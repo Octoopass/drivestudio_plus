@@ -148,16 +148,19 @@ NCore vẫn dùng ở hai chỗ: là **một nguồn vào** (PhysicalAI, CARLA g
 
 **Khái niệm.** DriveStudio có 7 loader (`drive2sim/recon/data/loaders/<dataset>.py`, 460–720 dòng mỗi file, tổng 3678 dòng) với cùng bộ hàm (`load_calibrations`, `load_cameras`, `load_objects`, `load_lidar`). Đo bằng `diff` so với loader Argoverse: nuPlan khác 92 dòng, KITTI 119, PandaSet 168, nuScenes 248, Waymo 379 (có thêm rolling shutter của patch Bosch), PhysicalAI 671; hàm `load_objects` của 5 trên 6 loader chỉ khác 4 dòng. Phần lớn là mã chép lại.
 
-**Quyết định.** Chưa gộp. Nguồn mới không viết loader mới: converter của nguồn đó ghi theo đúng khung thư mục của một dataset có sẵn (ví dụ khung Argoverse: `ego_pose/` theo khung, extrinsics cố định, trục OpenCV) rồi dùng loader của dataset đó.
+**Quyết định.** Giữ loader riêng cho bảy dataset DriveStudio; KITTI-360 và PHENIKAA dùng chung loader theo phần bên dưới. Nguồn mới ưu tiên dùng loader hiện có: converter của nguồn đó ghi theo đúng khung thư mục của một dataset có sẵn (ví dụ khung Argoverse: `ego_pose/` theo khung, extrinsics cố định, trục OpenCV) rồi dùng loader của dataset đó.
 
 **Lý do.**
 - Tool chạy trọn đường với loader có sẵn; gộp không thêm tính năng nào bây giờ.
 - Teammate vẫn sửa loader trên `main`, và thay đổi đó được chuyển tay sang `drive2sim` (mục 7.3). Chuyển một sửa đổi vào file cùng tên dễ hơn nhiều so với vào một loader đã gộp.
 - Mask và SMPL do stage `prep.*` sinh ra trong `cache/` không buộc phải sửa loader: stage dựng một thư mục cảnh ảo bằng symlink, gồm thư mục cảnh và mask, SMPL từ cache, rồi DriveStudio đọc như một thư mục cảnh bình thường (mục 4.3).
 
-**Ngoại lệ: KITTI-360 (loader con của KITTI).** Converter KITTI-360 ghi theo khung KITTI, nhưng loader KITTI coi mọi camera là pinhole, bỏ hệ số méo, đọc ảnh `.jpg` và chỉ biết hai camera cùng cỡ 1242x375 (`dataset_meta.py`). KITTI-360 có ảnh PNG, hai camera pinhole 1408x376 và hai camera mắt cá 1400x1400 cần vẽ theo mô hình OpenCV fisheye. Vì vậy có `drive2sim/recon/data/loaders/kitti360.py`: lớp con của loader KITTI, chỉ thay phần khác (mô hình và cỡ camera đọc từ `manifest.yaml`, ảnh PNG, intrinsics 8 số, tia và mask vùng hợp lệ của camera mắt cá theo cách loader PhysicalAI làm với F-theta); `load_objects`, LiDAR, pose dùng lại nguyên của KITTI. Loader KITTI chỉ đổi hai chỗ thành thuộc tính lớp (`CAMERA_DATA_CLASS`, `SMPL_CAMERA_LIST`), hành vi giữ nguyên.
-- Ưu điểm: không chép lại mã; cảnh KITTI gốc đi đúng đường cũ; mô hình camera lấy từ manifest, không đoán theo số phần tử của file intrinsics (CONTRACTS mục 2.1).
-- Nhược điểm: loader cần `manifest.yaml` trong thư mục cảnh, nên cảnh ảo của stage nay có symlink tới manifest (mục 4.3); thêm một file loader, trái với quyết định "nguồn mới không viết loader mới" ở trên, chỉ chấp nhận vì khung KITTI thiếu khả năng vẽ camera mắt cá.
+**Gộp KITTI-360 và PHENIKAA (26/11/2026).** Hai converter ghi cùng khung KITTI, khác tên camera, độ phân giải, mô hình ống kính và đuôi ảnh. Cả hai dùng `standard.py` với `StandardPixelSource`, `StandardCameraData`, kế thừa loader KITTI. Thông số camera lấy từ manifest; đuôi `.jpg`, `.png`, `.jpeg` dò ở khung đầu mỗi camera và dùng cho toàn bộ camera đó. Mask thân xe lấy theo tên camera trong manifest, ưu tiên mask của cảnh. Danh sách camera dùng cho SMPL lấy từ manifest. LiDAR và box dùng lại loader KITTI. Converter của hai dataset vẫn đọc nguồn riêng.
+
+- Lý do: hai nguồn đã cùng quy ước pose và LiDAR, nên dùng chung giúp tránh sửa lặp khi thêm camera hoặc mask.
+- Ưu điểm: giảm một loader, giữ luồng đọc pinhole và fisheye hiện có; config run cũ được `recon/utils/misc.py: import_str` đổi từ hai tên `KITTI360PixelSource`, `PhenikaaPixelSource` sang lớp chung.
+- Nhược điểm: loader phụ thuộc manifest và khung KITTI; một camera phải dùng cùng đuôi ảnh trong đoạn được nạp. NuScenes và các dataset DriveStudio khác vẫn dùng loader riêng. Chuẩn hoá pose theo từng ảnh, rolling shutter và các dạng LiDAR khác nằm ngoài đợt gộp này.
+- Kiểm chứng: test hồi quy dựng nguồn ảnh qua `DrivingDataset.build_data_source` bằng cả tên lớp hiện tại và tên cũ. Kiểm tra local: 29 test loader trên CPU trong môi trường `drive2sim`, 38 test contracts và stage train đạt; chưa chạy train GPU cho đợt gộp này.
 
 **Khi nào gộp.** Khi có một trong các điều kiện: thêm một nguồn không ghi được theo khung của dataset nào có sẵn; một sửa đổi phải lặp lại ở từ ba loader trở lên; teammate không còn sửa loader trên `main`.
 
@@ -417,7 +420,7 @@ Nguồn: `drive2sim/recon/trainers/base.py`, `camera_rasterization_kwargs` (3DGS
 **Mô hình ngoài ba loại chuẩn: Mei (KITTI-360).** Camera mắt cá KITTI-360 hiệu chỉnh bằng mô hình Mei (gương cầu `xi`, méo xuyên tâm và tiếp tuyến). Converter khớp đa thức OpenCV fisheye `k1..k4` với Mei (`drive2sim/core/camera.py`, khớp bình phương tối thiểu theo mô hình Mei và OpenCV fisheye) và ghi `opencv_fisheye`. Đã đo trên calib thật: sai số của phép khớp xuyên tâm 0,004 px (`image_02`), 0,011 px (`image_03`) tới tia lệch trục 1,45 rad trên ảnh 1400 px; bỏ méo tiếp tuyến làm lệch thêm, so với Mei chính xác trên điểm LiDAR thật: trung vị 0,10 / 0,17 px, lớn nhất 0,42 / 0,78 px. Camera nhìn khoảng 191 độ theo chiều ngang. Phép chuyển giữ nguyên góc nhìn: ngoài miền khớp, đa thức vẫn lệch Mei dưới 0,5 px tới mép trái, phải của ảnh (khoảng 96 độ lệch trục). Khi train và đánh giá, loader che vùng ảnh ngoài góc nhỏ nhất giữa: góc mô hình ống kính còn lệch Mei dưới 0,5 px (converter tính từ calib của từng camera, ghi `cameras[].max_angle`: `image_02` 96,1 độ, `image_03` 92,5 độ), góc bắt đầu vùng đen (loader dò từ ảnh, `dark_border_angle`) và giới hạn của renderer (3DGUT, 3DGEER: 88 độ, vì gsplat bỏ Gaussian có tâm sau mặt phẳng camera nên không vẽ gì từ pi/2 trở ra), cùng mặt nạ thân xe (`docs/datasets/kitti360.md` mục 5.1, `docs/datasets/kitti360_fisheye_workflow.md`).
 
 - Ingest ghi mô hình thật: các dataset pinhole là `opencv_pinhole`; PhysicalAI giữ ảnh F-theta gốc (`docs/datasets/physicalai.md`) nên camera là `ftheta`, cảnh là track fisheye. Cảnh PhysicalAI đã ingest trước thay đổi này ghi nhầm `opencv_pinhole`; ingest lại để sửa.
-- OmniRe, Street GS trên KITTI-360: loader `kitti360.py` vẽ `image_02`, `image_03` theo đúng mô hình OpenCV fisheye (tia từng pixel bằng `camera_model_rays`, `cam_infos` mang `camera_model: fisheye` và `radial_coeffs`), pixel có tia lệch trục quá góc dùng được của camera (3DGEER: góc mô hình ống kính hoặc vùng đen; 3DGUT: thêm 88 độ) bị loại khỏi loss; config `kitti360/4cams` (bốn camera) và `kitti360/2cams` (hai camera, ví dụ cặp pinhole). Camera mắt cá train được với renderer `3dgut` hoặc `3dgeer` của cả OmniRe và Street GS; cặp pinhole train được với `3dgs`. Mới kiểm bằng cảnh giả trên CPU, **chưa chạy thật** (cần GPU).
+- OmniRe, Street GS trên KITTI-360: loader `standard.py` vẽ `image_02`, `image_03` theo đúng mô hình OpenCV fisheye (tia từng pixel bằng `camera_model_rays`, `cam_infos` mang `camera_model: fisheye` và `radial_coeffs`), pixel có tia lệch trục quá góc dùng được của camera (3DGEER: góc mô hình ống kính hoặc vùng đen; 3DGUT: thêm 88 độ) bị loại khỏi loss; config `kitti360/4cams` (bốn camera) và `kitti360/2cams` (hai camera, ví dụ cặp pinhole). Camera mắt cá train được với renderer `3dgut` hoặc `3dgeer` của cả OmniRe và Street GS; cặp pinhole train được với `3dgs`. Mới kiểm bằng cảnh giả trên CPU, **chưa chạy thật** (cần GPU).
 - `train.drivestudio` train cảnh fisheye trên ảnh gốc (`data.pixel_source.undistort=false`, đè giá trị `True` của `physicalai/7cams.yaml`). Khử méo về pinhole để dùng 3DGS là việc của stage `prep.undistort`, chưa làm; tới lúc đó 3DGS bị khoá trên cảnh fisheye.
 - Trang Chạy mới hiện track của cảnh, track của từng approach, làm mờ preset và lựa chọn không vẽ được camera của cảnh (kèm lý do), trước cả khi engine trả lời. Cấu hình mặc định không vẽ được camera của cảnh thì trang chọn sẵn preset đầu tiên vẽ được (OmniRe: `geer`; Street GS: `ut`).
 - Chưa làm: shutter của camera PhysicalAI vẫn ghi `GLOBAL` trong manifest (thông số thật nằm trong calibration của cảnh, loader đọc trực tiếp).
@@ -469,7 +472,7 @@ drivestudio_plus/                          branch drive2sim
 │   ├── recon/                             mã tái dựng (từ DriveStudio)
 │   │   ├── data/                          đọc dữ liệu đã tiền xử lý để train
 │   │   │   ├── base/                      pixel_source, lidar_source, scene_dataset, split_wrapper
-│   │   │   ├── loaders/                   <dataset>.py: một loader mỗi dataset (mục 2.4)
+│   │   │   ├── loaders/                   standard.py (KITTI-360, PHENIKAA) và loader riêng của dataset DriveStudio (mục 2.4)
 │   │   │   ├── driving_dataset.py
 │   │   │   └── dataset_meta.py
 │   │   ├── preprocess/                    dữ liệu gốc → thư mục DriveStudio
@@ -484,7 +487,7 @@ drivestudio_plus/                          branch drive2sim
 │   │   ├── utils/                         camera, geometry, logging, misc, visualization, backup
 │   │   └── tools/                         train.py, eval.py, viewer.py, export_ply.py, gather_results.py (thay dần bằng stage và CLI)
 │   ├── core/                              identifiers.py, schema.py, files.py, split.py, camera.py (khớp Mei → OpenCV fisheye) (đã có); transforms.py (chưa có)
-│   ├── ingest/                            detect.py (source inspect), dispatch.py (chọn chuỗi), drivestudio.py (converter chung cho 7 dataset), kitti360.py (converter KITTI-360), kitti360_boxes.py (box 3D KITTI-360), phenikaa.py (converter PHENIKAA), images.py, manifest.py, validate.py
+│   ├── ingest/                            detect.py (source inspect), dispatch.py (chọn chuỗi), drivestudio.py (converter chung cho 7 dataset), kitti360.py (converter KITTI-360), kitti360_boxes.py (box 3D KITTI-360), phenikaa.py (converter PHENIKAA), ego_masks.py (mask thân xe theo camera), images.py, manifest.py, validate.py
 │   ├── stages/                            commands.py, scene_view.py; prep/masks_segformer.py, prep/smpl.py, train/drivestudio.py, eval/standard.py, export/ply_world.py, export/preview.py (đã có); init/, render/ (khung)
 │   ├── engine/                            stage.py, registry.py, resolve.py, approaches.py, workdir.py, scenes.py, cache.py, run.py, report.py, housekeeping.py (xoá, dọn cache), pack.py (gói bàn giao), remote.py (phần chung của executor Kaggle và Colab: kiểm tra commit, ghép output tải về)
 │   ├── approaches/                        omnire.yaml, streetgs.yaml
@@ -521,7 +524,7 @@ Chạy script bằng `python -m`, ví dụ `python -m drive2sim.recon.tools.trai
 | Approach mới | `drive2sim/approaches/` | `<approach_id>.yaml` | Tự nạp khi engine khởi động |
 | Lựa chọn mới cho một mục cấu hình (ví dụ `init.slam`) | Stage mới như trên | | Thêm vào `options.<mục>.choices` của approach |
 | Method, node, loại Gaussian mới | `drive2sim/recon/models/nodes/` hoặc `drive2sim/recon/models/gaussians/` | `<tên>.py`; lớp theo quy ước sẵn có (`<Tên>Nodes`, `<Tên>Gaussians`) | Config method trong `drive2sim/configs/methods/`; giá trị mới cho tham số `method` của `train.drivestudio` |
-| Loader dữ liệu | `drive2sim/recon/data/loaders/` | Không thêm loader cho nguồn mới: converter ghi theo khung thư mục của một dataset có sẵn (mục 2.4). Ngoại lệ khi khung đó thiếu khả năng: lớp con kế thừa loader của khung, như `kitti360.py` kế thừa `kitti.py` | Config `drive2sim/configs/datasets/<dataset>/<k>cams.yaml`; dòng trong `DRIVESTUDIO_DATASETS` (`drive2sim/stages/scene_view.py`) |
+| Loader dữ liệu | `drive2sim/recon/data/loaders/` | Không thêm loader cho nguồn mới: converter ghi theo khung thư mục của một dataset có sẵn (mục 2.4). KITTI-360 và PHENIKAA dùng `standard.py` kế thừa `kitti.py`, đọc camera từ manifest (mục 2.4) | Config `drive2sim/configs/datasets/<dataset>/<k>cams.yaml`; dòng trong `DRIVESTUDIO_DATASETS` (`drive2sim/stages/scene_view.py`) |
 | Tiện ích dùng chung của phần tái dựng | `drive2sim/recon/utils/` | `<chủ_đề>.py` | |
 | Config method | `drive2sim/configs/methods/` | `<method>.yaml`; biến thể `<method>_<biến thể>.yaml` kế thừa từ config gốc, chỉ ghi phần khác | |
 | Bước tiền xử lý dữ liệu gốc cho DriveStudio (tạm, cho tới khi có `ingest/`) | `drive2sim/recon/preprocess/<dataset>/` hoặc `drive2sim/recon/preprocess/<loại>/` | `process.py`, `human.py`, `preview.py`; loại chung: `masks/`, `smpl/` | Nhánh `--dataset` trong `drive2sim/recon/preprocess/run.py` |
@@ -733,6 +736,8 @@ nguồn ──d2s scene ingest──► data/<scene_id>/ (thư mục DriveStudio
 Số test ghi trong từng dòng là số lúc hoàn thành việc đó. Hiện tại (17/11/2026): `make check` ở
 `.venv` nhẹ 441 test đạt, 15 bỏ qua (cần PyTorch hoặc numpy); `make test-gpu` ở conda env GPU
 chạy cả các test đó, 496 test đạt, không bỏ qua test nào.
+
+KITTI-360 và PHENIKAA đã dùng chung `StandardPixelSource`; có ánh xạ tên lớp cũ và test hồi quy đường dựng nguồn ảnh. Các loader dataset khác giữ phạm vi hiện có (mục 2.4). Chưa chạy train GPU cho đợt gộp này.
 
 | Việc | Trạng thái | Commit |
 |---|---|---|

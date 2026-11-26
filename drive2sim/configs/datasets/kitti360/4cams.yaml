@@ -17,7 +17,7 @@ data:
   end_timestep: -1 # which timestep to end at, -1 means the last timestep
   preload_device: cuda # choose from ["cpu", "cuda"], cache the data on this device
   pixel_source: # image source and object annotations
-    type: drive2sim.recon.data.loaders.kitti360.KITTI360PixelSource
+    type: drive2sim.recon.data.loaders.standard.StandardPixelSource
     cameras: [0, 1, 2, 3] # which cameras to use
     # Same factor 2 as kitti/2cams (1242x375 -> 621x187) and physicalai (1920x1080 -> 960x540):
     # pinhole 1408x376 -> 704x188, fisheye 1400x1400 -> 700x700 (about as many pixels per

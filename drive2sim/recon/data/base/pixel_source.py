@@ -275,9 +275,11 @@ class CameraData(object):
         Since in some datasets, the ego car body is visible in the images,
         we need to load the ego car mask to mask out the ego car body.
         """
+        # Mask của chính dataset (ego_masks/<camera>.png trong cảnh) được ưu tiên hơn asset.
+        scene_mask = scene_ego_mask(self.data_path, self.cam_name, self.original_size)
         egocar_mask = os.path.join(EGO_MASKS_DIR, self.dataset_name, f"{self.cam_id}.png")
-        if os.path.exists(egocar_mask):
-            egocar_mask = Image.open(egocar_mask).convert("L")
+        if scene_mask is not None or os.path.exists(egocar_mask):
+            egocar_mask = scene_mask or Image.open(egocar_mask).convert("L")
             # resize them to the load_size
             egocar_mask = egocar_mask.resize(
                 (self.load_size[1], self.load_size[0]), Image.BILINEAR
@@ -657,6 +659,9 @@ class CameraData(object):
             "egocar_masks": egocar_mask,
             "lidar_depth_map": lidar_depth_map,
         }
+        if egocar_mask is not None:
+            # Thân xe bị loại cả khi chấm điểm, không chỉ khỏi loss.
+            _image_infos["valid_masks"] = ~egocar_mask.bool()
         image_infos = {k: v for k, v in _image_infos.items() if v is not None}
         
         cam_infos = {
@@ -668,6 +673,36 @@ class CameraData(object):
             "intrinsics": intrinsics,
         }
         return image_infos, cam_infos
+
+def scene_ego_mask(data_path: str, camera_name: str, original_size) -> "Image.Image | None":
+    """Mask thân xe đi kèm cảnh: ``<cảnh>/ego_masks/<camera_name>.png`` (trắng: thân xe).
+
+    Converter chép mask của dataset vào đây, đã biến đổi giống ảnh trong ``images/``, nên mask
+    phải đúng kích thước gốc của ảnh; sai kích thước là mask của bộ camera khác, báo lỗi thay vì
+    co giãn.
+
+    Args:
+        data_path: Thư mục cảnh.
+        camera_name: Tên camera (``camera_id`` trong manifest).
+        original_size: Kích thước gốc của ảnh, ``(cao, rộng)``.
+
+    Returns:
+        Ảnh mask mức xám, hoặc ``None`` nếu cảnh không có mask cho camera này.
+
+    Raises:
+        ValueError: Nếu mask khác kích thước ảnh.
+    """
+    path = os.path.join(str(data_path), "ego_masks", f"{camera_name}.png")
+    if not os.path.isfile(path):
+        return None
+    mask = Image.open(path).convert("L")
+    height, width = int(original_size[0]), int(original_size[1])
+    if mask.size != (width, height):
+        raise ValueError(
+            f"{path}: mask {mask.size[0]}x{mask.size[1]} khác ảnh {width}x{height} của camera"
+        )
+    return mask
+
 
 class ScenePixelSource(abc.ABC):
     """

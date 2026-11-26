@@ -65,6 +65,9 @@ Trên giao diện có thể cho chọn approach sớm để người dùng biế
 
 ## 6. Dữ liệu
 
+Hiện trạng loader (26/11/2026): KITTI-360 và PHENIKAA cùng dùng loader đọc manifest và khung dữ liệu KITTI. Config run đã lưu với tên loader cũ tiếp tục được hỗ trợ. Các dataset DriveStudio khác vẫn có loader riêng; định dạng chung cho mọi nguồn còn là thiết kế đích (ARCHITECTURE mục 2.4).
+
+
 ### 6.1 Nguồn dữ liệu được hỗ trợ
 
 - Waymo, nuScenes, nuPlan, Argoverse 2, PandaSet, KITTI, PhysicalAI.

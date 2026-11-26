@@ -153,7 +153,7 @@ class KITTICameraData(CameraData):
     
 class KITTIPixelSource(ScenePixelSource):
     # drive2sim: lớp camera và danh sách camera để dựng SMPL là thuộc tính lớp, để loader
-    # KITTI-360 (loaders/kitti360.py) kế thừa mà không chép lại load_cameras, load_objects.
+    # chung (loaders/standard.py) kế thừa mà không chép lại load_cameras, load_objects.
     CAMERA_DATA_CLASS = KITTICameraData
     SMPL_CAMERA_LIST = AVAILABLE_CAM_LIST
 

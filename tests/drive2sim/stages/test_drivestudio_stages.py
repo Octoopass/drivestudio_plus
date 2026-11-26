@@ -293,7 +293,7 @@ def test_kitti360_config_resolves(
     data = load_config(paths.CONFIGS_DIR / "datasets" / f"{config}.yaml")["data"]
     assert data["dataset"] == "kitti360"
     pixel = data["pixel_source"]
-    assert pixel["type"] == "drive2sim.recon.data.loaders.kitti360.KITTI360PixelSource"
+    assert pixel["type"] == "drive2sim.recon.data.loaders.standard.StandardPixelSource"
     assert len(pixel["cameras"]) == len(pixel["downscale_when_loading"]) == len(cameras)
     assert pixel["undistort"] is False
     assert data["lidar_source"]["type"] == "drive2sim.recon.data.loaders.kitti.KITTILiDARSource"

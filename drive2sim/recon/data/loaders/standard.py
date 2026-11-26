@@ -1,41 +1,49 @@
-"""Loader DriveStudio cho cảnh KITTI-360, vẽ camera mắt cá theo đúng mô hình ống kính (không khử méo).
+"""Loader chung cho mọi cảnh ghi theo định dạng chuẩn của drive2sim (camera gắn cố định trên xe).
 
-Converter ``drive2sim/ingest/kitti360.py`` ghi cảnh KITTI-360 theo khung KITTI của DriveStudio
-(``images/<khung>_<chỉ số>.png``, ``lidar/``, ``ego_pose/``, ``extrinsics/``, ``intrinsics/``,
-CONTRACTS mục 2). Khác KITTI gốc ở ba chỗ, nên loader này kế thừa loader KITTI
-(``drive2sim/recon/data/loaders/kitti.py``) và chỉ sửa các chỗ đó:
+Định dạng chuẩn (CONTRACTS mục 2; converter của KITTI-360, PHENIKAA và dataset mới ghi ra):
 
-- Ảnh là PNG (KITTI gốc là JPG).
-- Bốn camera có hai mô hình: ``image_00``, ``image_01`` là ``opencv_pinhole`` (1408x376, ảnh đã
-  rectify, 9 số ``fx fy cx cy k1 k2 p1 p2 k3`` với méo bằng 0); ``image_02``, ``image_03`` là
-  ``opencv_fisheye`` (1400x1400, 8 số ``fx fy cx cy k1 k2 k3 k4`` theo thứ tự của
-  ``cv2.fisheye``). Mô hình và độ phân giải của từng camera đọc từ ``manifest.yaml`` của cảnh
-  (cảnh ảo của stage train có symlink tới file này, ``drive2sim/stages/scene_view.py``), không
-  đoán theo số lượng số trong file intrinsics.
-- Camera mắt cá được giữ nguyên ảnh gốc: tia của từng pixel tính bằng ``camera_model_rays`` với
-  mô hình ``fisheye`` và ``radial_coeffs``, ``cam_infos`` mang ``camera_model``,
-  ``radial_coeffs`` để trainer (``drive2sim/recon/trainers/base.py``) gọi renderer UT hoặc GEER.
-  Pixel có tia lệch trục quá ``max_angle`` của camera (góc nhỏ hơn giữa vùng ảnh còn nội dung,
-  mô hình ống kính còn đúng, ``cameras[].max_angle`` của manifest, và giới hạn của renderer:
-  3DGUT 88 độ) và pixel thân xe bị đánh dấu không hợp lệ (``egocar_masks``, ``valid_masks``), nên
-  không góp vào loss, giống mask ``invalid_masks`` của PhysicalAI.
+- ``images/<khung>_<chỉ số>.<jpg|png>``: đuôi ảnh tự nhận từ file có thật của từng camera;
+- ``intrinsics/<chỉ số>.txt``: pinhole 9 số ``fx fy cx cy k1 k2 p1 p2 k3``; mắt cá 8 số
+  ``fx fy cx cy k1 k2 k3 k4`` (``cv2.fisheye`` / Kannala–Brandt);
+- ``extrinsics/<chỉ số>.txt``: camera → xe (4×4, cố định); ``ego_pose/<khung>.txt``: xe → world;
+- ``lidar/<khung>.bin``: ``float32`` x, y, z, cường độ trong hệ xe;
+- tuỳ chọn: ``instances/``, ``dynamic_masks/``, ``sky_masks/``, ``ego_masks/<camera>.png``;
+- ``manifest.yaml``: tên, mô hình ống kính, độ phân giải, ``max_angle`` của từng camera.
+
+Mọi điều khác nhau giữa các dataset đều đọc từ manifest và file trong cảnh, không viết cứng theo
+dataset, nên dataset mới chỉ cần converter. Loader kế thừa loader KITTI của DriveStudio
+(``loaders/kitti.py``, cùng khung thư mục) và thêm:
+
+- Mô hình và độ phân giải của từng camera đọc từ ``manifest.yaml`` (cảnh ảo của stage train có
+  symlink tới file này, ``drive2sim/stages/scene_view.py``).
+- Camera mắt cá giữ nguyên ảnh gốc: tia của từng pixel tính bằng ``camera_model_rays`` với mô hình
+  ``fisheye`` và ``radial_coeffs``; ``cam_infos`` mang ``camera_model``, ``radial_coeffs`` để
+  trainer (``drive2sim/recon/trainers/base.py``) gọi renderer UT hoặc GEER. Pixel có tia lệch
+  trục quá ``max_angle`` (góc nhỏ nhất giữa vùng ảnh còn nội dung, mô hình ống kính còn đúng,
+  ``cameras[].max_angle`` của manifest, và giới hạn của renderer: 3DGUT 88 độ) bị đánh dấu không
+  hợp lệ (``egocar_masks``, ``valid_masks``), như ``invalid_masks`` của PhysicalAI.
+- Mask thân xe: ``ego_masks/<camera>.png`` của cảnh, nếu không có thì asset của tool cho dataset
+  (``EGO_MASKS_DIR/<dataset>/``, trừ dataset mà converter đã chép mask vào cảnh,
+  ``ingest.ego_masks.COPIED_BY_CONVERTER``). Thân xe bị bỏ khỏi loss, chấm điểm và chiếu LiDAR,
+  với cả camera pinhole lẫn mắt cá.
+- SMPL (nếu bật) dựng theo pose của mọi camera có trong manifest.
 
 File này chứa:
-- ``KITTI360CameraData``: một camera KITTI-360 (pinhole hoặc fisheye).
-- ``KITTI360PixelSource``: nguồn ảnh của cảnh, dùng ``KITTI360CameraData`` cho mọi camera.
+- ``StandardCameraData``: một camera (pinhole hoặc mắt cá).
+- ``StandardPixelSource``: nguồn ảnh của cảnh, dùng ``StandardCameraData`` cho mọi camera.
 
-LiDAR dùng nguyên ``KITTILiDARSource`` (cùng định dạng ``lidar/<khung>.bin``). Config dataset
-``drive2sim/configs/datasets/kitti360/`` trỏ tới hai lớp này; stage ``train.drivestudio`` chọn
-config theo manifest. Xem ``docs/datasets/kitti360.md``, ARCHITECTURE mục 7.1.
+LiDAR dùng nguyên ``KITTILiDARSource``. Config dataset (``drive2sim/configs/datasets/<dataset>/``)
+trỏ tới ``StandardPixelSource``; stage ``train.drivestudio`` chọn config theo manifest. Tên cũ
+``loaders.kitti360.KITTI360PixelSource``, ``loaders.phenikaa.PhenikaaPixelSource`` trong config của
+run cũ được đổi sang lớp này (``recon/utils/misc.py``, ``LEGACY_CLASSES``).
 
-Quy ước pixel: giống loader KITTI, ``cx``, ``cy`` trong file
-intrinsics được dùng nguyên (không cộng 0,5); tâm pixel ``i`` nằm ở toạ độ ``i + 0.5``.
+Quy ước pixel: giống loader KITTI, ``cx``, ``cy`` trong file intrinsics được dùng nguyên (không
+cộng 0,5); tâm pixel ``i`` nằm ở toạ độ ``i + 0.5``.
 """
 
 import math
 import os
 from pathlib import Path
-
 from typing import Optional
 
 import numpy as np
@@ -43,10 +51,11 @@ import torch
 from PIL import Image
 from torch import Tensor
 
-from drive2sim import paths
 from drive2sim.core.camera import MEI_FIT_MAX_ANGLE
 from drive2sim.core.files import load
 from drive2sim.core.schema import Manifest
+from drive2sim.ingest import ego_masks
+from drive2sim.recon.data.base.pixel_source import scene_ego_mask
 from drive2sim.recon.data.loaders.kitti import KITTICameraData, KITTIPixelSource
 from drive2sim.recon.utils.geometry import (
     camera_model_rays,
@@ -57,14 +66,13 @@ from drive2sim.recon.utils.geometry import (
 MANIFEST_FILE = "manifest.yaml"
 # Mô hình camera trong manifest → mô hình camera trainer DriveStudio nhận (recon/trainers/base.py).
 TRAINER_CAMERA_MODELS = {"opencv_pinhole": "pinhole", "opencv_fisheye": "fisheye"}
-# Bốn camera của KITTI-360 theo thứ tự chỉ số trong cảnh: image_00, image_01, image_02, image_03.
-AVAILABLE_CAM_LIST = [0, 1, 2, 3]
+IMAGE_SUFFIXES = (".jpg", ".png", ".jpeg")
 
 
-class KITTI360CameraData(KITTICameraData):
-    """Một camera của cảnh KITTI-360, đọc mô hình ống kính từ manifest.
+class StandardCameraData(KITTICameraData):
+    """Một camera của cảnh định dạng chuẩn, đọc mô hình ống kính từ manifest.
 
-    ``KITTI360PixelSource`` tạo một đối tượng cho mỗi camera được chọn. Camera pinhole đi đúng
+    ``StandardPixelSource`` tạo một đối tượng cho mỗi camera được chọn. Camera pinhole đi đúng
     đường của loader KITTI (tia pinhole của ``CameraData.get_image``); camera fisheye có tia,
     mask vùng hợp lệ và phép chiếu điểm riêng.
 
@@ -95,13 +103,16 @@ class KITTI360CameraData(KITTICameraData):
             ValueError: Nếu manifest không đọc được, chỉ số camera vượt số camera của manifest,
                 hoặc mô hình camera không phải ``opencv_pinhole``, ``opencv_fisheye``.
         """
-        manifest = load(Path(str(kwargs["data_path"])) / MANIFEST_FILE, Manifest)
+        scene = Path(str(kwargs["data_path"]))
+        manifest = load(scene / MANIFEST_FILE, Manifest)
         index = int(kwargs["cam_id"])
         if not 0 <= index < len(manifest.cameras):
-            raise ValueError(f"manifest có {len(manifest.cameras)} camera, không có chỉ số {index}")
+            raise ValueError(
+                f"manifest có {len(manifest.cameras)} camera, không có chỉ số {index}"
+            )
         camera = manifest.cameras[index]
         if camera.model not in TRAINER_CAMERA_MODELS:
-            raise ValueError(f"{camera.camera_id}: loader KITTI-360 không đọc được {camera.model}")
+            raise ValueError(f"{camera.camera_id}: loader chuẩn không đọc được {camera.model}")
         self.camera_model = TRAINER_CAMERA_MODELS[camera.model]
         self.radial_coeffs = None
         # Ngưỡng che theo góc = nhỏ nhất của: góc mô hình ống kính còn đúng (cameras[].max_angle,
@@ -121,8 +132,14 @@ class KITTI360CameraData(KITTICameraData):
         self.camera_metadata = {
             "camera_name": camera.camera_id,
             "original_size": (height, width),
-            "egocar_visible": camera.camera_id in ("image_02", "image_03"),
+            "egocar_visible": ego_masks.has_mask(
+                scene, manifest.source.dataset, camera.camera_id, index
+            ),
         }
+        # Asset mask của tool (khi cảnh không có ego_masks/<camera>.png), theo dataset của cảnh.
+        self.ego_mask_asset = ego_masks.tool_asset(
+            manifest.source.dataset, camera.camera_id, index
+        )
         super().__init__(**kwargs)
         self.dark_angle = None
         if self.camera_model == "fisheye" and self.images is not None:
@@ -142,29 +159,39 @@ class KITTI360CameraData(KITTICameraData):
     def load_egocar_mask(self) -> None:
         """Nạp mask thân xe cố định theo tên camera trong manifest.
 
-        Converter đánh lại chỉ số khi ingest một phần camera, nên ``cam_id`` không dùng để
-        chọn asset. Hai camera mắt cá dùng PNG 1400x1400 (trắng: bỏ, đen: giữ); pinhole không
-        có mask thân xe. Nội suy nearest giữ mask nhị phân khi giảm độ phân giải. Không dò
+        Thứ tự: mask đi kèm cảnh (``<cảnh>/ego_masks/<camera>.png``, converter chép từ dataset
+        hoặc người dùng vẽ trong Studio, cùng không gian ảnh với ``images/``), rồi asset của tool
+        cho dataset của cảnh (``ingest.ego_masks.tool_asset``). Converter
+        đánh lại chỉ số khi ingest một phần camera, nên ``cam_id`` không dùng để chọn mask. Trắng:
+        thân xe, đen: giữ. Nội suy nearest giữ mask nhị phân khi giảm độ phân giải. Không dò
         mask từ ảnh của run, nên vệt sáng hay bóng đổ không làm thay đổi vùng được giám sát.
 
         Raises:
-            FileNotFoundError: Nếu package thiếu asset của camera mắt cá KITTI-360.
+            ValueError: Nếu mask của cảnh khác kích thước ảnh.
         """
         self.egocar_mask = None
-        if self.cam_name not in ("image_02", "image_03"):
-            return
-        mask_path = paths.EGO_MASKS_DIR / "kitti360" / f"{self.cam_name}.png"
-        with Image.open(mask_path) as mask:
-            resized = mask.convert("L").resize(
-                (self.load_size[1], self.load_size[0]), Image.Resampling.NEAREST
-            )
-            self.egocar_mask = torch.from_numpy(np.array(resized) > 0).float()
+        mask = scene_ego_mask(self.data_path, self.cam_name, self.original_size)
+        if mask is None:
+            if self.ego_mask_asset is None:
+                return
+            mask = Image.open(self.ego_mask_asset).convert("L")
+        resized = mask.resize((self.load_size[1], self.load_size[0]), Image.Resampling.NEAREST)
+        self.egocar_mask = torch.from_numpy(np.array(resized) > 0).float()
 
     def create_all_filelist(self) -> None:
-        """Lập danh sách file như KITTI nhưng ảnh là PNG (converter chép nguyên PNG của KITTI-360)."""
+        """Lập danh sách file như KITTI, đuôi ảnh lấy theo file có thật của camera ở khung đầu.
+
+        Raises:
+            FileNotFoundError: Nếu khung đầu của camera không có ảnh đuôi nào trong
+                ``IMAGE_SUFFIXES``.
+        """
         super().create_all_filelist()
+        first = Path(self.img_filepaths[0])
+        suffix = next((s for s in IMAGE_SUFFIXES if first.with_suffix(s).is_file()), None)
+        if suffix is None:
+            raise FileNotFoundError(f"không có ảnh {first.with_suffix('.*')}")
         self.img_filepaths = np.array(
-            [str(Path(path).with_suffix(".png")) for path in self.img_filepaths]
+            [str(Path(path).with_suffix(suffix)) for path in self.img_filepaths]
         )
 
     def load_calibrations(self) -> None:
@@ -183,7 +210,7 @@ class KITTI360CameraData(KITTICameraData):
             return
         if self.undistort:
             raise ValueError(
-                f"{self.cam_name}: camera fisheye của KITTI-360 chỉ train trên ảnh gốc; "
+                f"{self.cam_name}: camera fisheye chỉ train trên ảnh gốc; "
                 "đặt data.pixel_source.undistort=False"
             )
         intrinsic = np.loadtxt(os.path.join(self.data_path, "intrinsics", f"{self.cam_id}.txt"))
@@ -205,7 +232,7 @@ class KITTI360CameraData(KITTICameraData):
         self.intrinsics = K.repeat(len(self.cam_to_worlds), 1, 1)
         self.distortions = None
 
-    def to(self, device: torch.device) -> "KITTI360CameraData":
+    def to(self, device: torch.device) -> "StandardCameraData":
         """Chuyển dữ liệu của camera sang ``device``, gồm cả ``radial_coeffs``; xoá cache tia."""
         super().to(device)
         self.device = device
@@ -217,7 +244,8 @@ class KITTI360CameraData(KITTICameraData):
     def camera_rays(self, intrinsics: Tensor, height: int, width: int) -> tuple[Tensor, Tensor]:
         """Tính tia đơn vị trong hệ camera của mọi pixel fisheye và mask pixel hợp lệ.
 
-        Tia lấy từ ``camera_model_rays`` (giải ngược ``theta_d = theta·(1 + k1·θ² + ... + k4·θ⁸)``).
+        Tia lấy từ ``camera_model_rays`` (giải ngược
+        ``theta_d = theta·(1 + k1·θ² + ... + k4·θ⁸)``).
         Pixel hợp lệ khi giải ngược hội tụ và góc tia ``theta`` không vượt ``self.max_angle``
         (``__init__``). Kết quả được nhớ theo
         kích thước ảnh, vì intrinsics không đổi theo khung.
@@ -260,6 +288,7 @@ class KITTI360CameraData(KITTICameraData):
         """
         image, camera = super().get_image(frame_idx)
         if self.camera_model == "pinhole":
+            # CameraData.get_image đã đặt valid_masks = ngoài thân xe nếu có mask
             return image, camera
         height, width = int(camera["height"]), int(camera["width"])
         rays, valid = self.camera_rays(camera["intrinsics"], height, width)
@@ -304,24 +333,40 @@ class KITTI360CameraData(KITTICameraData):
             self.radial_coeffs,
             max_angle=self.max_angle if self.camera_model == "fisheye" else None,
         )
+        region = None
         if self.camera_model == "fisheye":
             _, region = self.camera_rays(intrinsics, self.HEIGHT, self.WIDTH)
-            if self.egocar_mask is not None:
-                region = region & ~self.egocar_mask.bool()
+        if self.egocar_mask is not None:
+            egocar = ~self.egocar_mask.bool().to(valid.device)
+            region = egocar if region is None else region & egocar
+        if region is not None:
             selected = valid.nonzero().flatten()
             uv = pixels[selected].long()
             valid[selected] &= region[uv[:, 1], uv[:, 0]]
         return pixels, depth, valid
 
 
-class KITTI360PixelSource(KITTIPixelSource):
-    """Nguồn ảnh của cảnh KITTI-360: như KITTI, nhưng camera là ``KITTI360CameraData``.
+class StandardPixelSource(KITTIPixelSource):
+    """Nguồn ảnh của cảnh định dạng chuẩn: như KITTI, nhưng camera là ``StandardCameraData``.
 
     Hộp đối tượng (``instances/``) cùng định dạng KITTI nên dùng nguyên ``load_objects``; SMPL
-    (nếu bật) được dựng theo pose của cả bốn camera.
+    (nếu bật) được dựng theo pose của mọi camera trong manifest.
     """
 
-    CAMERA_DATA_CLASS = KITTI360CameraData
+    CAMERA_DATA_CLASS = StandardCameraData
+
+    def __init__(  # noqa: D107
+        self,
+        dataset_name: str,
+        pixel_data_config,  # noqa: ANN001
+        data_path: str,
+        *args,  # noqa: ANN002
+        **kwargs,  # noqa: ANN003
+    ) -> None:
+        """Lấy danh sách camera dựng SMPL từ manifest rồi nạp như ``KITTIPixelSource``."""
+        manifest = load(Path(str(data_path)) / MANIFEST_FILE, Manifest)
+        self.SMPL_CAMERA_LIST = list(range(len(manifest.cameras)))
+        super().__init__(dataset_name, pixel_data_config, data_path, *args, **kwargs)
 
     def extra_camera_kwargs(self) -> dict:
         """Ngưỡng góc của camera mắt cá đặt trong config (``fisheye_max_angle``), nếu có."""
@@ -329,4 +374,3 @@ class KITTI360PixelSource(KITTIPixelSource):
             "fisheye_max_angle": self.data_cfg.get("fisheye_max_angle", None),
             "fisheye_renderer_max_angle": self.data_cfg.get("fisheye_renderer_max_angle", None),
         }
-    SMPL_CAMERA_LIST = AVAILABLE_CAM_LIST
