@@ -26,7 +26,7 @@ Mọi split dùng `every_nth_frame:8`.
 
 Lý do của các lựa chọn khác thường:
 - **A3 khung gốc 560–779**: chứa người đi bộ duy nhất của chuỗi 0003 (khung 629–662) và xe chạy, nên đo được PSNR vùng người mà A1 không có, vẫn giữ cặp stereo cho R2. Script đổi số hiệu gốc sang chỉ số khung qua `frame_ids.txt` và in độ đổi hướng của xe trong đoạn (từ `ego_pose/`); dưới 30 độ thì đoạn không có rẽ: dời đoạn trong khoảng khung gốc 560–1030 nhưng giữ khung 629–662 (sửa `A3_SOURCE_RANGE`). Chưa kiểm vì cảnh dài chưa ingest.
-- **Track C không có `image_01`**: `prep.ncore` chưa bỏ camera chỉ test của split (chỉ `prep.mcgs` bỏ), nên đưa `image_01` vào split sẽ cho NuRec thấy camera dùng để đo R2. R2 của track C vì vậy không đo. Chưa kiểm: `prep.ncore` có bỏ khung test khỏi đầu vào của NuRec không.
+- **Track C không có `image_01`**: `prep.ncore` chưa bỏ camera chỉ test của split (chỉ `prep.mcgs` bỏ), nên đưa `image_01` vào split sẽ cho NuRec thấy camera dùng để đo R2. R2 của track C vì vậy không đo. `prep.ncore` cũng chuyển **mọi khung** của `frame_range`, kể cả khung test (`docs/methods/nurec.md`: NuRec dựng từ mọi khung của clip), nên R1 của track C đo trên ảnh NuRec đã nhận làm đầu vào, không so được với R1 của track A.
 - **MCGS-SLAM không có camera chỉ test**: MCGS cần ít nhất hai camera pinhole để train, và `prep.mcgs` từ chối camera chỉ test, nên R2 không áp dụng cho run này. `prep.mcgs` mặc định `held_out: true` (bỏ khung test khỏi đầu vào).
 
 ## 2. Lệnh
@@ -49,9 +49,10 @@ d2s benchmark benchmarks/week04.yaml --out benchmarks/week04.json
 | Nhóm | Split | Run nhận vào |
 |---|---|---|
 | A-LB | `every8_stereo` | OmniRe 3DGS + FastGS seed 0; BezierGS |
-| A-L | `every8_stereo` | PVG, DeformableGS (có LiDAR) |
-| A-0 | `every8_stereo` | PVG, DeformableGS với `lidar=false` |
+| A-L | `every8_stereo` | PVG, DeformableGS renderer 3DGS (có LiDAR) |
+| A-0 | `every8_stereo` | PVG, DeformableGS renderer 3DGS với `lidar=false` |
 | A-LB | `every8_stereo_fisheye2` | OmniRe 3DGUT + FastGS; OmniRe 3DGEER + FastGS |
+| A-L | `every8_stereo_fisheye2` | PVG, DeformableGS với renderer 3DGUT (#12) |
 | A-LB, A-L | `every8_stereo_a3` | OmniRe (mọi cấu hình); PVG, DeformableGS |
 | B | `every8_pinhole2` | MCGS-SLAM |
 | C | `every8_mixed3` | Instant NuRec |
@@ -61,6 +62,7 @@ Nhiều run khớp một ô thì lấy run mới nhất và in các run bị b�
 
 ## 3. Chưa làm được trong đợt này
 
-- **#12 (A-L với fisheye, A2)**: PVG và DeformableGS chỉ có config 3DGS và chỉ nhận camera pinhole (`approaches/pvg.yaml`, `deformablegs.yaml`; `d2s approach check pvg --split every8_stereo_fisheye2` từ chối `image_02`, `image_03`). Muốn chạy phải thêm config 3DGUT cho hai method này.
+- **#12 (A-L với fisheye, A2)**: từ 26/11 PVG và DeformableGS có renderer 3DGUT, 3DGEER (tắt CamPose), nên #12 chạy được với `--set renderer=3dgut --set campose=false`; chưa chạy thật trên GPU. A2 A-L vì vậy so method thắng A-L ở cấu hình khác A1 (không CamPose).
+- **R3 của PVG, DeformableGS**: `export_ply.py` ghi tham số gốc của node `Background` (`_means`, `_opacities`). Với PVG đó là tâm chưa cộng dao động và độ đục chưa nhân suy giảm theo thời gian, nên mọi Gaussian (cả vệt của xe chạy) hiện cùng lúc; với DeformableGS là tâm chưa qua mạng biến dạng. `export_gap_db` của hai method này đo khoảng cách tới một cảnh không phải cảnh đã train, nên bước phân xử R3 trong ô A-L có thể không công bằng. Chưa xử lý, chưa quyết định cách sửa (ví dụ xuất PVG ở một thời điểm, hoặc ghi R3 là không áp dụng cho method thay đổi theo thời gian).
 - **#17 trong bảng xếp hạng**: `d2s benchmark` chưa có nhóm "chunked" gộp `frames.jsonl` của các chunk (ARCHITECTURE mục 2.17), nên 6 run chunk chạy được nhưng chưa vào `week04.yaml`.
 - **#14**: chạy thử Instant NuRec trên clip mẫu NCore, ngoài cảnh KITTI-360, nên không có lệnh ở đây.

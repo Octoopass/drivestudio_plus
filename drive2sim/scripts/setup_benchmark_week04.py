@@ -366,13 +366,19 @@ RUN_COMMANDS = (
         ("renderer=3dgeer",) + OMNIRE_FASTGS,
         note="A-LB fisheye",
     ),
+    RunCommand(
+        "12",
+        A_L_WINNER,
+        SHORT_SCENE,
+        "every8_stereo_fisheye2",
+        ("renderer=3dgut", "campose=false"),
+        note="A-L fisheye",
+    ),
     RunCommand("13", "mcgs", LONG_SCENE, "every8_pinhole2", note="track B"),
     RunCommand("15", "nurec", SHORT_SCENE, "every8_mixed3", note="track C"),
     RunCommand("16", A_LB_WINNER, LONG_SCENE, "every8_stereo_a3", note="A3"),
 )
 SKIPPED_COMMANDS = (
-    "#12 (A-L fisheye): PVG, DeformableGS chỉ có config 3DGS, chỉ nhận camera pinhole "
-    "(approaches/pvg.yaml, deformablegs.yaml), nên chưa chạy được trên A2",
     "#14 (smoke Instant NuRec): chạy trên clip mẫu NCore, không qua cảnh KITTI-360",
 )
 
@@ -425,17 +431,24 @@ class EntryPlan:
 
 
 OMNIRE_A1 = Slot("omnire", (("renderer", "3dgs"), ("fastgs", True)))
+PINHOLE = (("renderer", "3dgs"),)
+FISHEYE_UT = (("renderer", "3dgut"),)
 ENTRY_PLANS = (
     EntryPlan("A", "A-LB", SHORT_SCENE, "every8_stereo", (OMNIRE_A1, Slot("beziergs")), "A1 A-LB"),
     EntryPlan(
-        "A", "A-L", SHORT_SCENE, "every8_stereo", (Slot("pvg"), Slot("deformablegs")), "A1 A-L"
+        "A",
+        "A-L",
+        SHORT_SCENE,
+        "every8_stereo",
+        (Slot("pvg", PINHOLE), Slot("deformablegs", PINHOLE)),
+        "A1 A-L",
     ),
     EntryPlan(
         "A",
         "A-0",
         SHORT_SCENE,
         "every8_stereo",
-        (Slot("pvg", lidar=False), Slot("deformablegs", lidar=False)),
+        (Slot("pvg", PINHOLE, lidar=False), Slot("deformablegs", PINHOLE, lidar=False)),
         "A1 A-0",
     ),
     EntryPlan(
@@ -449,13 +462,21 @@ ENTRY_PLANS = (
         ),
         "A2 A-LB",
     ),
+    EntryPlan(
+        "A",
+        "A-L",
+        SHORT_SCENE,
+        "every8_stereo_fisheye2",
+        (Slot("pvg", FISHEYE_UT), Slot("deformablegs", FISHEYE_UT)),
+        "A2 A-L",
+    ),
     EntryPlan("A", "A-LB", LONG_SCENE, "every8_stereo_a3", (Slot("omnire"),), "A3 A-LB"),
     EntryPlan(
         "A",
         "A-L",
         LONG_SCENE,
         "every8_stereo_a3",
-        (Slot("pvg"), Slot("deformablegs")),
+        (Slot("pvg", PINHOLE), Slot("deformablegs", PINHOLE)),
         "A3 A-L",
     ),
     EntryPlan("B", None, LONG_SCENE, "every8_pinhole2", (Slot("mcgs"),), "B2 MCGS-SLAM"),

@@ -94,11 +94,15 @@ def test_heading_change_detects_a_turn(tmp_path: Path) -> None:
 
 def test_definition_groups_runs_by_matrix_cell() -> None:
     omnire = {"renderer": "3dgs", "fastgs": True}
+    pinhole, fisheye = (
+        {"renderer": "3dgs", "campose": True},
+        {"renderer": "3dgut", "campose": False},
+    )
     runs = [  # mới nhất trước, như list_runs
-        make_run("20261127-120000-pvg-aaaa", "pvg", train={"lidar": False}),
-        make_run("20261127-110000-pvg-bbbb", "pvg", train={}),
-        make_run("20261127-100000-pvg-cccc", "pvg", train={}),
-        make_run("20261127-095000-pvg-dddd", "pvg", train={}, quick=True),
+        make_run("20261127-120000-pvg-aaaa", "pvg", options=pinhole, train={"lidar": False}),
+        make_run("20261127-110000-pvg-bbbb", "pvg", options=pinhole, train={}),
+        make_run("20261127-100000-pvg-cccc", "pvg", options=pinhole, train={}),
+        make_run("20261127-095000-pvg-dddd", "pvg", options=pinhole, train={}, quick=True),
         make_run("20261127-090000-deformablegs-eeee", "deformablegs", train={}, status="failed"),
         make_run("20261127-080000-omnire-0002", "omnire", options=omnire, train={"seed": 2}),
         make_run("20261127-070000-omnire-0001", "omnire", options=omnire, train={"seed": 1}),
@@ -111,6 +115,13 @@ def test_definition_groups_runs_by_matrix_cell() -> None:
             train={},
         ),
         make_run("20261127-040000-nurec-c0d0", "nurec", split_id="every8_mixed3"),
+        make_run(
+            "20261127-030000-pvg-f1e2",
+            "pvg",
+            split_id="every8_stereo_fisheye2",
+            options=fisheye,
+            train={},
+        ),
     ]
     result = week04.build_definition(runs)
     assert result.benchmark is not None
@@ -123,6 +134,7 @@ def test_definition_groups_runs_by_matrix_cell() -> None:
     assert groups[("every8_stereo", "A-0")] == ["20261127-120000-pvg-aaaa"]
     assert groups[("every8_stereo_fisheye2", "A-LB")] == ["20261127-050000-omnire-a3d0"]
     assert groups[("every8_mixed3", "C")] == ["20261127-040000-nurec-c0d0"]
+    assert groups[("every8_stereo_fisheye2", "A-L")] == ["20261127-030000-pvg-f1e2"]
     assert ("every8_pinhole2", "B") not in groups
     assert result.benchmark.calibration is not None
     assert result.benchmark.calibration.runs == [
