@@ -36,6 +36,7 @@ export type Ssim1 = number;
 export type Lpips1 = number;
 export type PsnrCc = number | null;
 export type LpipsCc = number | null;
+export type Coverage = number | null;
 
 /**
  * Schema của file ``summary.json``: tóm tắt kết quả đánh giá của một run.
@@ -69,6 +70,10 @@ export type LpipsCc = number | null;
  *     shifted: Metric trên camera chỉ test (R2, thêm từ ``d2s-summary/0.7``, protocol 0.5); để
  *         trống nếu split không có camera chỉ test. Khi có, ``overall`` chỉ tính trên các ảnh
  *         test của camera đã train.
+ *     coverage: Tỉ lệ điểm ảnh được chấm, trung bình trên mọi view test, trong [0, 1] (thêm từ
+ *         ``d2s-summary/0.8``). Chỉ ``eval.ncore`` và ``eval.mcgs`` điền: hai stage này chỉ chấm
+ *         điểm ảnh ngoài mask thân xe và có alpha > 0,9, nên PSNR của chúng đo trên phần ảnh nhỏ
+ *         hơn ``eval.standard``; ``eval.standard`` đo trên mọi điểm hợp lệ nên để trống.
  */
 export interface Summary {
   schema_version: SchemaVersion;
@@ -86,6 +91,7 @@ export interface Summary {
   eval_time_s?: EvalTimeS;
   depth?: DepthMetrics | null;
   shifted?: ShiftedMetrics | null;
+  coverage?: Coverage;
 }
 /**
  * Protocol đánh giá đã dùng cho một run (SPEC mục 9).

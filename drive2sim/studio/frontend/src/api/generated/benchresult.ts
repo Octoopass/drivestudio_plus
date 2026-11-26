@@ -46,6 +46,7 @@ export type EndM = number;
 export type NumFrames = number;
 export type MinPsnr = number;
 export type FramesMeasured = number;
+export type Coverage = number | null;
 export type Rows = BenchmarkRunRow[];
 export type Warnings1 = string[];
 export type Groups = BenchmarkGroup[];
@@ -133,6 +134,8 @@ export interface BenchmarkGroup {
  *     bad_segments: Các đoạn đường hỏng (R7) theo nhóm camera, khoá ``pinhole`` hoặc ``fisheye``
  *         (chỉ nhóm có ảnh test); chỉ tính trên camera đã train. Rỗng nếu không đo được.
  *     frames_measured: Số cặp (khung, camera đã train) có metric từng ảnh; 0 nếu run chưa có.
+ *     coverage: Tỉ lệ điểm ảnh được chấm (``Summary.coverage``, thêm từ ``d2s-benchresult/0.3``);
+ *         để trống nếu stage đánh giá không ghi (``eval.standard``).
  */
 export interface BenchmarkRunRow {
   run_id: RunId;
@@ -166,6 +169,7 @@ export interface BenchmarkRunRow {
   ate_rmse_m?: AteRmseM;
   bad_segments?: BadSegments;
   frames_measured?: FramesMeasured;
+  coverage?: Coverage;
 }
 /**
  * Độ sâu render so với độ sâu LiDAR trên tập test (yêu cầu R4 của benchmark).

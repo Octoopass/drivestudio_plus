@@ -6,6 +6,7 @@ export type ArtifactType =
   | "masks"
   | "smpl"
   | "ncore_clip"
+  | "mcgs_input"
   | "depth_prior"
   | "points_init"
   | "model"

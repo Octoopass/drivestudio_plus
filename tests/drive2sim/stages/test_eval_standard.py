@@ -80,7 +80,7 @@ def test_summary_0_6_without_shifted_still_loads(tmp_path: Path) -> None:
     path.write_text(json.dumps(data))
     summary = files.load(path, Summary)
     assert summary.shifted is None
-    assert SCHEMA_VERSIONS["summary"] == "d2s-summary/0.7"
+    assert SCHEMA_VERSIONS["summary"] == "d2s-summary/0.8"
 
 
 def test_make_summary_with_test_only_camera_fills_shifted(tmp_path: Path) -> None:
