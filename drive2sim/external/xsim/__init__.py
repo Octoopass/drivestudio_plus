@@ -12,6 +12,7 @@ dựng ``<thư mục>/XSIM`` (mã nguồn) và ``<thư mục>/.venv`` (Python c�
 
 File này chỉ dùng thư viện chuẩn, để engine và Studio gọi được khi máy không có XSIM:
 - ``REVISION``: commit XSIM đã chốt.
+- ``WORKER_ENV``: biến môi trường cho tiến trình chạy Python của venv XSIM.
 - ``OBSERVATIONS_INDEX``: tên file chỉ mục của gói quan sát.
 - ``xsim_dir``, ``source_dir``, ``xsim_python``: đường dẫn của bản cài.
 - ``environment_checks``: các mục kiểm tra cho ``engine.environment.environment_check``.
@@ -32,6 +33,10 @@ REVISION = "5c86a33a036f3163f78eff5dcd8d3fc75c05d2a3"
 PYTHON_VERSIONS = ("3.11", "3.12")
 # README của XSIM khuyến nghị GPU từ 24 GB để train; dưới mức này chỉ cảnh báo.
 RECOMMENDED_VRAM_MB = 24 * 1024
+# Biến môi trường cho mọi tiến trình chạy Python của venv XSIM. ``import xsim`` nạp
+# matplotlib.pyplot; kernel Jupyter (Kaggle, Colab) đặt MPLBACKEND trỏ tới backend inline mà venv
+# XSIM không có, nên matplotlib báo lỗi ngay khi import. Worker không vẽ lên màn hình: dùng Agg.
+WORKER_ENV = {"MPLBACKEND": "Agg"}
 
 
 def xsim_dir() -> Path:
@@ -80,7 +85,12 @@ def _probe(python: Path) -> Optional[dict]:
     """Thông tin runtime của venv worker, ``None`` nếu không chạy hoặc không import được."""
     try:
         result = subprocess.run(
-            [str(python), "-c", _PROBE], capture_output=True, text=True, timeout=180, check=False
+            [str(python), "-c", _PROBE],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+            env={**os.environ, **WORKER_ENV},
         )
         lines = result.stdout.strip().splitlines()
         if result.returncode != 0 or not lines:

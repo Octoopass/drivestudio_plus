@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from drive2sim.core import files
 from drive2sim.core.schema import SCHEMA_VERSIONS, JobResult, JobSpec
 from drive2sim.engine.stage import StageContext
-from drive2sim.external.xsim import OBSERVATIONS_INDEX, xsim_dir, xsim_python
+from drive2sim.external.xsim import OBSERVATIONS_INDEX, WORKER_ENV, xsim_dir, xsim_python
 from drive2sim.paths import SMPL_MODEL_NAME, find_smpl_model
 from drive2sim.stages.commands import run_logged
 
@@ -122,7 +122,7 @@ def run_xsim_worker(
         "--result",
         str(result_path),
     ]
-    env = {"D2S_WORKDIR": str(root), "PYTHONUNBUFFERED": "1"}
+    env = {"D2S_WORKDIR": str(root), "PYTHONUNBUFFERED": "1", **WORKER_ENV}
     env.update(smpl_environment(ctx, inputs["observations"], root))
     run_logged(
         command,

@@ -16,6 +16,10 @@
 # nvcc phải cùng major với CUDA của PyTorch (12.x): khác thì cài CUDA 12.8 riêng bằng
 # envs/install_cuda.sh vào D2S_CUDA_PREFIX, như envs/install_main.sh.
 set -euo pipefail
+# Bước kiểm import nạp matplotlib.pyplot (qua xsim); kernel Jupyter của Kaggle, Colab đặt
+# MPLBACKEND trỏ tới backend inline mà venv XSIM không có, matplotlib sẽ báo lỗi. Như worker
+# (drive2sim.external.xsim.WORKER_ENV), dùng Agg.
+export MPLBACKEND=Agg
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIR="${D2S_XSIM_DIR:-$HOME/.cache/drive2sim/xsim}"

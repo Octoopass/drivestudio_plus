@@ -44,6 +44,8 @@ def test_stage_validates_current_worker_result(
         assert not (out / "result.json").exists()
         log.write_text("XSIM step=20/40 loss=0.1\n")
         assert kwargs["should_stop"]() is False
+        # Kernel Jupyter của Kaggle đặt MPLBACKEND inline; venv XSIM không có backend đó.
+        assert kwargs["env"]["MPLBACKEND"] == "Agg"
         worker.execute(out / "job.json", out / "result.json", tmp_path)
 
     monkeypatch.setenv("D2S_XSIM_PYTHON", "/worker/python")
