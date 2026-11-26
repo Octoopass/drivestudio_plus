@@ -66,7 +66,7 @@ MAX_PARALLEL_RUNS = 2  # số run mỗi notebook: một run một GPU
 PARALLEL_ACCELERATOR = "NvidiaTeslaT4"  # máy Kaggle có 2 GPU (T4 x2)
 DATASET_WAIT_S = 900  # chờ Kaggle xử lý xong dataset cảnh vừa upload, tối đa 15 phút
 DATASET_POLL_S = 10
-SMPL_DATASET_ENV = "D2S_KAGGLE_SMPL_DATASET"  # dataset private chứa SMPL_NEUTRAL.pkl
+SMPL_DATASET_ENV = "D2S_KAGGLE_SMPL_DATASET"  # ghi đè dataset chứa SMPL_NEUTRAL.pkl
 REPO_ENV = "D2S_KAGGLE_REPO"  # đổi repo notebook clone (mặc định remote origin)
 
 
@@ -506,16 +506,9 @@ def _prepare(
         )
         sources = [dataset]
     # Run có dựng người (prep.smpl) thì trainer cần file mô hình SMPL, file có bản quyền nên không
-    # đi kèm repo: người dùng tự đưa nó lên một dataset private và đặt tên dataset ở biến này.
+    # đi kèm repo: người dùng tự đưa nó lên một dataset private.
     if produces_artifact((stage.stage_id for stage in record.stages), "smpl"):
-        smpl_dataset = os.environ.get(SMPL_DATASET_ENV, "").strip()
-        if not smpl_dataset:
-            raise KaggleError(
-                "run dựng người (prep.smpl) cần file mô hình SMPL trên Kaggle: upload "
-                "SMPL_NEUTRAL.pkl thành một dataset private rồi đặt biến "
-                f"{SMPL_DATASET_ENV}=<người dùng>/<tên dataset> trước khi đẩy"
-            )
-        sources.append(smpl_dataset)
+        sources.append(smpl_dataset(client, username))
     history = _previous_kernels(previous, run_id)
     # Gắn output của tối đa MAX_RESUME_SOURCES lần đẩy trước, mới nhất trước: lần gần nhất có thể
     # lỗi trước khi ghi được gì (ví dụ lúc cài môi trường), khi đó notebook chạy tiếp từ lần cũ hơn
@@ -548,6 +541,37 @@ def _prepare(
         datasets=sources,
         kernels=scene_kernels + resume + kernels,
     )
+
+
+def smpl_dataset(client: KaggleClient, username: str) -> str:
+    """Dataset Kaggle chứa ``SMPL_NEUTRAL.pkl`` mà notebook của run dựng người gắn vào.
+
+    Mặc định là ``<tài khoản đang đăng nhập>/d2s-model-smpl`` (CONTRACTS mục 10.1), nên đổi tài
+    khoản Kaggle không phải đổi cấu hình. Biến ``D2S_KAGGLE_SMPL_DATASET`` ghi đè, ví dụ để dùng
+    dataset tài khoản khác chia sẻ.
+
+    Args:
+        client: Lệnh kaggle.
+        username: Tài khoản lệnh kaggle đang đăng nhập.
+
+    Returns:
+        Định danh đầy đủ ``<tài khoản>/<tên>``.
+
+    Raises:
+        KaggleError: Nếu tài khoản này không thấy dataset đó (chưa upload hoặc chưa được chia sẻ):
+            báo ngay trên máy thay vì để notebook lỗi trên Kaggle.
+    """
+    override = os.environ.get(SMPL_DATASET_ENV, "").strip()
+    dataset = override or f"{username}/{names.SMPL_DATASET}"
+    if not client.dataset_exists(dataset):
+        source = f"biến {SMPL_DATASET_ENV}" if override else "tên mặc định"
+        raise KaggleError(
+            f"run dựng người (prep.smpl) cần file mô hình SMPL trên Kaggle, nhưng tài khoản "
+            f"{username} không thấy dataset {dataset} ({source}): upload SMPL_NEUTRAL.pkl thành "
+            f"dataset private tên {names.SMPL_DATASET} bằng tài khoản {username}, hoặc đặt "
+            f"{SMPL_DATASET_ENV}=<tài khoản>/<tên> trỏ tới dataset đã chia sẻ cho {username}"
+        )
+    return dataset
 
 
 def _unique(items: Sequence[str]) -> list[str]:

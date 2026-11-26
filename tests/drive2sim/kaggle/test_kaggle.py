@@ -48,6 +48,8 @@ class FakeKaggle(KaggleClient):
         self.kernels: dict[str, dict] = {}
         self.status = "complete"
         self.user = "alice"  # tài khoản lệnh kaggle đang đăng nhập
+        # Dataset người dùng tự upload (mô hình SMPL), không do tool tạo.
+        self.user_datasets = {"alice/smpl-model", "carol/smpl-model"}
 
     @staticmethod
     def _unused(command: object) -> None:
@@ -62,8 +64,8 @@ class FakeKaggle(KaggleClient):
         return self.user
 
     def dataset_exists(self, slug: str) -> bool:
-        """Dataset đã tạo trong bộ nhớ chưa."""
-        return slug in self.datasets
+        """Dataset đã tạo trong bộ nhớ, hoặc người dùng đã upload, chưa."""
+        return slug in self.datasets or slug in self.user_datasets
 
     def dataset_status(self, slug: str) -> str:
         """Dataset giả xử lý xong ngay."""
@@ -182,12 +184,48 @@ def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Workdir, Fak
     return make_workdir(tmp_path / "work"), FakeKaggle(tmp_path / "kaggle")
 
 
+def test_smpl_dataset_defaults_to_logged_in_account(
+    setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Không đặt biến: gắn ``<tài khoản đang đăng nhập>/d2s-model-smpl``, đổi theo tài khoản."""
+    monkeypatch.delenv("D2S_KAGGLE_SMPL_DATASET", raising=False)
+    workdir, fake = setup
+    fake.user = "bob"
+    fake.user_datasets = {"alice/d2s-model-smpl", "bob/d2s-model-smpl"}
+    state = executor.push_run(workdir, RUN_ID, client=fake)
+    sources = fake.kernels[state.kernel]["metadata"]["dataset_sources"]
+    assert "bob/d2s-model-smpl" in sources and "alice/d2s-model-smpl" not in sources
+
+
+def test_smpl_dataset_env_overrides_default(
+    setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Biến ghi đè tên mặc định, ví dụ dataset tài khoản khác chia sẻ."""
+    monkeypatch.setenv("D2S_KAGGLE_SMPL_DATASET", "carol/smpl-model")
+    workdir, fake = setup
+    fake.user_datasets = {"alice/d2s-model-smpl", "carol/smpl-model"}
+    state = executor.push_run(workdir, RUN_ID, client=fake)
+    sources = fake.kernels[state.kernel]["metadata"]["dataset_sources"]
+    assert "carol/smpl-model" in sources and "alice/d2s-model-smpl" not in sources
+
+
+@pytest.mark.parametrize("override", ["", "carol/missing"])
+def test_smpl_dataset_missing_refused_before_push(
+    setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch, override: str
+) -> None:
+    """Tài khoản không thấy dataset SMPL: báo trên máy, không đẩy notebook sẽ lỗi trên Kaggle."""
+    monkeypatch.setenv("D2S_KAGGLE_SMPL_DATASET", override)
+    workdir, fake = setup
+    fake.user_datasets = set()
+    expected = override or "alice/d2s-model-smpl"
+    with pytest.raises(KaggleError, match=f"không thấy dataset {expected}"):
+        executor.push_run(workdir, RUN_ID, client=fake)
+    assert fake.kernels == {}
+
+
 def test_push_materialize_pull_and_resume(
     setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    workdir_, fake_ = setup
-    with pytest.raises(KaggleError, match="D2S_KAGGLE_SMPL_DATASET"):
-        executor.push_run(workdir_, RUN_ID, client=fake_)
     monkeypatch.setenv("D2S_KAGGLE_SMPL_DATASET", "alice/smpl-model")
     workdir, fake = setup
     state = executor.push_run(workdir, RUN_ID, client=fake)

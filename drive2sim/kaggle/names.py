@@ -22,8 +22,8 @@ train không có chữ loại, vì tên đã có approach và renderer; các lo�
 ``ingest``, ``raw``. Tên quá 50 ký tự thì bỏ tiền tố ``d2s-`` của notebook train trước, rồi bỏ
 nguyên từ ở cuối phần biến thể (thông tin đầy đủ nằm trong ``run.json``).
 
-File này chứa ``slug``, ``scene_label``, ``variant_label``, ``train_kernel``, ``scene_dataset``,
-``ingest_kernel``.
+File này chứa ``SMPL_DATASET``, ``slug``, ``scene_label``, ``variant_label``, ``train_kernel``,
+``scene_dataset``, ``ingest_kernel``.
 """
 
 import re
@@ -31,6 +31,7 @@ from collections.abc import Mapping
 from typing import Optional
 
 MAX_LENGTH = 50
+SMPL_DATASET = "d2s-model-smpl"  # dataset người dùng tạo, chứa SMPL_NEUTRAL.pkl
 _DIGITS = re.compile(r"(\d+)\D*$")
 
 
