@@ -48,7 +48,9 @@ EQUAL_PLY_PSNR_DB = 0.3
 # Method có Gaussian thay đổi theo thời gian mà ``export_ply.py`` ghi tham số gốc: PVG chưa cộng
 # dao động và chưa nhân độ đục theo thời gian (``temporal_means``, ``temporal_opacities``),
 # DeformableGS chưa qua mạng biến dạng. ``.ply`` của chúng không phải nền tĩnh của cảnh đã train,
-# nên R3 báo kèm nhưng không dùng để phân xử, tới khi có cách xuất nền tĩnh riêng.
+# nên R3 báo kèm nhưng không dùng để phân xử, tới khi có cách xuất nền tĩnh riêng. PVG đã có
+# (export_ply.py chỉ giữ Gaussian sống lâu, recon/tools/time_varying_export.py) nhưng chưa kiểm
+# trên run thật; bỏ "pvg" khỏi tập này sau khi kiểm (docs/experiments/benchmark_week04.md).
 TIME_VARYING_METHODS = frozenset({"pvg", "deformablegs"})
 # Các protocol của eval.standard đo PSNR, SSIM, LPIPS trên camera đã train theo cùng một cách
 # (CONTRACTS 6.3), nên xếp hạng chung được; protocol khác (ví dụ ncore-0.3) thì không.
