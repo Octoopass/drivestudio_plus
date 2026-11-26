@@ -78,6 +78,8 @@ interface GpuViewerStatus {
 
 interface RenderCheck {
   ready: boolean;
+  /** ``false``: approach của run không có checkpoint để render GPU (Instant NuRec). */
+  supported?: boolean;
   checks: { id: string; ok: boolean; value: string | null }[];
 }
 
@@ -661,7 +663,7 @@ export function ViewerPage({ runId }: { runId?: string }) {
                       ["preview", !!splats.data.preview],
                       ["ply", !!splats.data.ply],
                       ["video", videoItems.length > 0],
-                      ["gpu", true],
+                      ["gpu", splats.data.gpu !== false],
                     ] as [Source, boolean][]
                   ).map(([value, available]) => (
                     <button
@@ -867,7 +869,8 @@ function RenderCheckPanel({ runId }: { runId: string }) {
       <strong>{t("viewer.gpu.title")}</strong>
       {check.error && <ErrorBox error={check.error} />}
       {!check.data && !check.error && <span className="small muted">{t("viewer.gpu.checking")}</span>}
-      {check.data && (
+      {check.data?.supported === false && <Note kind="info">{t("viewer.gpu.unsupported")}</Note>}
+      {check.data && check.data.supported !== false && (
         <>
           <ul>
             {check.data.checks.map((item) => (

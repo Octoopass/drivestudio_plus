@@ -63,6 +63,26 @@ def _stop_group(process: "subprocess.Popen[bytes]") -> None:
         pass
 
 
+def raise_open_file_limit() -> None:
+    """Nâng giới hạn số file mở (mức soft) của tiến trình này lên mức hard, tối đa 1048576.
+
+    Lệnh con thừa hưởng giới hạn này. DataLoader nhiều worker của PyTorch chuyển tensor qua file
+    descriptor; với mức mặc định 1024, worker lỗi ``Too many open files`` và lệnh treo mãi
+    (Instant NuRec trên clip dài). Không có module ``resource`` (Windows) thì bỏ qua.
+    """
+    try:
+        import resource
+    except ImportError:
+        return
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    target = 1048576 if hard == resource.RLIM_INFINITY else min(hard, 1048576)
+    if soft != resource.RLIM_INFINITY and soft < target:
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+        except (ValueError, OSError):
+            pass
+
+
 def run_logged(
     command: list[str],
     log_path: Path,
@@ -96,6 +116,7 @@ def run_logged(
         log_file.write("$ " + " ".join(command) + "\n")
         log_file.flush()
         start = log_file.tell()  # chỉ xét đầu ra của lần chạy này, không phải các lần trước
+        raise_open_file_limit()
         process = subprocess.Popen(
             command,
             stdout=log_file,

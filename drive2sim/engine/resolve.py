@@ -181,7 +181,9 @@ def choice_camera_models(spec: OptionSpec, choice: OptionValue) -> Optional[list
     """
     if not spec.camera_models:
         return None
-    index = next(i for i, c in enumerate(spec.choices) if contains_value([c], choice))
+    index = next((i for i, c in enumerate(spec.choices) if contains_value([c], choice)), None)
+    if index is None:  # giá trị tự chọn (``custom``): không giới hạn mô hình camera
+        return None
     return list(spec.camera_models[index])
 
 
@@ -358,11 +360,17 @@ def _check_assignment(approach: Approach, values: dict[str, OptionValue], where:
                 f"{where}: approach {approach.approach_id} không có mục cấu hình {option_name!r}; "
                 f"các mục cấu hình hiện có: {known}"
             )
-        if not contains_value(spec.choices, value):
+        if not spec.accepts(value):
             choices = ", ".join(repr(choice) for choice in spec.choices)
+            custom = (
+                f", hoặc một số{' nguyên' if spec.custom.integer else ''} từ "
+                f"{spec.custom.min:,.15g} tới {spec.custom.max:,.15g}"
+                if spec.custom
+                else ""
+            )
             raise ResolveError(
                 f"{where}: {value!r} không phải lựa chọn của mục cấu hình {option_name!r}; "
-                f"chọn một trong: {choices}"
+                f"chọn một trong: {choices}{custom}"
             )
 
 

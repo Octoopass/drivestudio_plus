@@ -48,12 +48,16 @@ options:
       - "Resample về camera F-theta 120° của NVIDIA, cùng pose: loại camera model multiview đã học."
       - "Giữ cả vòng mắt cá dưới dạng F-theta (model chưa học loại này)."
   n_gaussians:
-    choices: [200000, 500000, 1000000]
+    choices: [200000, 500000, 1000000, 2000000]
     default: 500000
     group: detail
     label: "Số Gaussian"
-    help: "Số Gaussian mỗi đoạn thời gian của cảnh."
-    labels: ["200 nghìn", "500 nghìn", "1 triệu"]
+    help: >-
+      Số Gaussian sau khi ghép, cho mỗi lượt 8 đoạn (khoảng 108 giây) của clip; clip dài dựng nhiều
+      lượt nên tổng nhiều hơn. Nhập số khác ở ô Tuỳ chỉnh (100 nghìn tới 8 triệu). Nhiều Gaussian
+      thì PLY lớn và VRAM lúc ghép cao hơn.
+    labels: ["200 nghìn", "500 nghìn", "1 triệu", "2 triệu"]
+    custom: {min: 100000, max: 8000000, integer: true}
   include_dynamic:
     choices: [false, true]
     default: false

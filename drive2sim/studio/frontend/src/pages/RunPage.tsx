@@ -8,6 +8,7 @@ import type { ColabStatus, KaggleStatus, List, ReportRow, RunDetail, RunEvent, R
 import { LineChart, type Point } from "../components/charts";
 import { RunArtifacts } from "../components/RunArtifacts";
 import { MachineInfo, machineText } from "../components/RunInfo";
+import { RunConfig, RunProgress } from "../components/RunLive";
 import { StageRoad } from "../components/StageRoad";
 import { ago, Confirm, count, duration, Empty, ErrorBox, fixed, InfoTip, Loading, Note, PageHead, Status, Tabs, useToast } from "../components/ui";
 import { ConfigText, paramsLabel, useApproaches } from "../components/ConfigText";
@@ -322,11 +323,15 @@ export function RunPage({ runId }: { runId: string }) {
           ]}
         />
         <div className={`panel-body${tab === "logs" || tab === "stages" ? " flush" : ""}`}>
-          {tab === "result" &&
-            (!summary ? (
-              <Empty title={t("run.result.none")}>
-                <p>{t(active ? "run.result.wait" : "run.result.no_eval")}</p>
-              </Empty>
+          {tab === "result" && (
+            <div className="stack">
+              {active && <RunProgress runId={runId} data={data} stages={stages} progress={live.progress} />}
+            {!summary ? (
+              active ? null : (
+                <Empty title={t("run.result.none")}>
+                  <p>{t("run.result.no_eval")}</p>
+                </Empty>
+              )
             ) : (
               <div className="stack">
                 {row &&
@@ -387,7 +392,10 @@ export function RunPage({ runId }: { runId: string }) {
                   </div>
                 )}
               </div>
-            ))}
+            )}
+              <RunConfig data={data} stages={stages} approach={approaches?.[data.approach.approach_id]} />
+            </div>
+          )}
 
           {tab === "metrics" &&
             (Object.keys(live.metrics).length === 0 ? (

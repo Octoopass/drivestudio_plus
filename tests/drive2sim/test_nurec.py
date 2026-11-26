@@ -110,9 +110,11 @@ def test_train_nurec_command_and_environment(
             [],
         )
     auto = train_nurec.TrainNurecParams()
-    assert train_nurec.chunks_for(auto, 120) == 7 and train_nurec.chunks_for(auto, 10) == 1
-    assert train_nurec.chunks_for(auto, 1000) == 8
-    assert train_nurec.chunks_for(train_nurec.TrainNurecParams(max_chunks=2), 120) == 2
+    drive_0006 = list(range(5697, 5697 + 3872 + 1, 5))  # 387,2 s: NuRec báo 29 đoạn
+    assert train_nurec.chunks_for(auto, drive_0006) == 29
+    assert train_nurec.chunks_for(auto, list(range(0, 50, 5))) == 1
+    assert train_nurec.chunks_for(auto, list(range(0, 20000, 5))) == train_nurec.MAX_CHUNKS
+    assert train_nurec.chunks_for(train_nurec.TrainNurecParams(max_chunks=2), drive_0006) == 2
     monkeypatch.delenv("PYTORCH_CUDA_ALLOC_CONF", raising=False)
     env = train_nurec.nurec_env(tmp_path / "w.pth")
     assert env["PYTORCH_CUDA_ALLOC_CONF"] == "expandable_segments:True"
@@ -301,3 +303,68 @@ def test_ply_export_stage_uses_nurec_ply_when_present() -> None:
     assert ply_export_stage(["train.nurec", "export.nurec_ply"]) == "export.nurec_ply"
     assert ply_export_stage(["train.pvg", "export.ply_world"]) == "export.ply_world"
     assert ply_export_stage([]) == "export.ply_world"
+
+
+def test_raise_open_file_limit_reaches_hard_limit() -> None:
+    resource = pytest.importorskip("resource")
+    from drive2sim.stages.commands import raise_open_file_limit
+
+    raise_open_file_limit()
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    assert soft == hard or soft >= 1048576 or soft == resource.RLIM_INFINITY
+
+
+def test_live_log_progress_reads_last_tqdm_bar() -> None:
+    from drive2sim.studio.api.routes.runs import log_progress
+
+    text = (
+        "x\nPredicting in chunks:  25%|██▌       | 2/8 [00:02<00:05,  1.01it/s]\n"
+        "Predicting in chunks:  62%|██████▎   | 5/8 [00:04<00:02,  1.25it/s]\n"
+    )
+    assert log_progress(text) == {"label": "Predicting in chunks", "done": 5, "total": 8}
+    assert log_progress("no bar here") is None
+
+
+def test_gpu_render_not_supported_for_nurec_runs(tmp_path: Path) -> None:
+    from drive2sim.engine.render_check import gpu_render_supported
+
+    stages = tmp_path / "d2s" / "stages"
+    (stages / "train.nurec").mkdir(parents=True)
+    assert not gpu_render_supported(tmp_path)
+    (stages / "train.pvg").mkdir()
+    assert gpu_render_supported(tmp_path)
+
+
+def test_nurec_parts_are_combined_not_overwritten(tmp_path: Path) -> None:
+    import numpy as np
+
+    from drive2sim.external.nurec import ply
+
+    source = (nurec.TOOLS_DIR / "nurec_predict.py").read_text(encoding="utf-8")
+    namespace: dict = {"Path": Path}
+    exec(source[source.index("PART_TAG =") : source.index("\n\n\ndef main")], namespace)  # noqa: S102
+    sequence = tmp_path / "run" / "ply" / "clip_0_9"
+    sequence.mkdir(parents=True)
+    header = ["ply", "format binary_little_endian 1.0", "element vertex 2",
+              "property float x", "end_header"]  # fmt: skip
+    for part in range(2):
+        points = np.array([(part,), (part + 10,)], [("x", "<f4")])
+        ply.write_ply(sequence / "clip_0_9.ply", header, points)
+        (sequence / "clip_0_9.sky.npz").write_bytes(b"s")
+        namespace["rename_outputs"](tmp_path / "run" / "ply", part)
+    names = sorted(p.name for p in sequence.iterdir())
+    assert names == [f"clip_0_9_part0{i}.{ext}" for i in (0, 1) for ext in ("ply", "sky.npz")]
+    parts = train_nurec._part_plies(tmp_path)
+    assert [p.name for p in parts] == ["clip_0_9_part00.ply", "clip_0_9_part01.ply"]
+    train_nurec.combine_parts(parts, tmp_path / "scene.ply")
+    _, data = ply.read_ply(tmp_path / "scene.ply")
+    assert sorted(data["x"].tolist()) == [0, 1, 10, 11]
+
+
+def test_nurec_accepts_custom_gaussian_count() -> None:
+    approach = load_approach("nurec")
+    spec = approach.options["n_gaussians"]
+    assert spec.accepts(1000000) and spec.accepts(3500000)
+    assert not spec.accepts(50000) and not spec.accepts(9000000)
+    assert not spec.accepts(1500000.5) and not spec.accepts(True) and not spec.accepts("2000000")
+    assert train_nurec.TrainNurecParams(n_gaussians=3500000).n_gaussians == 3500000

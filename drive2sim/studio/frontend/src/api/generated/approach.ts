@@ -29,6 +29,9 @@ export type Labels = string[];
 export type Descriptions = string[];
 export type Group = string | null;
 export type CameraModels1 = ("opencv_pinhole" | "opencv_fisheye" | "ftheta" | "ideal_pinhole")[][];
+export type Min = number;
+export type Max = number;
+export type Integer = boolean;
 export type Reason = string;
 export type Constraints = Constraint[];
 export type Label1 = string;
@@ -121,6 +124,9 @@ export interface Options {
  *         mọi lựa chọn nhận đủ ``requires.camera_models``. Ví dụ renderer ``3dgs`` chỉ nhận
  *         ``opencv_pinhole``, còn ``3dgeer`` nhận thêm ``opencv_fisheye``, ``ftheta`` (thêm từ
  *         ``d2s-approach/0.3``).
+ *     custom: Khoảng cho phép nhập giá trị số tự chọn ngoài ``choices`` (Studio hiện ô "Tuỳ
+ *         chỉnh"); ``None`` thì chỉ nhận ``choices``. Thêm sau ``d2s-approach/0.3`` mà không
+ *         tăng phiên bản (không bắt buộc).
  */
 export interface OptionSpec {
   choices: Choices;
@@ -131,6 +137,20 @@ export interface OptionSpec {
   descriptions?: Descriptions;
   group?: Group;
   camera_models?: CameraModels1;
+  custom?: CustomRange | null;
+}
+/**
+ * Khoảng cho phép nhập một giá trị số tự chọn ngoài ``choices`` của mục cấu hình.
+ *
+ * Attributes:
+ *     min: Giá trị nhỏ nhất.
+ *     max: Giá trị lớn nhất.
+ *     integer: ``True`` thì chỉ nhận số nguyên.
+ */
+export interface CustomRange {
+  min: Min;
+  max: Max;
+  integer?: Integer;
 }
 /**
  * Một tổ hợp lựa chọn không hợp lệ trong approach.

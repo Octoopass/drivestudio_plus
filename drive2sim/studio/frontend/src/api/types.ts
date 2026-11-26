@@ -247,6 +247,8 @@ export interface Splats {
   ply: string | null;
   /** cameras.json: pose và thông số camera gốc theo khung, cùng hệ toạ độ với các file trên. */
   cameras: string | null;
+  /** Run có checkpoint để render GPU không (``false`` với run Instant NuRec). */
+  gpu?: boolean;
 }
 
 export interface ActorPoses {

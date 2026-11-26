@@ -803,6 +803,7 @@ class _Runner:
         """
         stage_record.status = "running"
         stage_record.error = None
+        stage_record.started_utc = _now_utc()
         self.save()
         self.emit_status(stage_record.stage_id, "running")
 

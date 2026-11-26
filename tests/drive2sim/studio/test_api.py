@@ -320,6 +320,7 @@ def test_run_lifecycle(client: TestClient) -> None:
         "preview": None,
         "ply": None,
         "cameras": None,
+        "gpu": True,
     }
     preview_dir = (
         Path(client.app.state.studio.workdir.find_run(run_id)) / "d2s/stages/export.preview"

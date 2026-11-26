@@ -37,7 +37,8 @@ export function paramLabel(approach: Approach | undefined, name: string, value: 
   const spec = approach?.options?.[name] ?? approach?.retired_options?.[name];
   if (spec) {
     const index = spec.choices.findIndex((choice) => same(choice, value));
-    return `${spec.label ?? name}: ${spec.labels?.[index] ?? String(value)}`;
+    const shown = typeof value === "number" && Math.abs(value) >= 10000 ? value.toLocaleString() : String(value);
+    return `${spec.label ?? name}: ${spec.labels?.[index] ?? shown}`;
   }
   return `${name}=${typeof value === "object" && value !== null ? JSON.stringify(value) : String(value)}`;
 }
