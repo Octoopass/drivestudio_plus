@@ -25,7 +25,12 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-: "${VAST_HOST:?đặt VAST_HOST=root@<ip>}"
+# .vast.env: máy do envs/week04_vast.sh rent thuê (VAST_HOST, VAST_PORT); biến đặt sẵn được ưu tiên
+if [ -z "${VAST_HOST:-}" ] && [ -f "$REPO/.vast.env" ]; then
+  # shellcheck disable=SC1091
+  source "$REPO/.vast.env"
+fi
+: "${VAST_HOST:?đặt VAST_HOST=root@<ip> (hoặc chạy envs/week04_vast.sh rent)}"
 VAST_PORT="${VAST_PORT:-22}"
 VAST_DIR="${VAST_DIR:-/workspace/d2s}"     # thư mục code và thư mục làm việc trên máy thuê
 LOCAL_WORKDIR="${D2S_WORKDIR:-$REPO}"       # thư mục làm việc trên máy này

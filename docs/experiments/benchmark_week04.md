@@ -79,34 +79,23 @@ Tổng khoảng 25 GPU-giờ cho ưu tiên 1 trừ #9 (27,2 nếu có #9), kho�
 
 ### Các bước
 
-Trên máy mình (thư mục repo, nhánh `feat/bench-week04`); `VAST_HOST`, `VAST_PORT` lấy ở nút Connect của máy thuê:
+`envs/week04_vast.sh` làm từ lúc thuê máy tới lúc chạy được đợt 1; phần trên máy thuê ở `envs/week04_remote.sh`. Chạy trên máy mình, ở gốc repo, nhánh `feat/bench-week04`. Cần: `vastai` CLI có API key, khoá SSH công khai đã thêm ở console.vast.ai, token Kaggle của tài khoản đọc được notebook `kascnte/d2s-raw-kitti360-0003`, file `SMPL_NEUTRAL.pkl`, tài khoản Google đã nhận điều khoản Waymo.
 
 ```bash
-export VAST_HOST=root@<ip> VAST_PORT=<cổng>
-bash envs/vast.sh check          # 2 GPU, không phải RTX 50xx, có nvcc, đủ đĩa
-bash envs/vast.sh setup          # env drive2sim, ~30–60 phút; xong khi setup.log có SETUP_DONE
-bash envs/vast.sh setup-extra    # MCGS-SLAM, Instant NuRec; xong khi setup-extra.log có SETUP_EXTRA_DONE
-D2S_WORKDIR="<repo chính drivestudio_plus>" D2S_SMPL_MODEL=<file SMPL> \
-  bash envs/vast.sh push-scene kitti360_2013_05_28_drive_0003_sync   # cảnh 200 khung (A2) và split của nó
+vastai search offers 'gpu_name=RTX_4090 num_gpus=2 verified=true rentable=true reliability>0.98 cpu_ram>=64 disk_space>=200 inet_down>=500' -o dph_total
+bash envs/week04_vast.sh rent <offer id>     # thuê, chờ SSH, ghi .vast.env (các lệnh sau tự đọc)
+bash envs/week04_vast.sh bootstrap           # rsync, git, uv, Kaggle CLI, gcloud; kiểm GPU
+bash envs/week04_vast.sh setup               # nền: env drive2sim (~30–60 phút), rồi MCGS, NuRec, venv Waymo
+SMPL_PKL=<đường dẫn SMPL_NEUTRAL.pkl> bash envs/week04_vast.sh creds
+bash envs/week04_vast.sh data-kitti          # nền: tải raw KITTI-360 0003 (~8 GB), ingest A2 (200 khung) và cảnh dài
+bash envs/week04_vast.sh waymo-auth          # tương tác: gcloud auth login
+bash envs/week04_vast.sh data-waymo          # nền, sau khi setup xong (cần venv Waymo): tải segment W1, ingest
+bash envs/week04_vast.sh status              # mốc *_DONE của từng bước
+bash envs/week04_vast.sh finish              # split, lidar-check, in hàng đợi đợt 1
+bash envs/week04_vast.sh smoke               # run --quick OmniRe trên W1 (~10 phút), không vào bảng xếp hạng
 ```
 
-Ingest trên máy thuê (mạng nhanh hơn; cần `~/.kaggle/kaggle.json` và tài khoản Google đã nhận điều khoản Waymo):
-
-```bash
-bash envs/vast.sh exec 'd2s kaggle ingest <người dùng>/d2s-raw-kitti360-0003 --sequence 2013_05_28_drive_0003_sync --start-frame 167 --scene kitti360_0003_long'
-# Waymo: gcloud auth login cần tương tác, nên ssh vào máy (ssh -p $VAST_PORT $VAST_HOST), cài gcloud CLI nếu image chưa có, rồi:
-#   gcloud auth login --no-launch-browser
-#   cd /workspace/d2s && python -m drive2sim.recon.preprocess.waymo.download --scene_ids 23 --target_dir data/waymo/raw
-bash envs/vast.sh exec 'd2s scene ingest data/waymo/raw --sequence segment-10455472356147194054_1560_000_1580_000_with_camera_labels'
-bash envs/vast.sh exec 'python -m drive2sim.scripts.setup_benchmark_week04 splits'   # xem độ đổi hướng của A3
-bash envs/vast.sh exec 'd2s scene lidar-check kitti360_0003_long'                    # tương tự cho W1
-```
-
-Chạy thử 10 phút trước đợt 1 để bắt lỗi môi trường trên GPU (run `--quick` không vào bảng xếp hạng):
-
-```bash
-bash envs/vast.sh run omnire --scene waymo_segment-10455472356147194054_1560_000_1580_000_with_camera_labels --split every8_5cams --set fastgs=true --quick
-```
+Cảnh KITTI-360 trên máy mình là cảnh ingest trên Kaggle (`d2s kaggle ingest`): ảnh, LiDAR nằm ở output notebook Kaggle, máy chỉ giữ file nhỏ, nên không chép được sang máy thuê và `d2s kaggle ingest` cũng không cho run chạy trên máy thuê. Vì vậy `data-kitti` tải raw rồi ingest lại bằng `d2s scene ingest` trên máy thuê, với cùng tham số (cảnh 200 khung: `--num-frames 200`), và dừng nếu `frame_ids.txt` khác cảnh đã dùng. Waymo cần TensorFlow 2.11 và `waymo-open-dataset`, không hợp với env chính, nên ingest bằng venv riêng `.venv-waymo`.
 
 Ba đợt:
 
