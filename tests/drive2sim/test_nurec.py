@@ -3,6 +3,7 @@
 import json
 import math
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,9 +14,15 @@ from drive2sim.engine.environment import environment_check
 from drive2sim.engine.registry import StageRegistry, load_builtin_stages
 from drive2sim.engine.workdir import Workdir
 from drive2sim.external import nurec
-from drive2sim.stages.eval.ncore import clip_test_indices, make_summary
+from drive2sim.stages.eval.ncore import (
+    clip_test_indices,
+    clip_test_views,
+    fisheye_max_angles,
+    make_summary,
+)
 from drive2sim.stages.prep import ncore as prep_ncore
 from drive2sim.stages.train import nurec as train_nurec
+from drive2sim.stages.train.drivestudio import RENDERER_MAX_ANGLE
 from drive2sim.studio.api.app import create_app
 
 load_builtin_stages()
@@ -34,8 +41,8 @@ def test_approach_loads_with_its_stages() -> None:
     approach = load_approach("nurec")
     assert approach.codebase == "external:nurec"
     assert [s.stage for s in approach.stages] == [
-        "prep.ncore", "train.nurec", "train.nurec_refine", "eval.ncore", "export.nurec_ply",
-        "render.nurec_video",
+        "prep.ncore", "prep.masks_segformer", "train.nurec", "train.nurec_refine", "eval.ncore",
+        "export.nurec_ply", "render.nurec_video",
     ]  # fmt: skip
 
 
@@ -130,6 +137,49 @@ def test_test_frames_map_to_clip_indices() -> None:
     }
     # khung 13 của cảnh (số gốc 103) không có trong clip nên bị bỏ
     assert clip_test_indices(clip, [11, 13, 15, 15, 99]) == [1, 4]
+
+
+def test_clip_test_views_follow_split_pairs() -> None:
+    clip = {
+        "frame_ids": [10, 12, 14],
+        "scene_frame_ids": [10, 11, 12, 13, 14],
+        "scene_frames": [0, 4],
+    }
+    sensors = {"image_00": "cam0", "image_02": "cam2"}
+    views = clip_test_views(
+        clip,
+        [(2, "image_00"), (2, "image_02"), (4, "image_02"), (1, "image_00"), (2, "image_01")],
+        sensors,
+        {"image_00": 0, "image_01": 1, "image_02": 2},
+    )
+    # khung 1 (gốc 11) không có trong clip; image_01 không thuộc split
+    assert views == {"cam0": {"1": "002_0"}, "cam2": {"1": "002_2", "2": "004_2"}}
+
+
+def test_fisheye_max_angles_capped_by_renderer() -> None:
+    camera = SimpleNamespace
+    manifest = SimpleNamespace(
+        cameras=[
+            camera(camera_id="image_00", model="opencv_pinhole", max_angle=None),
+            camera(camera_id="image_02", model="opencv_fisheye", max_angle=1.4),
+            camera(camera_id="image_03", model="opencv_fisheye", max_angle=1.7),
+        ]
+    )
+    sensors = {"image_00": "c0", "image_02": "c2", "image_03": "c3"}
+    assert fisheye_max_angles(manifest, sensors) == {"c2": 1.4, "c3": RENDERER_MAX_ANGLE}
+
+
+def test_summary_has_region_psnr() -> None:
+    metrics = {
+        "c0": {"psnr_mean": 20.0, "ssim_mean": 0.7, "lpips_mean": 0.3, "views": 2},
+        "_summary": {
+            "psnr_mean": 20.0, "ssim_mean": 0.7, "lpips_mean": 0.3,
+            "occupied_psnr": 21.0, "vehicle_psnr": 15.0, "coverage": 0.8,
+        },
+    }  # fmt: skip
+    overall = make_summary(metrics, "every8", {"image_00": "c0"}).overall
+    assert overall.occupied_psnr == 21.0 and overall.vehicle_psnr == 15.0
+    assert overall.human_psnr is None and overall.dynamic_psnr is None
 
 
 def test_summary_from_render_metrics() -> None:

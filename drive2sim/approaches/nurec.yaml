@@ -91,6 +91,9 @@ stages:
   - stage: prep.ncore
     params:
       fisheye_model: "${options.fisheye_model}"
+  # Mask bầu trời và vật động của cảnh (dùng chung cache với StreetGS), để eval.ncore chấm
+  # PSNR theo vùng như eval.standard.
+  - {stage: prep.masks_segformer, params: {dynamic: true}}
   - stage: train.nurec
     params:
       model: "${options.model}"

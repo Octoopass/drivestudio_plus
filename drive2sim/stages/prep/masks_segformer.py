@@ -30,6 +30,7 @@ from drive2sim.stages.commands import LOG_FILE, run_logged
 from drive2sim.stages.scene_view import VIEW_SCENE, build_view, collect_outputs
 
 OUTPUT_NAMES = ("sky_masks", "fine_dynamic_masks")
+DYNAMIC_MASKS = "dynamic_masks"  # mask thô từ box, do ingest tạo
 VIEW_DIR = "view"
 DEVICE_ENV = "D2S_DEVICE"  # đổi thiết bị mà không đổi khoá cache, ví dụ D2S_DEVICE=cpu
 
@@ -39,7 +40,8 @@ class PrepMasksSegformerParams(BaseModel):
 
     Attributes:
         model: Model SegFormer trên Hugging Face.
-        dynamic: Sinh thêm mask vật động tinh; cần cảnh có ``dynamic_masks/`` (từ box).
+        dynamic: Sinh thêm mask vật động tinh khi cảnh có ``dynamic_masks/`` (từ box); cảnh
+            không có box thì chỉ sinh mask bầu trời.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -108,6 +110,9 @@ class PrepMasksSegformerStage(Stage):
             RuntimeError: Nếu script lỗi hoặc không sinh ra ``sky_masks/``.
         """
         assert isinstance(params, PrepMasksSegformerParams)
+        if params.dynamic and not (ctx.scene.root / DYNAMIC_MASKS).is_dir():
+            # Cảnh không có box: chỉ có mask bầu trời (approach chấm theo vùng như NuRec vẫn chạy).
+            params = params.model_copy(update={"dynamic": False})
         view_root = ctx.output_dir / VIEW_DIR
         view = build_view(ctx.scene.root, view_root, exclude=OUTPUT_NAMES)
         ctx.progress(0.0, f"sinh mask bằng {params.model}")
