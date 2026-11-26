@@ -1042,31 +1042,50 @@ metric cũ thiếu dấu protocol tiếp tục dùng nhãn `ncore-0.3`.
 NuRec và kết nối CARLA trên GPU thật còn cần chạy xác minh riêng.
 
 
-### Snapshot mask theo run (26/11/2026)
+### Snapshot mask và scorer sau tích hợp (26/11/2026)
 
-**Quyết định.** Giữ resolver, digest và snapshot trong `ingest/ego_masks.py`; engine lưu
-`scene_mask_digest` vào `d2s-run/0.4`, dựng cảnh ảo ở `.runtime/<run_id>/scene_view/000/` với
-mask trong `d2s/scene_masks/`. Gói Kaggle/Colab mang snapshot qua `scene_ref.json` base64.
-`prep.ncore` truyền mask chính thức qua converter và cùng rectifier của ảnh. Loader dùng file
-cảnh, xác nhận none, rồi asset; mask cảm biến theo khung vẫn được giữ. Cây mã mục 3/3.1 không đổi.
+**Nguyên nhân.** Đầu vào cảnh của cache trước đây chỉ có `scene_id` và phiên bản converter.
+Sửa mask trong Studio không đổi khoá, nên observations có thể giữ vùng che cũ. NuRec dùng mask
+ước lượng riêng và đưa camera chỉ test vào context/refinement. MCGS bỏ hệ số méo pinhole khi
+xuất view nhưng vẫn giữ ảnh méo. Scorer NuRec nhận ảnh thô, trong khi DriveStudio/XSIM đã che
+pixel trước khi gọi scorer, gây lệch SSIM tại biên mask. Editor có thể tẩy nhầm nháp còn ẩn.
 
-**Ưu điểm.** Cache đổi theo mask thật; resume giữ dữ liệu lúc tạo run, không phải upload lại
-cảnh lớn khi chỉ sửa mask. Xoá cache thủ công không giải quyết tính nhất quán của remote/resume.
-**Nhược điểm.** Mỗi run thêm vài PNG; base64 tăng dung lượng khoảng một phần ba. Cache khoá cũ
-không dùng cho run mới, run cũ thiếu snapshot dùng cảnh hiện tại. Chưa đo tổng dung lượng.
-**Tiến độ (mục 7.1).** Đã có code và test local cho snapshot/cache/remote; chưa chạy cloud thật.
+**Quyết định.** Giữ các module hiện có: `ingest/ego_masks.py` giải mask hiệu lực, băm nội dung
+và chụp bản hiệu lực; `engine/run.py` ghi digest vào `d2s-run/0.4`, dựng cảnh ảo với snapshot.
+`kaggle/bundle.py` mang các PNG/status nhỏ qua `scene_ref.json` base64, nên dùng lại dataset cảnh
+trên Kaggle/Colab được. Cảnh ảo ở `.runtime/<run_id>/` được dựng lại tại máy chạy để không gói
+nhầm symlink dữ liệu lớn. Không thêm package hoặc cây thư mục mã mới (mục 3/3.1 giữ nguyên).
+
+`prep.ncore` truyền mask chính thức qua converter và cùng rectifier của RGB. `external/mcgs/views.py`
+đọc resolver chung, dùng `initUndistortRectifyMap` với K gốc cho cả RGB và valid mask pinhole;
+biên ngoài ảnh bị loại. `train.nurec` loại camera chỉ test khỏi context, refinement xuất đúng
+cặp train, `eval.ncore` tách overall/shifted và metric khớp màu. Scorer chung đặt pixel không hợp
+lệ về 0 trước bản đồ SSIM; protocol mới 0.6. `engine/benchmark.py` nhận diện `eval.ncore` 0.5 cũ
+thành nhóm riêng, giữ khả năng so DriveStudio 0.3–0.6 vốn đã che ảnh trước scorer.
+
+Editor giữ nháp ở `reports/ego_mask/` như quyết định hiện có, thêm discard và revision cùng
+nguồn saved/draft tường minh. PNG thay nguyên tử; một RLock trong Studio giữ thao tác kiểm
+revision và sửa file liền nhau. Client cũ vẫn dùng được, client Studio mới gửi revision.
+
+**Ưu điểm.** Cache đổi theo mask thật, run resume giữ dữ liệu cũ, remote không phải upload lại
+cảnh lớn. Mask cùng hình học với ảnh, camera chỉ test giữ đúng vai trò và editor sửa đúng bản.
+
+**Nhược điểm và lựa chọn khác.** Mỗi run giữ thêm vài PNG và status, chưa đo dung lượng trên toàn
+bộ cảnh thật. Base64 làm payload snapshot tăng khoảng một phần ba so với PNG. Đổi digest làm
+cache của run mới không dùng khoá cảnh cũ, nên lần đầu phải tính lại. Run cũ không có snapshot
+không thể khôi phục mask lịch sử. Xoá cache khi sửa mask không giải quyết resume/remote và phá
+cache vẫn còn hữu ích; băm cả thư mục cảnh quá tốn công so với việc chỉ băm mask có thể sửa.
+Khoá editor chỉ bảo vệ một tiến trình Studio; chưa có nhu cầu chạy nhiều server cùng workdir.
+
+**Tiến độ (bổ sung mục 7.1).** Đã triển khai các đường code và test hồi quy local cho sáu lỗi.
+Chưa nghiệm thu train/render trên GPU hoặc job Kaggle/Colab thật; xem báo cáo kiểm thử của đợt
+sửa để phân biệt test bằng dữ liệu giả, CPU và nghiệm thu dữ liệu thật.
 
 
-### Đánh giá NuRec và MCGS sau tích hợp (26/11/2026)
-
-**Quyết định.** `train.nurec` bỏ camera chỉ test khỏi context, refinement xuất đúng từng cặp
-train qua `train_views.json` và `--views-json`; `eval.ncore` tách overall/shifted và metric
-khớp màu. `external/mcgs/views.py` khử méo RGB và valid mask pinhole theo cùng K/map OpenCV,
-loại biên ngoài ảnh. Scorer chung chuẩn hoá phần ngoài mask về 0 trước SSIM, protocol 0.6.
-Benchmark tách NuRec 0.5 cũ khỏi nhóm DriveStudio 0.3–0.6. Các module vẫn ở vị trí mục 3/3.1.
-
-**Ưu điểm.** Giữ đúng vai trò camera chỉ test, hình học RGB/mask và metric ở biên mask.
-**Nhược điểm và lựa chọn khác.** Camera image_00 chỉ test làm NuRec không khả dụng; giữ context
-cũ sẽ gây rò dữ liệu. Khử méo cần resample, thay vì bỏ hệ số méo và chấm sai không gian ảnh.
-NuRec vẫn dùng khung test theo thời gian của camera context. Kết quả lịch sử không bị sửa.
-**Tiến độ (mục 7.1).** Code và test CPU đã có; chưa nghiệm thu train/render GPU hoặc cloud thật.
+Kiểm chứng đợt sửa: bộ local và Python 3.9 cùng đạt 768 passed, 49 skipped; nhóm bổ sung
+loader/refinement/benchmark đạt 109 passed trong môi trường conda. `make test-gpu` đạt 1004
+passed và 3 lỗi BezierGS đã có trước đợt sửa (các test CPU gọi toán CUDA của gsplat); mã BezierGS
+không đổi. Build và sinh kiểu Studio qua. Playwright headless với API thật, cảnh ảnh giả đã
+kiểm mở nháp, bỏ nháp trên server, tẩy đúng nguồn saved, quay lại camera vẫn có nháp, từ chối
+revision cũ và lưu thành mask chính thức; không có lỗi JavaScript. Đây là kiểm chứng local,
+không thay thế train/render bằng dữ liệu thật trên GPU hoặc thực thi cloud.

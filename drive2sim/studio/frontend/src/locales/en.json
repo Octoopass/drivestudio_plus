@@ -1023,6 +1023,7 @@
   "scene.egomask.saved": "Saved mask covers {coverage} of the image.",
   "scene.egomask.undo": "Undo last point",
   "scene.egomask.clear": "Clear points",
+  "scene.egomask.discard": "Discard draft",
   "scene.egomask.save": "Save mask",
   "scene.egomask.delete": "Delete mask",
   "scene.egomask.pending": "{count}/{total} cameras still undecided: draw a mask if the camera sees the ego vehicle, or click \"No ego body\". Training still runs, but a visible ego body gets baked into the scene.",

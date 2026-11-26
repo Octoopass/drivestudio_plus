@@ -648,7 +648,14 @@ def test_ego_mask_erase_route_validates_stroke_and_returns_coverage(
 
     calls = []
 
-    def erase(root: Path, manifest: Manifest, camera: str, points: list, radius: int) -> float:
+    def erase(
+        root: Path,
+        manifest: Manifest,
+        camera: str,
+        points: list,
+        radius: int,
+        source: str = "saved",
+    ) -> float:
         calls.append((camera, points, radius))
         return 0.125
 
@@ -656,7 +663,7 @@ def test_ego_mask_erase_route_validates_stroke_and_returns_coverage(
     camera = MANIFEST["cameras"][0]["camera_id"]
     url = f"/api/scenes/{SCENE}/egomask/{camera}/erase"
     result = client.post(url, json={"points": [[10, 20], [30, 20]], "radius": 12})
-    assert result.status_code == 200 and result.json() == {"coverage": 0.125}
+    assert result.status_code == 200 and result.json()["coverage"] == 0.125
     assert calls == [(camera, [(10.0, 20.0), (30.0, 20.0)], 12)]
     assert client.post(url, json={"points": [], "radius": 12}).status_code == 400
     assert client.post(url, json={"points": [[10, 20]], "radius": 0}).status_code == 400
@@ -736,3 +743,21 @@ def test_drive_routes_without_session(client: TestClient) -> None:
     assert refused.status_code == 409 and "NuRec" in refused.json()["error"]["message"]
     assert client.get("/api/drive").json()["state"] == "idle"
     assert client.delete("/api/drive").json()["state"] == "idle"
+
+
+def test_draft_discard_rejects_stale_revision(client: TestClient) -> None:
+    from drive2sim.studio.api import ego_mask_tool
+
+    camera = MANIFEST["cameras"][0]["camera_id"]
+    root = client.app.state.studio.workdir.scene_dir(SCENE)
+    draft = root / ego_mask_tool.TOOL_DIR / f"draft_{camera}.png"
+    draft.parent.mkdir(parents=True)
+    draft.write_bytes(b"first revision")
+    revision = ego_mask_tool.revision(root, camera)
+    draft.write_bytes(b"edited in another tab")
+    url = f"/api/scenes/{SCENE}/egomask/{camera}/draft"
+    result = client.delete(url, params={"revision": revision})
+    assert result.status_code == 409 and draft.exists()
+    result = client.delete(url, params={"revision": ego_mask_tool.revision(root, camera)})
+    assert result.status_code == 200 and not draft.exists()
+    assert result.json()["revision"] == ego_mask_tool.revision(root, camera)

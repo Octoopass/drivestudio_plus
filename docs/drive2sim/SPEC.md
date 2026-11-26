@@ -254,19 +254,20 @@ của camera đã train. Kết quả của nhóm camera này được báo riên
 Bước đánh giá PLY bổ sung phải giữ khả năng mở báo cáo chính của run.
 
 
-### Snapshot mask theo run (26/11/2026)
+### Tính nhất quán sau tích hợp (26/11/2026)
 
-Lưu, xoá hoặc xác nhận không có thân xe làm đổi cache cho run mới. Mỗi run giữ snapshot mask
-hiệu lực để resume trên local/Kaggle/Colab không đổi dữ liệu khi cảnh được sửa về sau. Mask nháp
-và trung vị không ảnh hưởng cache. Mask ưu tiên bản cảnh, xác nhận none, rồi asset; mask cảm biến
-vẫn được giữ. Run cũ chưa có snapshot giữ hành vi lịch sử. NuRec dùng mask chính thức qua cùng
-rectifier với ảnh.
-
-
-### Đánh giá sau tích hợp (26/11/2026)
-
-Camera chỉ test không vào context NuRec hoặc refinement; refinement chỉ lấy `split.train`.
-`overall` tách khỏi `shifted`, gồm cả metric khớp màu. Nếu image_00 chỉ test thì approach báo
-không khả dụng. NuRec vẫn dùng khung test theo thời gian của camera context. MCGS khử méo RGB
-và mask pinhole theo cùng bản đồ OpenCV trước khi chấm. Protocol 0.6 chuẩn hoá pixel ngoài mask
-trong scorer, benchmark tách NuRec protocol 0.5 lịch sử khỏi scorer chung.
+- Lưu, xoá hoặc xác nhận không có thân xe ảnh hưởng các run mới. Mỗi run giữ một snapshot mask
+  để resume trên local/Kaggle/Colab không đổi dữ liệu giám sát khi người dùng sửa cảnh về sau.
+  Mask nháp và ảnh trung vị không ảnh hưởng cache; run cũ chưa có snapshot giữ hành vi lịch sử.
+- Mask thân xe ưu tiên bản của cảnh, xác nhận không dùng, rồi asset. Mask cảm biến không hợp lệ
+  theo khung vẫn được giữ riêng. NuRec dùng mask chính thức qua cùng rectifier với RGB; MCGS
+  dùng mask hiệu lực và khử méo RGB/mask pinhole theo cùng bản đồ OpenCV trước khi chấm.
+- `test_only_cameras` không vào context NuRec hoặc refinement. Refinement chỉ dùng các cặp
+  `split.train`; điểm test của camera có train vào `overall`, camera chỉ test vào `shifted`,
+  kể cả PSNR/LPIPS khớp màu. Nếu `image_00` chỉ test thì approach báo lý do không chạy được.
+  NuRec vẫn dùng khung test theo thời gian của camera context trong lượt suy luận ban đầu.
+- Protocol `0.6` chuẩn hoá phần ngoài mask ngay trong scorer chung. Benchmark không xếp hạng
+  chung NuRec protocol `0.5` cũ với scorer chung; kết quả lịch sử không bị sửa.
+- Chuyển camera trong editor rồi quay lại vẫn hiện bản nháp đang có. Bỏ nháp xoá file nháp
+  trên server; tẩy dùng đúng overlay đang hiển thị. Nhiều tab sửa cùng camera được phát hiện
+  bằng revision và tải lại khi có xung đột.

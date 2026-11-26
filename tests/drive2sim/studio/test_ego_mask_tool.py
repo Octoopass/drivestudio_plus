@@ -100,3 +100,52 @@ def test_eraser_rejects_invalid_strokes_without_changing_saved_mask(
         tool.erase(root, manifest, "CAM_A", points, radius)
     assert saved.read_bytes() == before
     assert not (root / tool.TOOL_DIR / "draft_CAM_A.png").exists()
+
+
+def test_erase_uses_visible_source_and_discard_removes_hidden_draft(tmp_path: Path) -> None:
+    root = tmp_path / "scene"
+    manifest = make_scene(root)
+    (root / "ego_masks").mkdir()
+    saved = root / "ego_masks" / "CAM_A.png"
+    cv2.imwrite(str(saved), np.full((48, 64), 255, np.uint8))
+    tool.erase(root, manifest, "CAM_A", [(10, 10)], 3, source="saved")
+    first = tool.status(root, manifest)["cameras"][0]
+    assert first["has_draft"] and first["draft_coverage"] < 1
+    tool.erase(root, manifest, "CAM_A", [(30, 30)], 3, source="saved")
+    draft = root / tool.TOOL_DIR / "draft_CAM_A.png"
+    assert cv2.imread(str(draft), 0)[10, 10] == 255
+    assert tool.revision(root, "CAM_A") != first["revision"]
+    tool.discard_draft(root, manifest, "CAM_A")
+    assert not draft.exists() and saved.exists()
+    assert not tool.status(root, manifest)["cameras"][0]["has_draft"]
+    with pytest.raises(tool.EgoMaskError, match="chưa có mask"):
+        tool.erase(root, manifest, "CAM_A", [(10, 10)], 3, source="draft")
+
+
+def test_segment_replaces_draft_only_after_worker_succeeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "scene"
+    manifest = make_scene(root)
+    tool.median_image(root, manifest, "CAM_A")
+    draft = root / tool.TOOL_DIR / "draft_CAM_A.png"
+    cv2.imwrite(str(draft), np.zeros((48, 64), np.uint8))
+    original = draft.read_bytes()
+
+    def failed_worker(request: dict) -> dict:
+        Path(request["out"]).write_bytes(b"incomplete png")
+        return {"ok": False, "error": "worker stopped"}
+
+    monkeypatch.setattr(tool._WORKER, "run", failed_worker)
+    with pytest.raises(tool.EgoMaskError, match="worker stopped"):
+        tool.segment(root, manifest, "CAM_A", [(10, 45, 1)])
+    assert draft.read_bytes() == original
+
+    def successful_worker(request: dict) -> dict:
+        assert Path(request["out"]) != draft
+        cv2.imwrite(request["out"], np.full((48, 64), 255, np.uint8))
+        return {"ok": True, "coverage": 1.0}
+
+    monkeypatch.setattr(tool._WORKER, "run", successful_worker)
+    assert tool.segment(root, manifest, "CAM_A", [(10, 45, 1)]) == 1.0
+    assert (cv2.imread(str(draft), 0) == 255).all()

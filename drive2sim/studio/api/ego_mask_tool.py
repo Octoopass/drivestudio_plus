@@ -18,10 +18,11 @@ File này chứa ``EgoMaskError``, ``status``, ``median_image``, ``segment``, ``
 ``mark_none``, ``overlay_png``.
 """
 
+import hashlib
 import json
 import os
-import shutil
 import subprocess
+import tempfile
 import threading
 from pathlib import Path
 from typing import Optional
@@ -34,6 +35,60 @@ MEDIAN_FRAMES = 40
 TOOL_DIR = Path("reports") / "ego_mask"
 SEGMENT_TIMEOUT_S = 300.0
 REPO_DIR = paths.PACKAGE_DIR.parent
+
+
+# Các route giữ khoá này suốt thao tác đọc-sửa-ghi để kiểm tra revision có hiệu lực.
+EDIT_LOCK = threading.RLock()
+
+
+def revision(scene_root: Path, camera_id: str) -> str:
+    """Băm trạng thái đã lưu và nháp để phát hiện một tab đang sửa bản cũ.
+
+    Args:
+        scene_root: Thư mục cảnh.
+        camera_id: Camera đã được kiểm tra trong manifest.
+
+    Returns:
+        Chuỗi SHA-256 dùng làm revision của editor.
+    """
+    digest = hashlib.sha256()
+    for path in (
+        scene_root / "ego_masks" / f"{camera_id}.png",
+        scene_root / TOOL_DIR / f"draft_{camera_id}.png",
+        scene_root / ego_masks.STATUS_FILE,
+    ):
+        digest.update(path.read_bytes() if path.is_file() else b"missing")
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _write_atomic(path: Path, content: bytes) -> None:
+    """Thay một file bằng các byte hoàn chỉnh để reader không đọc trúng PNG đang ghi.
+
+    Args:
+        path: File đích.
+        content: Nội dung đầy đủ.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as stream:
+        temporary = Path(stream.name)
+        stream.write(content)
+    try:
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def discard_draft(scene_root: Path, manifest: Manifest, camera_id: str) -> None:
+    """Xoá nháp của camera khi người dùng bỏ các điểm, giữ nguyên mask chính thức.
+
+    Args:
+        scene_root: Thư mục cảnh.
+        manifest: Manifest dùng kiểm tra camera.
+        camera_id: Camera cần bỏ nháp.
+    """
+    _index(manifest, camera_id)
+    (scene_root / TOOL_DIR / f"draft_{camera_id}.png").unlink(missing_ok=True)
 
 
 class EgoMaskError(ValueError):
@@ -85,12 +140,18 @@ def status(scene_root: Path, manifest: Manifest) -> dict:
         if path.is_file():
             mask = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
             coverage = float((mask > 127).mean()) if mask is not None else None
+        draft = scene_root / TOOL_DIR / f"draft_{camera_id}.png"
+        draft_mask = cv2.imread(str(draft), cv2.IMREAD_GRAYSCALE) if draft.is_file() else None
         cameras.append(
             {
                 **item,
                 "has_mask": path.is_file(),
                 "coverage": coverage,
-                "has_draft": (scene_root / TOOL_DIR / f"draft_{camera_id}.png").is_file(),
+                "has_draft": draft_mask is not None,
+                "draft_coverage": float((draft_mask > 127).mean())
+                if draft_mask is not None
+                else None,
+                "revision": revision(scene_root, camera_id),
             }
         )
     missing = [str(p) for p in (sam2_python(), sam2_model_dir()) if not p.exists()]
@@ -200,9 +261,12 @@ def segment(
         raise EgoMaskError("cần ít nhất một điểm trên thân xe")
     image = median_image(scene_root, manifest, camera_id)
     draft = scene_root / TOOL_DIR / f"draft_{camera_id}.png"
-    result = _WORKER.run({"image": str(image), "points": points, "out": str(draft)})
-    if not result.get("ok"):
-        raise EgoMaskError(f"SAM2 lỗi: {result.get('error')}")
+    with tempfile.TemporaryDirectory(dir=draft.parent) as directory:
+        temporary = Path(directory) / "mask.png"
+        result = _WORKER.run({"image": str(image), "points": points, "out": str(temporary)})
+        if not result.get("ok"):
+            raise EgoMaskError(f"SAM2 lỗi: {result.get('error')}")
+        _write_atomic(draft, temporary.read_bytes())
     return float(result["coverage"])
 
 
@@ -212,6 +276,7 @@ def erase(
     camera_id: str,
     points: list[tuple[float, float]],
     radius: int,
+    source: Optional[str] = None,
 ) -> float:
     """Tẩy một nét trên mask nháp hoặc mask đã lưu, giữ bản đã lưu tới khi xác nhận.
 
@@ -221,6 +286,7 @@ def erase(
         camera_id: Tên camera cần sửa mask.
         points: Các điểm liên tiếp của nét tẩy, theo pixel ảnh gốc.
         radius: Bán kính cọ từ 1 đến 256 pixel.
+        source: saved hoặc draft đúng overlay đang hiện; None giữ tương thích client cũ.
 
     Returns:
         Tỉ lệ pixel còn thuộc mask sau nét tẩy.
@@ -235,8 +301,14 @@ def erase(
 
     _index(manifest, camera_id)
     draft = scene_root / TOOL_DIR / f"draft_{camera_id}.png"
-    source = draft if draft.is_file() else scene_root / "ego_masks" / f"{camera_id}.png"
-    mask = cv2.imread(str(source), cv2.IMREAD_GRAYSCALE) if source.is_file() else None
+    if source not in (None, "saved", "draft"):
+        raise EgoMaskError("nguồn mask phải là saved hoặc draft")
+    path = (
+        draft
+        if source == "draft" or (source is None and draft.is_file())
+        else scene_root / "ego_masks" / f"{camera_id}.png"
+    )
+    mask = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE) if path.is_file() else None
     if mask is None:
         raise EgoMaskError(f"camera {camera_id} chưa có mask để tẩy")
     if not points or not 1 <= radius <= 256:
@@ -255,20 +327,30 @@ def erase(
             cv2.line(mask, previous, point, 0, thickness=2 * radius)
         cv2.circle(mask, point, radius, 0, thickness=-1)
         previous = point
-    draft.parent.mkdir(parents=True, exist_ok=True)
-    if not cv2.imwrite(str(draft), mask):
+    ok, encoded = cv2.imencode(".png", mask)
+    if not ok:
         raise EgoMaskError("không ghi được mask nháp")
+    _write_atomic(draft, encoded.tobytes())
     return float((mask > 127).mean())
 
 
 def save(scene_root: Path, manifest: Manifest, camera_id: str) -> None:
-    """Chép mask nháp thành mask của cảnh (``ego_masks/<camera>.png``)."""
+    """Lưu bản nháp hoàn chỉnh thành mask chính thức bằng phép thay file nguyên tử.
+
+    Args:
+        scene_root: Thư mục cảnh.
+        manifest: Manifest dùng kiểm tra camera.
+        camera_id: Camera có nháp cần lưu vào ego_masks/<camera>.png.
+
+    Raises:
+        EgoMaskError: Nếu camera lạ hoặc không có nháp.
+    """
     _index(manifest, camera_id)
     draft = scene_root / TOOL_DIR / f"draft_{camera_id}.png"
     if not draft.is_file():
         raise EgoMaskError(f"camera {camera_id} chưa có mask nháp")
     (scene_root / "ego_masks").mkdir(exist_ok=True)
-    shutil.copyfile(draft, scene_root / "ego_masks" / f"{camera_id}.png")
+    _write_atomic(scene_root / "ego_masks" / f"{camera_id}.png", draft.read_bytes())
     draft.unlink()
     ego_masks.set_state(scene_root, camera_id, None)  # có file mask là đủ, bỏ "none" cũ nếu có
 

@@ -22,7 +22,7 @@ File này chứa:
 """
 
 import json
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
@@ -340,6 +340,7 @@ class EgoMaskStroke(BaseModel):
     model_config = ConfigDict(extra="forbid")
     points: list[tuple[float, float]] = Field(min_length=1, max_length=20000)
     radius: int = Field(ge=1, le=256)
+    source: Optional[Literal["saved", "draft"]] = None
 
 
 def _ego_mask_call(  # noqa: ANN202
@@ -347,10 +348,36 @@ def _ego_mask_call(  # noqa: ANN202
     scene_id: str,
     action,  # noqa: ANN001
     revalidate_after: bool = False,
+    camera: Optional[str] = None,
+    revision: Optional[str] = None,
 ):
+    """Chạy thao tác mask dưới khoá editor và kiểm tra revision nếu client có gửi.
+
+    Args:
+        request: Yêu cầu HTTP chứa trạng thái Studio.
+        scene_id: Cảnh cần sửa.
+        action: Hàm nhận thư mục cảnh và manifest, trả kết quả của thao tác.
+        revalidate_after: Cập nhật báo cáo kiểm tra sau khi đổi mask chính thức.
+        camera: Camera cần kiểm revision; None với thao tác chỉ đọc.
+        revision: Revision client đã thấy, None giữ tương thích client cũ.
+
+    Returns:
+        Kết quả của action; dict mutation kèm revision mới.
+
+    Raises:
+        HTTPException: HTTP 409 nếu revision cũ, 400 nếu thao tác mask không hợp lệ.
+    """
     scene = state_of(request).workdir.load_scene(scene_id)
     try:
-        result = action(scene.root, scene.manifest)
+        with ego_mask_tool.EDIT_LOCK:
+            if camera is not None and revision is not None:
+                if ego_mask_tool.revision(scene.root, camera) != revision:
+                    raise HTTPException(
+                        status_code=409, detail="mask đã thay đổi; tải lại camera trước khi sửa"
+                    )
+            result = action(scene.root, scene.manifest)
+            if camera is not None and isinstance(result, dict):
+                result["revision"] = ego_mask_tool.revision(scene.root, camera)
     except ego_mask_tool.EgoMaskError as error:
         raise HTTPException(status_code=400, detail=str(error)) from None
     if revalidate_after:  # báo cáo kiểm tra có mục ego_mask.*: cập nhật theo lựa chọn mới
@@ -389,7 +416,13 @@ def get_ego_mask_overlay(
 
 
 @router.post("/{scene_id}/egomask/{camera}/segment")
-def segment_ego_mask(scene_id: str, camera: str, body: EgoMaskPoints, request: Request) -> dict:
+def segment_ego_mask(
+    scene_id: str,
+    camera: str,
+    body: EgoMaskPoints,
+    request: Request,
+    revision: Optional[str] = None,
+) -> dict:
     """Tách mask nháp bằng SAM2.1 theo các điểm bấm.
 
     Returns:
@@ -398,55 +431,95 @@ def segment_ego_mask(scene_id: str, camera: str, body: EgoMaskPoints, request: R
     coverage = _ego_mask_call(
         request,
         scene_id,
-        lambda root, manifest: ego_mask_tool.segment(root, manifest, camera, body.points),
+        lambda root, manifest: {
+            "coverage": ego_mask_tool.segment(root, manifest, camera, body.points)
+        },
+        camera=camera,
+        revision=revision,
     )
-    return {"coverage": coverage}
+    return coverage
 
 
 @router.post("/{scene_id}/egomask/{camera}/erase")
-def erase_ego_mask(scene_id: str, camera: str, body: EgoMaskStroke, request: Request) -> dict:
+def erase_ego_mask(
+    scene_id: str,
+    camera: str,
+    body: EgoMaskStroke,
+    request: Request,
+    revision: Optional[str] = None,
+) -> dict:
     """Tẩy một nét thành mask nháp và trả tỉ lệ diện tích còn bị che."""
     coverage = _ego_mask_call(
         request,
         scene_id,
-        lambda root, manifest: ego_mask_tool.erase(
-            root, manifest, camera, body.points, body.radius
-        ),
+        lambda root, manifest: {
+            "coverage": ego_mask_tool.erase(
+                root, manifest, camera, body.points, body.radius, body.source
+            )
+        },
+        camera=camera,
+        revision=revision,
     )
-    return {"coverage": coverage}
+    return coverage
 
 
 @router.post("/{scene_id}/egomask/{camera}/save")
-def save_ego_mask(scene_id: str, camera: str, request: Request) -> dict:
+def save_ego_mask(
+    scene_id: str, camera: str, request: Request, revision: Optional[str] = None
+) -> dict:
     """Lưu mask nháp thành ``ego_masks/<camera>.png`` của cảnh."""
     _ego_mask_call(
         request,
         scene_id,
         lambda root, manifest: ego_mask_tool.save(root, manifest, camera),
         revalidate_after=True,
+        camera=camera,
+        revision=revision,
     )
     return {"saved": camera}
 
 
 @router.post("/{scene_id}/egomask/{camera}/none")
-def mark_ego_mask_none(scene_id: str, camera: str, request: Request) -> dict:
+def mark_ego_mask_none(
+    scene_id: str, camera: str, request: Request, revision: Optional[str] = None
+) -> dict:
     """Xác nhận camera không thấy thân xe (xoá mask của cảnh nếu có)."""
     _ego_mask_call(
         request,
         scene_id,
         lambda root, manifest: ego_mask_tool.mark_none(root, manifest, camera),
         revalidate_after=True,
+        camera=camera,
+        revision=revision,
     )
     return {"none": camera}
 
 
 @router.delete("/{scene_id}/egomask/{camera}")
-def delete_ego_mask(scene_id: str, camera: str, request: Request) -> dict:
+def delete_ego_mask(
+    scene_id: str, camera: str, request: Request, revision: Optional[str] = None
+) -> dict:
     """Xoá mask thân xe (và mask nháp) của camera."""
     _ego_mask_call(
         request,
         scene_id,
         lambda root, manifest: ego_mask_tool.delete(root, manifest, camera),
         revalidate_after=True,
+        camera=camera,
+        revision=revision,
     )
     return {"deleted": camera}
+
+
+@router.delete("/{scene_id}/egomask/{camera}/draft")
+def discard_ego_mask_draft(
+    scene_id: str, camera: str, request: Request, revision: Optional[str] = None
+) -> dict:
+    """Bỏ nháp khi xoá các điểm, trả revision mới để editor tiếp tục trên mask đã lưu."""
+    return _ego_mask_call(
+        request,
+        scene_id,
+        lambda root, manifest: {"discarded": ego_mask_tool.discard_draft(root, manifest, camera)},
+        camera=camera,
+        revision=revision,
+    )

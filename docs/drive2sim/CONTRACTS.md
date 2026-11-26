@@ -1164,27 +1164,35 @@ khớp hợp lệ. `per_camera` giữ số đo của cả hai nhóm. Báo cáo �
 `ply_gap.json` không thay thế `summary.json` của stage đánh giá chính.
 
 
-### Snapshot mask theo run (26/11/2026)
+### Sửa tính nhất quán của mask và đánh giá (26/11/2026)
 
-`d2s-run/0.4` thêm `scene_mask_digest`, SHA-256 của mask hiệu lực. Trường không bắt buộc để
-đọc run cũ. Run mới giữ PNG theo camera và `status.json` ở `d2s/scene_masks/`; camera không dùng
-mask được ghi none để không tự nhận asset mới về sau. Khoá cảnh thêm `:masks-<digest>`; nháp
-và trung vị không tham gia. Snapshot thiếu hoặc sai digest là lỗi khi chạy.
+Run mới lưu `scene_mask_digest` (SHA-256, không bắt buộc với run cũ) trong `run.json` và bản
+chụp mask hiệu lực ở `d2s/scene_masks/`. Khoá đầu vào cảnh thêm digest này; mask nháp không tham gia.
+Worker dựng cảnh ảo với bản chụp, kể cả khi chạy remote. Thiếu bản chụp của run đã có digest là lỗi.
+Run cũ thiếu digest dùng cảnh hiện tại, giữ khả năng đọc dữ liệu lịch sử.
 
-Mask ưu tiên file cảnh, xác nhận none, rồi asset; mask cảm biến theo khung vẫn giữ riêng.
-`scene_ref.json` thêm `scene_masks` (tên PNG theo camera/status.json → byte base64), không đổi
-bốn file của gói job. Chỉ nhận tên camera trong manifest và kiểm digest tại worker. Run cũ
-không có digest vẫn đọc được. Cảnh ảo ở `<workdir>/.runtime/<run_id>/scene_view/000/` được dựng
-lại tại máy chạy, không đóng gói cùng run. `prep.ncore` tạo mask hiệu lực trong output và truyền
-`--ego-masks` cho converter để rectify cùng RGB.
+Mask hiệu lực ưu tiên file cảnh, xác nhận `none`, rồi asset mặc định. Mask cảm biến theo khung
+vẫn được giữ. NuRec rectify mask theo ảnh; MCGS khử méo ảnh pinhole và mask theo cùng K.
+Camera `test_only_cameras` không vào context hoặc refinement của NuRec; metric ghi ở `shifted`.
+Protocol chung mới `0.6` chuẩn hoá pixel ngoài mask trong hàm metric dùng chung. NuRec protocol
+`0.5` được phân biệt khi benchmark đọc run lịch sử; kết quả cũ giữ nguyên.
 
+`DELETE /api/scenes/{scene_id}/egomask/{camera}/draft` bỏ riêng nháp. Thân yêu cầu tẩy có thêm
+`source` (`saved` hoặc `draft`, không bắt buộc với client cũ); server dùng đúng bản được chọn.
 
-### Protocol đánh giá sau tích hợp (26/11/2026)
+`scene_ref.json` của gói Kaggle/Colab có thêm `scene_masks`: mapping tên PNG theo camera hoặc
+`status.json` sang nội dung base64 của snapshot. Gói cũ không có trường này vẫn đọc được cho
+run thiếu digest. Chỉ nhận tên camera trong manifest và `status.json`, kiểm lại digest khi chạy.
+Snapshot theo mỗi run, nên sửa mask không bắt upload lại toàn bộ dataset cảnh trên remote.
+Cảnh ảo được dựng lại ở `<workdir>/.runtime/<run_id>/scene_view/000/`, không đóng gói cùng run.
+`prep.ncore` tạo bản mask hiệu lực ở thư mục output của stage rồi truyền `--ego-masks` cho
+converter. `train.nurec_refine` ghi `train_views.json` (sensor → chỉ số khung clip → tên mask)
+và truyền `--views-json` cho exporter để giữ đúng từng cặp train, kể cả split trộn camera.
 
-Camera `test_only_cameras` không vào context hoặc refinement NuRec. `train_views.json` là
-sensor → chỉ số khung clip → tên mask, truyền qua `--views-json` của exporter để giữ đúng cặp
-`split.train`. Camera chỉ test vào `shifted`, kèm PSNR/LPIPS khớp màu nếu có phép khớp hợp lệ;
-`overall` chỉ gộp camera có train. Camera image_00 chỉ test bị từ chối trước khi chạy.
-MCGS khử méo RGB và valid mask pinhole theo cùng K/map, vẫn dùng protocol riêng hiện có.
-Protocol chung 0.6 chuẩn hoá pixel không hợp lệ ngay trong scorer. Benchmark nhận diện run
-`eval.ncore` protocol 0.5 cũ thành nhóm riêng, không viết lại kết quả lịch sử.
+Trạng thái editor thêm `draft_coverage` và `revision` (SHA-256) cho mỗi camera. Route mutation
+nhận query `revision` không bắt buộc cho client cũ; revision khác hiện tại trả HTTP 409 theo
+mã lỗi chung hiện có, không ghi đè. Segment, erase và discard trả revision mới cùng kết quả.
+Studio gửi revision, tải lại trạng thái khi đổi camera hoặc gặp 409; nháp còn trên server được
+hiện lại. Khi xoá hết điểm, server bỏ nháp và thao tác tẩy tiếp theo dùng mask đã lưu.
+PNG được thay bằng rename nguyên tử; khoá trong tiến trình Studio bao quanh kiểm revision và
+đọc-sửa-ghi. Cơ chế này phục vụ nhiều tab trên một Studio, không cung cấp khoá nhiều server.

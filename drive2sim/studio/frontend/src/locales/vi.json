@@ -1023,6 +1023,7 @@
   "scene.egomask.saved": "Mask đã lưu che {coverage} ảnh.",
   "scene.egomask.undo": "Bỏ điểm cuối",
   "scene.egomask.clear": "Xoá các điểm",
+  "scene.egomask.discard": "Bỏ bản nháp",
   "scene.egomask.save": "Lưu mask",
   "scene.egomask.delete": "Xoá mask",
   "scene.egomask.pending": "Còn {count}/{total} camera chưa xử lý: vẽ mask nếu camera thấy thân xe, hoặc bấm \"Không thấy thân xe\". Bỏ qua vẫn train được nhưng thân xe (nếu có) bị dựng lẫn vào cảnh.",

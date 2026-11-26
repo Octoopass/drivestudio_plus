@@ -4,7 +4,7 @@
 // điểm và khỏi bước chiếu LiDAR.
 import { Ban, Check, Eraser, LoaderCircle, MousePointer2, Save, Trash2, Undo2 } from "lucide-react";
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
-import { asApiError, del, post, seg, useApi, type ApiError } from "../api/client";
+import { asApiError, del, api as get, post, seg, useApi, type ApiError } from "../api/client";
 import { useI18n } from "../i18n";
 import { ErrorBox, InfoTip, Loading } from "./ui";
 
@@ -16,6 +16,8 @@ interface EgoMaskCamera {
   has_mask: boolean;
   coverage: number | null;
   has_draft: boolean;
+  draft_coverage: number | null;
+  revision: string;
 }
 
 interface EgoMaskStatus {
@@ -34,6 +36,7 @@ export function EgoMaskEditor({ sceneId }: { sceneId: string }) {
   const [camera, setCamera] = useState<string | null>(null);
   const [points, setPoints] = useState<Point[]>([]);
   const [draft, setDraft] = useState<{ coverage: number; version: number } | null>(null);
+  const [revision, setRevision] = useState<string | null>(null);
   const [savedVersion, setSavedVersion] = useState(0);
   const [busy, setBusy] = useState(false);
   const [operation, setOperation] = useState("segmenting");
@@ -59,22 +62,57 @@ export function EgoMaskEditor({ sceneId }: { sceneId: string }) {
     setError(null);
     setImageError(false);
     setMode("points");
-  }, [current]);
+    setRevision(null);
+    if (!current) return;
+    let active = true;
+    setBusy(true);
+    setOperation("loading_image");
+    get<EgoMaskStatus>(`/api/scenes/${seg(sceneId)}/egomask`).then((out) => {
+      if (!active) return;
+      const state = out.cameras.find((c) => c.camera_id === current);
+      setRevision(state?.revision ?? null);
+      setDraft(state?.has_draft ? { coverage: state.draft_coverage ?? 0, version: Date.now() } : null);
+      setSavedVersion(Date.now());
+    }).catch((err) => { if (active) setError(asApiError(err)); })
+      .finally(() => { if (active) setBusy(false); });
+    return () => { active = false; };
+  }, [sceneId, current]);
+
+  const mutation = (path: string) => `${path}?revision=${encodeURIComponent(revision ?? "")}`;
+
+  const handleError = async (err: unknown) => {
+    const error = asApiError(err);
+    setError(error);
+    if (error.status === 409) {
+      // Tab khác đã sửa: nạp bản thật trước khi cho phép thao tác tiếp.
+      const out = await get<EgoMaskStatus>(`/api/scenes/${seg(sceneId)}/egomask`);
+      const state = out.cameras.find((c) => c.camera_id === current);
+      setRevision(state?.revision ?? null);
+      setDraft(state?.has_draft ? { coverage: state.draft_coverage ?? 0, version: Date.now() } : null);
+      setSavedVersion(Date.now());
+      setPoints([]);
+      status.reload();
+    }
+  };
 
   const run = async (next: Point[]) => {
     setPoints(next);
-    if (!next.some((p) => p[2] === 1)) {
-      setDraft(null);
-      return;
-    }
     setOperation("segmenting");
     setBusy(true);
     setError(null);
     try {
-      const out = await post<{ coverage: number }>(`${base}/segment`, { points: next });
-      setDraft({ coverage: out.coverage, version: Date.now() });
+      if (!next.some((p) => p[2] === 1)) {
+        const out = await del<{ revision: string }>(mutation(`${base}/draft`));
+        setRevision(out.revision);
+        setDraft(null);
+        setSavedVersion(Date.now());
+      } else {
+        const out = await post<{ coverage: number; revision: string }>(mutation(`${base}/segment`), { points: next });
+        setRevision(out.revision);
+        setDraft({ coverage: out.coverage, version: Date.now() });
+      }
     } catch (err) {
-      setError(asApiError(err));
+      await handleError(err);
     } finally {
       setBusy(false);
     }
@@ -82,7 +120,7 @@ export function EgoMaskEditor({ sceneId }: { sceneId: string }) {
 
   const click = (event: MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
-    if (mode !== "points" || busy || !size || !status.data?.sam2_ready) return;
+    if (mode !== "points" || busy || !revision || !size || !status.data?.sam2_ready) return;
     const box = event.currentTarget.getBoundingClientRect();
     const x = Math.min(size.w - 1, Math.max(0, Math.round(((event.clientX - box.left) / box.width) * size.w)));
     const y = Math.min(size.h - 1, Math.max(0, Math.round(((event.clientY - box.top) / box.height) * size.h)));
@@ -90,7 +128,7 @@ export function EgoMaskEditor({ sceneId }: { sceneId: string }) {
   };
 
   const draw = (event: PointerEvent<HTMLCanvasElement>) => {
-    if (busy || !size || mode !== "erase" || !(draft || info?.has_mask)) return;
+    if (busy || !revision || !size || mode !== "erase" || !(draft || info?.has_mask)) return;
     if (event.type === "pointerdown") {
       if (event.button !== 0) return;
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -129,10 +167,11 @@ export function EgoMaskEditor({ sceneId }: { sceneId: string }) {
     setBusy(true);
     setError(null);
     try {
-      const out = await post<{ coverage: number }>(`${base}/erase`, { points: next, radius });
+      const out = await post<{ coverage: number; revision: string }>(mutation(`${base}/erase`), { points: next, radius, source: draft ? "draft" : "saved" });
+      setRevision(out.revision);
       setDraft({ coverage: out.coverage, version: Date.now() });
     } catch (err) {
-      setError(asApiError(err));
+      await handleError(err);
     } finally {
       setBusy(false);
       preview.current?.getContext("2d")?.clearRect(0, 0, size!.w, size!.h);
@@ -148,9 +187,11 @@ export function EgoMaskEditor({ sceneId }: { sceneId: string }) {
       setPoints([]);
       setDraft(null);
       setSavedVersion(Date.now());
+      const out = await get<EgoMaskStatus>(`/api/scenes/${seg(sceneId)}/egomask`);
+      setRevision(out.cameras.find((c) => c.camera_id === current)?.revision ?? null);
       status.reload();
     } catch (err) {
-      setError(asApiError(err));
+      await handleError(err);
     } finally {
       setBusy(false);
     }
@@ -243,8 +284,8 @@ export function EgoMaskEditor({ sceneId }: { sceneId: string }) {
           </div>
           <div className="row wrap egomask-actions" style={{ gap: 8, alignItems: "center" }}>
             <div className="egomask-modes" role="group" aria-label={t("scene.egomask.tools")}>
-              <button type="button" className="btn sm" disabled={busy} aria-pressed={mode === "points"} onClick={() => setMode("points")}><MousePointer2 size={15} /> {t("scene.egomask.points_tool")}</button>
-              <button type="button" className="btn sm" disabled={busy || !(draft || info?.has_mask)} aria-pressed={mode === "erase"} onClick={() => setMode("erase")}><Eraser size={15} /> {t("scene.egomask.erase_tool")}</button>
+              <button type="button" className="btn sm" disabled={busy || !revision} aria-pressed={mode === "points"} onClick={() => setMode("points")}><MousePointer2 size={15} /> {t("scene.egomask.points_tool")}</button>
+              <button type="button" className="btn sm" disabled={busy || !revision || !(draft || info?.has_mask)} aria-pressed={mode === "erase"} onClick={() => setMode("erase")}><Eraser size={15} /> {t("scene.egomask.erase_tool")}</button>
             </div>
             <span className="small egomask-summary">
               {draft
@@ -257,34 +298,34 @@ export function EgoMaskEditor({ sceneId }: { sceneId: string }) {
                       ? t("scene.egomask.is_none")
                       : t("scene.egomask.none")}
             </span>
-            <button className="btn sm" disabled={busy || mode === "erase" || points.length === 0} onClick={() => void run(points.slice(0, -1))}>
+            <button className="btn sm" disabled={busy || !revision || mode === "erase" || points.length === 0} onClick={() => void run(points.slice(0, -1))}>
               <Undo2 size={15} />
               {t("scene.egomask.undo")}
             </button>
-            <button className="btn sm" disabled={busy || mode === "erase" || points.length === 0} onClick={() => void run([])}>
+            <button className="btn sm" disabled={busy || !revision || (!draft && points.length === 0)} onClick={() => void run([])}>
               <Eraser size={15} />
-              {t("scene.egomask.clear")}
+              {t(points.length ? "scene.egomask.clear" : "scene.egomask.discard")}
             </button>
-            <button className="btn sm" disabled={busy || !draft} onClick={() => void act(() => post(`${base}/save`, {}))}>
+            <button className="btn sm" disabled={busy || !revision || !draft} onClick={() => void act(() => post(mutation(`${base}/save`), {}))}>
               <Save size={15} />
               {t("scene.egomask.save")}
             </button>
             <button
               className="btn sm"
-              disabled={busy || info?.state === "none" || (info?.state === "mask" && !info.has_mask)}
+              disabled={busy || !revision || info?.state === "none" || (info?.state === "mask" && !info.has_mask)}
               title={t("scene.egomask.mark_none_hint")}
-              onClick={() => void act(() => post(`${base}/none`, {}))}
+              onClick={() => void act(() => post(mutation(`${base}/none`), {}))}
             >
               <Ban size={15} />
               {t("scene.egomask.mark_none")}
             </button>
-            <button className="btn sm" disabled={busy || (!info?.has_mask && info?.source !== "confirmed")} onClick={() => void act(() => del(base))}>
+            <button className="btn sm" disabled={busy || !revision || (!info?.has_mask && info?.source !== "confirmed")} onClick={() => void act(() => del(mutation(base)))}>
               <Trash2 size={15} />
               {t("scene.egomask.delete")}
             </button>
           </div>
           {mode === "erase" && <div className="egomask-guide">
-            <label>{t("scene.egomask.brush_size")} <input type="range" min="3" max="128" value={radius} disabled={busy} onChange={(e) => setRadius(Number(e.target.value))} /> {radius * 2} px</label>
+            <label>{t("scene.egomask.brush_size")} <input type="range" min="3" max="128" value={radius} disabled={busy || !revision} onChange={(e) => setRadius(Number(e.target.value))} /> {radius * 2} px</label>
             <span>{t("scene.egomask.erase_hint")}</span>
           </div>}
         </>
