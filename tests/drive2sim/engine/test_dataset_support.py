@@ -131,6 +131,43 @@ def test_beziergs_is_blocked_on_non_pinhole_cameras() -> None:
             )
 
 
+def test_mcgs_approach_resolves_on_pinhole_scene() -> None:
+    load_builtin_stages()
+    manifest = make_manifest("kitti360", dataset_cameras()["kitti360"])
+    split = make_split(manifest, ["image_00", "image_01"])
+    plan = resolve(load_approach("mcgs"), manifest, split)
+    assert [stage.stage_id for stage in plan.stages] == ["prep.mcgs", "train.mcgs", "eval.mcgs"]
+    assert plan.stages[1].params["mode"] == "full"
+    assert plan.stages[1].input_sources == {"data": 0}
+    assert not any(
+        stage.uses_lidar for stage in plan.stages
+    )  # cảnh có LiDAR nhưng SLAM không dùng
+    minimal = resolve(load_approach("mcgs"), manifest, split, option_values={"mode": "minimal"})
+    assert minimal.stages[1].params["mode"] == "minimal"
+
+
+def test_mcgs_blocked_on_fisheye_only_split() -> None:
+    load_builtin_stages()
+    manifest = make_manifest("kitti360", dataset_cameras()["kitti360"])
+    with pytest.raises(BlockedError):
+        resolve(load_approach("mcgs"), manifest, make_split(manifest, ["image_02", "image_03"]))
+
+
+def test_mcgs_blocked_when_split_has_no_stereo_pair() -> None:
+    load_builtin_stages()
+    manifest = make_manifest("kitti360", dataset_cameras()["kitti360"])
+    with pytest.raises(BlockedError, match="2 camera"):
+        resolve(load_approach("mcgs"), manifest, make_split(manifest, ["image_00"]))
+
+
+def test_mcgs_refused_on_kaggle_and_colab() -> None:
+    from drive2sim.engine.remote import require_main_codebase
+
+    for where in ("Kaggle", "Colab"):
+        with pytest.raises(ValueError, match="codebase ngoài"):
+            require_main_codebase("mcgs", where)
+
+
 def test_mcgs_supports_exactly_the_pinhole_datasets_of_the_tool() -> None:
     pytest.importorskip("numpy")
     from drive2sim.external.mcgs import views

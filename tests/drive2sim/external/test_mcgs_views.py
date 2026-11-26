@@ -243,8 +243,8 @@ def test_eval_stage_runs_with_a_fake_renderer(
         }  # fmt: skip
         (out / "metrics.json").write_text(json.dumps(metrics))
         views_result = [
-            {"camera": "CAM_FRONT", "psnr": 24.0, "ssim": 0.8, "lpips": 0.2},
-            {"camera": "CAM_FISH", "psnr": 18.0, "ssim": 0.6, "lpips": 0.4},
+            {"camera": "CAM_FRONT", "psnr": 24.0, "ssim": 0.8, "lpips": 0.2, "coverage": 0.8},
+            {"camera": "CAM_FISH", "psnr": 18.0, "ssim": 0.6, "lpips": 0.4, "coverage": 0.4},
         ]
         (out / "per_view.json").write_text(json.dumps(views_result))
 
@@ -260,9 +260,11 @@ def test_eval_stage_runs_with_a_fake_renderer(
     summary = files.load(out / "summary.json", Summary)
     assert summary.overall.psnr == 21.0 and set(summary.per_camera) == {"CAM_FRONT", "CAM_FISH"}
     assert summary.protocol.version == "ncore-0.3" and summary.num_gaussians == 1000
+    assert summary.coverage == pytest.approx(0.6)
     rows = [json.loads(line) for line in (out / "frames.jsonl").read_text().splitlines()]
     assert [(r["frame_index"], r["camera_index"]) for r in rows] == [(8, 0), (8, 1)]
     assert rows[1]["psnr"] == 18.0 and len(rows[0]["position"]) == 3 and rows[0]["depth"] is None
+    assert [r["coverage"] for r in rows] == [0.8, 0.4]
     note = json.loads((out / "mcgs_eval.json").read_text())
     assert note["held_out"] and note["keyframes"] == FRAMES
     assert note["alignment_scale"] == pytest.approx(SIM["scale"])

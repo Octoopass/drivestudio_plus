@@ -13,6 +13,7 @@ File này chứa:
 - ``mcgs_dir``, ``mcgs_python``: đường dẫn bản cài.
 - ``OUTPUT_TRAJECTORY``, ``OUTPUT_GAUSSIANS``, ``OUTPUT_METRICS``: tên file ``demo.py`` ghi ra.
 - ``POSE_SCALE``: hệ số co mà bản đồ Gaussian dùng so với quỹ đạo.
+- ``PINHOLE_MODELS``: mô hình camera mà SLAM nhận.
 
 Căn quỹ đạo về hệ của cảnh và đo ATE ở ``align.py`` (cần numpy, chỉ nạp khi stage chạy).
 """
@@ -31,6 +32,9 @@ OUTPUT_METRICS = "psnr/after_opt/final_result_kf.json"
 # Mcgs._scale_poses: poses và độ sâu đưa vào bản đồ Gaussian được nhân 0,2 (mcgs.py), trong khi
 # traj_mcgs.txt giữ pose chưa co. Hệ của 3dgs_final.ply = hệ quỹ đạo × POSE_SCALE.
 POSE_SCALE = 0.2
+# MCGS-SLAM chỉ nhận camera pinhole (không có fisheye); đặt ở đây, không phải ``views.py``, để
+# stage kiểm tra camera được mà không cần nạp numpy.
+PINHOLE_MODELS = ("opencv_pinhole", "ideal_pinhole")
 
 
 def mcgs_dir() -> Path:
