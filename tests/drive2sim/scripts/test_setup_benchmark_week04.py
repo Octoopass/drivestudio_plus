@@ -118,7 +118,7 @@ def test_definition_groups_runs_by_matrix_cell() -> None:
             options={"renderer": "3dgut", "fastgs": True},
             train={},
         ),
-        make_run("20261127-040000-nurec-c0d0", "nurec", split_id="every8_mixed3"),
+        make_run("20261127-040000-nurec-c0d0", "nurec", split_id="every8_mixed3", scene_id=A1),
         make_run(
             "20261127-030000-pvg-f1e2",
             "pvg",

@@ -1,6 +1,6 @@
 # Benchmark tuần 04: Waymo (pinhole) và KITTI-360 chuỗi 0003
 
-Ma trận chạy (17 run ưu tiên 1, khoảng 32 GPU-giờ trên RTX 4090 thuê, ước lượng) nằm ở Sheet "Ma trận chạy benchmark tuần 04" của nhóm; số thứ tự run (#1, #2, ...) dưới đây khớp tab **Ma trận** của Sheet. Yêu cầu R1–R8 và quy tắc xếp hạng: `docs/drive2sim/ARCHITECTURE.md` mục 2.17, CONTRACTS mục 6.5.
+Ma trận chạy (11 run ưu tiên 1, khoảng 27 GPU-giờ trên RTX 4090 thuê, ước lượng; đã bỏ #1–#3 chạy thử R2, #7, #8 hiệu chỉnh seed, #14 chạy thử NuRec) nằm ở Sheet "Ma trận chạy benchmark tuần 04" của nhóm; số thứ tự run (#1, #2, ...) dưới đây khớp tab **Ma trận** của Sheet. Yêu cầu R1–R8 và quy tắc xếp hạng: `docs/drive2sim/ARCHITECTURE.md` mục 2.17, CONTRACTS mục 6.5.
 
 Script chuẩn bị: `drive2sim/scripts/setup_benchmark_week04.py` (chỉ đọc và ghi file trong thư mục làm việc, không chạy GPU).
 
@@ -18,10 +18,10 @@ Mọi split dùng `every_nth_frame:8`.
 
 | Split | Cảnh | Camera (chỉ test) | Đoạn khung | Dùng cho |
 |---|---|---|---|---|
-| `every8_5cams` | W1 | FRONT, FRONT_LEFT, FRONT_RIGHT, SIDE_LEFT, SIDE_RIGHT | khung 0–149 | W1: A-LB, A-L, A-0, hiệu chỉnh seed |
-| `every8_stereo` | 200 khung | `image_00`, `image_01` (`image_01`) | cả cảnh | A1: chạy thử R2 (#1–#3) |
+| `every8_5cams` | W1 | FRONT, FRONT_LEFT, FRONT_RIGHT, SIDE_LEFT, SIDE_RIGHT | khung 0–149 | W1: A-LB, A-L, A-0 |
+| `every8_stereo` | 200 khung | `image_00`, `image_01` (`image_01`) | cả cảnh | A1 (không còn run riêng) |
 | `every8_stereo_fisheye2` | 200 khung | + `image_02`, `image_03` (`image_01`) | cả cảnh | A2 |
-| `every8_mixed3` | 200 khung | `image_00`, `image_02`, `image_03` | cả cảnh | track C (Instant NuRec) |
+| `every8_mixed3` | dài | `image_00`, `image_02`, `image_03` (như A2, không có `image_01`) | cả cảnh | track C (Instant NuRec, #15). Cảnh 864 khung cần khoảng 48 đoạn NuRec (18 khung một đoạn) mà `train.nurec` giới hạn 8 đoạn: phải nâng giới hạn hoặc chạy theo 6 chunk của B2 trước khi chạy |
 | `every8_stereo_a3` | dài | `image_00`, `image_01` (`image_01`) | khung gốc 560–779 | A3 |
 | `every8_pinhole2` | dài | `image_00`, `image_01` | cả cảnh | track B, MCGS-SLAM |
 | `every8_stereo_c1` … `c6` | dài | `image_00`, `image_01` (`image_01`) | 6 đoạn ~153 khung, chồng 10 khung | track B, drivestudio chia chunk |
@@ -58,7 +58,7 @@ d2s benchmark benchmarks/week04.yaml --out benchmarks/week04.json
 | A-LB, A-L | `every8_stereo_a3` | OmniRe (mọi cấu hình); PVG, DeformableGS |
 | B | `every8_pinhole2` | MCGS-SLAM |
 | C | `every8_mixed3` | Instant NuRec |
-| `calibration` | `every8_5cams` (W1) | OmniRe 3DGS + FastGS seed 0, 1, 2 (#4, #7, #8) |
+| `calibration` | `every8_5cams` (W1) | OmniRe 3DGS + FastGS seed 0, 1, 2 nếu có (#7, #8 đã bỏ: dùng ngưỡng hoà mặc định 0,3 dB) |
 
 Nhiều run khớp một ô thì lấy run mới nhất và in các run bị bỏ. Nhóm chưa có run thì bỏ khỏi file; dưới hai seed thì không có khối `calibration` (`d2s benchmark` dùng ngưỡng hoà mặc định 0,3 dB).
 
