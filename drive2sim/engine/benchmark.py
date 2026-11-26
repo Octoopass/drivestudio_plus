@@ -42,8 +42,16 @@ from drive2sim.engine.workdir import Workdir
 # Hai method chênh PSNR dưới ngưỡng này được coi là ngang nhau (báo cáo tuần 03 mục 4.2): các run
 # cũ cho thấy hai cấu hình gần giống nhau đã lệch 0,05 tới 0,2 dB.
 TIE_THRESHOLD_DB = 0.3
-# Hai run ngang nhau có export gap (R3) chênh dưới ngưỡng này coi như bằng nhau, xét tiếp chi phí.
-EQUAL_GAP_DB = 0.3
+# Hai run ngang nhau có PSNR của ``.ply`` (R3) chênh dưới ngưỡng này coi như bằng nhau, xét tiếp
+# chi phí.
+EQUAL_PLY_PSNR_DB = 0.3
+# Method có Gaussian thay đổi theo thời gian mà ``export_ply.py`` ghi tham số gốc: PVG chưa cộng
+# dao động và chưa nhân độ đục theo thời gian (``temporal_means``, ``temporal_opacities``),
+# DeformableGS chưa qua mạng biến dạng. ``.ply`` của chúng không phải nền tĩnh của cảnh đã train,
+# nên R3 báo kèm nhưng không dùng để phân xử, tới khi có cách xuất nền tĩnh riêng. PVG đã có
+# (export_ply.py chỉ giữ Gaussian sống lâu, recon/tools/time_varying_export.py) nhưng chưa kiểm
+# trên run thật; bỏ "pvg" khỏi tập này sau khi kiểm (docs/experiments/benchmark_week04.md).
+TIME_VARYING_METHODS = frozenset({"pvg", "deformablegs"})
 # Các protocol của eval.standard đo PSNR, SSIM, LPIPS trên camera đã train theo cùng một cách
 # (CONTRACTS 6.3), nên xếp hạng chung được; protocol khác (ví dụ ncore-0.3) thì không.
 COMPARABLE_PROTOCOLS = frozenset({"0.3", "0.4", "0.5"})
@@ -186,17 +194,20 @@ class TieInputs:
     """Số liệu của một run dùng để phân xử các run ngang nhau (R2, R3), kèm protocol.
 
     Trường để trống nghĩa là chưa đo; ``export_applicable`` ``False`` nghĩa là method không xuất
-    được ``.ply`` (khác chưa đo).
+    được ``.ply`` (khác chưa đo); ``export_static`` ``False`` nghĩa là ``.ply`` có nhưng chưa phải
+    nền tĩnh của cảnh đã train.
 
     Attributes:
         shift_psnr_cc: PSNR sau chỉnh màu trên camera chỉ test (R2).
-        export_gap_db: Chênh PSNR render gốc và render ``.ply`` (R3).
+        ply_psnr: PSNR của render ``.ply`` nền tĩnh trên vùng nền tĩnh (R3).
+        export_static: ``.ply`` có phải nền tĩnh của cảnh đã train không.
         export_applicable: Method có xuất được ``.ply`` nền tĩnh không.
         protocol: ``protocol.version`` của ``summary.json``.
     """
 
     shift_psnr_cc: Optional[float] = None
-    export_gap_db: Optional[float] = None
+    ply_psnr: Optional[float] = None
+    export_static: bool = True
     export_applicable: bool = True
     protocol: Optional[str] = None
 
@@ -231,9 +242,10 @@ def order_group(
 
     Quy tắc (yêu cầu 25/11, mục 3 của spec): run tốt nhất là run có Avg thấp nhất; run có PSNR kém
     nó dưới ``threshold_db`` là ngang, tập này xác định một lần. Trong tập ngang phân xử lần lượt:
-    R2 (PSNR sau chỉnh màu ở camera chỉ test; chênh dưới ngưỡng coi như bằng), R3 (export gap
-    nhỏ hơn; chênh dưới ``EQUAL_GAP_DB`` coi như bằng), rồi thời gian train, chỉ khi mọi run cùng
-    GPU. Một bước chưa đo hoặc không áp dụng với một run nào của tập thì bị bỏ qua cho cả tập.
+    R2 (PSNR sau chỉnh màu ở camera chỉ test; chênh dưới ngưỡng coi như bằng), R3 (PSNR của
+    ``.ply`` nền tĩnh cao hơn; chênh dưới ``EQUAL_PLY_PSNR_DB`` coi như bằng), rồi thời gian train,
+    chỉ khi mọi run cùng GPU. Một bước chưa đo hoặc không áp dụng với một run nào của tập thì bị bỏ
+    qua cho cả tập; R3 cũng bị bỏ qua khi ``.ply`` của một run chưa phải nền tĩnh (kèm cảnh báo).
     Các run đo bằng protocol không so được với nhau thì không xếp hạng tự động.
 
     Args:
@@ -285,11 +297,17 @@ def order_group(
             if len(candidates) == 1:
                 winner, decided_by = candidates[0], "r2"
     if winner is None:
-        gaps = [inputs_of(r.run_id) for r in candidates]
-        if all(g.export_applicable and g.export_gap_db is not None for g in gaps):
-            lowest = min(g.export_gap_db for g in gaps)
+        plys = [inputs_of(r.run_id) for r in candidates]
+        not_static = [r.run_id for r, g in zip(candidates, plys) if not g.export_static]
+        if not_static:
+            warnings.append(
+                "bỏ bước R3: .ply chưa phải nền tĩnh của cảnh đã train (PVG, DeformableGS): "
+                + ", ".join(not_static)
+            )
+        elif all(g.export_applicable and g.ply_psnr is not None for g in plys):
+            top = max(g.ply_psnr for g in plys)
             candidates = [
-                r for r, g in zip(candidates, gaps) if g.export_gap_db - lowest < EQUAL_GAP_DB
+                r for r, g in zip(candidates, plys) if top - g.ply_psnr < EQUAL_PLY_PSNR_DB
             ]
             if len(candidates) == 1:
                 winner, decided_by = candidates[0], "r3"
@@ -396,14 +414,40 @@ def _camera_psnr(
     return statistics.fmean(values) if values else None
 
 
-def _export_gap(run_dir: Path) -> Optional[float]:
-    """Export gap (dB) trong ``eval.ply/ply_gap.json`` của run; ``None`` nếu chưa đo."""
+def _ply_gap_value(run_dir: Path, key: str) -> Optional[float]:
+    """Một số trong ``eval.ply/ply_gap.json`` của run; ``None`` nếu chưa đo."""
     path = run_dir / D2S_DIR / "stages" / PLY_GAP_STAGE / PLY_GAP_FILE
     try:
-        value = json.loads(path.read_text(encoding="utf-8")).get("export_gap_db")
-    except (OSError, ValueError):
+        value = json.loads(path.read_text(encoding="utf-8")).get(key)
+    except (OSError, ValueError, AttributeError):
         return None
     return float(value) if isinstance(value, (int, float)) else None
+
+
+def _export_gap(run_dir: Path) -> Optional[float]:
+    """Export gap (dB) của run (R3, báo kèm); ``None`` nếu chưa đo."""
+    return _ply_gap_value(run_dir, "export_gap_db")
+
+
+def _ply_psnr(run_dir: Path) -> Optional[float]:
+    """PSNR của render ``.ply`` nền tĩnh (R3, phân xử hoà); ``None`` nếu chưa đo."""
+    return _ply_gap_value(run_dir, "ply_psnr")
+
+
+def run_export_static(run_dir: Path) -> bool:
+    """``.ply`` của run có phải nền tĩnh của cảnh đã train không.
+
+    ``False`` khi stage ``train.drivestudio`` của run train method trong ``TIME_VARYING_METHODS``;
+    không đọc được ``run.json`` thì coi là có.
+    """
+    try:
+        record = files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
+    except (OSError, ValueError):
+        return True
+    for stage in record.stages:
+        if stage.stage_id == "train.drivestudio":
+            return stage.params.get("method") not in TIME_VARYING_METHODS
+    return True
 
 
 def _ate_rmse_m(stage_dir: Path) -> Optional[float]:
@@ -476,6 +520,8 @@ def build_row(
         shift_cameras=list(shifted.cameras) if shifted else [],
         depth=summary.depth if summary else None,
         export_gap_db=_export_gap(run_dir),
+        ply_psnr=_ply_psnr(run_dir),
+        export_static=run_export_static(run_dir),
         export_applicable=run_export_applicable(run_dir),
         ply_gaussians=row.ply_gaussians,
         ply_size_mb=row.ply_size_mb,
@@ -557,7 +603,8 @@ def run_group(
     inputs = {
         run_id: TieInputs(
             shift_psnr_cc=summary.shifted.psnr_cc if summary and summary.shifted else None,
-            export_gap_db=_export_gap(run_dirs[run_id]),
+            ply_psnr=_ply_psnr(run_dirs[run_id]),
+            export_static=run_export_static(run_dirs[run_id]),
             export_applicable=run_export_applicable(run_dirs[run_id]),
             protocol=summary.protocol.version if summary is not None else None,
         )

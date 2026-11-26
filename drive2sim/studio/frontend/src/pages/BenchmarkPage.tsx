@@ -2,7 +2,8 @@
 // - Chọn file định nghĩa ở trên; kết quả do `GET /api/benchmarks/<tên>` dựng, giống `d2s benchmark`.
 // - Mỗi nhóm (track, ô, cảnh, split) là một bảng xếp theo Avg; hàng đầu là người thắng, kèm bước đã
 //   quyết định (Avg, R2, R3, thời gian train). Run ngang run tốt nhất đánh dấu ≈.
-// - Cột "chưa đo" là dấu –; export gap "n/a" khi method không xuất được .ply (khác chưa đo).
+// - Cột "chưa đo" là dấu –; R3 "n/a" khi method không xuất được .ply (khác chưa đo); R3 kèm † khi
+//   .ply chưa phải nền tĩnh (PVG, DeformableGS), lúc đó R3 không phân xử. Export gap ở tooltip.
 // - Cột chi phí mỗi 100 m, ATE chỉ hiện ở track B; PSNR pinhole và fisheye chỉ hiện khi có số.
 import { AlertTriangle, Trophy } from "lucide-react";
 import type { ReactNode } from "react";
@@ -143,7 +144,16 @@ function GroupTable({ group }: { group: BenchmarkGroup }) {
                       {cell(row.shift_psnr_cc)}
                     </td>
                     <td className="num">
-                      {row.export_applicable ? cell(row.export_gap_db) : <span className="faint" title={t("benchmark.not_applicable")}>n/a</span>}
+                      {row.export_applicable ? (
+                        <span title={row.export_gap_db != null ? `${t("benchmark.gap")}: ${fixed(row.export_gap_db, 2)} dB` : undefined}>
+                          {cell(row.ply_psnr)}
+                          {row.export_static === false && (
+                            <span className="faint" title={t("benchmark.not_static")}> †</span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="faint" title={t("benchmark.not_applicable")}>n/a</span>
+                      )}
                     </td>
                     <td className="num">{cell(row.depth?.abs_rel, 3)}</td>
                     <td className="num">{segmentsText(row, t)}</td>
