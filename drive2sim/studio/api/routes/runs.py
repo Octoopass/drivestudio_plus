@@ -50,6 +50,7 @@ from drive2sim.engine.run import (
     LOG_FILE,
     RUN_FILE,
     create_run,
+    insert_stage,
     list_runs,
     load_env,
     load_summary,
@@ -74,20 +75,31 @@ EXPORT_STAGES = {
     "ply": "export.ply_world",
     "preview": "export.preview",
     "video": "render.nurec_video",
+    "carla": "render.carla",
+    "refine": "train.nurec_refine",
 }
+# Stage chèn vào giữa run (ngay sau stage này) thay vì thêm vào cuối; các stage dùng kết quả
+# của nó chạy lại.
+INSERT_AFTER = {"train.nurec_refine": "train.nurec"}
 
 
 class ExportBody(BaseModel):
     """Thân của ``POST /api/runs/{run_id}/export``.
 
     Attributes:
-        kind: ``ply`` (``export.ply_world``), ``preview`` (``export.preview``) hoặc ``video``
-            (``render.nurec_video``, video đi dọc đoạn đường của run Instant NuRec).
+        kind: ``ply`` (``export.ply_world``), ``preview`` (``export.preview``), ``video``
+            (``render.nurec_video``, video đi dọc đoạn đường của run Instant NuRec) hoặc ``carla``
+            (``render.carla``, chạy cảnh NuRec trong CARLA rồi ghi video) hoặc ``refine``
+            (``train.nurec_refine``, tối ưu tiếp PLY của NuRec; chèn sau ``train.nurec`` và chạy
+            lại chấm điểm, PLY, video).
+        params: Tham số đổi cho lần chạy này, ghép lên tham số đã lưu của stage (ví dụ
+            ``{"ego": "replay", "max_seconds": 20}`` cho ``carla``).
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["ply", "preview", "video"]
+    kind: Literal["ply", "preview", "video", "carla", "refine"]
+    params: Optional[dict[str, object]] = None
 
 
 class CreateRunBody(PlanBody):
@@ -299,8 +311,13 @@ def export_run(run_id: str, body: ExportBody, request: Request) -> dict:
         raise HTTPException(400, f"stage {stage_id} chưa có")
     _claim(request, run_dir, run_id)
     try:
-        record = reset_stage(run_dir, stage_id, state.registry)
-    except ResolveError as error:  # ví dụ video NuRec cho run không có clip NCore
+        if stage_id in INSERT_AFTER:
+            record = insert_stage(
+                run_dir, stage_id, INSERT_AFTER[stage_id], state.registry, params=body.params
+            )
+        else:
+            record = reset_stage(run_dir, stage_id, state.registry, params=body.params)
+    except (ResolveError, ValueError) as error:  # ví dụ video NuRec cho run không có clip NCore
         state.queue.release(run_dir)
         raise HTTPException(400, f"run {run_id} không xuất được {body.kind}: {error}") from None
     except BaseException:

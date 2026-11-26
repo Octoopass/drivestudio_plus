@@ -64,7 +64,7 @@ from drive2sim.engine.cache import (
 from drive2sim.engine.environment import MissingModuleError
 from drive2sim.engine.machine import current_machine, package_versions, same_machine
 from drive2sim.engine.registry import REGISTRY, StageRegistry
-from drive2sim.engine.resolve import Plan, validate_params, wire_inputs
+from drive2sim.engine.resolve import Plan, ResolveError, validate_params, wire_inputs
 from drive2sim.engine.stage import SCENE_INPUT, Scene, StageCancelledError
 from drive2sim.engine.workdir import KAGGLE_SCENE_FILE, Workdir, WorkdirError
 
@@ -1032,6 +1032,77 @@ PLY_EXPORT_OVERRIDES = ("export.nurec_ply",)
 def ply_export_stage(stage_ids: list[str]) -> str:
     """Stage ghi scene.ply của run: export.nurec_ply nếu có, không thì export.ply_world."""
     return next((s for s in PLY_EXPORT_OVERRIDES if s in stage_ids), "export.ply_world")
+
+
+def insert_stage(
+    run_dir: Path,
+    stage_id: str,
+    after: str,
+    registry: StageRegistry = REGISTRY,
+    params: Optional[dict] = None,
+) -> RunRecord:
+    """Chèn một stage vào run ngay sau ``after`` (hoặc chạy lại nó) và các stage dùng nó.
+
+    Dùng cho bước tối ưu thêm vào run đã xong, ví dụ ``train.nurec_refine`` sau
+    ``train.nurec``: stage mới tạo artifact cùng loại (``model``), nên các stage đứng sau cần
+    loại đó (chấm điểm, PLY, video) phải chạy lại để dùng kết quả mới; stage không dùng tới thì
+    giữ nguyên. Đầu vào được nối lại khi chạy (``wire_inputs``), nên stage đứng sau tự nhận
+    artifact của stage mới.
+
+    Args:
+        run_dir: Thư mục run.
+        stage_id: Stage cần chèn.
+        after: Stage của run mà stage mới đứng ngay sau (khi stage đã có thì không dùng).
+        registry: Bảng stage.
+        params: Tham số của stage, ghép lên tham số đã lưu nếu stage đã có.
+
+    Returns:
+        ``run.json`` sau khi sửa.
+
+    Raises:
+        KeyError: Nếu stage chưa đăng ký.
+        ValueError: Nếu ``params`` không hợp lệ.
+        ResolveError: Nếu run không có ``after`` hoặc thiếu đầu vào của stage.
+    """
+    run_dir = Path(run_dir)
+    cls = registry.get(stage_id)
+    record = files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
+    ids = [stage.stage_id for stage in record.stages]
+    if stage_id in ids:
+        position = ids.index(stage_id)
+        stage = record.stages[position]
+        stage.params = validate_params(stage_id, {**stage.params, **(params or {})}, registry)
+    else:
+        if after not in ids:
+            raise ResolveError(f"run không có stage {after} để đặt {stage_id} phía sau")
+        position = ids.index(after) + 1
+        record.stages.insert(
+            position,
+            StageRecord(
+                stage_id=stage_id,
+                status="pending",
+                params=validate_params(stage_id, dict(params or {}), registry),
+            ),
+        )
+        wire_inputs([stage.stage_id for stage in record.stages], registry)
+    changed = set(cls.outputs.values())  # loại artifact có kết quả mới
+    for index, stage in enumerate(record.stages[position:], start=position):
+        stage_cls = registry.get(stage.stage_id) if stage.stage_id in registry else None
+        if index > position and (
+            stage_cls is None or not changed & set(stage_cls.inputs.values())
+        ):
+            continue
+        stage.status = "pending"
+        stage.error = None
+        if stage_cls is not None:
+            changed |= set(stage_cls.outputs.values())
+            if not stage_cls.cacheable:
+                shutil.rmtree(run_dir / D2S_DIR / "stages" / stage.stage_id, ignore_errors=True)
+                stage.duration_s = 0
+                stage.peak_vram_mb = 0
+    record.status = "pending"
+    files.dump(record, run_dir / D2S_DIR / RUN_FILE)
+    return record
 
 
 def reset_stage(

@@ -34,7 +34,8 @@ def test_approach_loads_with_its_stages() -> None:
     approach = load_approach("nurec")
     assert approach.codebase == "external:nurec"
     assert [s.stage for s in approach.stages] == [
-        "prep.ncore", "train.nurec", "eval.ncore", "export.nurec_ply", "render.nurec_video",
+        "prep.ncore", "train.nurec", "train.nurec_refine", "eval.ncore", "export.nurec_ply",
+        "render.nurec_video",
     ]  # fmt: skip
 
 

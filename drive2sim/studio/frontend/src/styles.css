@@ -787,3 +787,16 @@ pre.log.live-log { max-height: 330px; min-height: 120px; overflow: auto; margin:
 .custom-value input { width: 150px; border: none; background: transparent; color: inherit; font-family: var(--font-dense); padding: 4px 2px; outline: none; }
 .custom-value.active { border-color: var(--lane); box-shadow: 0 0 0 1px var(--lane) inset; }
 .custom-value.invalid { border-color: var(--stop); }
+
+/* Lái thử (DrivePage) */
+.drive-settings { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; padding: 16px; }
+.drive-settings .field { min-width: 180px; }
+.drive-settings p { flex-basis: 100%; margin: 0; }
+.drive-hud { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 4px 0 10px; }
+.drive-speed { display: inline-flex; align-items: center; gap: 6px; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.drive-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 12px; }
+.drive-view { margin: 0; overflow: hidden; }
+.drive-view figcaption { padding: 8px 12px; font-size: 13.5px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.drive-view img { display: block; width: 100%; height: auto; background: #000; }
+.drive-empty { aspect-ratio: 16 / 9; display: grid; place-items: center; color: var(--muted); }
+.drive-log { max-height: 220px; overflow: auto; font-size: 12px; white-space: pre-wrap; margin: 8px 0 0; }

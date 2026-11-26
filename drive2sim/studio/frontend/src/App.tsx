@@ -4,6 +4,7 @@ import { lazy, Suspense } from "react";
 import { Layout } from "./components/Layout";
 import { Loading } from "./components/ui";
 import { ComparePage } from "./pages/ComparePage";
+import { DrivePage } from "./pages/DrivePage";
 import { NewRunPage } from "./pages/NewRunPage";
 import { OverviewPage } from "./pages/OverviewPage";
 import { RunPage } from "./pages/RunPage";
@@ -39,6 +40,7 @@ export function App() {
       {route.page === "compare" && <ComparePage sceneId={route.sceneId} splitId={route.splitId} />}
       {route.page === "storage" && <StoragePage focus={route.focus} />}
       {route.page === "libraries" && <LibrariesPage />}
+      {route.page === "drive" && <DrivePage key={route.runId} runId={route.runId} />}
       {route.page === "viewer" && (
         <Suspense fallback={<Loading />}>
           <ViewerPage runId={route.runId} />

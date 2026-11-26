@@ -37,6 +37,7 @@ from drive2sim.engine.workdir import Workdir, WorkdirError
 from drive2sim.ingest.dispatch import IngestRequestError
 from drive2sim.kaggle.client import KaggleError
 from drive2sim.kaggle.setup import CredentialExistsError
+from drive2sim.studio.api.carla_drive import CarlaDrive
 from drive2sim.studio.api.colab_watch import ColabWatcher
 from drive2sim.studio.api.events import EventBroker
 from drive2sim.studio.api.gpu_viewer import GpuViewerError, GpuViewers
@@ -50,6 +51,7 @@ from drive2sim.studio.api.routes import (
     assistant,
     cache,
     colab,
+    drive,
     environment,
     kaggle,
     libraries,
@@ -256,6 +258,7 @@ def create_app(
         for watcher in watchers:
             watcher.stop()
         gpu_viewers.stop()
+        app.state.carla_drive.stop()
         if hasattr(app.state, "env_install"):
             # cài dở bị dừng; mở lại Studio rồi cài tiếp từ bước đó
             app.state.env_install.cancel()
@@ -276,6 +279,8 @@ def create_app(
     # Viewer chạy trong nhóm tiến trình riêng nên không chết theo Studio: Ctrl+C lần hai (bỏ qua
     # bước dọn dẹp của lifespan) vẫn phải tắt nó, nếu không nó giữ VRAM và cổng.
     atexit.register(gpu_viewers.stop)
+    app.state.carla_drive = CarlaDrive(workdir)  # trang Lái thử
+    atexit.register(app.state.carla_drive.stop)
     _install_error_handlers(app)
 
     @app.middleware("http")
@@ -303,6 +308,7 @@ def create_app(
         environment,
         assistant,
         libraries,
+        drive,
     )
     for module in routers:
         app.include_router(module.router)

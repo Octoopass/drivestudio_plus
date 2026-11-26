@@ -600,3 +600,21 @@ def test_stop_gpu_process_only_of_given_kind(
     client.delete("/api/gpu-viewer", params={"kind": "frames"})
     client.delete("/api/gpu-viewer")
     assert stopped == [True, True]
+
+
+def test_drive_routes_without_session(client: TestClient) -> None:
+    """Lái thử: chưa có phiên thì lệnh lái, ảnh báo 409; run không phải NuRec không lái được."""
+    assert client.get("/api/drive").json()["state"] == "idle"
+    assert client.post("/api/drive/control", json={"throttle": 0.5}).status_code == 409
+    assert client.get("/api/drive/frame/gaussian").status_code == 409
+    assert client.post("/api/drive/control", json={"throttle": 2}).status_code == 400
+    split_id = create_split(client)
+    created = client.post(
+        "/api/runs", json={"approach_id": "toy", "scene_id": SCENE, "split_id": split_id}
+    )
+    run_id = created.json()["run_id"]
+    client.app.state.studio.queue.wait_idle()
+    refused = client.post(f"/api/runs/{run_id}/drive", json={})
+    assert refused.status_code == 409 and "NuRec" in refused.json()["error"]["message"]
+    assert client.get("/api/drive").json()["state"] == "idle"
+    assert client.delete("/api/drive").json()["state"] == "idle"
