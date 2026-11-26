@@ -6,6 +6,7 @@ file trong thư mục làm việc (``D2S_WORKDIR``, mặc định gốc repo), k
     python -m drive2sim.scripts.setup_benchmark_week04 splits [--dry-run]
     python -m drive2sim.scripts.setup_benchmark_week04 commands
     python -m drive2sim.scripts.setup_benchmark_week04 definition [--out benchmarks/week04.yaml]
+    python -m drive2sim.scripts.setup_benchmark_week04 queue --wave 1 [--out <file.tsv>]
 
 - ``splits``: tạo các split của W1, A2, A3, B2 (và 6 chunk của B2) bằng ``engine.scenes``.
   A3 cho theo số hiệu khung gốc của KITTI-360 nên được đổi sang chỉ số khung của cảnh qua
@@ -16,10 +17,15 @@ file trong thư mục làm việc (``D2S_WORKDIR``, mặc định gốc repo), k
 - ``definition``: đọc ``run.json`` của các run đã xong, xếp vào nhóm của ma trận và ghi
   ``benchmarks/week04.yaml`` (CONTRACTS mục 6.5) cho ``d2s benchmark``. Run chạy thử (``--quick``)
   bị bỏ; một ô có nhiều run khớp thì lấy run mới nhất và báo.
+- ``queue``: ghi hàng đợi run của một đợt cho ``envs/bench_queue.sh`` (mỗi GPU một worker),
+  mỗi dòng ``<số run><tab><tham số của d2s run start>``, run dài trước. Đợt 1 gồm các run không
+  cần biết run thắng; đợt 2 cần ``--al-winner``, đợt 3 cần ``--alb-winner`` (chọn sau khi xem
+  ``d2s benchmark``). Kế hoạch chạy: ``docs/experiments/benchmark_week04.md``.
 """
 
 import argparse
 import math
+import shlex
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -324,21 +330,18 @@ class RunCommand:
     quick: bool = False
     note: str = ""
 
-    def render(self) -> str:
-        """Chuỗi lệnh ``d2s run start``."""
-        parts = [
-            "d2s run start",
-            self.approach,
-            "--scene",
-            self.scene_id,
-            "--split",
-            self.split_id,
-        ]
+    def argv(self) -> list[str]:
+        """Tham số của ``d2s run start`` (cũng là tham số của ``d2s approach check``)."""
+        parts = [self.approach, "--scene", self.scene_id, "--split", self.split_id]
         for value in self.sets:
             parts += ["--set", value]
         if self.quick:
             parts.append("--quick")
-        return " ".join(parts)
+        return parts
+
+    def render(self) -> str:
+        """Chuỗi lệnh ``d2s run start``."""
+        return " ".join(["d2s run start", *self.argv()])
 
 
 OMNIRE_FASTGS = ("fastgs=true",)
@@ -430,6 +433,151 @@ def print_commands(workdir: Workdir) -> int:
     show([c for c in RUN_COMMANDS if int(c.number) > CHUNK_RUN_NUMBER])
     for line in SKIPPED_COMMANDS:
         print(f"# không có lệnh: {line}")
+    return 0
+
+
+EST_GPU_HOURS = {
+    "1": 3.0,
+    "2": 2.9,
+    "3": 2.9,
+    "4": 2.9,
+    "5": 2.15,
+    "6": 2.15,
+    "7": 2.0,
+    "8": 0.5,
+    "9": 2.5,
+    "10": 1.2,
+    "11": 5.0 / CHUNK_COUNT,
+    "12": 1.7,
+    "13": 3.0,
+}
+"""GPU-giờ ước lượng trên RTX 4090 (cột GPU-giờ của Sheet; #11 tính cho một chunk, #13 đoán)."""
+
+WAVE_RUNS = {
+    "1": ("1", "2", "3", "5", "6", "8"),
+    "2": ("4", "7"),
+    "3": ("10",),
+}
+"""Run ưu tiên 1 của từng đợt. Đợt 1 không cần run thắng nào; đợt 2 cần run thắng A-L (#2/#3);
+đợt 3 cần cấu hình thắng A-LB (sau #1–#7) và thêm 6 chunk của #11."""
+WAVE_P2_RUNS = {"1": ("13",), "2": ("12",), "3": ()}
+WAVE_NUREC = "1"
+A_L_APPROACHES = ("pvg", "deformablegs")
+
+
+class QueueError(ValueError):
+    """Thiếu hoặc sai run thắng khi dựng hàng đợi."""
+
+
+def parse_alb_winner(text: str) -> tuple[str, tuple[str, ...]]:
+    """Tách ``"omnire renderer=3dgut fastgs=true"`` thành approach và các ``--set``.
+
+    Raises:
+        QueueError: Nếu không phải ``omnire`` theo sau là các cặp ``khoá=giá trị``.
+    """
+    tokens = shlex.split(text)
+    if not tokens or tokens[0] != "omnire":
+        raise QueueError("--alb-winner phải bắt đầu bằng omnire, ví dụ 'omnire fastgs=true'")
+    sets = tuple(tokens[1:])
+    bad = [token for token in sets if "=" not in token or token.startswith("=")]
+    if bad:
+        raise QueueError(f"--alb-winner: {', '.join(bad)} không có dạng khoá=giá trị")
+    return tokens[0], sets
+
+
+def build_queue(
+    wave: str,
+    al_winner: Optional[str] = None,
+    alb_winner: Optional[str] = None,
+    p2: bool = False,
+    nurec: bool = False,
+    num_chunks: int = CHUNK_COUNT,
+) -> list[RunCommand]:
+    """Các run của một đợt, đã thay run thắng, xếp run dài trước (worker nhận run theo thứ tự).
+
+    Args:
+        wave: ``"1"``, ``"2"`` hoặc ``"3"``.
+        al_winner: Approach thắng A-L (``pvg`` hoặc ``deformablegs``); cần cho đợt 2.
+        alb_winner: Cấu hình thắng A-LB, ví dụ ``"omnire fastgs=true"``; cần cho đợt 3.
+        p2: Thêm run ưu tiên 2 của đợt (#13 ở đợt 1, #12 ở đợt 2).
+        nurec: Thêm #9 (Instant NuRec) vào đợt 1, khi đã chọn cách chia đoạn.
+        num_chunks: Số chunk của #11.
+
+    Raises:
+        QueueError: Nếu đợt không có hoặc thiếu, sai run thắng.
+    """
+    if wave not in WAVE_RUNS:
+        raise QueueError(f"không có đợt {wave}; chọn 1, 2 hoặc 3")
+    numbers = list(WAVE_RUNS[wave])
+    if p2:
+        numbers += WAVE_P2_RUNS[wave]
+    if nurec and wave == WAVE_NUREC:
+        numbers.append("9")
+    by_number = {command.number: command for command in RUN_COMMANDS}
+    commands = [by_number[number] for number in numbers]
+    if wave == "2":
+        if al_winner not in A_L_APPROACHES:
+            raise QueueError("đợt 2 cần --al-winner pvg hoặc deformablegs (thắng giữa #2 và #3)")
+        commands = [
+            RunCommand(c.number, al_winner, c.scene_id, c.split_id, c.sets, note=c.note)
+            for c in commands
+        ]
+    if wave == "3":
+        if not alb_winner:
+            raise QueueError("đợt 3 cần --alb-winner, ví dụ 'omnire fastgs=true'")
+        approach, sets = parse_alb_winner(alb_winner)
+        commands = [
+            RunCommand(c.number, approach, c.scene_id, c.split_id, sets, note=c.note)
+            for c in commands
+        ]
+        commands += [
+            RunCommand(
+                str(CHUNK_RUN_NUMBER),
+                approach,
+                LONG_SCENE,
+                f"every8_stereo_c{index}",
+                sets,
+                note=f"track B, chunk {index}",
+            )
+            for index in range(1, num_chunks + 1)
+        ]
+    return sorted(commands, key=lambda c: -EST_GPU_HOURS[c.number])
+
+
+def write_queue(
+    workdir: Workdir,
+    wave: str,
+    out: Optional[Path],
+    al_winner: Optional[str],
+    alb_winner: Optional[str],
+    p2: bool,
+    nurec: bool,
+) -> int:
+    """In (và ghi nếu có ``out``) hàng đợi của một đợt; trả mã thoát."""
+    num_chunks = CHUNK_COUNT
+    try:
+        num_chunks = len(chunk_splits(workdir.load_scene(LONG_SCENE).manifest.timeline.num_frames))
+    except WorkdirError:
+        pass
+    try:
+        commands = build_queue(wave, al_winner, alb_winner, p2, nurec, num_chunks)
+    except QueueError as error:
+        print(f"lỗi: {error}", file=sys.stderr)
+        return 2
+    lines = [f"{c.number}\t{shlex.join(c.argv())}" for c in commands]
+    hours = sum(EST_GPU_HOURS[c.number] for c in commands)
+    for line in lines:
+        print(line)
+    print(f"# đợt {wave}: {len(lines)} run, khoảng {hours:.1f} GPU-giờ RTX 4090", file=sys.stderr)
+    if wave == WAVE_NUREC and not nurec:
+        print(
+            "# #9 (NuRec) chưa vào hàng đợi: thêm --nurec khi đã chọn cách chia đoạn",
+            file=sys.stderr,
+        )
+    if out is not None:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        print(f"đã ghi {out}", file=sys.stderr)
     return 0
 
 
@@ -642,12 +790,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     actions.add_parser("commands", help="in lệnh d2s run start của từng run")
     definition = actions.add_parser("definition", help="ghi file định nghĩa benchmark")
     definition.add_argument("--out", type=Path, help="mặc định benchmarks/week04.yaml")
+    queue = actions.add_parser("queue", help="hàng đợi run của một đợt cho envs/bench_queue.sh")
+    queue.add_argument("--wave", required=True, choices=sorted(WAVE_RUNS), help="đợt chạy")
+    queue.add_argument("--al-winner", choices=A_L_APPROACHES, help="thắng A-L (đợt 2)")
+    queue.add_argument(
+        "--alb-winner", help="cấu hình thắng A-LB (đợt 3), ví dụ 'omnire fastgs=true'"
+    )
+    queue.add_argument("--p2", action="store_true", help="thêm run ưu tiên 2 của đợt")
+    queue.add_argument("--nurec", action="store_true", help="thêm #9 (NuRec) vào đợt 1")
+    queue.add_argument("--out", type=Path, help="ghi hàng đợi ra file (vẫn in ra màn hình)")
     args = parser.parse_args(argv)
     workdir = Workdir.from_env(args.workdir)
     if args.action == "splits":
         return create_splits(workdir, args.dry_run)
     if args.action == "commands":
         return print_commands(workdir)
+    if args.action == "queue":
+        return write_queue(
+            workdir, args.wave, args.out, args.al_winner, args.alb_winner, args.p2, args.nurec
+        )
     return write_definition(workdir, args.out)
 
 

@@ -166,3 +166,63 @@ def test_calibration_needs_two_seeds() -> None:
     runs = [make_run("20261127-060000-omnire-0000", "omnire", options=omnire, train={})]
     result = week04.build_definition(runs)
     assert result.benchmark is not None and result.benchmark.calibration is None
+
+
+def test_wave_one_needs_no_winner_and_runs_long_jobs_first() -> None:
+    queue = week04.build_queue("1")
+    assert [c.number for c in queue] == ["1", "2", "3", "5", "6", "8"]
+    assert queue[0].argv() == [
+        "omnire",
+        "--scene",
+        week04.WAYMO_SCENE,
+        "--split",
+        week04.WAYMO_SPLIT,
+        "--set",
+        "fastgs=true",
+    ]
+    assert "9" in [c.number for c in week04.build_queue("1", nurec=True)]
+    assert "13" in [c.number for c in week04.build_queue("1", p2=True)]
+
+
+def test_wave_two_fills_the_a_l_winner() -> None:
+    with pytest.raises(week04.QueueError):
+        week04.build_queue("2")
+    queue = week04.build_queue("2", al_winner="deformablegs", p2=True)
+    assert [c.number for c in queue] == ["4", "7", "12"]
+    assert {c.approach for c in queue} == {"deformablegs"}
+    assert queue[1].sets == ("renderer=3dgut", "campose=false")
+
+
+def test_wave_three_adds_one_run_per_chunk() -> None:
+    with pytest.raises(week04.QueueError):
+        week04.build_queue("3", alb_winner="pvg fastgs=true")
+    with pytest.raises(week04.QueueError):
+        week04.build_queue("3", alb_winner="omnire fastgs")
+    queue = week04.build_queue("3", alb_winner="omnire renderer=3dgs fastgs=true", num_chunks=6)
+    assert [c.number for c in queue] == ["10"] + ["11"] * 6
+    assert queue[-1].split_id == "every8_stereo_c6"
+    assert all(c.sets == ("renderer=3dgs", "fastgs=true") for c in queue)
+
+
+def test_queue_file_lines_round_trip(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    out = tmp_path / "wave3.tsv"
+    status = week04.main(
+        [
+            "--workdir",
+            str(tmp_path),
+            "queue",
+            "--wave",
+            "3",
+            "--alb-winner",
+            "omnire fastgs=true",
+            "--out",
+            str(out),
+        ]
+    )
+    assert status == 0
+    lines = out.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1 + week04.CHUNK_COUNT
+    number, args = lines[0].split("\t")
+    assert number == "10"
+    assert args.split()[:1] == ["omnire"]
+    assert week04.main(["--workdir", str(tmp_path), "queue", "--wave", "2"]) == 2
