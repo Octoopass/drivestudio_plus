@@ -48,6 +48,17 @@ def ssim_masked(rgb: np.ndarray, gt: np.ndarray, valid: np.ndarray) -> float:
     return float(smap.mean(axis=-1)[valid].mean())
 
 
+def finite_or_none(x: float):
+    """drive2sim: JSON has no NaN; a view without valid pixels is written as null."""
+    return float(x) if np.isfinite(x) else None
+
+
+def finite_mean(values) -> "float | None":
+    """drive2sim: mean over the finite values only; None when there are none."""
+    finite = [v for v in values if np.isfinite(v)]
+    return float(np.mean(finite)) if finite else None
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("ply")
@@ -64,6 +75,7 @@ def main():
     per_cam: dict[str, list[float]] = {}
     per_cam_ssim: dict[str, list[float]] = {}
     per_cam_lpips: dict[str, list[float]] = {}
+    per_cov: dict[str, list[float]] = {}  # drive2sim: share of pixels that were scored, per view
     try:  # LPIPS like drive2sim eval.standard: torchmetrics, AlexNet backbone
         from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
         lpips_fn = LearnedPerceptualImagePatchSimilarity(net_type="alex", normalize=True).to(dev)
@@ -99,7 +111,8 @@ def main():
         mse = float(((rgb - gt) ** 2)[valid].mean()) if valid.any() else float("nan")
         psnr = -10 * np.log10(mse) if valid.any() else float("nan")
         ssim_val = ssim_masked(rgb, gt, valid)
-        if lpips_fn is not None:
+        # drive2sim: with no valid pixel "filled" equals gt and LPIPS would read 0 (a perfect score)
+        if lpips_fn is not None and valid.any():
             # pixels outside the valid area take the ground truth, so only the reconstructed area counts
             filled = np.where(valid[..., None], rgb, gt)
             to_t = lambda x: torch.from_numpy(np.ascontiguousarray(x)).permute(2, 0, 1)[None].float().to(dev)
@@ -111,7 +124,12 @@ def main():
         per_cam.setdefault(cam, []).append(psnr)
         per_cam_ssim.setdefault(cam, []).append(ssim_val)
         per_cam_lpips.setdefault(cam, []).append(lp)
-        per_view.append({"camera": cam, "psnr": float(psnr), "ssim": float(ssim_val), "lpips": float(lp)})
+        coverage = float(valid.mean())
+        per_cov.setdefault(cam, []).append(coverage)
+        per_view.append({
+            "camera": cam, "psnr": finite_or_none(psnr), "ssim": finite_or_none(ssim_val),
+            "lpips": finite_or_none(lp), "coverage": coverage,
+        })
         vis = (np.concatenate([gt, rgb], 1) * 255).astype(np.uint8)
         if cam == str(v["camera"][0]):
             vid_frames.append(cv2.cvtColor(vis, cv2.COLOR_RGB2BGR))
@@ -136,16 +154,19 @@ def main():
                 tmp.replace(vp)
         except ImportError:
             pass
+    # drive2sim: a camera whose views all lack valid pixels has no number to report, so it is left out
     metrics = {
-        c: {"psnr_mean": float(np.nanmean(x)), "ssim_mean": float(np.nanmean(per_cam_ssim[c])),
-            "lpips_mean": float(np.nanmean(per_cam_lpips[c])), "views": len(x)}
-        for c, x in per_cam.items()
+        c: {"psnr_mean": finite_mean(x), "ssim_mean": finite_mean(per_cam_ssim[c]),
+            "lpips_mean": finite_mean(per_cam_lpips[c]), "views": len(x),
+            "coverage_mean": finite_mean(per_cov[c])}
+        for c, x in per_cam.items() if finite_mean(x) is not None
     }
     metrics["_summary"] = {
         "gaussians": int(len(means)),
-        "psnr_mean": float(np.nanmean([y for x in per_cam.values() for y in x])),
-        "ssim_mean": float(np.nanmean([y for x in per_cam_ssim.values() for y in x])),
-        "lpips_mean": float(np.nanmean([y for x in per_cam_lpips.values() for y in x])),
+        "psnr_mean": finite_mean([y for x in per_cam.values() for y in x]),
+        "ssim_mean": finite_mean([y for x in per_cam_ssim.values() for y in x]),
+        "lpips_mean": finite_mean([y for x in per_cam_lpips.values() for y in x]),
+        "coverage_mean": finite_mean([y for x in per_cov.values() for y in x]),
         "render_resolution": f"{w}x{h}",
         "render_fps": float(len(v["camera"]) / elapsed),
         "peak_vram_gib": float(torch.cuda.max_memory_allocated() / 2**30),

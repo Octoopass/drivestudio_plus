@@ -15,11 +15,13 @@ Khác protocol của ``eval.standard``: NuRec là mô hình feed-forward, dựng
 
 File này chứa:
 - ``clip_test_indices``: chỉ số khung test trong clip NCore.
+- ``mean_coverage``: tỉ lệ điểm ảnh được chấm, trung bình trên mọi view.
 - ``make_summary``: ``metrics.json`` của bước 2 → ``Summary``.
 - ``EvalNcoreStage``: stage đăng ký với engine.
 """
 
 import json
+import math
 import sys
 from importlib import metadata
 from pathlib import Path
@@ -72,10 +74,39 @@ def _package_version(name: str) -> str:
         return "unknown"
 
 
+def mean_coverage(per_view: list[dict]) -> Optional[float]:
+    """Trung bình tỉ lệ điểm ảnh được chấm (``coverage``) trên mọi view.
+
+    ``ncore_eval_render.py`` chỉ chấm điểm ảnh ngoài mask thân xe và có alpha > 0,9; tỉ lệ này cho
+    người đọc biết PSNR đo trên bao nhiêu phần ảnh (SPEC/CONTRACTS mục 6.3).
+
+    Args:
+        per_view: Nội dung ``per_view.json``: mỗi phần tử có ``coverage`` trong [0, 1].
+
+    Returns:
+        Trung bình các ``coverage``; ``None`` khi không có view nào ghi ``coverage``.
+    """
+    values = [view["coverage"] for view in per_view if view.get("coverage") is not None]
+    return sum(values) / len(values) if values else None
+
+
+def _is_finite_metrics(item: dict) -> bool:
+    """``True`` khi ba metric trung bình của camera đều hữu hạn (không ``null``, ``NaN``)."""
+    values = (item.get("psnr_mean"), item.get("ssim_mean"), item.get("lpips_mean"))
+    return all(isinstance(v, (int, float)) and math.isfinite(v) for v in values)
+
+
 def make_summary(
-    metrics: dict, split_id: str, sensors: dict[str, str], stats: Optional[dict] = None
+    metrics: dict,
+    split_id: str,
+    sensors: dict[str, str],
+    stats: Optional[dict] = None,
+    coverage: Optional[float] = None,
 ) -> Summary:
     """Dựng ``Summary`` từ ``metrics.json`` của ``ncore_eval_render.py``.
+
+    Camera mà mọi view đều không có điểm hợp lệ (metric ``null`` hoặc ``NaN``) bị bỏ khỏi
+    ``per_camera``: không có số đo thì không ghi số.
 
     Args:
         metrics: ``{<sensor>: {"psnr_mean", "ssim_mean", "lpips_mean", "views"},
@@ -83,11 +114,17 @@ def make_summary(
         split_id: Split của run.
         sensors: ``camera_id`` → tên sensor NCore.
         stats: ``train_stats.json`` của ``train.nurec``.
+        coverage: Tỉ lệ điểm ảnh được chấm, trung bình trên mọi view (``mean_coverage``).
 
     Raises:
         KeyError: Nếu thiếu ``_summary`` hoặc metric tổng.
+        ValueError: Nếu metric tổng không phải số hữu hạn (không view nào có điểm hợp lệ).
     """
     overall = metrics["_summary"]
+    if not _is_finite_metrics(overall):
+        raise ValueError(
+            "metric tổng không hữu hạn: không view nào có điểm ảnh hợp lệ, hoặc thiếu LPIPS"
+        )
     camera_of = {sensor: camera for camera, sensor in sensors.items()}
 
     def as_metrics(item: dict) -> Metrics:
@@ -96,7 +133,7 @@ def make_summary(
     per_camera = {
         camera_of.get(sensor, sensor): as_metrics(item)
         for sensor, item in metrics.items()
-        if not sensor.startswith("_")
+        if not sensor.startswith("_") and _is_finite_metrics(item)
     }
     stats = stats or {}
     return Summary(
@@ -120,6 +157,7 @@ def make_summary(
         num_iters=0,
         render_fps=overall.get("render_fps"),
         render_resolution=overall.get("render_resolution"),
+        coverage=coverage,
     )
 
 
@@ -176,8 +214,11 @@ class EvalNcoreStage(Stage):
         metrics = json.loads((ctx.output_dir / METRICS_FILE).read_text(encoding="utf-8"))
         stats_path = inputs["model"] / STATS_FILE
         stats = json.loads(stats_path.read_text(encoding="utf-8")) if stats_path.is_file() else {}
+        per_view = json.loads((ctx.output_dir / "per_view.json").read_text(encoding="utf-8"))
         files.dump(
-            make_summary(metrics, ctx.split.split_id, sensors, stats),
+            make_summary(
+                metrics, ctx.split.split_id, sensors, stats, coverage=mean_coverage(per_view)
+            ),
             ctx.output_dir / SUMMARY_FILE,
         )
         (ctx.output_dir / NOTE_FILE).write_text(

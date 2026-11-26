@@ -13,7 +13,7 @@ from drive2sim.engine.environment import environment_check
 from drive2sim.engine.registry import StageRegistry, load_builtin_stages
 from drive2sim.engine.workdir import Workdir
 from drive2sim.external import nurec
-from drive2sim.stages.eval.ncore import clip_test_indices, make_summary
+from drive2sim.stages.eval.ncore import clip_test_indices, make_summary, mean_coverage
 from drive2sim.stages.prep import ncore as prep_ncore
 from drive2sim.stages.train import nurec as train_nurec
 from drive2sim.studio.api.app import create_app
@@ -142,6 +142,26 @@ def test_summary_from_render_metrics() -> None:
     assert summary.overall.psnr == 24.0 and summary.per_camera["image_00"].lpips == 0.2
     assert summary.peak_vram_mb == 2048 and summary.train_time_s == 12.5
     assert summary.num_gaussians == 1000 and summary.render_resolution == "1408x376"
+    assert summary.coverage is None
+
+
+def test_mean_coverage() -> None:
+    assert mean_coverage([{"coverage": 0.5}, {"coverage": 1.0}]) == 0.75
+    assert mean_coverage([]) is None
+
+
+def test_summary_has_coverage_and_drops_cameras_without_valid_pixels() -> None:
+    nan = float("nan")
+    metrics = {
+        "_summary": {"psnr_mean": 20.0, "ssim_mean": 0.7, "lpips_mean": 0.3},
+        "image_02": {"psnr_mean": nan, "ssim_mean": nan, "lpips_mean": nan},
+        "image_03": {"psnr_mean": None, "ssim_mean": None, "lpips_mean": None},
+    }
+    summary = make_summary(
+        metrics, "every8_x", {"image_02": "image_02", "image_03": "image_03"}, coverage=0.42
+    )
+    assert summary.coverage == 0.42 and summary.per_camera == {}
+    assert "NaN" not in summary.model_dump_json()
 
 
 def test_remote_executors_refuse_external_codebases() -> None:

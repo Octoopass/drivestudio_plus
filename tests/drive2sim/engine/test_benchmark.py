@@ -69,6 +69,15 @@ def test_bad_segment_threshold_is_strict_and_uses_median() -> None:
     assert [s.num_frames for s in bad_segments(frames_with(psnrs))] == [5, 6]
 
 
+def test_bad_segments_skip_views_without_valid_pixels() -> None:
+    frames = frames_with([25.0] * 12)
+    frames[3]["psnr"] = None  # view không có điểm hợp lệ: eval ghi null
+    assert bad_segments(frames) == []  # không TypeError, không NaN
+    only_null = frames_with([25.0])
+    only_null[0]["psnr"] = None
+    assert bad_segments(only_null) == []
+
+
 def test_bad_segments_average_cameras_of_a_frame_and_handle_empty() -> None:
     assert bad_segments([]) == []
     records = []
@@ -257,6 +266,7 @@ def test_run_group_collects_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         depth=DepthMetrics(abs_rel=0.1, rmse=2.0, delta_1_25=0.9),
         protocol=SimpleNamespace(version="0.4"),
         shifted=None,
+        coverage=0.5,
     )
     monkeypatch.setattr(benchmark, "load_summary", lambda run_dir: summary)
     frames_dir = tmp_path / "d2s" / "stages" / "eval.standard"
@@ -285,6 +295,7 @@ def test_run_group_collects_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert group.rows[1].tied_with_best
     assert (first.psnr_pinhole, first.psnr_fisheye) == (26.0, 22.0)
     assert first.depth is not None and first.frames_measured == 17
+    assert first.coverage == 0.5
     assert len(first.bad_segments["pinhole"]) == 1
     assert any("GPU khác nhau" in w for w in group.warnings)
     with pytest.raises(ValueError, match="không có hoặc không thuộc"):
@@ -343,6 +354,7 @@ def stage_summary(**fields: object) -> SimpleNamespace:
         "depth": None,
         "protocol": SimpleNamespace(version="0.5"),
         "shifted": None,
+        "coverage": None,
     }
     return SimpleNamespace(**{**base, **fields})
 
