@@ -84,7 +84,8 @@ set -e
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq && apt-get install -y -qq rsync git curl tmux unzip > /dev/null
 python3 -m pip install -q uv
-uv tool install -q kaggle || uv tool upgrade -q kaggle
+# kaggle trên PyPI không khai báo phụ thuộc six, nên lệnh kaggle báo ModuleNotFoundError nếu không thêm.
+uv tool install -q --with six kaggle || uv tool upgrade -q --with six kaggle
 if [ ! -x /opt/google-cloud-sdk/bin/gcloud ]; then
   curl -sSL https://sdk.cloud.google.com | bash -s -- --disable-prompts --install-dir=/opt > /dev/null
 fi
