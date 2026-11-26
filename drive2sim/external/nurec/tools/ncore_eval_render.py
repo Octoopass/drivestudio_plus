@@ -1,6 +1,14 @@
 """(drive2sim: copied from Fisheye Fusion Lab tools/, plus LPIPS and overall means.)
 
-Step 2 of evaluating a 3DGS PLY against an NCore clip: render with gsplat (3DGUT) and score."""
+Step 2 of evaluating a 3DGS PLY against an NCore clip: render with gsplat (3DGUT) and score.
+
+drive2sim: with ``--views-json`` (written by the ``eval.ncore`` stage) the views are scored like
+``eval.standard`` scores DriveStudio runs: only the split's (frame, camera) test pairs, on 8-bit
+renders, over the valid pixels (not ego car; fisheye within the usable angle) with
+``compute_image_metrics`` of drive2sim, plus PSNR of the non-sky, dynamic, human and vehicle
+regions from the scene's masks (``prep.masks_segformer``). The old score (pixels with alpha > 0.9
+only) is kept as ``psnr_covered``; ``coverage`` is the share of valid pixels with alpha > 0.9.
+Without ``--views-json`` the behaviour is unchanged."""
 from __future__ import annotations
 
 import argparse
@@ -59,13 +67,40 @@ def finite_mean(values) -> "float | None":
     return float(np.mean(finite)) if finite else None
 
 
+REGIONS = {  # metric name -> mask file under the masks dir; "occupied" is the complement of sky
+    "occupied_psnr": "sky_masks",
+    "dynamic_psnr": "fine_dynamic_masks/all",
+    "human_psnr": "fine_dynamic_masks/human",
+    "vehicle_psnr": "fine_dynamic_masks/vehicle",
+}
+
+
+def load_region(masks_dir: Path, folder: str, stem: str, w: int, h: int):
+    """Scene mask resized to the render, or None if the scene has none."""
+    path = masks_dir / folder / f"{stem}.png"
+    if not path.is_file():
+        return None
+    m = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+    return cv2.resize(m, (w, h), interpolation=cv2.INTER_NEAREST) > 0
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("ply")
     p.add_argument("views")
     p.add_argument("--out", required=True)
     p.add_argument("--max-side", type=int, default=1408, help="downscale views whose long side is larger")
+    p.add_argument("--views-json", default="", help="drive2sim: score like eval.standard (see module doc)")
     a = p.parse_args()
+    plan = json.loads(Path(a.views_json).read_text()) if a.views_json else None
+    if plan is not None:
+        from drive2sim.recon.rendering.videos import compute_image_metrics, compute_psnr
+        from drive2sim.recon.utils.geometry import camera_model_rays
+        masks_dir = Path(plan["masks_dir"]) if plan.get("masks_dir") else None
+        fov_cache: dict = {}
+    regions: dict[str, list[float]] = {k: [] for k in REGIONS}
+    covered_psnr: list[float] = []
+    coverage: list[float] = []
     dev = "cuda"
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -83,10 +118,18 @@ def main():
     except Exception as error:  # noqa: BLE001
         print(f"LPIPS unavailable: {error}")
         lpips_fn = None
+    if plan is not None and lpips_fn is None:
+        raise SystemExit("LPIPS (torchmetrics) is required with --views-json")
     vid_frames: list[np.ndarray] = []
     per_view: list[dict] = []  # drive2sim: kết quả từng view, theo thứ tự trong views.npz
     t0 = time.perf_counter()
     for i in range(len(v["camera"])):
+        cam = str(v["camera"][i])
+        stem = None
+        if plan is not None:
+            stem = plan["views"].get(cam, {}).get(str(int(v["frame"][i])))
+            if stem is None:  # not a test pair of the split (e.g. other camera of a mixed split)
+                continue
         img = v["image"][i]
         h, w = img.shape[:2]
         s = min(1.0, a.max_side / max(h, w))
@@ -109,27 +152,56 @@ def main():
         alpha = alpha[0, ..., 0].cpu().numpy()
         gt = img.astype(np.float32) / 255
         valid = (~mask) & (alpha > 0.9)
-        mse = float(((rgb - gt) ** 2)[valid].mean()) if valid.any() else float("nan")
-        psnr = -10 * np.log10(mse) if valid.any() else float("nan")
-        ssim_val = ssim_masked(rgb, gt, valid)
-        # drive2sim: with no valid pixel "filled" equals gt and LPIPS would read 0 (a perfect score)
-        if lpips_fn is not None and valid.any():
+        if plan is not None:
+            rgb = np.round(rgb * 255) / 255  # 8-bit, like the ground truth (SPEC section 9)
+            covered = valid
+            valid = ~mask
+            limit = plan.get("max_angle", {}).get(cam)
+            if fisheye and limit is not None:
+                key = (cam, w, h)
+                if key not in fov_cache:
+                    fov_cache[key] = camera_model_rays(
+                        h, w, torch.from_numpy(K).double(), "fisheye",
+                        torch.from_numpy(v["radial"][i]).double(), fisheye_max_angle=float(limit),
+                    )[1].numpy()
+                valid = valid & fov_cache[key]
+            if not valid.any():
+                print(f"{cam} frame {int(v['frame'][i])}: no valid pixel, skipped")
+                continue
+            rgb_t, gt_t = torch.from_numpy(rgb).to(dev), torch.from_numpy(gt).to(dev)
+            psnr, ssim_val, lp = compute_image_metrics(rgb_t, gt_t, torch.from_numpy(valid).to(dev), lpips_fn)
+            covered &= valid
+            coverage.append(float(covered.sum() / valid.sum()))
+            if covered.any():
+                covered_psnr.append(float(-10 * np.log10(((rgb - gt) ** 2)[covered].mean())))
+            for name, folder in REGIONS.items():
+                region = load_region(masks_dir, folder, stem, w, h) if masks_dir else None
+                if region is None:
+                    continue
+                region = (~region if name == "occupied_psnr" else region) & valid
+                if region.any():
+                    regions[name].append(float(compute_psnr(rgb_t[torch.from_numpy(region).to(dev)],
+                                                            gt_t[torch.from_numpy(region).to(dev)])))
+        else:
+            mse = float(((rgb - gt) ** 2)[valid].mean()) if valid.any() else float("nan")
+            psnr = -10 * np.log10(mse) if valid.any() else float("nan")
+            ssim_val = ssim_masked(rgb, gt, valid)
+        if plan is None and lpips_fn is not None and valid.any():
             # pixels outside the valid area take the ground truth, so only the reconstructed area counts
             filled = np.where(valid[..., None], rgb, gt)
             to_t = lambda x: torch.from_numpy(np.ascontiguousarray(x)).permute(2, 0, 1)[None].float().to(dev)
             with torch.no_grad():
                 lp = float(lpips_fn(to_t(filled), to_t(gt)))
-        else:
+        elif plan is None:
             lp = float("nan")
-        cam = str(v["camera"][i])
         per_cam.setdefault(cam, []).append(psnr)
         per_cam_ssim.setdefault(cam, []).append(ssim_val)
         per_cam_lpips.setdefault(cam, []).append(lp)
-        coverage = float(valid.mean())
-        per_cov.setdefault(cam, []).append(coverage)
+        view_coverage = float(covered.sum() / valid.sum()) if plan is not None else float(valid.mean())
+        per_cov.setdefault(cam, []).append(view_coverage)
         per_view.append({
             "camera": cam, "psnr": finite_or_none(psnr), "ssim": finite_or_none(ssim_val),
-            "lpips": finite_or_none(lp), "coverage": coverage,
+            "lpips": finite_or_none(lp), "coverage": view_coverage,
         })
         vis = (np.concatenate([gt, rgb], 1) * 255).astype(np.uint8)
         if cam == str(v["camera"][0]):
@@ -138,6 +210,8 @@ def main():
             cv2.imwrite(str(out / f"{cam}_{len(per_cam[cam]) - 1}.png"), cv2.cvtColor(vis, cv2.COLOR_RGB2BGR))
         print(f"{cam} #{len(per_cam[cam]) - 1}: PSNR {psnr:.2f} dB SSIM {ssim_val:.3f} over {valid.mean() * 100:.0f}% of pixels")
     elapsed = max(time.perf_counter() - t0, 1e-6)
+    if not per_cam:
+        raise SystemExit("no view scored: no test pair of the split is in the clip, or none has a valid pixel")
     if vid_frames:
         vp = out / "eval.mp4"
         h0, w0 = vid_frames[0].shape[:2]
@@ -169,9 +243,16 @@ def main():
         "lpips_mean": finite_mean([y for x in per_cam_lpips.values() for y in x]),
         "coverage_mean": finite_mean([y for x in per_cov.values() for y in x]),
         "render_resolution": f"{w}x{h}",
-        "render_fps": float(len(v["camera"]) / elapsed),
+        "render_fps": float(sum(len(x) for x in per_cam.values()) / elapsed),
         "peak_vram_gib": float(torch.cuda.max_memory_allocated() / 2**30),
     }
+    if plan is not None:  # region means over the images where the region is not empty, as DriveStudio
+        metrics["_summary"].update({k: float(np.mean(x)) for k, x in regions.items() if x})
+        metrics["_summary"]["region_views"] = {k: len(x) for k, x in regions.items()}
+        if covered_psnr:
+            metrics["_summary"]["psnr_covered"] = float(np.mean(covered_psnr))
+        metrics["_summary"]["coverage"] = float(np.mean(coverage))
+        metrics["_summary"]["protocol_version"] = plan["protocol_version"]
     (out / "metrics.json").write_text(json.dumps(metrics, indent=2))
     (out / "per_view.json").write_text(json.dumps(per_view))
     print(json.dumps(metrics, indent=2))

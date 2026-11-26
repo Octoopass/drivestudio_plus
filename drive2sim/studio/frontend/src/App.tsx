@@ -5,6 +5,7 @@ import { Layout } from "./components/Layout";
 import { Loading } from "./components/ui";
 import { BenchmarkPage } from "./pages/BenchmarkPage";
 import { ComparePage } from "./pages/ComparePage";
+import { DrivePage } from "./pages/DrivePage";
 import { NewRunPage } from "./pages/NewRunPage";
 import { OverviewPage } from "./pages/OverviewPage";
 import { RunPage } from "./pages/RunPage";
@@ -41,6 +42,7 @@ export function App() {
       {route.page === "benchmark" && <BenchmarkPage name={route.name} />}
       {route.page === "storage" && <StoragePage focus={route.focus} />}
       {route.page === "libraries" && <LibrariesPage />}
+      {route.page === "drive" && <DrivePage key={route.runId} runId={route.runId} />}
       {route.page === "viewer" && (
         <Suspense fallback={<Loading />}>
           <ViewerPage runId={route.runId} />

@@ -383,17 +383,28 @@ export function NewRunPage({
                               </span>
                             </InfoTip>
                           </div>
-                          <Segmented<OptionValue>
-                            label={optionLabel(name)}
-                            value={current(name)}
-                            onChange={(choice) => setOptions({ ...options, [name]: choice })}
-                            options={choices.map((choice) => ({
-                              value: choice,
-                              label: choiceLabel(name, choice),
-                              disabled: Boolean(reasonOf(choice)),
-                              title: reasonOf(choice),
-                            }))}
-                          />
+                          <div className="row wrap" style={{ gap: 10 }}>
+                            <Segmented<OptionValue>
+                              label={optionLabel(name)}
+                              value={current(name)}
+                              onChange={(choice) => setOptions({ ...options, [name]: choice })}
+                              options={choices.map((choice) => ({
+                                value: choice,
+                                label: choiceLabel(name, choice),
+                                disabled: Boolean(reasonOf(choice)),
+                                title: reasonOf(choice),
+                              }))}
+                            />
+                            {spec.custom && (
+                              <CustomValue
+                                key={`${approachId}-${name}`}
+                                range={spec.custom}
+                                value={current(name)}
+                                isChoice={choices.includes(current(name))}
+                                onChange={(value) => setOptions({ ...options, [name]: value })}
+                              />
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -599,5 +610,46 @@ function LocalEnvironment({ approachId, stages }: { approachId: string; stages: 
         )}
       </div>
     </Note>
+  );
+}
+
+/** Ô nhập giá trị số tự chọn của một mục cấu hình có ``custom`` (ví dụ số Gaussian của NuRec). */
+function CustomValue({
+  range,
+  value,
+  isChoice,
+  onChange,
+}: {
+  range: { min: number; max: number; integer?: boolean };
+  value: OptionValue;
+  isChoice: boolean;
+  onChange: (value: number) => void;
+}) {
+  const { t } = useI18n();
+  const [text, setText] = useState(isChoice ? "" : String(value));
+  // Chọn lại một lựa chọn sẵn có thì xoá ô nhập.
+  useEffect(() => {
+    if (isChoice) setText("");
+  }, [isChoice, value]);
+  const number = Number(text.replace(/[\s.,_]/g, ""));
+  const valid = text.trim() !== "" && Number.isFinite(number) && number >= range.min && number <= range.max && (!range.integer || Number.isInteger(number));
+  const hint = t("new.option.custom_range", { min: range.min.toLocaleString(), max: range.max.toLocaleString() });
+  return (
+    <label className={`custom-value${!isChoice && text ? " active" : ""}${text && !valid ? " invalid" : ""}`} title={hint}>
+      <span className="small muted">{t("new.option.custom")}</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={text}
+        placeholder={hint}
+        aria-invalid={Boolean(text) && !valid}
+        onChange={(e) => {
+          setText(e.target.value);
+          const next = Number(e.target.value.replace(/[\s.,_]/g, ""));
+          if (e.target.value.trim() && Number.isFinite(next) && next >= range.min && next <= range.max && (!range.integer || Number.isInteger(next))) onChange(next);
+        }}
+      />
+      {text && valid && <span className="small dense">{number.toLocaleString()}</span>}
+    </label>
   );
 }

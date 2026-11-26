@@ -1024,3 +1024,19 @@ Giao diện cảnh báo tên đã có từ danh sách cảnh, còn server kiểm
 
 **Nhược điểm.** Giữ đích thuộc vòng đời server Studio; converter tiếp tục chịu trách nhiệm
 kiểm tra dữ liệu đích khi có tiến trình ngoài Studio. Không tạo thêm file trạng thái giữ chỗ.
+
+
+### Tích hợp các nhánh benchmark, Studio và XSIM (26/11/2026)
+
+**Quyết định.** Giữ cả artifact `observations` và `mcgs_input`. Split có camera chỉ test được
+chuyển qua đường dựng dữ liệu chung; XSIM xuất đủ camera, chỉ khởi tạo và train từ các cặp train,
+chấm camera chỉ test trong `Summary.shifted`, có khớp màu affine như scorer DriveStudio.
+`prep.observations` kiểm tra khung test của các camera có train, thay vì gộp cả camera chỉ test.
+
+**Lý do và ưu điểm.** Gộp nguyên thay đổi ở từng nhánh sẽ làm XSIM từ chối split mới hoặc tính
+camera chỉ test vào metric tổng. Báo cáo chính được chọn từ stage eval thành công có summary,
+để bước chấm PLY bổ sung không che báo cáo chính. NuRec ghi protocol theo cách chấm thực tế;
+metric cũ thiếu dấu protocol tiếp tục dùng nhãn `ncore-0.3`.
+
+**Nhược điểm.** Bộ kiểm thử local xác nhận các đường dữ liệu và tương thích; train XSIM, MCGS,
+NuRec và kết nối CARLA trên GPU thật còn cần chạy xác minh riêng.

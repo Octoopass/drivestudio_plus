@@ -161,11 +161,11 @@ def test_mcgs_blocked_when_split_has_no_stereo_pair() -> None:
 
 
 def test_mcgs_refused_on_kaggle_and_colab() -> None:
-    from drive2sim.engine.remote import require_main_codebase
+    from drive2sim.engine.remote import require_remote_codebase
 
     for where in ("Kaggle", "Colab"):
         with pytest.raises(ValueError, match="codebase ngoài"):
-            require_main_codebase("mcgs", where)
+            require_remote_codebase("mcgs", where)
 
 
 def test_mcgs_supports_exactly_the_pinhole_datasets_of_the_tool() -> None:

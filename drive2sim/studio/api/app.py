@@ -13,7 +13,7 @@ Lệnh ``d2s studio`` (``drive2sim/cli/studio.py``) chạy app này, chỉ nghe 
 """
 
 import atexit
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -37,6 +37,7 @@ from drive2sim.engine.workdir import Workdir, WorkdirError
 from drive2sim.ingest.dispatch import IngestRequestError
 from drive2sim.kaggle.client import KaggleError
 from drive2sim.kaggle.setup import CredentialExistsError
+from drive2sim.studio.api.carla_drive import CarlaDrive
 from drive2sim.studio.api.colab_watch import ColabWatcher
 from drive2sim.studio.api.events import EventBroker
 from drive2sim.studio.api.gpu_viewer import GpuViewerError, GpuViewers
@@ -51,6 +52,7 @@ from drive2sim.studio.api.routes import (
     benchmarks,
     cache,
     colab,
+    drive,
     environment,
     kaggle,
     libraries,
@@ -78,7 +80,12 @@ def _hostname(value: str) -> str:
     return value.rsplit(":", 1)[0] if ":" in value else value
 
 
-def is_local_request(host: Optional[str], origin: Optional[str], method: str) -> bool:
+def is_local_request(
+    host: Optional[str],
+    origin: Optional[str],
+    method: str,
+    allowed: frozenset[str] = frozenset(LOCAL_HOSTS),
+) -> bool:
     """Request có đến từ chính máy này không (chống DNS rebinding và request chéo trang).
 
     - ``Host`` phải là tên máy cục bộ: một trang web lạ dùng DNS rebinding trỏ tên miền của nó
@@ -91,15 +98,17 @@ def is_local_request(host: Optional[str], origin: Optional[str], method: str) ->
         host: Header ``Host``.
         origin: Header ``Origin``, nếu có.
         method: Phương thức HTTP.
+        allowed: Tên máy được phép; mặc định ``LOCAL_HOSTS``, thêm địa chỉ của ``d2s studio
+            --host`` khi Studio nghe trên mạng riêng (ví dụ IP Tailscale).
 
     Returns:
         ``True`` nếu cho qua.
     """
-    if not host or _hostname(host) not in LOCAL_HOSTS:
+    if not host or _hostname(host) not in allowed:
         return False
     if method.upper() not in SAFE_METHODS and origin:
         # "null": trang mở từ file:// hoặc sandbox, không biết từ đâu, nên không cho ghi.
-        return origin != "null" and _hostname(origin) in LOCAL_HOSTS
+        return origin != "null" and _hostname(origin) in allowed
     return True
 
 
@@ -208,6 +217,7 @@ def create_app(
     frontend_dir: Optional[Path] = FRONTEND_DIST,
     kaggle_watch_s: Optional[float] = None,
     colab_watch_s: Optional[float] = None,
+    extra_hosts: Iterable[str] = (),
 ) -> FastAPI:
     """Dựng ứng dụng Studio.
 
@@ -218,10 +228,13 @@ def create_app(
         kaggle_watch_s: Có thì cứ chừng ấy giây hỏi trạng thái các run trên Kaggle và tự tải kết
             quả về khi notebook xong (``KaggleWatcher``); ``None`` thì không theo dõi (test).
         colab_watch_s: Như ``kaggle_watch_s`` cho các run trên Colab (``ColabWatcher``).
+        extra_hosts: Tên máy được phép thêm vào ``LOCAL_HOSTS`` trong ``Host`` và ``Origin``
+            (``d2s studio --host``).
 
     Returns:
         Ứng dụng FastAPI.
     """
+    allowed_hosts = frozenset(LOCAL_HOSTS) | frozenset(extra_hosts)
     if registry is REGISTRY:
         load_builtin_stages()
 
@@ -257,6 +270,7 @@ def create_app(
         for watcher in watchers:
             watcher.stop()
         gpu_viewers.stop()
+        app.state.carla_drive.stop()
         if hasattr(app.state, "env_install"):
             # cài dở bị dừng; mở lại Studio rồi cài tiếp từ bước đó
             app.state.env_install.cancel()
@@ -277,6 +291,8 @@ def create_app(
     # Viewer chạy trong nhóm tiến trình riêng nên không chết theo Studio: Ctrl+C lần hai (bỏ qua
     # bước dọn dẹp của lifespan) vẫn phải tắt nó, nếu không nó giữ VRAM và cổng.
     atexit.register(gpu_viewers.stop)
+    app.state.carla_drive = CarlaDrive(workdir)  # trang Lái thử
+    atexit.register(app.state.carla_drive.stop)
     _install_error_handlers(app)
 
     @app.middleware("http")
@@ -285,7 +301,10 @@ def create_app(
     ) -> Response:
         """Từ chối request không đến từ chính máy này (``is_local_request``) bằng ``403``."""
         if not is_local_request(
-            request.headers.get("host"), request.headers.get("origin"), request.method
+            request.headers.get("host"),
+            request.headers.get("origin"),
+            request.method,
+            allowed_hosts,
         ):
             return error_response(
                 403, "forbidden", "Studio chỉ nhận request từ chính máy này (localhost)"
@@ -305,6 +324,7 @@ def create_app(
         environment,
         assistant,
         libraries,
+        drive,
     )
     for module in routers:
         app.include_router(module.router)

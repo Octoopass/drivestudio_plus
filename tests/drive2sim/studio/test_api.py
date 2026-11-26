@@ -322,6 +322,7 @@ def test_run_lifecycle(client: TestClient) -> None:
         "preview": None,
         "ply": None,
         "cameras": None,
+        "gpu": True,
     }
     preview_dir = (
         Path(client.app.state.studio.workdir.find_run(run_id)) / "d2s/stages/export.preview"
@@ -571,6 +572,14 @@ def test_local_request_rule(host: str, origin: Optional[str], method: str, allow
     assert is_local_request(host, origin, method) is allowed
 
 
+def test_extra_host_allowed_only_when_given() -> None:
+    tailnet = frozenset({"127.0.0.1", "localhost", "[::1]", "100.94.163.83"})
+    assert not is_local_request("100.94.163.83:8765", None, "GET")
+    assert is_local_request("100.94.163.83:8765", "http://100.94.163.83:8765", "POST", tailnet)
+    assert not is_local_request("100.94.163.83:8765", "https://evil.example", "POST", tailnet)
+    assert not is_local_request("evil.example", None, "GET", tailnet)
+
+
 def test_run_held_by_another_job_is_not_queued_twice(client: TestClient) -> None:
     """Run đang xếp hàng hoặc đang tải về (giữ chỗ trong hàng đợi): chạy tiếp, xuất lại → 409."""
     split_id = create_split(client)
@@ -709,3 +718,21 @@ def test_ingest_checks_explicit_scene_name_before_creating_job(
     body["scene_id"] = "../bad"
     assert client.post("/api/sources/ingest", json=body).status_code == 400
     assert client.get("/api/jobs").json()["total"] == 0
+
+
+def test_drive_routes_without_session(client: TestClient) -> None:
+    """Lái thử: chưa có phiên thì lệnh lái, ảnh báo 409; run không phải NuRec không lái được."""
+    assert client.get("/api/drive").json()["state"] == "idle"
+    assert client.post("/api/drive/control", json={"throttle": 0.5}).status_code == 409
+    assert client.get("/api/drive/frame/gaussian").status_code == 409
+    assert client.post("/api/drive/control", json={"throttle": 2}).status_code == 400
+    split_id = create_split(client)
+    created = client.post(
+        "/api/runs", json={"approach_id": "toy", "scene_id": SCENE, "split_id": split_id}
+    )
+    run_id = created.json()["run_id"]
+    client.app.state.studio.queue.wait_idle()
+    refused = client.post(f"/api/runs/{run_id}/drive", json={})
+    assert refused.status_code == 409 and "NuRec" in refused.json()["error"]["message"]
+    assert client.get("/api/drive").json()["state"] == "idle"
+    assert client.delete("/api/drive").json()["state"] == "idle"

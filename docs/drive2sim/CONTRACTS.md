@@ -1155,3 +1155,10 @@ trả `{"coverage": <tỉ lệ diện tích bị che>}`. Thiếu mask hoặc đi
 qua cơ chế lỗi hiện có của công cụ. `POST .../save` xác nhận mask nháp như luồng chọn điểm.
 Camera đang xử lý bị khoá chuyển để kết quả không gắn nhầm camera. Chọn điểm SAM2 sau khi
 tẩy sẽ tạo lại dự đoán từ các điểm đã chọn; giao diện thông báo điều này khi tẩy.
+
+
+Khi split có `test_only_cameras`, gói observations vẫn xuất quan sát của mọi camera được chọn.
+XSIM dùng các cặp `train` tường minh để khởi tạo và train; `overall` chỉ chấm ảnh test của camera
+có train. Camera chỉ test được ghi vào `shifted`, gồm metric thô và metric khớp màu khi phép
+khớp hợp lệ. `per_camera` giữ số đo của cả hai nhóm. Báo cáo đánh giá phụ chỉ có file riêng như
+`ply_gap.json` không thay thế `summary.json` của stage đánh giá chính.

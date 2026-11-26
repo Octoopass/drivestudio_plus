@@ -129,7 +129,7 @@ def export_command(
 class PrepObservationsStage(Stage):
     """Dựng ``DrivingDataset`` như trainer DriveStudio rồi ghi quan sát của nó ra file."""
 
-    version: ClassVar[str] = "0.1.0"
+    version: ClassVar[str] = "0.2.0"
     cacheable: ClassVar[bool] = True
     uses_lidar: ClassVar[bool] = True
     split_content_key: ClassVar[bool] = True
@@ -208,7 +208,9 @@ class PrepObservationsStage(Stage):
         ctx.progress(0.0, "xuất quan sát từ loader DriveStudio")
         run_logged(command, ctx.output_dir / LOG_FILE, should_stop=ctx.should_stop)
         written = json.loads((ctx.output_dir / OBSERVATIONS_INDEX).read_text("utf-8"))
-        expected = sorted({frame for frame, _ in split.test})
+        expected = sorted(
+            {frame for frame, camera in split.test if camera not in split.test_only_cameras}
+        )
         if written["loader_test_frames"] != expected:
             raise ValueError(
                 f"loader chọn khung test {written['loader_test_frames']}, split có {expected}"

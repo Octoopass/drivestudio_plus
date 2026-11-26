@@ -247,3 +247,8 @@ Khi nạp cảnh trong Studio, tên cảnh đã tồn tại hoặc đang đượ
 xếp việc. Hộp thoại giữ lựa chọn nguồn để người dùng sửa tên và thử lại. Ô tên nhận tên ngắn và
 hiển thị tên đầy đủ có tiền tố dataset trước khi nạp. Việc nạp thất bại
 không ngăn người dùng tạo yêu cầu tiếp theo.
+
+
+Khi hợp nhất benchmark và XSIM, camera chỉ test phải được giữ ngoài dữ liệu train và metric tổng
+của camera đã train. Kết quả của nhóm camera này được báo riêng để so khả năng tổng hợp góc nhìn.
+Bước đánh giá PLY bổ sung phải giữ khả năng mở báo cáo chính của run.

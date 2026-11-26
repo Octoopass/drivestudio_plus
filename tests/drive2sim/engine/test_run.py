@@ -35,11 +35,12 @@ from drive2sim.core.schema import (
 )
 from drive2sim.engine.cache import CacheBusyError, CacheStore
 from drive2sim.engine.registry import StageRegistry
-from drive2sim.engine.resolve import resolve
+from drive2sim.engine.resolve import ResolveError, resolve
 from drive2sim.engine.run import (
     RunActiveError,
     create_run,
     execute_run,
+    insert_stage,
     request_cancel,
     reset_stage,
     run_is_active,
@@ -504,3 +505,53 @@ def test_reset_stage_overrides_params(workdir: Workdir) -> None:
     assert execute_run(run_dir, workdir, registry).status == "succeeded"
     with pytest.raises(ResolveError):
         reset_stage(run_dir, "init.toy", registry, params={"bogus": 1})
+
+
+def test_insert_stage_reruns_only_stages_that_use_it(workdir: Workdir) -> None:
+    """Stage chèn giữa run: đứng ngay sau ``after``, stage dùng kết quả của nó chạy lại."""
+
+    def refine_run(
+        self: Stage, ctx: StageContext, inputs: dict[str, Path], params: BaseModel
+    ) -> dict[str, Path]:
+        CALLS["train.toy_refine"] = CALLS.get("train.toy_refine", 0) + 1
+        source = (inputs["points"] / "points_init.npz").read_text()
+        (ctx.output_dir / "points_init.npz").write_text(f"refined {source}")
+        return {"points": ctx.output_dir}
+
+    registry = make_registry()
+    body = {
+        "version": "0.1.0",
+        "inputs": {"points": "points_init"},
+        "outputs": {"points": "points_init"},
+        "run": refine_run,
+    }
+    registry.register("train.toy_refine")(type("TrainToyRefineStage", (Stage,), body))
+    run_dir = new_run(workdir, registry)
+    execute_run(run_dir, workdir, registry)
+    with pytest.raises(ResolveError):
+        insert_stage(run_dir, "train.toy_refine", "missing.toy", registry)
+    record = insert_stage(run_dir, "train.toy_refine", "init.toy", registry)
+    assert [s.stage_id for s in record.stages] == ["init.toy", "train.toy_refine", "train.toy"]
+    assert [s.status for s in record.stages] == ["succeeded", "pending", "pending"]
+    record = execute_run(run_dir, workdir, registry)
+    assert record.status == "succeeded"
+    assert CALLS == {"init.toy": 1, "train.toy_refine": 1, "train.toy": 2}
+    model = (run_dir / "d2s" / "stages" / "train.toy" / "model.txt").read_text()
+    assert model.startswith("trained on refined ")
+
+
+def test_summary_skips_auxiliary_eval_without_summary(workdir: Workdir) -> None:
+    run_dir = new_run(workdir, make_registry())
+    record_path = run_dir / "d2s" / "run.json"
+    record = files.load(record_path, RunRecord)
+    record.stages.extend(
+        [
+            StageRecord(stage_id="eval.xsim", status="succeeded"),
+            StageRecord(stage_id="eval.ply", status="succeeded"),
+        ]
+    )
+    files.dump(record, record_path)
+    native = run_dir / "d2s" / "stages" / "eval.xsim" / "summary.json"
+    native.parent.mkdir(parents=True)
+    native.write_text("{}")
+    assert summary_path(run_dir) == native

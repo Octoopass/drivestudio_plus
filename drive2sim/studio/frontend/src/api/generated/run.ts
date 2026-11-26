@@ -22,6 +22,7 @@ export type ReusedDurationS = number | null;
 export type PeakVramMb = number;
 export type Code = string;
 export type Message = string;
+export type StartedUtc = string | null;
 export type Stages = StageRecord[];
 
 /**
@@ -94,6 +95,8 @@ export interface Options {
  *         lại kết quả cũ hoặc không đo được.
  *     params: Tham số đã gộp, để chạy tiếp đúng như lúc tạo run (thêm từ ``d2s-run/0.2``).
  *     error: Lỗi nếu stage ``failed``.
+ *     started_utc: Lúc stage bắt đầu chạy thật lần gần nhất (ISO 8601, UTC), để Studio tính
+ *         thời gian đã chạy; ``None`` khi chưa chạy hoặc run cũ.
  */
 export interface StageRecord {
   stage_id: StageId;
@@ -105,6 +108,7 @@ export interface StageRecord {
   peak_vram_mb?: PeakVramMb;
   params?: Params;
   error?: ErrorInfo | null;
+  started_utc?: StartedUtc;
 }
 export interface Params {
   [k: string]: unknown;

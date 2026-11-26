@@ -8,14 +8,24 @@ Hai bước như ``PipelineManager.evaluate`` của Fisheye Fusion Lab:
 Kết quả đổi sang ``summary.json`` (CONTRACTS mục 6.3) để Studio và ``d2s report`` đặt NuRec cạnh
 các approach khác.
 
-Khác protocol của ``eval.standard``: NuRec là mô hình feed-forward, dựng từ mọi khung của clip
-(cả khung test), nên điểm test không phải ảnh "chưa thấy" như với approach train theo cảnh; LPIPS
-đo trên ảnh mà pixel ngoài vùng hợp lệ lấy theo ảnh thật. Hai điều này ghi trong
-``nurec_eval.json``.
+Chấm như ``eval.standard`` (từ 0.2.0): bước 2 nhận ``views.json`` liệt kê đúng các cặp (khung,
+camera) test của split cùng tên file mask của cảnh, rồi đo bằng ``compute_image_metrics`` của
+drive2sim (hàm ``eval.standard`` dùng qua ``train.py``) trên ảnh 8 bit, trong vùng hợp lệ: ngoài
+thân xe, camera mắt cá chỉ lấy pixel trong góc dùng được (``max_angle`` của manifest, tối đa
+``RENDERER_MAX_ANGLE`` như khi train 3DGUT). Có mask của ``prep.masks_segformer`` thì thêm PSNR
+vùng không phải bầu trời, vật động, người, xe như DriveStudio. Bản 0.1.0 chỉ chấm pixel có
+alpha > 0.9 (chỗ PLY đã phủ), cho điểm cao hơn thực tế ở chỗ PLY bỏ trống; con số đó vẫn ghi trong
+``metrics.json`` (``psnr_covered``) cùng tỉ lệ phủ (``coverage``).
+
+Khác còn lại so với ``eval.standard``: NuRec là mô hình feed-forward, dựng từ mọi khung của clip
+(cả khung test), nên điểm test không phải ảnh "chưa thấy" như với approach train theo cảnh. Điều
+này ghi trong ``nurec_eval.json``.
 
 File này chứa:
 - ``clip_test_indices``: chỉ số khung test trong clip NCore.
 - ``mean_coverage``: tỉ lệ điểm ảnh được chấm, trung bình trên mọi view.
+- ``clip_test_views``: cặp (khung, camera) test của split → khung trong clip và tên file mask.
+- ``fisheye_max_angles``: góc lệch trục dùng được của từng camera mắt cá.
 - ``make_summary``: ``metrics.json`` của bước 2 → ``Summary``.
 - ``EvalNcoreStage``: stage đăng ký với engine.
 """
@@ -30,21 +40,31 @@ from typing import ClassVar, Optional
 from pydantic import BaseModel
 
 from drive2sim.core import files
-from drive2sim.core.schema import SCHEMA_VERSIONS, EvalProtocol, LpipsSetting, Metrics, Summary
+from drive2sim.core.schema import (
+    SCHEMA_VERSIONS,
+    EvalProtocol,
+    LpipsSetting,
+    Manifest,
+    Metrics,
+    Summary,
+)
 from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import NoParams, Stage, StageContext
 from drive2sim.external import nurec
 from drive2sim.stages.commands import LOG_FILE, run_logged
-from drive2sim.stages.eval.standard import SUMMARY_FILE
+from drive2sim.stages.eval.standard import PROTOCOL_VERSION, SUMMARY_FILE
 from drive2sim.stages.prep.ncore import CLIP_FILE
+from drive2sim.stages.train.drivestudio import RENDERER_MAX_ANGLE
 from drive2sim.stages.train.nurec import MERGED_PLY, STATS_FILE
 
 VIEWS_FILE = "views.npz"
+PLAN_FILE = "views.json"
 METRICS_FILE = "metrics.json"
 NOTE_FILE = "nurec_eval.json"
 # Phiên bản protocol riêng của stage này: SSIM và vùng hợp lệ (ngoài mask thân xe, alpha > 0,9)
 # khác ``eval.standard``, nên số đo không được coi là cùng bộ đo với protocol của stage đó.
 NCORE_PROTOCOL_VERSION = "ncore-0.3"
+REGION_FIELDS = ("occupied_psnr", "dynamic_psnr", "human_psnr", "vehicle_psnr")
 
 
 def clip_test_indices(clip: dict, scene_frames: list[int]) -> list[int]:
@@ -65,6 +85,47 @@ def clip_test_indices(clip: dict, scene_frames: list[int]) -> list[int]:
         if 0 <= offset < len(scene_ids) and scene_ids[offset] in position:
             indices.append(position[scene_ids[offset]])
     return indices
+
+
+def clip_test_views(
+    clip: dict, test: list[tuple[int, str]], sensors: dict[str, str], camera_index: dict[str, int]
+) -> dict[str, dict[str, str]]:
+    """Cặp (khung, camera) test của split → khung trong clip NCore và tên file mask của cảnh.
+
+    Args:
+        clip: Nội dung ``clip.json`` (xem ``clip_test_indices``).
+        test: ``split.test``: các cặp (chỉ số khung trong cảnh, ``camera_id``).
+        sensors: ``camera_id`` → tên sensor NCore, chỉ các camera của split.
+        camera_index: ``camera_id`` → vị trí trong ``manifest.yaml``; mask của cảnh tên
+            ``<khung 3 chữ số>_<vị trí camera>.png`` như ảnh.
+
+    Returns:
+        ``{sensor: {"<khung trong clip>": "<tên mask không đuôi>"}}``; cặp mà clip không có khung
+        thì bỏ.
+    """
+    views: dict[str, dict[str, str]] = {}
+    for frame, camera in sorted({(int(f), str(c)) for f, c in test}):
+        if camera not in sensors:
+            continue
+        found = clip_test_indices(clip, [frame])
+        if found:
+            stem = f"{frame:03d}_{camera_index[camera]}"
+            views.setdefault(sensors[camera], {})[str(found[0])] = stem
+    return views
+
+
+def fisheye_max_angles(manifest: Manifest, sensors: dict[str, str]) -> dict[str, float]:
+    """Góc lệch trục lớn nhất (rad) được chấm của từng camera mắt cá, theo tên sensor NCore.
+
+    Như loader KITTI-360 khi train bằng 3DGUT: góc nhỏ hơn giữa ``max_angle`` của camera trong
+    manifest và ``RENDERER_MAX_ANGLE``; camera không ghi ``max_angle`` lấy ``RENDERER_MAX_ANGLE``.
+    """
+    angles = {}
+    for camera in manifest.cameras:
+        if camera.camera_id in sensors and camera.model != "opencv_pinhole":
+            limit = camera.max_angle or RENDERER_MAX_ANGLE
+            angles[sensors[camera.camera_id]] = min(limit, RENDERER_MAX_ANGLE)
+    return angles
 
 
 def _package_version(name: str) -> str:
@@ -139,7 +200,7 @@ def make_summary(
     return Summary(
         schema_version=SCHEMA_VERSIONS["summary"],
         protocol=EvalProtocol(
-            version=NCORE_PROTOCOL_VERSION,
+            version=overall.get("protocol_version", NCORE_PROTOCOL_VERSION),
             image_dtype="uint8",
             resolution=str(overall.get("render_resolution", "unknown")),
             lpips=LpipsSetting(
@@ -149,7 +210,12 @@ def make_summary(
             ),
         ),
         split_id=split_id,
-        overall=as_metrics(overall),
+        overall=Metrics(
+            psnr=overall["psnr_mean"],
+            ssim=overall["ssim_mean"],
+            lpips=overall["lpips_mean"],
+            **{name: overall[name] for name in REGION_FIELDS if name in overall},
+        ),
         per_camera=per_camera,
         train_time_s=stats.get("train_time_s"),
         peak_vram_mb=int(overall["peak_vram_gib"] * 1024) if "peak_vram_gib" in overall else None,
@@ -157,7 +223,7 @@ def make_summary(
         num_iters=0,
         render_fps=overall.get("render_fps"),
         render_resolution=overall.get("render_resolution"),
-        coverage=coverage,
+        coverage=overall.get("coverage", coverage),
     )
 
 
@@ -165,10 +231,16 @@ def make_summary(
 class EvalNcoreStage(Stage):
     """Chấm PLY của Instant NuRec trên khung test của split, ghi ``summary.json``."""
 
-    version: ClassVar[str] = "0.1.0"
+    version: ClassVar[str] = "0.2.0"
     cacheable: ClassVar[bool] = False
     uses_lidar: ClassVar[bool] = False
-    inputs: ClassVar[dict[str, str]] = {"model": "model", "clip": "ncore_clip", "split": "split"}
+    inputs: ClassVar[dict[str, str]] = {
+        "model": "model",
+        "clip": "ncore_clip",
+        "split": "split",
+        "masks": "masks",
+    }
+    optional_inputs: ClassVar[frozenset[str]] = frozenset({"masks"})
     outputs: ClassVar[dict[str, str]] = {"report": "eval_report"}
     Params: ClassVar[type[BaseModel]] = NoParams
 
@@ -184,10 +256,24 @@ class EvalNcoreStage(Stage):
             RuntimeError: Split không có khung test nào trong clip, hoặc một bước lỗi.
         """
         clip = json.loads((inputs["clip"] / CLIP_FILE).read_text(encoding="utf-8"))
-        indices = clip_test_indices(clip, [frame for frame, _ in ctx.split.test])
+        sensors = {c: s for c, s in clip["sensors"].items() if c in set(ctx.split.cameras)}
+        manifest = ctx.scene.manifest
+        views_of = clip_test_views(
+            clip,
+            ctx.split.test,
+            sensors,
+            {camera.camera_id: i for i, camera in enumerate(manifest.cameras)},
+        )
+        indices = sorted({int(i) for frames in views_of.values() for i in frames})
         if not indices:
             raise RuntimeError("không có khung test nào của split nằm trong clip NCore")
-        sensors = {c: s for c, s in clip["sensors"].items() if c in set(ctx.split.cameras)}
+        plan = {
+            "protocol_version": PROTOCOL_VERSION,
+            "views": views_of,
+            "masks_dir": str(inputs["masks"]) if "masks" in inputs else None,
+            "max_angle": fisheye_max_angles(manifest, sensors),
+        }
+        (ctx.output_dir / PLAN_FILE).write_text(json.dumps(plan, indent=2) + "\n")
         log = ctx.output_dir / LOG_FILE
         views = ctx.output_dir / VIEWS_FILE
         ctx.progress(0.1, f"xuất {len(indices)} khung test")
@@ -206,6 +292,7 @@ class EvalNcoreStage(Stage):
             [
                 sys.executable, "-u", str(nurec.TOOLS_DIR / "ncore_eval_render.py"),
                 str(inputs["model"] / MERGED_PLY), str(views), "--out", str(ctx.output_dir),
+                "--views-json", str(ctx.output_dir / PLAN_FILE),
             ],
             log,
             should_stop=ctx.should_stop,
@@ -225,8 +312,13 @@ class EvalNcoreStage(Stage):
             json.dumps(
                 {
                     "test_frames_in_clip": indices,
-                    "note": "Instant NuRec dựng từ mọi khung của clip NCore, kể cả khung test; "
-                    "LPIPS đo trên ảnh mà pixel ngoài vùng hợp lệ lấy theo ảnh thật",
+                    "masks": "masks" in inputs,
+                    "coverage": metrics["_summary"].get("coverage"),
+                    "psnr_covered": metrics["_summary"].get("psnr_covered"),
+                    "note": "Instant NuRec dựng từ mọi khung của clip NCore, kể cả khung test. "
+                    "Chấm như eval.standard trên mọi pixel hợp lệ (ngoài thân xe, mắt cá trong "
+                    "góc dùng được), kể cả chỗ PLY bỏ trống; psnr_covered chỉ tính chỗ "
+                    "alpha > 0.9, coverage là tỉ lệ pixel hợp lệ có alpha > 0.9",
                 },
                 indent=2,
                 ensure_ascii=False,

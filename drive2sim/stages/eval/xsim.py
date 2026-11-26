@@ -32,7 +32,7 @@ SCORE_LOG = "score.log"
 class EvalXsimStage(Stage):
     """Render bằng XSIM, chấm bằng scorer của tool, xuất báo cáo đánh giá."""
 
-    version: ClassVar[str] = "0.2.0"
+    version: ClassVar[str] = "0.3.0"
     inputs: ClassVar[dict[str, str]] = {"model": "model", "observations": "observations"}
     outputs: ClassVar[dict[str, str]] = {"report": "eval_report"}
 
@@ -92,6 +92,7 @@ class EvalXsimStage(Stage):
                 num_iters=int(index["step"]),
                 overall=scores["overall"],
                 per_camera=scores["per_camera"],
+                shifted=scores.get("shifted"),
             ),
             ctx.output_dir / SUMMARY_FILE,
         )

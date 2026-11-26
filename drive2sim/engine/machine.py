@@ -67,6 +67,35 @@ def _gpus() -> list[tuple[str, Optional[int], Optional[str]]]:
     return gpus
 
 
+def gpu_usage() -> list[dict]:
+    """Tải từng GPU lúc này theo ``nvidia-smi``.
+
+    Returns:
+        Mỗi GPU một dict ``index``, ``name``, ``util`` (%), ``memory_used_mb``,
+        ``memory_total_mb``; rỗng khi không có ``nvidia-smi`` hoặc không đọc được.
+    """
+    query = "index,name,utilization.gpu,memory.used,memory.total"
+    try:
+        done = subprocess.run(
+            ["nvidia-smi", f"--query-gpu={query}", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )  # fmt: skip
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if done.returncode != 0:
+        return []
+    rows = []
+    for line in done.stdout.splitlines():
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) != 5 or not all(parts[i].isdigit() for i in (0, 2, 3, 4)):
+            continue
+        rows.append({
+            "index": int(parts[0]), "name": parts[1], "util": int(parts[2]),
+            "memory_used_mb": int(parts[3]), "memory_total_mb": int(parts[4]),
+        })  # fmt: skip
+    return rows
+
+
 def freest_gpu() -> Optional[int]:
     """Chỉ số GPU còn nhiều VRAM trống nhất lúc này, theo ``nvidia-smi``.
 

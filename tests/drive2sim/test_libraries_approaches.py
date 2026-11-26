@@ -7,12 +7,15 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from drive2sim.core.schema import Manifest, Split
 from drive2sim.engine import env_install, libraries
 from drive2sim.engine.approaches import load_approach
 from drive2sim.engine.registry import StageRegistry, load_builtin_stages
+from drive2sim.engine.resolve import resolve
 from drive2sim.engine.workdir import Workdir
 from drive2sim.stages.train.drivestudio import TrainDrivestudioParams, has_dynamic_masks
 from drive2sim.studio.api.app import create_app
+from tests.drive2sim.samples import MANIFEST, SPLIT
 
 load_builtin_stages()
 
@@ -21,7 +24,8 @@ load_builtin_stages()
 def test_box_free_approaches(approach_id: str) -> None:
     approach = load_approach(approach_id)
     assert approach.requires.cuboids == "none"
-    train = next(s for s in approach.stages if s.stage == "train.drivestudio")
+    plan = resolve(approach, Manifest.model_validate(MANIFEST), Split.model_validate(SPLIT))
+    train = next(stage for stage in plan.stages if stage.stage_id == "train.drivestudio")
     params = TrainDrivestudioParams(**train.params)
     assert params.config_file.name == f"{approach_id}.yaml"
     masks = next(s for s in approach.stages if s.stage == "prep.masks_segformer")

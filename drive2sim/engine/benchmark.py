@@ -495,8 +495,9 @@ def build_row(
     """
     summary = load_summary(run_dir)
     # frames.jsonl nằm cạnh summary.json của stage eval.* đã ghi nó (eval.standard, eval.mcgs)
-    stage_dir = summary_path(run_dir).parent
-    frames = read_frames(stage_dir / FRAMES_FILE)
+    summary_file = summary_path(run_dir)
+    stage_dir = summary_file.parent if summary_file is not None else None
+    frames = read_frames(stage_dir / FRAMES_FILE) if stage_dir is not None else []
     trained = [r for r in frames if r["camera_index"] not in context.test_only_indices]
     per_frame = _distance_by_frame(trained)
     distance_m = max((distance for distance, _ in per_frame.values()), default=None)
@@ -533,7 +534,7 @@ def build_row(
         distance_m=distance_m,
         train_s_per_100m=_per_100m(row.train_time_s, distance_m) if per_100m else None,
         ply_mb_per_100m=_per_100m(row.ply_size_mb, distance_m) if per_100m else None,
-        ate_rmse_m=_ate_rmse_m(stage_dir),
+        ate_rmse_m=_ate_rmse_m(stage_dir) if stage_dir is not None else None,
         bad_segments=bad_segments_by_group(
             frames, context.fisheye_indices, context.test_only_indices
         ),
