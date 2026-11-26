@@ -1,15 +1,16 @@
-# Benchmark tuần 04 trên KITTI-360 chuỗi 0003
+# Benchmark tuần 04: Waymo (pinhole) và KITTI-360 chuỗi 0003
 
-Ma trận chạy (17 run ưu tiên 1, khoảng 25 GPU-giờ trên RTX 4090 thuê) nằm ở Sheet "Ma trận chạy benchmark tuần 04" của nhóm; số thứ tự run (#1, #2, ...) dưới đây khớp tab **Ma trận** của Sheet. Yêu cầu R1–R8 và quy tắc xếp hạng: `docs/drive2sim/ARCHITECTURE.md` mục 2.17, CONTRACTS mục 6.5.
+Ma trận chạy (17 run ưu tiên 1, khoảng 32 GPU-giờ trên RTX 4090 thuê, ước lượng) nằm ở Sheet "Ma trận chạy benchmark tuần 04" của nhóm; số thứ tự run (#1, #2, ...) dưới đây khớp tab **Ma trận** của Sheet. Yêu cầu R1–R8 và quy tắc xếp hạng: `docs/drive2sim/ARCHITECTURE.md` mục 2.17, CONTRACTS mục 6.5.
 
 Script chuẩn bị: `drive2sim/scripts/setup_benchmark_week04.py` (chỉ đọc và ghi file trong thư mục làm việc, không chạy GPU).
 
 ## 1. Cảnh và split
 
-Hai cảnh, cả hai từ notebook dữ liệu gốc `d2s-raw-kitti360-0003`:
+Ba cảnh. **Pinhole xếp hạng trên Waymo (W1), không trên KITTI-360** (quyết định 26/11/2026): pinhole của KITTI-360 chỉ train một camera trước (`image_00`; `image_01` giữ để đo R2), không giống cách các method và dataset khác dùng nhiều camera quanh xe. W1 train cả 5 camera Waymo nhưng không có camera nào để giữ lại đo R2 (camera Waymo chồng nhau rất ít), nên R2 không áp dụng ở các nhóm W1 và phân xử hoà đi thẳng sang R3 rồi thời gian train. KITTI-360 giữ cho R2 (A1, chạy thử), fisheye (A2), cảnh có người (A3), quãng dài (B2) và track C. Đợt sau: Argoverse 2 (7 camera vòng và cặp stereo trước, có thể giữ một camera stereo để đo R2; cần thêm camera stereo vào preprocess và loader).
 
 | Cảnh | Ingest | Khung |
 |---|---|---|
+| `waymo_segment-10455472356147194054_1560_000_1580_000_with_camera_labels` (W1) | tải tfrecord (`python -m drive2sim.recon.preprocess.waymo.download --scene_ids 23`, cần tài khoản Google đã nhận điều khoản Waymo), rồi `d2s scene ingest <thư mục> --sequence segment-10455472356147194054_1560_000_1580_000_with_camera_labels` | dùng khung 0–149 (theo `waymo_example_scenes.txt` của DriveStudio); 5 camera nạp ở 1/2 độ phân giải (`configs/datasets/waymo/5cams.yaml`). Chưa kiểm nội dung cảnh: ít xe, người thì đổi sang scene khác trong danh sách đó |
 | `kitti360_2013_05_28_drive_0003_sync` | đã có (`d2s kaggle ingest ... --num-frames 200`) | 200 khung, khung gốc 1–220, khoảng 124 m |
 | `kitti360_0003_long` | `d2s kaggle ingest <người dùng>/d2s-raw-kitti360-0003 --sequence 2013_05_28_drive_0003_sync --start-frame 167 --scene kitti360_0003_long` | đoạn liền khung gốc 167–1030 (864 khung, 1.289 m theo ARCHITECTURE mục 2.17; số khung thật kiểm sau khi ingest) |
 
@@ -17,7 +18,8 @@ Mọi split dùng `every_nth_frame:8`.
 
 | Split | Cảnh | Camera (chỉ test) | Đoạn khung | Dùng cho |
 |---|---|---|---|---|
-| `every8_stereo` | 200 khung | `image_00`, `image_01` (`image_01`) | cả cảnh | A1: track A, hiệu chỉnh seed |
+| `every8_5cams` | W1 | FRONT, FRONT_LEFT, FRONT_RIGHT, SIDE_LEFT, SIDE_RIGHT | khung 0–149 | W1: A-LB, A-L, A-0, hiệu chỉnh seed |
+| `every8_stereo` | 200 khung | `image_00`, `image_01` (`image_01`) | cả cảnh | A1: chạy thử R2 (#1–#3) |
 | `every8_stereo_fisheye2` | 200 khung | + `image_02`, `image_03` (`image_01`) | cả cảnh | A2 |
 | `every8_mixed3` | 200 khung | `image_00`, `image_02`, `image_03` | cả cảnh | track C (Instant NuRec) |
 | `every8_stereo_a3` | dài | `image_00`, `image_01` (`image_01`) | khung gốc 560–779 | A3 |
@@ -48,15 +50,15 @@ d2s benchmark benchmarks/week04.yaml --out benchmarks/week04.json
 
 | Nhóm | Split | Run nhận vào |
 |---|---|---|
-| A-LB | `every8_stereo` | OmniRe 3DGS + FastGS seed 0; BezierGS |
-| A-L | `every8_stereo` | PVG, DeformableGS renderer 3DGS (có LiDAR) |
-| A-0 | `every8_stereo` | PVG, DeformableGS renderer 3DGS với `lidar=false` |
+| A-LB | `every8_5cams` (W1) | OmniRe 3DGS + FastGS seed 0; BezierGS |
+| A-L | `every8_5cams` (W1) | PVG, DeformableGS renderer 3DGS (có LiDAR) |
+| A-0 | `every8_5cams` (W1) | PVG, DeformableGS renderer 3DGS với `lidar=false` |
 | A-LB | `every8_stereo_fisheye2` | OmniRe 3DGUT + FastGS; OmniRe 3DGEER + FastGS |
 | A-L | `every8_stereo_fisheye2` | PVG, DeformableGS với renderer 3DGUT (#12) |
 | A-LB, A-L | `every8_stereo_a3` | OmniRe (mọi cấu hình); PVG, DeformableGS |
 | B | `every8_pinhole2` | MCGS-SLAM |
 | C | `every8_mixed3` | Instant NuRec |
-| `calibration` | `every8_stereo` | OmniRe 3DGS + FastGS seed 0, 1, 2 (#4, #7, #8) |
+| `calibration` | `every8_5cams` (W1) | OmniRe 3DGS + FastGS seed 0, 1, 2 (#4, #7, #8) |
 
 Nhiều run khớp một ô thì lấy run mới nhất và in các run bị bỏ. Nhóm chưa có run thì bỏ khỏi file; dưới hai seed thì không có khối `calibration` (`d2s benchmark` dùng ngưỡng hoà mặc định 0,3 dB).
 

@@ -1,4 +1,4 @@
-"""Chuẩn bị benchmark tuần 04 trên KITTI-360 chuỗi 0003: split, lệnh chạy, file định nghĩa.
+"""Chuẩn bị benchmark tuần 04 (Waymo W1, KITTI-360 chuỗi 0003): split, lệnh chạy, file định nghĩa.
 
 Ma trận chạy và lý do chọn scene: ``docs/experiments/benchmark_week04.md``. Script chỉ đọc, ghi
 file trong thư mục làm việc (``D2S_WORKDIR``, mặc định gốc repo), không chạy GPU:
@@ -7,8 +7,8 @@ file trong thư mục làm việc (``D2S_WORKDIR``, mặc định gốc repo), k
     python -m drive2sim.scripts.setup_benchmark_week04 commands
     python -m drive2sim.scripts.setup_benchmark_week04 definition [--out benchmarks/week04.yaml]
 
-- ``splits``: tạo các split của A1, A2, A3, B2 (và 6 chunk của B2) bằng ``engine.scenes``. A3 cho
-  theo số hiệu khung gốc của KITTI-360 nên được đổi sang chỉ số khung của cảnh qua
+- ``splits``: tạo các split của W1, A1, A2, A3, B2 (và 6 chunk của B2) bằng ``engine.scenes``.
+  A3 cho theo số hiệu khung gốc của KITTI-360 nên được đổi sang chỉ số khung của cảnh qua
   ``frame_ids.txt``; in thêm độ đổi hướng xe trong A3 để kiểm có rẽ. Cảnh chưa ingest thì bỏ qua
   và in lệnh ingest.
 - ``commands``: in lệnh ``d2s run start`` cho từng run của ma trận, theo số thứ tự ở Sheet.
@@ -57,6 +57,22 @@ CHUNK_OVERLAP = 10
 TURN_DEG = 30.0
 """Độ đổi hướng tối thiểu để coi đoạn A3 là có rẽ."""
 
+WAYMO_SEGMENT = "segment-10455472356147194054_1560_000_1580_000_with_camera_labels"
+WAYMO_SCENE = "waymo_" + WAYMO_SEGMENT
+"""W1: scene pinhole nhiều camera (Waymo, chỉ số 23 của ``waymo_train_list.txt``, trong danh sách
+ví dụ ``waymo_example_scenes.txt`` của DriveStudio với khung 0–150). Thay A1 cho các ô xếp hạng
+pinhole, vì A1 chỉ train một camera trước."""
+WAYMO_INGEST = (
+    "d2s scene ingest <thư mục có "
+    + WAYMO_SEGMENT
+    + ".tfrecord> --sequence "
+    + WAYMO_SEGMENT
+    + "  (tải tfrecord bằng drive2sim.recon.preprocess.waymo.download --scene_ids 23)"
+)
+WAYMO_CAMERAS = ("FRONT", "FRONT_LEFT", "FRONT_RIGHT", "SIDE_LEFT", "SIDE_RIGHT")
+WAYMO_FRAMES = (0, 149)
+WAYMO_SPLIT = "every8_5cams"
+
 STEREO = ("image_00", "image_01")
 FISHEYE = ("image_02", "image_03")
 
@@ -86,7 +102,14 @@ class SplitPlan:
 
 
 FIXED_SPLITS = (
-    SplitPlan(SHORT_SCENE, "every8_stereo", STEREO, ("image_01",), purpose="A1"),
+    SplitPlan(
+        WAYMO_SCENE,
+        WAYMO_SPLIT,
+        WAYMO_CAMERAS,
+        index_range=WAYMO_FRAMES,
+        purpose="W1, pinhole xếp hạng (R2 không áp dụng)",
+    ),
+    SplitPlan(SHORT_SCENE, "every8_stereo", STEREO, ("image_01",), purpose="A1, kiểm R2"),
     SplitPlan(
         SHORT_SCENE, "every8_stereo_fisheye2", STEREO + FISHEYE, ("image_01",), purpose="A2"
     ),
@@ -243,6 +266,8 @@ def create_splits(workdir: Workdir, dry_run: bool = False) -> int:
         plans += chunk_splits(long_scene.manifest.timeline.num_frames)
     except WorkdirError:
         print(f"chưa có cảnh {LONG_SCENE} (A3, B2); ingest bằng:\n  {LONG_SCENE_INGEST}")
+    if not (workdir.scene_dir(WAYMO_SCENE) / "manifest.yaml").is_file():
+        print(f"chưa có cảnh {WAYMO_SCENE} (W1); ingest bằng:\n  {WAYMO_INGEST}")
     for plan in plans:
         scene_dir = workdir.scene_dir(plan.scene_id)
         if not (scene_dir / "manifest.yaml").is_file():
@@ -323,30 +348,30 @@ RUN_COMMANDS = (
     RunCommand("1", "omnire", SHORT_SCENE, "every8_stereo", OMNIRE_FASTGS, True, "smoke R2"),
     RunCommand("2", "pvg", SHORT_SCENE, "every8_stereo", (), True, "smoke R2"),
     RunCommand("3", "deformablegs", SHORT_SCENE, "every8_stereo", (), True, "smoke R2"),
-    RunCommand("4", "omnire", SHORT_SCENE, "every8_stereo", OMNIRE_FASTGS, note="A-LB, seed 0"),
-    RunCommand("5", "pvg", SHORT_SCENE, "every8_stereo", note="A-L"),
-    RunCommand("6", "deformablegs", SHORT_SCENE, "every8_stereo", note="A-L"),
+    RunCommand("4", "omnire", WAYMO_SCENE, WAYMO_SPLIT, OMNIRE_FASTGS, note="A-LB, seed 0"),
+    RunCommand("5", "pvg", WAYMO_SCENE, WAYMO_SPLIT, note="A-L"),
+    RunCommand("6", "deformablegs", WAYMO_SCENE, WAYMO_SPLIT, note="A-L"),
     RunCommand(
         "7",
         "omnire",
-        SHORT_SCENE,
-        "every8_stereo",
+        WAYMO_SCENE,
+        WAYMO_SPLIT,
         OMNIRE_FASTGS + ("train.drivestudio.seed=1",),
         note="hiệu chỉnh seed",
     ),
     RunCommand(
         "8",
         "omnire",
-        SHORT_SCENE,
-        "every8_stereo",
+        WAYMO_SCENE,
+        WAYMO_SPLIT,
         OMNIRE_FASTGS + ("train.drivestudio.seed=2",),
         note="hiệu chỉnh seed",
     ),
     RunCommand(
         "9",
         A_L_WINNER,
-        SHORT_SCENE,
-        "every8_stereo",
+        WAYMO_SCENE,
+        WAYMO_SPLIT,
         ("train.drivestudio.lidar=false",),
         note="A-0",
     ),
@@ -430,26 +455,26 @@ class EntryPlan:
     label: str = ""
 
 
-OMNIRE_A1 = Slot("omnire", (("renderer", "3dgs"), ("fastgs", True)))
+OMNIRE_W1 = Slot("omnire", (("renderer", "3dgs"), ("fastgs", True)))
 PINHOLE = (("renderer", "3dgs"),)
 FISHEYE_UT = (("renderer", "3dgut"),)
 ENTRY_PLANS = (
-    EntryPlan("A", "A-LB", SHORT_SCENE, "every8_stereo", (OMNIRE_A1, Slot("beziergs")), "A1 A-LB"),
+    EntryPlan("A", "A-LB", WAYMO_SCENE, WAYMO_SPLIT, (OMNIRE_W1, Slot("beziergs")), "W1 A-LB"),
     EntryPlan(
         "A",
         "A-L",
-        SHORT_SCENE,
-        "every8_stereo",
+        WAYMO_SCENE,
+        WAYMO_SPLIT,
         (Slot("pvg", PINHOLE), Slot("deformablegs", PINHOLE)),
-        "A1 A-L",
+        "W1 A-L",
     ),
     EntryPlan(
         "A",
         "A-0",
-        SHORT_SCENE,
-        "every8_stereo",
+        WAYMO_SCENE,
+        WAYMO_SPLIT,
         (Slot("pvg", PINHOLE, lidar=False), Slot("deformablegs", PINHOLE, lidar=False)),
-        "A1 A-0",
+        "W1 A-0",
     ),
     EntryPlan(
         "A",
@@ -483,7 +508,7 @@ ENTRY_PLANS = (
     EntryPlan("C", None, SHORT_SCENE, "every8_mixed3", (Slot("nurec"),), "C Instant NuRec"),
 )
 CALIBRATION_SLOTS = tuple(
-    Slot(OMNIRE_A1.approach_id, OMNIRE_A1.options, seed) for seed in (0, 1, 2)
+    Slot(OMNIRE_W1.approach_id, OMNIRE_W1.options, seed) for seed in (0, 1, 2)
 )
 
 
@@ -561,14 +586,14 @@ def build_definition(runs: Sequence[RunRecord]) -> Definition:
     calibration_runs = [
         run.run_id
         for run in (
-            pick(runs, SHORT_SCENE, "every8_stereo", slot, notes) for slot in CALIBRATION_SLOTS
+            pick(runs, WAYMO_SCENE, WAYMO_SPLIT, slot, notes) for slot in CALIBRATION_SLOTS
         )
         if run is not None
     ]
     calibration = None
     if len(calibration_runs) >= 2:
         calibration = BenchmarkCalibration(
-            scene_id=SHORT_SCENE, split_id="every8_stereo", runs=calibration_runs
+            scene_id=WAYMO_SCENE, split_id=WAYMO_SPLIT, runs=calibration_runs
         )
     else:
         notes.append(

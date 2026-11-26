@@ -3,8 +3,9 @@
 - ``chunk_ranges``: 6 đoạn phủ cả cảnh, hai đoạn kề chồng đúng 10 khung.
 - ``source_to_index_range``: đổi số hiệu khung gốc (có chỗ thiếu khung) sang chỉ số của cảnh.
 - ``heading_change_deg``: đường thẳng gần 0 độ, rẽ vuông góc khoảng 90 độ.
-- ``build_definition``: run được xếp đúng nhóm; bỏ run chạy thử, run lỗi; nhiều run khớp thì lấy
-  run mới nhất; nhóm hiệu chỉnh cần ít nhất hai seed.
+- ``build_definition``: run được xếp đúng nhóm (pinhole trên W1, fisheye và track C trên A1);
+  bỏ run chạy thử, run lỗi; nhiều run khớp thì lấy run mới nhất; nhóm hiệu chỉnh cần ít nhất hai
+  seed.
 """
 
 import math
@@ -17,13 +18,15 @@ from drive2sim.core.schema import RunApproach, RunRecord, StageRecord
 from drive2sim.scripts import setup_benchmark_week04 as week04
 
 A1 = week04.SHORT_SCENE
+W1 = week04.WAYMO_SCENE
+W1_SPLIT = week04.WAYMO_SPLIT
 
 
 def make_run(
     run_id: str,
     approach_id: str,
-    split_id: str = "every8_stereo",
-    scene_id: str = A1,
+    split_id: str = W1_SPLIT,
+    scene_id: str = W1,
     options: Optional[dict[str, Any]] = None,
     train: Optional[dict[str, Any]] = None,
     status: str = "succeeded",
@@ -111,6 +114,7 @@ def test_definition_groups_runs_by_matrix_cell() -> None:
             "20261127-050000-omnire-a3d0",
             "omnire",
             split_id="every8_stereo_fisheye2",
+            scene_id=A1,
             options={"renderer": "3dgut", "fastgs": True},
             train={},
         ),
@@ -119,6 +123,7 @@ def test_definition_groups_runs_by_matrix_cell() -> None:
             "20261127-030000-pvg-f1e2",
             "pvg",
             split_id="every8_stereo_fisheye2",
+            scene_id=A1,
             options=fisheye,
             train={},
         ),
@@ -129,9 +134,9 @@ def test_definition_groups_runs_by_matrix_cell() -> None:
         (entry.split_id, entry.cell or entry.bench_track): entry.runs
         for entry in result.benchmark.entries
     }
-    assert groups[("every8_stereo", "A-LB")] == ["20261127-060000-omnire-0000"]
-    assert groups[("every8_stereo", "A-L")] == ["20261127-110000-pvg-bbbb"]
-    assert groups[("every8_stereo", "A-0")] == ["20261127-120000-pvg-aaaa"]
+    assert groups[(W1_SPLIT, "A-LB")] == ["20261127-060000-omnire-0000"]
+    assert groups[(W1_SPLIT, "A-L")] == ["20261127-110000-pvg-bbbb"]
+    assert groups[(W1_SPLIT, "A-0")] == ["20261127-120000-pvg-aaaa"]
     assert groups[("every8_stereo_fisheye2", "A-LB")] == ["20261127-050000-omnire-a3d0"]
     assert groups[("every8_mixed3", "C")] == ["20261127-040000-nurec-c0d0"]
     assert groups[("every8_stereo_fisheye2", "A-L")] == ["20261127-030000-pvg-f1e2"]
