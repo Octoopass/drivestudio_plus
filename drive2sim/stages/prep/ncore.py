@@ -29,6 +29,7 @@ from drive2sim.core.schema import Manifest, Split
 from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import Stage, StageContext
 from drive2sim.external import nurec
+from drive2sim.ingest.ego_masks import snapshot_masks
 from drive2sim.stages.commands import LOG_FILE, run_logged
 
 RAW_SOURCE_FILE = "raw_source.json"
@@ -92,6 +93,7 @@ def build_command(
     cameras: list[str],
     params: PrepNcoreParams,
     sequence_id: str,
+    ego_masks_dir: Optional[Path] = None,
 ) -> list[str]:
     """Câu lệnh ``kitti360_to_ncore.py`` bằng Python của môi trường NuRec."""
     command = [
@@ -100,6 +102,8 @@ def build_command(
         "--start", str(start), "--frames", str(frames), "--cameras", ",".join(cameras),
         "--sequence-id", sequence_id, "--fisheye-model", params.fisheye_model,
     ]  # fmt: skip
+    if ego_masks_dir is not None:
+        command += ["--ego-masks", str(ego_masks_dir)]
     if not params.lidar:
         command.append("--no-lidar")
     return command
@@ -109,7 +113,7 @@ def build_command(
 class PrepNcoreStage(Stage):
     """Chuyển đoạn khung của split sang clip NCore V4 (Instant NuRec đọc)."""
 
-    version: ClassVar[str] = "0.1.0"
+    version: ClassVar[str] = "0.2.0"
     cacheable: ClassVar[bool] = True
     uses_lidar: ClassVar[bool] = False
     inputs: ClassVar[dict[str, str]] = {"scene": "scene", "split": "split"}
@@ -165,11 +169,13 @@ class PrepNcoreStage(Stage):
                 f"{manifest.source.sequence_id}: {', '.join(missing)}. Tải chuỗi này từ Drive "
                 "(trang Nguồn, ô Google Drive) vào cùng thư mục rồi chạy lại"
             )
+        masks = ctx.output_dir / "ego_masks"
+        snapshot_masks(ctx.scene.root, manifest, masks)
         ctx.progress(0.0, f"chuyển {len(wanted)} khung, {len(cameras)} camera sang NCore")
         run_logged(
             build_command(
                 raw, ctx.output_dir, manifest.source.sequence_id, wanted[0], len(wanted),
-                cameras, options, sequence_id,
+                cameras, options, sequence_id, masks,
             ),
             ctx.output_dir / LOG_FILE,
             should_stop=ctx.should_stop,

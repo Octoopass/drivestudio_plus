@@ -1,6 +1,7 @@
 from drive2sim.paths import EGO_MASKS_DIR
 from typing import Dict, Tuple, List, Callable
 from omegaconf import OmegaConf
+from pathlib import Path
 import os
 import abc
 import cv2
@@ -271,15 +272,19 @@ class CameraData(object):
         self.images = images = torch.from_numpy(np.stack(images, axis=0)) / 255
     
     def load_egocar_mask(self):
+        """Nạp mask hiệu lực của cảnh để loại thân xe khỏi loss và chấm điểm.
+
+        Ưu tiên file cảnh, rồi xác nhận không thấy thân xe, rồi asset của dataset.
+        Cảnh ảo của run trỏ ego_masks vào snapshot để tiếp tục dùng cùng dữ liệu khi resume.
+        Mask được đổi về kích thước nạp và khử méo như ảnh RGB.
         """
-        Since in some datasets, the ego car body is visible in the images,
-        we need to load the ego car mask to mask out the ego car body.
-        """
-        # Mask của chính dataset (ego_masks/<camera>.png trong cảnh) được ưu tiên hơn asset.
-        scene_mask = scene_ego_mask(self.data_path, self.cam_name, self.original_size)
-        egocar_mask = os.path.join(EGO_MASKS_DIR, self.dataset_name, f"{self.cam_id}.png")
-        if scene_mask is not None or os.path.exists(egocar_mask):
-            egocar_mask = scene_mask or Image.open(egocar_mask).convert("L")
+        from drive2sim.ingest.ego_masks import effective_mask
+
+        mask_path = effective_mask(
+            Path(self.data_path), self.dataset_name, self.cam_name, self.cam_id
+        )
+        if mask_path is not None:
+            egocar_mask = Image.open(mask_path).convert("L")
             # resize them to the load_size
             egocar_mask = egocar_mask.resize(
                 (self.load_size[1], self.load_size[0]), Image.BILINEAR

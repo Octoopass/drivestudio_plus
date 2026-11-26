@@ -17,6 +17,7 @@ vào thư mục làm việc trên VM), ``--input-root`` là thư mục đã gi�
 File này chứa ``write_bundle``, ``read_bundle`` và ``materialize``.
 """
 
+import base64
 import json
 import shutil
 from collections.abc import Sequence
@@ -57,6 +58,9 @@ def write_bundle(
     record = files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
     scene = workdir.load_scene(record.scene_id)
     split = workdir.load_split(record.scene_id, record.split_id)
+    masks = run_dir / D2S_DIR / "scene_masks"
+    if record.scene_mask_digest is not None and not masks.is_dir():
+        raise ValueError("run thiếu bản chụp mask d2s/scene_masks")
     return {
         "run.json": record.model_dump(mode="json"),
         "split.json": split.model_dump(mode="json"),
@@ -64,6 +68,13 @@ def write_bundle(
             "scene_id": record.scene_id,
             "converter_version": scene.manifest.source.converter_version,
             "kaggle_dataset": scene_dataset,
+            "scene_masks": {
+                path.name: base64.b64encode(path.read_bytes()).decode("ascii")
+                for path in sorted(masks.iterdir())
+                if path.is_file()
+            }
+            if masks.is_dir()
+            else {},
         },
         "resume.json": {"kernels": list(resume_kernels), "rerun": list(rerun)},
     }
@@ -181,4 +192,18 @@ def materialize(bundle: dict[str, dict], workdir: Workdir, input_root: Path) -> 
     if not (run_dir / D2S_DIR / RUN_FILE).is_file():
         (run_dir / D2S_DIR).mkdir(parents=True, exist_ok=True)
         files.dump(record, run_dir / D2S_DIR / RUN_FILE)
+    if record.scene_mask_digest is not None:
+        masks = run_dir / D2S_DIR / "scene_masks"
+        payload = bundle["scene_ref.json"].get("scene_masks", {})
+        if not payload:
+            raise ValueError("gói job thiếu bản chụp mask của run")
+        masks.mkdir(parents=True, exist_ok=True)
+        expected = {
+            f"{camera.camera_id}.png"
+            for camera in workdir.load_scene(record.scene_id).manifest.cameras
+        }
+        for name, encoded in payload.items():
+            if name not in expected | {"status.json"}:
+                raise ValueError(f"tên file mask trong gói job không hợp lệ: {name}")
+            (masks / name).write_bytes(base64.b64decode(encoded, validate=True))
     return run_dir

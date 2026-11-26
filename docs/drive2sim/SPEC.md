@@ -252,3 +252,12 @@ không ngăn người dùng tạo yêu cầu tiếp theo.
 Khi hợp nhất benchmark và XSIM, camera chỉ test phải được giữ ngoài dữ liệu train và metric tổng
 của camera đã train. Kết quả của nhóm camera này được báo riêng để so khả năng tổng hợp góc nhìn.
 Bước đánh giá PLY bổ sung phải giữ khả năng mở báo cáo chính của run.
+
+
+### Snapshot mask theo run (26/11/2026)
+
+Lưu, xoá hoặc xác nhận không có thân xe làm đổi cache cho run mới. Mỗi run giữ snapshot mask
+hiệu lực để resume trên local/Kaggle/Colab không đổi dữ liệu khi cảnh được sửa về sau. Mask nháp
+và trung vị không ảnh hưởng cache. Mask ưu tiên bản cảnh, xác nhận none, rồi asset; mask cảm biến
+vẫn được giữ. Run cũ chưa có snapshot giữ hành vi lịch sử. NuRec dùng mask chính thức qua cùng
+rectifier với ảnh.

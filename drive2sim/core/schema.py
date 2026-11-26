@@ -118,7 +118,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "report": "d2s-report/0.1",
     "approach": "d2s-approach/0.3",
     "artifact": "d2s-artifact/0.2",
-    "run": "d2s-run/0.3",
+    "run": "d2s-run/0.4",
     "summary": "d2s-summary/0.8",
     "env": "d2s-env/0.3",
     "preview": "d2s-preview/0.2",
@@ -1134,6 +1134,7 @@ class RunRecord(VersionedFile):
     Attributes:
         run_id: Định danh run, ``YYYYMMDD-HHMMSS-<approach_id>-<4 hex>``.
         scene_id: Cảnh của run.
+        scene_mask_digest: SHA-256 của snapshot mask chính thức, None với run cũ.
         split_id: Split của run.
         approach: Approach và lựa chọn đã quyết định.
         level: Mức năng lực của approach.
@@ -1147,6 +1148,7 @@ class RunRecord(VersionedFile):
     FILE_KIND: ClassVar[str] = "run"
     run_id: str
     scene_id: SceneId
+    scene_mask_digest: Optional[str] = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     split_id: str
     approach: RunApproach
     level: Level

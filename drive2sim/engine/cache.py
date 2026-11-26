@@ -44,7 +44,9 @@ class CacheBusyError(RuntimeError):
     """
 
 
-def input_key_for_scene(scene_id: str, converter_version: str) -> str:
+def input_key_for_scene(
+    scene_id: str, converter_version: str, mask_digest: Optional[str] = None
+) -> str:
     """Tạo khoá đại diện cho dữ liệu chuẩn của một cảnh, dùng khi stage nhận đầu vào ``"scene"``.
 
     Khoá gồm cả phiên bản converter: nếu cảnh được ingest lại bằng converter khác, khoá đổi và
@@ -53,12 +55,14 @@ def input_key_for_scene(scene_id: str, converter_version: str) -> str:
     Args:
         scene_id: Định danh cảnh.
         converter_version: ``source.converter_version`` trong manifest.
+        mask_digest: Dấu vân tay mask của run; None giữ định dạng khoá lịch sử.
 
     Returns:
         Khoá dạng ``"scene:<scene_id>@<converter_version>"``, ví dụ
-        ``"scene:nuscenes_scene-0061@19.9.0"``.
+        ``"scene:nuscenes_scene-0061@19.9.0"``. Run có snapshot thêm ``:masks-<SHA-256>``.
     """
-    return f"scene:{scene_id}@{converter_version}"
+    key = f"scene:{scene_id}@{converter_version}"
+    return f"{key}:masks-{mask_digest}" if mask_digest is not None else key
 
 
 def input_key_for_split(split_id: str, content: Optional[Split] = None) -> str:

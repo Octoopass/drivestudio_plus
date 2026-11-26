@@ -137,8 +137,8 @@ class StandardCameraData(KITTICameraData):
             ),
         }
         # Asset mask của tool (khi cảnh không có ego_masks/<camera>.png), theo dataset của cảnh.
-        self.ego_mask_asset = ego_masks.tool_asset(
-            manifest.source.dataset, camera.camera_id, index
+        self.ego_mask_asset = ego_masks.effective_mask(
+            scene, manifest.source.dataset, camera.camera_id, index
         )
         super().__init__(**kwargs)
         self.dark_angle = None

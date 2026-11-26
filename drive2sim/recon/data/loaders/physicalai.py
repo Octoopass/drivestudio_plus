@@ -141,7 +141,14 @@ class PhysicalAICameraData(CameraData):
     def load_images(self):
         self.images = torch.stack([self._read(p) for p in self.img_filepaths]).float() / 255
 
-    def load_egocar_mask(self):
+    def load_egocar_mask(self) -> None:
+        """Gộp mask thân xe hiệu lực với vùng cảm biến không hợp lệ theo từng khung.
+
+        Mask người dùng vẽ trên ảnh cảnh được đổi kích thước và rectify qua cùng _read như RGB.
+        Xác nhận none chỉ bỏ mask thân xe, luôn giữ invalid_masks do dataset cung cấp.
+        """
+        from drive2sim.ingest.ego_masks import effective_mask
+
         self.egocar_mask = None
         self.invalid_masks = torch.stack(
             [
@@ -152,6 +159,9 @@ class PhysicalAICameraData(CameraData):
                 for t in range(self.start_timestep, self.end_timestep)
             ]
         )
+        body = effective_mask(Path(self.data_path), self.dataset_name, self.cam_name, self.cam_id)
+        if body is not None:
+            self.invalid_masks |= self._read(body, True) > 0
         if self.rectification is not None:
             self.invalid_masks |= ~self.rectification[1]
 

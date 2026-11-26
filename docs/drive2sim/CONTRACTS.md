@@ -454,7 +454,7 @@ Huỷ run (`d2s run cancel`, `POST /api/runs/{run_id}/cancel`) chỉ ghi file `c
 
 ```json
 {
-  "schema_version": "d2s-run/0.3",
+  "schema_version": "d2s-run/0.4",
   "run_id": "20261112-081000-omnire-a1b2",
   "scene_id": "nuscenes_scene-0061",
   "split_id": "every8_allcams",
@@ -1162,3 +1162,18 @@ XSIM dùng các cặp `train` tường minh để khởi tạo và train; `overa
 có train. Camera chỉ test được ghi vào `shifted`, gồm metric thô và metric khớp màu khi phép
 khớp hợp lệ. `per_camera` giữ số đo của cả hai nhóm. Báo cáo đánh giá phụ chỉ có file riêng như
 `ply_gap.json` không thay thế `summary.json` của stage đánh giá chính.
+
+
+### Snapshot mask theo run (26/11/2026)
+
+`d2s-run/0.4` thêm `scene_mask_digest`, SHA-256 của mask hiệu lực. Trường không bắt buộc để
+đọc run cũ. Run mới giữ PNG theo camera và `status.json` ở `d2s/scene_masks/`; camera không dùng
+mask được ghi none để không tự nhận asset mới về sau. Khoá cảnh thêm `:masks-<digest>`; nháp
+và trung vị không tham gia. Snapshot thiếu hoặc sai digest là lỗi khi chạy.
+
+Mask ưu tiên file cảnh, xác nhận none, rồi asset; mask cảm biến theo khung vẫn giữ riêng.
+`scene_ref.json` thêm `scene_masks` (tên PNG theo camera/status.json → byte base64), không đổi
+bốn file của gói job. Chỉ nhận tên camera trong manifest và kiểm digest tại worker. Run cũ
+không có digest vẫn đọc được. Cảnh ảo ở `<workdir>/.runtime/<run_id>/scene_view/000/` được dựng
+lại tại máy chạy, không đóng gói cùng run. `prep.ncore` tạo mask hiệu lực trong output và truyền
+`--ego-masks` cho converter để rectify cùng RGB.

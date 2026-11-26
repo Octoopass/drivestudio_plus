@@ -15,12 +15,15 @@ không thấy thân xe" hoặc "chưa ai xem":
   lẫn vào cảnh; kiểm tra cảnh và trang tạo run cảnh báo.
 
 Lựa chọn của người dùng ghi ở ``ego_masks/status.json`` (``{camera_id: "mask" | "none"}``); camera
-không có trong file thì suy ra như trên. Loader không đọc file này: loader chỉ cần file mask.
+không có trong file thì suy ra như trên. Loader đọc trạng thái none để bỏ asset mặc định
+khi người dùng đã xác nhận.
 
 File này chứa ``STATUS_FILE``, ``KNOWN_WITHOUT_BODY``, ``tool_asset``, ``has_mask``,
-``camera_states``, ``set_state``, ``pending_cameras``, ``pending_warning``.
+``camera_states``, ``set_state``, ``pending_cameras``, ``pending_warning``, ``effective_mask``,
+``mask_digest`` và ``snapshot_masks``. Engine dùng digest/snapshot khi tạo và chạy run.
 """
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Optional
@@ -74,10 +77,8 @@ def _known_without_body(dataset: str, camera_id: str, index: int) -> bool:
 
 def has_mask(scene_root: Path, dataset: str, camera_id: str, index: int) -> bool:
     """Camera có mask mà loader dùng: trong cảnh, mask theo khung của dataset, asset của tool."""
-    return (
-        (scene_root / "ego_masks" / f"{camera_id}.png").is_file()
-        or (dataset == "physicalai" and (scene_root / "invalid_masks").is_dir())
-        or tool_asset(dataset, camera_id, index) is not None
+    return effective_mask(scene_root, dataset, camera_id, index) is not None or (
+        dataset == "physicalai" and (scene_root / "invalid_masks").is_dir()
     )
 
 
@@ -95,10 +96,10 @@ def camera_states(scene_root: Path, manifest: Manifest) -> list[dict[str, Option
         camera_id = camera.camera_id
         has_scene_mask = (scene_root / "ego_masks" / f"{camera_id}.png").is_file()
         state, source = "pending", None
-        if status.get(camera_id) == "none":
-            state, source = "none", "confirmed"
-        elif has_scene_mask:
+        if has_scene_mask:
             state, source = "mask", "scene"
+        elif status.get(camera_id) == "none":
+            state, source = "none", "confirmed"
         elif dataset == "physicalai" and (scene_root / "invalid_masks").is_dir():
             state, source = "mask", "dataset"
         elif tool_asset(dataset, camera_id, index) is not None:
@@ -146,3 +147,71 @@ def pending_warning(
         "nếu camera thấy thân xe thì thân xe bị dựng lẫn vào cảnh và tính vào điểm. Vẽ mask hoặc "
         "xác nhận ở Studio (cảnh, tab Kiểm tra, mục Mask thân xe)"
     )
+
+
+def effective_mask(scene_root: Path, dataset: str, camera_id: str, index: int) -> Optional[Path]:
+    """Chọn file mask thân xe hiệu lực theo thứ tự cảnh, xác nhận none, asset.
+
+    Args:
+        scene_root: Thư mục cảnh hoặc cảnh ảo của run.
+        dataset: Dataset nguồn trong manifest.
+        camera_id: Tên camera gốc.
+        index: Chỉ số camera trong manifest.
+
+    Returns:
+        File PNG được chọn, hoặc None khi không dùng mask thân xe.
+    """
+    scene_mask = scene_root / "ego_masks" / f"{camera_id}.png"
+    if scene_mask.is_file():
+        return scene_mask
+    if _read_status(scene_root).get(camera_id) == "none":
+        return None
+    return tool_asset(dataset, camera_id, index)
+
+
+def mask_digest(scene_root: Path, manifest: Manifest) -> str:
+    """Băm mask chính thức theo camera để nhận diện dữ liệu của cache và run.
+
+    Args:
+        scene_root: Thư mục cảnh hoặc bản chụp của run.
+        manifest: Manifest xác định danh sách camera.
+
+    Returns:
+        SHA-256 của tên camera, trạng thái không mask và nội dung PNG hiệu lực.
+    """
+    digest = hashlib.sha256()
+    for index, camera in enumerate(manifest.cameras):
+        path = effective_mask(scene_root, manifest.source.dataset, camera.camera_id, index)
+        digest.update(camera.camera_id.encode() + b"\0")
+        digest.update(path.read_bytes() if path is not None else b"none")
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def snapshot_masks(scene_root: Path, manifest: Manifest, destination: Path) -> str:
+    """Chụp mask vào metadata run và trả digest từ chính các byte đã chụp.
+
+    Args:
+        scene_root: Cảnh gốc.
+        manifest: Manifest của cảnh.
+        destination: Thư mục d2s/scene_masks của run mới.
+
+    Returns:
+        Digest nhận diện bản chụp đã ghi.
+    """
+    destination.mkdir(parents=True)
+    status = {}
+    for index, camera in enumerate(manifest.cameras):
+        path = effective_mask(scene_root, manifest.source.dataset, camera.camera_id, index)
+        if path is not None:
+            (destination / f"{camera.camera_id}.png").write_bytes(path.read_bytes())
+        else:
+            status[camera.camera_id] = "none"
+    (destination / "status.json").write_text(json.dumps(status), encoding="utf-8")
+    digest = hashlib.sha256()
+    for camera in manifest.cameras:
+        path = destination / f"{camera.camera_id}.png"
+        digest.update(camera.camera_id.encode() + b"\0")
+        digest.update(path.read_bytes() if path.is_file() else b"none")
+        digest.update(b"\0")
+    return digest.hexdigest()

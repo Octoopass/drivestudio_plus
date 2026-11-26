@@ -546,3 +546,29 @@ def test_saved_loader_paths_build_dataset_sources(tmp_path: Path, loader_path: s
         torch.testing.assert_close(camera.images, expected.images)
         torch.testing.assert_close(camera.cam_to_worlds, expected.cam_to_worlds)
         torch.testing.assert_close(camera.intrinsics, expected.intrinsics)
+
+
+def test_physicalai_body_override_preserves_per_frame_sensor_mask(tmp_path: Path) -> None:
+    from drive2sim.ingest.ego_masks import set_state
+    from drive2sim.recon.data.loaders.physicalai import PhysicalAICameraData
+
+    camera = PhysicalAICameraData.__new__(PhysicalAICameraData)
+    camera.data_path = str(tmp_path)
+    camera.dataset_name = "physicalai"
+    camera.cam_name = "front"
+    camera.cam_id = 0
+    camera.start_timestep, camera.end_timestep = 0, 2
+    camera.rectification = None
+    sensor = torch.zeros(16, 32, dtype=torch.uint8)
+    sensor[0, 0] = 255
+    body = torch.zeros_like(sensor)
+    body[12:] = 255
+    (tmp_path / "ego_masks").mkdir()
+    Image.fromarray(body.numpy()).save(tmp_path / "ego_masks" / "front.png")
+    camera._read = lambda path, mask: body if path.parent.name == "ego_masks" else sensor
+    camera.load_egocar_mask()
+    assert camera.invalid_masks[:, 0, 0].all() and camera.invalid_masks[:, 15, 5].all()
+    (tmp_path / "ego_masks" / "front.png").unlink()
+    set_state(tmp_path, "front", "none")
+    camera.load_egocar_mask()
+    assert camera.invalid_masks[:, 0, 0].all() and not camera.invalid_masks[:, 15, 5].any()

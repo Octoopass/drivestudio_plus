@@ -67,6 +67,7 @@ from drive2sim.engine.registry import REGISTRY, StageRegistry
 from drive2sim.engine.resolve import Plan, ResolveError, validate_params, wire_inputs
 from drive2sim.engine.stage import SCENE_INPUT, Scene, StageCancelledError
 from drive2sim.engine.workdir import KAGGLE_SCENE_FILE, Workdir, WorkdirError
+from drive2sim.ingest.ego_masks import mask_digest, snapshot_masks
 
 D2S_DIR = "d2s"
 RUN_FILE = "run.json"
@@ -292,6 +293,9 @@ def create_run(
         schema_version=SCHEMA_VERSIONS["run"],
         run_id=run_id,
         scene_id=scene.scene_id,
+        scene_mask_digest=snapshot_masks(
+            scene.root, scene.manifest, run_dir / D2S_DIR / "scene_masks"
+        ),
         split_id=split.split_id,
         approach=RunApproach(
             approach_id=plan.approach_id,
@@ -336,7 +340,11 @@ def plan_cache_keys(
         for source in stage.input_sources.values():
             if source == SCENE_INPUT:
                 input_keys.append(
-                    input_key_for_scene(scene.scene_id, scene.manifest.source.converter_version)
+                    input_key_for_scene(
+                        scene.scene_id,
+                        scene.manifest.source.converter_version,
+                        mask_digest(scene.root, scene.manifest),
+                    )
                 )
             elif isinstance(source, int):
                 input_keys.append(keys[source])
@@ -486,6 +494,20 @@ class _Runner:
         """Đọc cảnh và split của run sau khi dataclass gán xong các trường."""
         self.scene = self.workdir.load_scene(self.record.scene_id)
         self.split = self.workdir.load_split(self.record.scene_id, self.record.split_id)
+        if self.record.scene_mask_digest is not None:
+            from drive2sim.stages.scene_view import build_view
+
+            masks = self.run_dir / D2S_DIR / "scene_masks"
+            if not masks.is_dir():
+                raise ValueError("run thiếu bản chụp mask d2s/scene_masks")
+            view = build_view(
+                self.scene.root,
+                self.workdir.root / ".runtime" / self.record.run_id / "scene_view",
+                extra={"ego_masks": masks},
+            )
+            if mask_digest(view, self.scene.manifest) != self.record.scene_mask_digest:
+                raise ValueError("bản chụp mask không khớp scene_mask_digest của run")
+            self.scene = Scene(self.scene.scene_id, view, self.scene.manifest)
 
     def save(self) -> None:
         """Ghi ``record`` hiện tại ra ``d2s/run.json`` để Studio và CLI đọc được trạng thái mới."""
@@ -519,7 +541,9 @@ class _Runner:
         """
         if kind == SCENE_INPUT:
             return input_key_for_scene(
-                self.scene.scene_id, self.scene.manifest.source.converter_version
+                self.scene.scene_id,
+                self.scene.manifest.source.converter_version,
+                self.record.scene_mask_digest,
             )
         return input_key_for_split(self.split.split_id, self.split if split_content_key else None)
 

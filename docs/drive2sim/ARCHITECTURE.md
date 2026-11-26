@@ -1040,3 +1040,18 @@ metric cũ thiếu dấu protocol tiếp tục dùng nhãn `ncore-0.3`.
 
 **Nhược điểm.** Bộ kiểm thử local xác nhận các đường dữ liệu và tương thích; train XSIM, MCGS,
 NuRec và kết nối CARLA trên GPU thật còn cần chạy xác minh riêng.
+
+
+### Snapshot mask theo run (26/11/2026)
+
+**Quyết định.** Giữ resolver, digest và snapshot trong `ingest/ego_masks.py`; engine lưu
+`scene_mask_digest` vào `d2s-run/0.4`, dựng cảnh ảo ở `.runtime/<run_id>/scene_view/000/` với
+mask trong `d2s/scene_masks/`. Gói Kaggle/Colab mang snapshot qua `scene_ref.json` base64.
+`prep.ncore` truyền mask chính thức qua converter và cùng rectifier của ảnh. Loader dùng file
+cảnh, xác nhận none, rồi asset; mask cảm biến theo khung vẫn được giữ. Cây mã mục 3/3.1 không đổi.
+
+**Ưu điểm.** Cache đổi theo mask thật; resume giữ dữ liệu lúc tạo run, không phải upload lại
+cảnh lớn khi chỉ sửa mask. Xoá cache thủ công không giải quyết tính nhất quán của remote/resume.
+**Nhược điểm.** Mỗi run thêm vài PNG; base64 tăng dung lượng khoảng một phần ba. Cache khoá cũ
+không dùng cho run mới, run cũ thiếu snapshot dùng cảnh hiện tại. Chưa đo tổng dung lượng.
+**Tiến độ (mục 7.1).** Đã có code và test local cho snapshot/cache/remote; chưa chạy cloud thật.

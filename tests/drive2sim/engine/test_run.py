@@ -166,7 +166,9 @@ def test_run_succeeds_and_writes_contracts_files(workdir: Workdir) -> None:
     artifact = files.load(init_dir / "artifact.json", ArtifactRecord)
     assert artifact.artifact_type == "points_init"
     assert artifact.files == ["points_init.npz"]
-    assert artifact.inputs == [f"scene:{MANIFEST['scene_id']}@0.1.0+test"]
+    assert artifact.inputs == [
+        f"scene:{MANIFEST['scene_id']}@0.1.0+test:masks-{record.scene_mask_digest}"
+    ]
 
     train_dir = run_dir / "d2s" / "stages" / "train.toy"
     assert (train_dir / "done").is_file()
@@ -191,7 +193,7 @@ def test_quick_flag_written_to_run_json(workdir: Workdir) -> None:
     run_dir = create_run(plan, workdir, scene, split)
     record = files.load(run_dir / "d2s" / "run.json", RunRecord)
     assert record.approach.quick is True
-    assert record.schema_version == "d2s-run/0.3"
+    assert record.schema_version == "d2s-run/0.4"
 
 
 def test_cache_shared_between_runs(workdir: Workdir) -> None:
@@ -555,3 +557,53 @@ def test_summary_skips_auxiliary_eval_without_summary(workdir: Workdir) -> None:
     native.parent.mkdir(parents=True)
     native.write_text("{}")
     assert summary_path(run_dir) == native
+
+
+def test_saved_mask_changes_cache_and_runs_keep_their_snapshot(workdir: Workdir) -> None:
+    from drive2sim.engine.run import plan_cache_keys
+
+    registry = make_registry()
+    scene = workdir.load_scene(MANIFEST["scene_id"])
+    split = workdir.load_split(scene.scene_id, SPLIT["split_id"])
+    masks = scene.root / "ego_masks"
+    masks.mkdir()
+    mask = masks / f"{scene.manifest.cameras[0].camera_id}.png"
+    mask.write_bytes(b"first mask")
+    plan = resolve(Approach.model_validate(APPROACH), scene.manifest, split, registry=registry)
+    preview = plan_cache_keys(plan, scene, split, registry)
+    first = new_run(workdir, registry)
+    mask.write_bytes(b"second mask")
+    second = new_run(workdir, registry)
+    old = execute_run(first, workdir, registry)
+    new = execute_run(second, workdir, registry)
+    assert old.status == new.status == "succeeded"
+    assert old.stages[0].cache_key == preview[0]
+    assert old.stages[0].cache_key != new.stages[0].cache_key
+    assert old.scene_mask_digest != new.scene_mask_digest
+    assert (first / "d2s" / "scene_masks" / mask.name).read_bytes() == b"first mask"
+    assert (
+        workdir.root / ".runtime" / old.run_id / "scene_view" / "000" / "ego_masks" / mask.name
+    ).read_bytes() == b"first mask"
+
+
+def test_remote_bundle_carries_masks_even_when_scene_dataset_is_old(
+    workdir: Workdir, tmp_path: Path
+) -> None:
+    from drive2sim.ingest.ego_masks import mask_digest
+    from drive2sim.kaggle.bundle import materialize, write_bundle
+
+    registry = make_registry()
+    scene = workdir.load_scene(MANIFEST["scene_id"])
+    (scene.root / "ego_masks").mkdir()
+    name = scene.manifest.cameras[0].camera_id + ".png"
+    (scene.root / "ego_masks" / name).write_bytes(b"local correction")
+    run = new_run(workdir, registry)
+    bundle = write_bundle(run, workdir, "alice/old-dataset")
+    (scene.root / "ego_masks" / name).write_bytes(b"old dataset mask")
+    remote = Workdir(tmp_path / "remote")
+    target = materialize(bundle, remote, workdir.data_dir)
+    assert (target / "d2s" / "scene_masks" / name).read_bytes() == b"local correction"
+    record = execute_run(target, remote, registry)
+    assert record.status == "succeeded"
+    view = remote.root / ".runtime" / record.run_id / "scene_view" / "000"
+    assert mask_digest(view, scene.manifest) == record.scene_mask_digest

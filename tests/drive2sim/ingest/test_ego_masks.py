@@ -62,3 +62,42 @@ def test_unused_data_is_reported(tmp_path: Path) -> None:
     text = " ".join(report.notes)
     assert "1 file .mp4" in text and "1 file .webm" in text and "radar: 1 thư mục" in text
     assert "ffmpeg" in text  # chỉ có video: hướng dẫn tách khung
+
+
+def test_effective_mask_priority_and_snapshot_freeze(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scene = tmp_path / "scene"
+    asset = tmp_path / "asset.png"
+    asset.write_bytes(b"default")
+    monkeypatch.setattr(ego_masks, "tool_asset", lambda *args: asset)
+    item = manifest("custom", ["front"])
+    before = ego_masks.mask_digest(scene, item)
+    snapshot = tmp_path / "snapshot"
+    assert ego_masks.snapshot_masks(scene, item, snapshot) == before
+    assert (snapshot / "front.png").read_bytes() == b"default"
+    ego_masks.set_state(scene, "front", "none")
+    assert ego_masks.effective_mask(scene, "custom", "front", 0) is None
+    assert ego_masks.mask_digest(scene, item) != before
+    official = scene / "ego_masks" / "front.png"
+    official.write_bytes(b"edited")
+    assert ego_masks.effective_mask(scene, "custom", "front", 0) == official
+    digest = ego_masks.mask_digest(scene, item)
+    (scene / "reports").mkdir()
+    (scene / "reports" / "draft_front.png").write_bytes(b"unsaved")
+    assert ego_masks.mask_digest(scene, item) == digest
+    assert (snapshot / "front.png").read_bytes() == b"default"
+
+
+def test_empty_snapshot_suppresses_future_asset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ego_masks, "tool_asset", lambda *args: None)
+    item = manifest("custom", ["front"])
+    snapshot = tmp_path / "view" / "ego_masks"
+    digest = ego_masks.snapshot_masks(tmp_path / "scene", item, snapshot)
+    asset = tmp_path / "asset.png"
+    asset.write_bytes(b"added later")
+    monkeypatch.setattr(ego_masks, "tool_asset", lambda *args: asset)
+    assert ego_masks.effective_mask(snapshot.parent, "custom", "front", 0) is None
+    assert ego_masks.mask_digest(snapshot.parent, item) == digest

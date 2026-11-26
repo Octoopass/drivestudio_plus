@@ -736,6 +736,7 @@ def test_rerun_resets_stage_only_after_copying_previous_output(
             run_id=RUN_ID,
             scene_id=SCENE,
             split_id="s",
+            scene_mask_digest=None,
             approach=__import__("types").SimpleNamespace(approach_id="omnire"),
         ),
     )
