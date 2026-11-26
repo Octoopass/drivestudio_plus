@@ -6,6 +6,7 @@ export type Name = string;
 export type Version = string;
 export type Codebase = string;
 export type Level = "L1" | "L2" | "L3" | "L4";
+export type Kind = "per_scene" | "feed_forward" | "slam";
 /**
  * @minItems 1
  */
@@ -52,6 +53,9 @@ export type Stage = string;
  *     version: Phiên bản của file approach.
  *     codebase: ``drivestudio`` (trainer DriveStudio, môi trường chính) hoặc ``external:<tên>``.
  *     level: Mức năng lực cao nhất đạt được, ``L1``–``L4``.
+ *     kind: Loại phương pháp (``ApproachKind``); Studio chia danh sách approach theo nhóm
+ *         này. Thêm sau ``d2s-approach/0.3`` mà không tăng phiên bản (không bắt buộc, mặc
+ *         định ``per_scene``).
  *     requires: Điều kiện dữ liệu. Track (pinhole, fisheye) của approach và của từng preset suy
  *         ra từ mô hình camera nhận được (``CAMERA_TRACK``), không ghi riêng; file ``0.1``,
  *         ``0.2`` có trường ``track`` thì trường đó được bỏ qua.
@@ -73,6 +77,7 @@ export interface Approach {
   version: Version;
   codebase: Codebase;
   level: Level;
+  kind?: Kind;
   requires: Requires;
   options?: Options;
   constraints?: Constraints;

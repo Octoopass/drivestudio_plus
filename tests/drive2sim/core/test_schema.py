@@ -64,6 +64,26 @@ def test_approach_ok() -> None:
     assert approach.options["campose"].choices == [False, True]
 
 
+def test_approach_kind_defaults_to_per_scene_and_rejects_unknown_values() -> None:
+    assert Approach.model_validate(APPROACH).kind == "per_scene"
+    slam = Approach.model_validate(modified(APPROACH, lambda d: d.update(kind="slam")))
+    assert slam.kind == "slam"
+    with pytest.raises(ValidationError):
+        Approach.model_validate(modified(APPROACH, lambda d: d.update(kind="magic")))
+
+
+def test_shipped_approaches_declare_their_kind() -> None:
+    """Mỗi approach của tool khai báo ``kind`` trong file: Studio nhóm theo đó."""
+    from drive2sim.engine.approaches import list_approach_ids, load_approach
+
+    expected = {"nurec": "feed_forward", "mcgs": "slam"}
+    for approach_id in list_approach_ids():
+        approach = load_approach(approach_id)
+        assert approach.kind == expected.get(approach_id, "per_scene"), approach_id
+    ids = set(list_approach_ids())
+    assert set(expected) <= ids and len(ids) >= 7
+
+
 def test_approach_retired_options() -> None:
     retired = {
         "densify": {"choices": ["default", "mcmc"], "default": "default", "label": "Densify"}

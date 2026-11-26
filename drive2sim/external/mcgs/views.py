@@ -23,11 +23,10 @@ from typing import Optional
 
 import numpy as np
 
-from drive2sim.external.mcgs import POSE_SCALE
+from drive2sim.external.mcgs import PINHOLE_MODELS, POSE_SCALE
 from drive2sim.external.mcgs.align import ate_rmse, match_by_time, read_tum
 
 FISHEYE_MODELS = ("opencv_fisheye",)
-PINHOLE_MODELS = ("opencv_pinhole", "ideal_pinhole")
 # Dataset có ego_pose/<khung>.txt và extrinsics/<chỉ số>.txt (camera → ego, trục OpenCV): đọc trực
 # tiếp, không cần nạp PyTorch.
 DIRECT_POSE_DATASETS = ("kitti", "kitti360")

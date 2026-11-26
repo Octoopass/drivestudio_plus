@@ -53,6 +53,10 @@ CAMERA_TRACK: dict[str, str] = {
     "ftheta": "fisheye",
 }
 Level = Literal["L1", "L2", "L3", "L4"]
+# Loại phương pháp của approach, để Studio chia nhóm: ``per_scene`` train riêng cho từng cảnh,
+# ``feed_forward`` suy ra cảnh bằng một lần chạy model đã học sẵn, ``slam`` vừa ước lượng pose
+# camera vừa dựng bản đồ.
+ApproachKind = Literal["per_scene", "feed_forward", "slam"]
 Dataset = Literal[
     "waymo",
     "nuscenes",
@@ -74,6 +78,7 @@ ArtifactType = Literal[
     "masks",
     "smpl",
     "ncore_clip",
+    "mcgs_input",
     "depth_prior",
     "points_init",
     "model",
@@ -112,13 +117,13 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "approach": "d2s-approach/0.3",
     "artifact": "d2s-artifact/0.2",
     "run": "d2s-run/0.3",
-    "summary": "d2s-summary/0.7",
+    "summary": "d2s-summary/0.8",
     "env": "d2s-env/0.3",
     "preview": "d2s-preview/0.2",
     "job": "d2s-job/0.1",
     "result": "d2s-result/0.1",
     "benchmark": "d2s-benchmark/0.2",
-    "benchresult": "d2s-benchresult/0.2",
+    "benchresult": "d2s-benchresult/0.3",
 }
 
 OPTION_REFERENCE_RE = re.compile(r"^\$\{options\.([a-z][a-z0-9_]*)\}$")
@@ -811,6 +816,9 @@ class Approach(VersionedFile):
         version: Phiên bản của file approach.
         codebase: ``drivestudio`` (trainer DriveStudio, môi trường chính) hoặc ``external:<tên>``.
         level: Mức năng lực cao nhất đạt được, ``L1``–``L4``.
+        kind: Loại phương pháp (``ApproachKind``); Studio chia danh sách approach theo nhóm
+            này. Thêm sau ``d2s-approach/0.3`` mà không tăng phiên bản (không bắt buộc, mặc
+            định ``per_scene``).
         requires: Điều kiện dữ liệu. Track (pinhole, fisheye) của approach và của từng preset suy
             ra từ mô hình camera nhận được (``CAMERA_TRACK``), không ghi riêng; file ``0.1``,
             ``0.2`` có trường ``track`` thì trường đó được bỏ qua.
@@ -832,6 +840,7 @@ class Approach(VersionedFile):
     version: Version
     codebase: str
     level: Level
+    kind: ApproachKind = "per_scene"
     requires: Requires
     options: dict[str, OptionSpec] = {}
     constraints: list[Constraint] = []
@@ -1258,6 +1267,10 @@ class Summary(VersionedFile):
         shifted: Metric trên camera chỉ test (R2, thêm từ ``d2s-summary/0.7``, protocol 0.5); để
             trống nếu split không có camera chỉ test. Khi có, ``overall`` chỉ tính trên các ảnh
             test của camera đã train.
+        coverage: Tỉ lệ điểm ảnh được chấm, trung bình trên mọi view test, trong [0, 1] (thêm từ
+            ``d2s-summary/0.8``). Chỉ ``eval.ncore`` và ``eval.mcgs`` điền: hai stage này chỉ chấm
+            điểm ảnh ngoài mask thân xe và có alpha > 0,9, nên PSNR của chúng đo trên phần ảnh nhỏ
+            hơn ``eval.standard``; ``eval.standard`` đo trên mọi điểm hợp lệ nên để trống.
     """
 
     FILE_KIND: ClassVar[str] = "summary"
@@ -1275,6 +1288,7 @@ class Summary(VersionedFile):
     eval_time_s: Optional[float] = Field(default=None, ge=0)
     depth: Optional[DepthMetrics] = None
     shifted: Optional[ShiftedMetrics] = None
+    coverage: Optional[float] = Field(default=None, ge=0, le=1)
 
 
 class Machine(StrictModel):
@@ -1584,6 +1598,8 @@ class BenchmarkRunRow(StrictModel):
         bad_segments: Các đoạn đường hỏng (R7) theo nhóm camera, khoá ``pinhole`` hoặc ``fisheye``
             (chỉ nhóm có ảnh test); chỉ tính trên camera đã train. Rỗng nếu không đo được.
         frames_measured: Số cặp (khung, camera đã train) có metric từng ảnh; 0 nếu run chưa có.
+        coverage: Tỉ lệ điểm ảnh được chấm (``Summary.coverage``, thêm từ ``d2s-benchresult/0.3``);
+            để trống nếu stage đánh giá không ghi (``eval.standard``).
     """
 
     run_id: str
@@ -1617,6 +1633,7 @@ class BenchmarkRunRow(StrictModel):
     ate_rmse_m: Optional[float] = None
     bad_segments: dict[str, list[BadSegment]] = {}
     frames_measured: int = Field(default=0, ge=0)
+    coverage: Optional[float] = Field(default=None, ge=0, le=1)
 
     @field_validator("bad_segments", mode="before")
     @classmethod

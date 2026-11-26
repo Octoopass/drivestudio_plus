@@ -80,9 +80,14 @@ def _distance_by_frame(frames: Sequence[dict]) -> dict[int, tuple[float, float]]
     Vị trí của khung là trung bình vị trí camera của các ảnh test cùng khung. Quãng đường là độ
     dài đường gấp khúc qua các khung test theo thứ tự chỉ số khung, nên thiếu phần đường giữa hai
     khung test liền nhau (giữa chúng là khung train).
+
+    Ảnh có ``psnr`` là ``None`` (view không có điểm ảnh hợp lệ nào để chấm) bị bỏ: không có số
+    đo thì không đưa vào trung bình, trung vị hay quãng đường.
     """
     by_frame: dict[int, list[dict]] = {}
     for record in frames:
+        if record["psnr"] is None:
+            continue
         by_frame.setdefault(int(record["frame_index"]), []).append(record)
     result: dict[int, tuple[float, float]] = {}
     previous: Optional[list[float]] = None
@@ -486,7 +491,10 @@ def build_row(
         bad_segments=bad_segments_by_group(
             frames, context.fisheye_indices, context.test_only_indices
         ),
-        frames_measured=len({(r["frame_index"], r["camera_index"]) for r in trained}),
+        frames_measured=len(
+            {(r["frame_index"], r["camera_index"]) for r in trained if r["psnr"] is not None}
+        ),
+        coverage=summary.coverage if summary else None,
     )
 
 
