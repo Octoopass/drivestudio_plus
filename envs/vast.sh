@@ -149,8 +149,10 @@ cmd_wave() {
   # Benchmark tuần 04 (docs/experiments/benchmark_week04.md): queue của setup_benchmark_week04 ghi
   # hàng đợi trên máy thuê (cần cảnh đã ingest ở đó để biết số chunk), rồi bench_queue.sh chạy nền.
   local wave="${1:?cần số đợt 1, 2 hoặc 3}"; shift
-  local opts gpus=""
-  opts="$(printf '%q ' "$@")"
+  local opts="" gpus=""
+  # Không có tham số thì để opts rỗng: printf '%q ' không đối số in ra '' (một đối số rỗng), và
+  # setup_benchmark_week04.py từ chối nó ("unrecognized arguments").
+  [ $# -gt 0 ] && opts="$(printf '%q ' "$@")"
   [ -n "${BENCH_GPUS:-}" ] && gpus="--gpus $(printf '%q' "$BENCH_GPUS")"
   remote "mkdir -p logs benchmarks/queues &&
     python -m drive2sim.scripts.setup_benchmark_week04 queue --wave $wave $opts --out benchmarks/queues/wave$wave.tsv &&
