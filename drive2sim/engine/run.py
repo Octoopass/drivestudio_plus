@@ -946,11 +946,18 @@ def summary_path(run_dir: Path, record: Optional[RunRecord] = None) -> Optional[
     if record is None and record_path.is_file():
         record = files.load(record_path, RunRecord)
     if record and record.stages:
-        for stage in reversed(record.stages):
-            if stage.stage_id.startswith("eval.") and stage.status == "succeeded":
-                return directory / "stages" / stage.stage_id / "summary.json"
-        return None
-    return directory / "stages" / "eval.standard" / "summary.json"
+        candidates = [
+            directory / "stages" / stage.stage_id / "summary.json"
+            for stage in reversed(record.stages)
+            if stage.stage_id.startswith("eval.") and stage.status == "succeeded"
+        ]
+        # Một stage đánh giá bổ sung có thể chỉ ghi báo cáo riêng, như export gap.
+        # Chọn summary đã tồn tại trước, giữ đường dẫn dự kiến khi chưa có file nào.
+        return next((path for path in candidates if path.is_file()), next(iter(candidates), None))
+    default = directory / "stages" / "eval.standard" / "summary.json"
+    if default.is_file():
+        return default
+    return next(iter(sorted((directory / "stages").glob("eval.*/summary.json"))), default)
 
 
 def load_summary(run_dir: Path, record: Optional[RunRecord] = None) -> Optional[Summary]:

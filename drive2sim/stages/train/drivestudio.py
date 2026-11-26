@@ -108,6 +108,8 @@ METHOD_CONFIG = "method_config.yaml"
 # 83 độ, vùng trong không đổi; run 3DGEER che tới 96 độ có opacity 0 ở mọi pixel ngoài 90 độ
 # (docs/datasets/kitti360.md mục 5.1).
 RENDERER_MAX_ANGLE = 1.536
+# Method khởi tạo được khi không dùng LiDAR để train (không node nào lấy điểm từ box).
+LIDAR_FREE_METHODS = ("pvg", "deformablegs")
 # Renderer vẽ được camera mắt cá (3DGS chỉ vẽ pinhole).
 FISHEYE_RENDERERS = ("3dgut", "3dgeer")
 
@@ -165,6 +167,12 @@ class TrainDrivestudioParams(BaseModel):
         eval_at: Các bước đo chất lượng test giữa chừng (``logging.eval_at``): ngay tại bước đó
             train.py đo PSNR, SSIM, LPIPS (cùng protocol với lần đánh giá cuối, không video) và số
             Gaussian, ghi ``metrics_steps/test_<bước>.json``. Bỏ trống: nửa số bước; ``[]``: tắt.
+        lidar: Có dùng LiDAR để train không. ``False`` là ô A-0 của benchmark (không LiDAR, không
+            box): nền khởi tạo chỉ từ điểm ngẫu nhiên (bỏ ``model.Background.init.from_lidar``), bỏ
+            loss depth so với LiDAR, và vùng cảnh (aabb) tính từ vị trí camera thay vì từ LiDAR
+            (``data.lidar_source.aabb_from_cameras``). LiDAR vẫn được nạp để đo depth lúc đánh giá
+            (CONTRACTS mục 6.3), nên cảnh phải có LiDAR. Chỉ có cho ``pvg`` và ``deformablegs``:
+            OmniRe, Street GS khởi tạo xe và người từ điểm LiDAR trong box.
         preload_device: Nơi giữ ảnh, mask, lidar đã nạp (``data.preload_device``). Mặc định
             ``cpu``: mỗi bước chỉ chuyển ảnh đang dùng lên GPU (train.py đã làm), nên tiết kiệm vài
             GB GPU mà kết quả như ``cuda``. OmniRe 3 camera trên T4 16 GB hết bộ nhớ ở bước ~8800
@@ -193,6 +201,7 @@ class TrainDrivestudioParams(BaseModel):
     keep_step_checkpoints: bool = False
     eval_at: Optional[list[int]] = None
     extended_cam: bool = False
+    lidar: bool = True
 
     @field_validator("profile_at", mode="before")
     @classmethod
@@ -208,6 +217,11 @@ class TrainDrivestudioParams(BaseModel):
             ValueError: Nếu chưa có file config cho tổ hợp này (thông báo liệt kê các tổ hợp có),
                 hoặc file config và các tầng ``extends`` của nó không đọc được.
         """
+        if not self.lidar and self.method not in LIDAR_FREE_METHODS:
+            raise ValueError(
+                f"lidar=False chỉ có cho {', '.join(LIDAR_FREE_METHODS)}: method {self.method} "
+                "khởi tạo xe và người từ điểm LiDAR trong box"
+            )
         if self.extended_cam and self.config_key != EXTENDED_CAM_KEY:
             raise ValueError(
                 "extended_cam chỉ có cho OmniRe, renderer 3dgs, bật CamPose, tắt FastGS và "
@@ -407,6 +421,13 @@ def build_command(
         "data.pixel_source.test_image_stride": stride,
         "data.preload_device": params.preload_device,
     }
+    if split.test_only_cameras:
+        # DriveStudio đánh số camera chỉ test theo vị trí trong data.pixel_source.cameras (chính là
+        # thứ tự split.cameras), không theo chỉ số trong manifest. Chỉ đặt khi có camera chỉ test
+        # để cache key của run cũ không đổi.
+        options["data.pixel_source.test_only_cameras"] = [
+            split.cameras.index(camera_id) for camera_id in split.test_only_cameras
+        ]
     if not has_sky_masks:
         options["data.pixel_source.load_sky_mask"] = False
     if not has_smpl:
@@ -437,6 +458,8 @@ def build_command(
         options["trainer.mcmc.enabled"] = True
     if params.densify_stats:
         options["trainer.densify_stats.enabled"] = True
+    if not params.lidar:
+        options["data.lidar_source.aabb_from_cameras"] = True
     if params.keep_step_checkpoints:
         options["logging.keep_step_checkpoints"] = True
     if params.eval_at is not None:
@@ -467,7 +490,13 @@ def write_method_config(params: TrainDrivestudioParams, output_dir: Path) -> Pat
         Đường dẫn ``method_config.yaml`` vừa ghi.
     """
     path = output_dir / METHOD_CONFIG
-    text = yaml.safe_dump(load_config(params.config_file), sort_keys=False, allow_unicode=True)
+    config = load_config(params.config_file)
+    if not params.lidar:
+        # A-0: không khởi tạo nền từ LiDAR và không có loss depth so với LiDAR; giữ near/far
+        # randoms. inverse_depth_smoothness không dùng LiDAR nên giữ nguyên.
+        config["model"]["Background"]["init"].pop("from_lidar", None)
+        config["trainer"]["losses"].pop("depth", None)
+    text = yaml.safe_dump(config, sort_keys=False, allow_unicode=True)
     path.write_text(text, encoding="utf-8")
     return path
 
@@ -481,12 +510,13 @@ class TrainDrivestudioStage(Stage):
     thư mục log của DriveStudio, chứa ``checkpoint_final.pth``.
     """
 
-    version: ClassVar[str] = "0.1.0"
+    version: ClassVar[str] = "0.3.0"
     cacheable: ClassVar[bool] = False
     # Mọi config OmniRe, Street GS hiện có khởi tạo Gaussian từ LiDAR: nền từ điểm LiDAR
     # (model.Background.init.from_lidar), xe và người từ điểm LiDAR trong box. Cảnh không có
-    # LiDAR thì train dừng ở bước khởi tạo, nên engine khoá approach ngay từ lúc chọn. Approach
-    # hoặc preset không cần LiDAR (sau này) sẽ dùng stage hoặc tham số khác.
+    # LiDAR thì train dừng ở bước khởi tạo, nên engine khoá approach ngay từ lúc chọn, kể cả khi
+    # ``lidar=False`` (LiDAR vẫn được nạp để đo depth). ``lidar_used`` báo run ``lidar=False``
+    # không dùng LiDAR để train, để ``lidar_usage`` của run.json rỗng.
     uses_lidar: ClassVar[bool] = True
     inputs: ClassVar[dict[str, str]] = {
         "scene": "scene",
@@ -497,6 +527,11 @@ class TrainDrivestudioStage(Stage):
     optional_inputs: ClassVar[frozenset[str]] = frozenset({"masks", "smpl"})
     outputs: ClassVar[dict[str, str]] = {"model": "model"}
     Params: ClassVar[type[BaseModel]] = TrainDrivestudioParams
+
+    @classmethod
+    def lidar_used(cls, params: dict[str, object]) -> bool:
+        """``False`` khi run đặt ``lidar=False`` (ô A-0); còn lại dùng LiDAR để train."""
+        return bool(params.get("lidar", True))
 
     def run(
         self, ctx: StageContext, inputs: dict[str, Path], params: BaseModel

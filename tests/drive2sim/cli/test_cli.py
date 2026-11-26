@@ -188,6 +188,35 @@ def test_split_create_list_show(workdir: Path, capsys: pytest.CaptureFixture) ->
     assert code == 2 and "CAM_X" in data["error"]["message"]
 
 
+def test_split_create_with_test_only_camera(workdir: Path, capsys: pytest.CaptureFixture) -> None:
+    code, data = run_json(
+        capsys,
+        "split",
+        "create",
+        SCENE,
+        "--strategy",
+        "every_nth_frame:4",
+        "--test-only-cameras",
+        "CAM_FISH",
+    )
+    assert code == 0
+    assert data["test_only_cameras"] == ["CAM_FISH"]
+    assert all(camera == "CAM_FRONT" for _, camera in data["train"])
+    code, data = run_json(
+        capsys,
+        "split",
+        "create",
+        SCENE,
+        "--strategy",
+        "every_nth_frame:4",
+        "--split",
+        "bad_one",
+        "--test-only-cameras",
+        "CAM_X",
+    )
+    assert code == 2 and "CAM_X" in data["error"]["message"]
+
+
 @pytest.fixture()
 def split_id(workdir: Path) -> str:
     assert (
@@ -289,6 +318,7 @@ def test_exit_codes(workdir: Path, split_id: str, capsys: pytest.CaptureFixture)
         "eval.standard",
         "export.ply_world",
         "export.preview",
+        "eval.ply",
     ]
     code, data = run_json(capsys, "approach", "check", "omnire", *base, "--quick")
     assert code == 0 and data["quick"] is True

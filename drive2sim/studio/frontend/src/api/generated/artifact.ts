@@ -7,6 +7,7 @@ export type ArtifactType =
   | "smpl"
   | "ncore_clip"
   | "observations"
+  | "mcgs_input"
   | "depth_prior"
   | "points_init"
   | "model"

@@ -11,6 +11,7 @@ name: "BezierGS"
 version: 0.1.0
 codebase: drivestudio
 level: L1
+kind: per_scene
 requires:
   camera_models: [opencv_pinhole]
   cuboids: required
@@ -25,3 +26,4 @@ stages:
       campose: false
   - {stage: eval.standard}
   - {stage: export.ply_world}
+  - {stage: eval.ply}

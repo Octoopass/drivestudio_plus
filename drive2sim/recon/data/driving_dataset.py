@@ -13,6 +13,7 @@ from drive2sim.recon.models.gaussians.basics import *
 from drive2sim.recon.data.base.scene_dataset import ModelType
 from drive2sim.recon.data.base.scene_dataset import SceneDataset
 from drive2sim.recon.data.base.split_wrapper import SplitWrapper
+from drive2sim.recon.data.split_indices import split_indices
 from drive2sim.recon.utils.visualization import get_layout
 from drive2sim.recon.utils.geometry import nearest_depth_map, transform_points
 from drive2sim.recon.utils.camera import get_interp_novel_trajectories
@@ -611,18 +612,18 @@ class DrivingDataset(SceneDataset):
         return valid_mask
 
     def split_train_test(self):
-        if self.data_cfg.pixel_source.test_image_stride != 0:
-            test_timesteps = np.arange(
-                # it makes no sense to have test timesteps before the start timestep
-                self.data_cfg.pixel_source.test_image_stride,
-                self.num_img_timesteps,
-                self.data_cfg.pixel_source.test_image_stride,
-            )
-        else:
-            test_timesteps = []
-        train_timesteps = np.array(
-            [i for i in range(self.num_img_timesteps) if i not in test_timesteps]
+        # drive2sim: the rule lives in split_indices (pure Python, unit-tested) so that cameras
+        # listed in data.pixel_source.test_only_cameras (positions in pixel_source.cameras) never
+        # enter train_indices; without that option the result equals the original DriveStudio rule.
+        train_timesteps, test_timesteps, train_indices, test_indices = split_indices(
+            self.num_img_timesteps,
+            self.pixel_source.num_cams,
+            self.data_cfg.pixel_source.test_image_stride,
+            list(self.data_cfg.pixel_source.get("test_only_cameras", [])),
         )
+        # integer arrays: they index np.arange(...) below and stay indexable when empty
+        train_timesteps = np.array(train_timesteps, dtype=int)
+        test_timesteps = np.array(test_timesteps, dtype=int)
         logger.info(
             f"Train timesteps: \n{np.arange(self.start_timestep, self.end_timestep)[train_timesteps]}"
         )
@@ -630,15 +631,6 @@ class DrivingDataset(SceneDataset):
             f"Test timesteps: \n{np.arange(self.start_timestep, self.end_timestep)[test_timesteps]}"
         )
 
-        # propagate the train and test timesteps to the train and test indices
-        train_indices, test_indices = [], []
-        for t in range(self.num_img_timesteps):
-            if t in train_timesteps:
-                for cam in range(self.pixel_source.num_cams):
-                    train_indices.append(t * self.pixel_source.num_cams + cam)
-            elif t in test_timesteps:
-                for cam in range(self.pixel_source.num_cams):
-                    test_indices.append(t * self.pixel_source.num_cams + cam)
         logger.info(f"Number of train indices: {len(train_indices)}")
         logger.info(f"Train indices: {train_indices}")
         logger.info(f"Number of test indices: {len(test_indices)}")
@@ -657,7 +649,16 @@ class DrivingDataset(SceneDataset):
             delete_out_of_view_points: bool
                 If True, the lidar points that are not visible from the camera will be removed.
         """
-        for cam in self.pixel_source.camera_data.values():
+        # drive2sim: cameras in data.pixel_source.test_only_cameras (positions in
+        # pixel_source.cameras) are held out for evaluation. They still get a LiDAR depth map
+        # (depth metrics need it), but neither their pixels colour the LiDAR points nor their view
+        # decides which points are kept, so no test-only image leaks into the initial point cloud.
+        test_only_positions = set(self.data_cfg.pixel_source.get("test_only_cameras", []))
+        camera_position = {
+            cam_id: position for position, cam_id in enumerate(self.pixel_source.camera_list)
+        }
+        for cam_id, cam in self.pixel_source.camera_data.items():
+            is_test_only = camera_position[cam_id] in test_only_positions
             lidar_depth_maps = []
             for frame_idx in tqdm(
                 range(len(cam)), 
@@ -719,7 +720,9 @@ class DrivingDataset(SceneDataset):
                     _cam_points, depth.squeeze(-1), cam.HEIGHT, cam.WIDTH
                 ).to(self.device)
                 lidar_depth_maps.append(depth_map)
-                
+                if is_test_only:
+                    continue
+
                 # used to filter out the lidar points that are visible from the camera
                 visible_indices = torch.arange(
                     self.lidar_source.num_points, device=self.device

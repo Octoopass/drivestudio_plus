@@ -1,0 +1,44 @@
+# Approach MCGS-SLAM: SLAM đa camera dùng 3D Gaussian Splatting (Cao và cộng sự, ICRA 2026), chạy
+# trong môi trường riêng (drive2sim/external/mcgs, cài bằng envs/install_mcgs.sh). Vừa ước lượng pose
+# camera, vừa dựng bản đồ Gaussian; chỉ nhận camera pinhole và cần ít nhất hai camera (cặp stereo).
+# Định dạng file: CONTRACTS mục 4.1.
+#
+# Đường dữ liệu: prep.mcgs xuất ảnh pinhole của split (bỏ khung test) và calib.yml, train.mcgs chạy
+# demo.py, eval.mcgs căn quỹ đạo vào pose thật rồi vẽ bản đồ ở các khung test bằng gsplat và chấm.
+# Không có stage xuất .ply: bản đồ nằm trong hệ riêng của SLAM, nên yêu cầu R3 "không áp dụng".
+schema_version: d2s-approach/0.3
+approach_id: mcgs
+name: "MCGS-SLAM"
+version: 0.1.0
+codebase: external:mcgs
+level: L1
+kind: slam
+requires:
+  camera_models: [opencv_pinhole, ideal_pinhole]
+  cuboids: none
+  split_strategies: [every_nth_frame]
+
+groups:
+  core:
+    label: "Chế độ"
+    help: "Mức tối ưu độ sâu và pose của MCGS-SLAM."
+
+options:
+  mode:
+    choices: [full, prgbd, minimal]
+    default: full
+    group: core
+    label: "Chế độ"
+    help: "Cờ của demo.py: --prgbd tinh chỉnh độ sâu, --jdsa tối ưu chung độ sâu và pose."
+    labels: ["Đầy đủ", "Tinh chỉnh độ sâu", "Tối thiểu"]
+    descriptions:
+      - "--prgbd --jdsa: cấu hình của bài báo."
+      - "--prgbd: tinh chỉnh độ sâu, không tối ưu chung với pose."
+      - "Không cờ nào: nhanh nhất, độ chính xác thấp nhất."
+
+stages:
+  - {stage: prep.mcgs}
+  - stage: train.mcgs
+    params:
+      mode: "${options.mode}"
+  - {stage: eval.mcgs}

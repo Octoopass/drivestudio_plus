@@ -92,6 +92,11 @@ class Workdir:
         return self.root / "runs"
 
     @property
+    def benchmarks_dir(self) -> Path:
+        """Trả về thư mục ``benchmarks/`` chứa file định nghĩa benchmark do người viết tay."""
+        return self.root / "benchmarks"
+
+    @property
     def uploads_dir(self) -> Path:
         """Trả về thư mục ``uploads/`` chứa dữ liệu gốc tải lên qua trình duyệt (Studio)."""
         return self.root / "uploads"

@@ -3,6 +3,7 @@
 import { lazy, Suspense } from "react";
 import { Layout } from "./components/Layout";
 import { Loading } from "./components/ui";
+import { BenchmarkPage } from "./pages/BenchmarkPage";
 import { ComparePage } from "./pages/ComparePage";
 import { NewRunPage } from "./pages/NewRunPage";
 import { OverviewPage } from "./pages/OverviewPage";
@@ -37,6 +38,7 @@ export function App() {
       {route.page === "runs" && <RunsPage sceneId={route.sceneId} status={route.status} />}
       {route.page === "run" && <RunPage key={route.runId} runId={route.runId} />}
       {route.page === "compare" && <ComparePage sceneId={route.sceneId} splitId={route.splitId} />}
+      {route.page === "benchmark" && <BenchmarkPage name={route.name} />}
       {route.page === "storage" && <StoragePage focus={route.focus} />}
       {route.page === "libraries" && <LibrariesPage />}
       {route.page === "viewer" && (

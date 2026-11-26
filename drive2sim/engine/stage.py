@@ -173,6 +173,23 @@ class Stage(ABC):
     Params: ClassVar[type[BaseModel]] = NoParams
 
     @classmethod
+    def lidar_used(cls, params: dict[str, object]) -> bool:
+        """Run này có dùng LiDAR ở stage này không, với tham số đã gộp ``params``.
+
+        Mặc định bằng ``uses_lidar``. Stage đổi được việc dùng LiDAR bằng tham số (ví dụ
+        ``train.drivestudio`` với ``lidar=False``) ghi đè hàm này; engine ghi kết quả vào
+        ``lidar_usage`` của ``run.json``. Điều kiện khoá approach khi cảnh không có LiDAR vẫn
+        theo ``uses_lidar``.
+
+        Args:
+            params: Tham số của stage sau khi gộp và kiểm tra.
+
+        Returns:
+            ``True`` nếu stage dùng LiDAR trong run này.
+        """
+        return cls.uses_lidar
+
+    @classmethod
     def unavailable_reason(
         cls, manifest: Manifest, split: Optional[Split] = None
     ) -> Optional[str]:

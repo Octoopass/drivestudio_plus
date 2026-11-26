@@ -48,6 +48,7 @@ from drive2sim.studio.api.reveal import RevealError, reveal
 from drive2sim.studio.api.routes import (
     approaches,
     assistant,
+    benchmarks,
     cache,
     colab,
     environment,
@@ -297,6 +298,7 @@ def create_app(
         approaches,
         runs,
         report,
+        benchmarks,
         cache,
         kaggle,
         colab,

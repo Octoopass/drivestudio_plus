@@ -722,6 +722,32 @@ for _spec in RUNS:
     _spec["options"].setdefault("fastergs", False)
 
 
+def make_benchmark(work: Workdir, scene_id: str, split_id: str) -> None:
+    """Ghi ``benchmarks/demo.yaml`` xếp hạng các run mẫu xong của một split, để trang Benchmark có gì xem.
+
+    Hai nhóm trên cùng cảnh và split (nhãn ô chỉ để minh hoạ): nhóm đầu có run hơn hẳn và run
+    khác GPU; nhóm sau hai run ngang nhau cùng GPU nên được phân xử bằng thời gian train. Dữ liệu
+    mẫu không có R2, R3, ``frames.jsonl`` nên các cột đó hiện "chưa đo".
+    """
+    done = [
+        spec["run_id"]
+        for spec in RUNS
+        if spec["scene"] == scene_id
+        and spec.get("split_index", 0) == 0
+        and not spec.get("quick")
+        and "psnr" in spec
+    ]
+    pairs = [run_id for run_id in done if run_id.endswith(("a1b2", "fa57"))]
+    lines = ["schema_version: d2s-benchmark/0.2", "entries:"]
+    for cell, runs in (("A-L", done), ("A-LB", pairs)):
+        lines.append(
+            f"  - {{bench_track: A, cell: {cell}, scene_id: {scene_id}, split_id: {split_id}, "
+            f"runs: [{', '.join(runs)}]}}"
+        )
+    work.benchmarks_dir.mkdir(parents=True, exist_ok=True)
+    (work.benchmarks_dir / "demo.yaml").write_text("\n".join(lines) + "\n", "utf-8")
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     """Dựng thư mục mẫu.
 
@@ -748,7 +774,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 file=sys.stderr,
             )
             return 1
-        for name in ("data", "runs", "cache"):
+        for name in ("data", "runs", "cache", "benchmarks"):
             shutil.rmtree(root / name, ignore_errors=True)
     work = Workdir(root)
     root.mkdir(parents=True, exist_ok=True)
@@ -771,6 +797,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         spec["split"] = splits[spec["scene"]][spec.get("split_index", 0)]
         make_run(work, spec, caches[spec["scene"]], background)
         print(f"run {spec['run_id']}")
+    make_benchmark(work, SCENES[0]["scene_id"], splits[SCENES[0]["scene_id"]][0])
     print(f"xong: d2s studio --workdir {root}")
     return 0
 

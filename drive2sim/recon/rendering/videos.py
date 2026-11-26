@@ -1,5 +1,5 @@
 import time
-from typing import Literal, Dict, List, Optional, Callable
+from typing import Dict, List, Optional, Callable
 from tqdm import tqdm, trange
 import numpy as np
 import os
@@ -15,6 +15,12 @@ from skimage.metrics import structural_similarity as ssim
 
 from drive2sim.recon.rendering.image_metrics import compute_image_metrics, compute_psnr, get_numpy
 from drive2sim.recon.data.base import SplitWrapper
+from drive2sim.recon.rendering.color_match import (
+    apply_color_affine,
+    fit_color_affine,
+    static_region_mask,
+)
+from drive2sim.recon.rendering.depth_metrics import compute_depth_metrics, mean_depth_metrics
 from drive2sim.recon.trainers.base import BasicTrainer
 from drive2sim.recon.utils.visualization import (
     to8b,
@@ -114,6 +120,77 @@ def write_video_layout(
 
 def non_zero_mean(x: Tensor) -> float:
     return sum(x) / len(x) if len(x) > 0 else -1
+
+
+def color_matched_metrics(
+    rgb: Tensor,
+    gt: Tensor,
+    valid: Optional[Tensor],
+    lpips_fn: Callable[[Tensor, Tensor], Tensor],
+) -> tuple:
+    """drive2sim: PSNR and LPIPS of one image after fitting an affine colour map to the ground truth.
+
+    A camera that never trained (R2 stereo check) has no learned colour correction, so its raw
+    PSNR mixes exposure differences between the two cameras into the geometry error. Fitting one
+    3x4 affine map per image on the valid pixels removes that part; PSNR and LPIPS are then
+    measured with ``compute_image_metrics`` on the matched render. The matched image is not
+    re-quantised to 8 bit: the input render already is, and the map is part of the metric.
+
+    Args:
+        rgb: Rendered image, (H, W, 3) in [0, 1].
+        gt: Ground-truth image, (H, W, 3) in [0, 1].
+        valid: Boolean mask (H, W), or None.
+        lpips_fn: LPIPS module taking two (1, 3, H, W) tensors.
+
+    Returns:
+        (psnr_cc, lpips_cc) as floats, or (None, None) when the colour fit is degenerate (flat
+        image, too few valid pixels) so the image is left out of the colour-matched averages.
+    """
+    valid_numpy = None if valid is None else get_numpy(valid).astype(bool)
+    affine = fit_color_affine(get_numpy(rgb), get_numpy(gt), valid_numpy)
+    if affine is None:
+        return None, None
+    matched = torch.from_numpy(apply_color_affine(get_numpy(rgb), affine))
+    matched = matched.to(device=rgb.device, dtype=rgb.dtype)
+    values = compute_image_metrics(matched, gt, valid, lpips_fn)
+    if values is None:
+        return None, None
+    return values[0], values[2]
+
+
+def static_psnr(
+    rgb: Tensor,
+    gt: Tensor,
+    valid: Optional[Tensor],
+    sky: Optional[Tensor],
+    dynamic: Optional[Tensor],
+) -> Optional[float]:
+    """drive2sim: PSNR over the static background (valid, not sky, outside dynamic objects).
+
+    Same mask as the export-gap check (R3) uses for the original and the ``.ply`` render, so the
+    two PSNRs are comparable pixel for pixel. A missing mask excludes nothing (a scene without
+    boxes has no dynamic mask).
+
+    Args:
+        rgb: Rendered image, (H, W, 3) in [0, 1].
+        gt: Ground-truth image, (H, W, 3) in [0, 1].
+        valid: Valid-pixel mask (H, W), or None.
+        sky: Sky mask (H, W), or None.
+        dynamic: Dynamic-object mask (H, W), or None.
+
+    Returns:
+        PSNR in dB, or None when no static pixel is left.
+    """
+    mask = static_region_mask(
+        tuple(rgb.shape[:2]),
+        None if valid is None else get_numpy(valid),
+        None if sky is None else get_numpy(sky),
+        None if dynamic is None else get_numpy(dynamic),
+    )
+    if not mask.any():
+        return None
+    mask_tensor = torch.from_numpy(mask).to(rgb.device)
+    return float(compute_psnr(rgb[mask_tensor], gt[mask_tensor]))
 
 
 def render_images(
@@ -217,6 +294,10 @@ def render(
         human_psnrs, human_ssims = [], []
         vehicle_psnrs, vehicle_ssims = [], []
         occupied_psnrs, occupied_ssims = [], []
+        # drive2sim: one record per measured test image (position, metrics, depth vs LiDAR), for
+        # the benchmark's per-distance analysis; eval.py writes them to frames_test_*.jsonl.
+        frame_records: List[Dict] = []
+        depth_frames: List[Dict[str, float]] = []
 
     with torch.no_grad():
         indices = vis_indices if vis_indices is not None else range(len(dataset))
@@ -362,6 +443,44 @@ def render(
                     camera_metrics["psnr"].append(psnr)
                     camera_metrics["ssim"].append(float(ssim_score))
                     camera_metrics["lpips"].append(lpips)
+                    depth_values = None
+                    if "depth" in results and "lidar_depth_map" in image_infos:
+                        depth_valid = image_infos.get("valid_masks")
+                        depth_values = compute_depth_metrics(
+                            get_numpy(results["depth"]),
+                            get_numpy(image_infos["lidar_depth_map"]),
+                            None if depth_valid is None else get_numpy(depth_valid).astype(bool),
+                        )
+                    if depth_values is not None:
+                        depth_frames.append(depth_values)
+                    # drive2sim: metrics read by eval.standard protocol 0.5 (R2) and eval.ply (R3);
+                    # None when the colour fit is degenerate or no static pixel is left.
+                    psnr_cc, lpips_cc = color_matched_metrics(
+                        rgb, image_infos["pixels"], image_infos.get("valid_masks"), trainer.lpips
+                    )
+                    psnr_static = static_psnr(
+                        rgb,
+                        image_infos["pixels"],
+                        image_infos.get("valid_masks"),
+                        image_infos.get("sky_masks"),
+                        image_infos.get("dynamic_masks"),
+                    )
+                    frame_records.append({
+                        "frame_index": int(image_infos["frame_idx"].flatten()[0]),
+                        "camera_index": int(cam_infos["cam_id"].flatten()[0]),
+                        "time": (
+                            float(image_infos["normed_time"].flatten()[0])
+                            if "normed_time" in image_infos else None
+                        ),
+                        "position": cam_infos["camera_to_world"][:3, 3].cpu().tolist(),
+                        "psnr": psnr,
+                        "ssim": float(ssim_score),
+                        "lpips": lpips,
+                        "psnr_cc": psnr_cc,
+                        "lpips_cc": lpips_cc,
+                        "psnr_static": psnr_static,
+                        "depth": depth_values,
+                    })
                 
                 if "sky_masks" in image_infos:
                     occupied_mask = ~get_numpy(image_infos["sky_masks"]).astype(bool)
@@ -503,6 +622,9 @@ def render(
             camera: {name: non_zero_mean(values) for name, values in lists.items()}
             for camera, lists in sorted(per_camera_metrics.items())
         }
+    if compute_metrics:
+        results_dict["frames"] = frame_records
+        results_dict["depth"] = mean_depth_metrics(depth_frames)
     results_dict["occupied_psnr"] = non_zero_mean(occupied_psnrs) if compute_metrics else -1
     results_dict["occupied_ssim"] = non_zero_mean(occupied_ssims) if compute_metrics else -1
     results_dict["masked_psnr"] = non_zero_mean(masked_psnrs) if compute_metrics else -1

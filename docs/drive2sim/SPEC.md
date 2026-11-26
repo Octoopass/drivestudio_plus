@@ -158,6 +158,7 @@ Studio là giao diện web chạy trên máy đang dùng. Nhóm A–D chỉ cầ
 - Video của nhiều approach đặt cạnh nhau theo cùng camera, cùng thời điểm.
 - Biểu đồ PSNR theo thời gian train, VRAM, tốc độ render và số Gaussian (đánh dấu các run trên đường Pareto); PSNR theo vùng; phân rã thời gian dựng cảnh theo nhóm stage; đường cong train của nhiều run.
 - Xuất bảng và hình cho báo cáo.
+- Trang Benchmark: chọn một file `benchmarks/<tên>.yaml` trong thư mục làm việc; mỗi nhóm run (track, ô, cảnh, split) là một bảng xếp theo Avg, kèm người thắng và bước đã quyết định (Avg, R2, R3, thời gian train cùng GPU), ngưỡng hoà và nguồn của nó, cảnh báo, và các cột R2, R3, độ sâu, đoạn hỏng, chi phí (CONTRACTS mục 6.5). Chỉ đọc file kết quả của run, không chạy GPU. Studio chưa tạo hay sửa file định nghĩa; viết tay.
 
 **E. Tính năng theo mức của approach** (cần GPU CUDA)
 - L2: đặt quỹ đạo camera mới và render video; đổi mô hình camera khi render.
@@ -182,6 +183,10 @@ Khi pipeline có nhiều bước đánh giá, bảng so sánh hiển thị kết
 - Số iteration, VRAM cao nhất khi train, tốc độ render (FPS) kèm độ phân giải.
 - Số Gaussian của cả model, số Gaussian và dung lượng của file PLY xuất ra.
 - Cấu hình máy đã chạy run (GPU, VRAM của GPU, driver, CPU, RAM, phiên bản PyTorch và CUDA), vì thời gian, VRAM và tốc độ chỉ so được giữa các run chạy trên cùng loại máy.
+- Độ sâu render so với độ sâu LiDAR trên ảnh test (AbsRel, RMSE, `delta < 1,25`), và metric từng ảnh test kèm vị trí camera (CONTRACTS mục 6.3), để tìm đoạn đường hỏng.
+- Camera chỉ test: split có thể có camera không bao giờ train (ví dụ `image_01` của KITTI-360); metric trên camera đó (PSNR, LPIPS, thô và sau chỉnh màu affine từng ảnh) là `shifted` trong `summary.json` (CONTRACTS mục 6.3), và các metric chung chỉ tính trên camera đã train.
+- Export gap của `.ply` nền tĩnh (PSNR render gốc trừ PSNR render từ `.ply`, cùng mask nền tĩnh, stage `eval.ply`); "không áp dụng" cho method không xuất được `.ply`.
+- Benchmark nhiều run (CONTRACTS mục 6.5, `d2s benchmark`): xếp hạng theo Avg trong từng nhóm; run kém run tốt nhất dưới ngưỡng hoà (mặc định 0,3 dB PSNR, hoặc `max(0,3 dB, 2σ)` đo từ ba seed) coi là ngang, rồi phân xử lần lượt bằng PSNR sau chỉnh màu ở camera chỉ test (R2), export gap (R3), thời gian train (chỉ khi cùng GPU; khác GPU thì không chọn người thắng). Độ sâu so với LiDAR (R4), chi phí mỗi 100 m ở track B (R6), đoạn hỏng theo nhóm camera (R7) báo kèm, không đổi thứ hạng. Đã đo: R1, R4, R7, R8; xong trong code, chưa chạy thật: R2, R3, hiệu chỉnh seed; chưa có: KID khi lệch làn, PSNR quanh chỗ nối chunk (R6); chủ ý không đo: `ghost_ratio`, `static_psnr` như tiêu chí xếp hạng, ATE tự tính.
 - Với mỗi run, ghi rõ LiDAR được dùng ở stage nào, hoặc không dùng.
 - Ghi rõ các mục cấu hình đã dùng, để so sánh theo từng khâu.
 

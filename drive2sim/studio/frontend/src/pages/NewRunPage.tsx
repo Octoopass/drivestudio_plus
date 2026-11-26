@@ -17,6 +17,9 @@ import { EnvInstall } from "../components/EnvInstall";
 // Pinhole lý tưởng của NCore được coi là pinhole OpenCV, như engine (CONTRACTS 4.2).
 const lensModel = (model: string) => (model === "ideal_pinhole" ? "opencv_pinhole" : model);
 
+// Thứ tự nhóm approach ở Chạy mới (CONTRACTS 4.1, trường `kind`).
+const APPROACH_KINDS = ["per_scene", "feed_forward", "slam"] as const;
+
 const show = (value: OptionValue) => (typeof value === "boolean" ? (value ? "true" : "false") : String(value));
 
 export function NewRunPage({
@@ -259,28 +262,41 @@ export function NewRunPage({
 
           <Panel title={t("new.section.approach")}>
             {!approaches.data && <Skeleton height={64} />}
-            <div className="choice-list">
-              {(approaches.data?.items ?? []).map((a) => (
-                <button
-                  key={a.approach_id}
-                  className="choice"
-                  aria-pressed={a.approach_id === approachId}
-                  onClick={() => setApproachId(a.approach_id)}
-                  title={cameraReason(a.camera_support)}
-                >
-                  <span className="name">{a.name}</span>
-                  <span className="desc">{t("new.approach.meta", { codebase: a.codebase, level: a.level, stages: a.stages.length })}</span>
-                  <span className="row wrap" style={{ gap: 6 }}>
-                    {a.camera_support.tracks.map((track) => (
-                      <span key={track} className={`tag${usedLenses.has(track as "pinhole" | "fisheye") ? " go" : ""}`}>
-                        {t(`new.track.${track}`)}
+            {APPROACH_KINDS.map((kind) => {
+              const items = (approaches.data?.items ?? []).filter((a) => (a.kind ?? "per_scene") === kind);
+              if (items.length === 0) return null;
+              return (
+                <section key={kind} className="approach-group" data-kind={kind}>
+                  <h4 className="approach-group-title">
+                    {t(`new.kind.${kind}`)}
+                    <InfoTip>{t(`new.kind.${kind}.hint`)}</InfoTip>
+                  </h4>
+                  <div className="choice-list">
+                  {items.map((a) => (
+                    <button
+                      key={a.approach_id}
+                      className="choice"
+                      data-kind={kind}
+                      aria-pressed={a.approach_id === approachId}
+                      onClick={() => setApproachId(a.approach_id)}
+                      title={cameraReason(a.camera_support)}
+                    >
+                      <span className="name">{a.name}</span>
+                      <span className="desc">{t("new.approach.meta", { codebase: a.codebase, level: a.level, stages: a.stages.length })}</span>
+                      <span className="row wrap" style={{ gap: 6 }}>
+                        {a.camera_support.tracks.map((track) => (
+                          <span key={track} className={`tag${usedLenses.has(track as "pinhole" | "fisheye") ? " go" : ""}`}>
+                            {t(`new.track.${track}`)}
+                          </span>
+                        ))}
+                        {cameraReason(a.camera_support) && <span className="tag warn">{t("new.camera.unfit")}</span>}
                       </span>
-                    ))}
-                    {cameraReason(a.camera_support) && <span className="tag warn">{t("new.camera.unfit")}</span>}
-                  </span>
-                </button>
-              ))}
-            </div>
+                    </button>
+                  ))}
+                  </div>
+                </section>
+              );
+            })}
             {approach && usedLenses.has("fisheye") && sceneHasPinhole && cameraReason(approach.camera_support.default) && (
               <div style={{ marginTop: 12 }}>
                 <Note>
