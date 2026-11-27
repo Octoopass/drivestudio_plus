@@ -329,6 +329,18 @@ Nhận xét:
 - SSIM, LPIPS ở đây không so được với số protocol 0.2 cũ của `0b27`, `e627`
   (0,823/0,183 và 0,829/0,198); PSNR không đổi giữa hai protocol.
 
+### Benchmark tuần 04, đợt 2 (27/11/2026, vast.ai RTX 4090, 30.000 bước)
+
+Chi tiết và so sánh ở `benchmark_week04_wave2_results.md`. Chạy một run mỗi lúc nên thời gian
+train là thời gian thật.
+
+| Run | Ô | Approach, cấu hình | Cảnh, split | PSNR | SSIM | LPIPS | Train | VRAM đỉnh |
+|---|---|---|---|---:|---:|---:|---:|---:|
+| `20261127-075005-pvg-76e9` | W1 A-0 | PVG 3DGS, `lidar=false` | Waymo W1, `every8_5cams` | 29,02 | 0,909 | 0,131 | 19 phút 32 | 2,4 GB |
+| `20261127-045255-omnire-7a64` | A2 A-LB | OmniRe 3DGEER, FastGS | KITTI-360 0003 (200 khung), `every8_stereo_fisheye2` | 22,61 | 0,793 | 0,165 | 27 phút 19 | 3,3 GB |
+| `20261127-033252-pvg-fa62` | A2 A-L | PVG 3DGEER, `campose=false` | KITTI-360 0003 (200 khung), `every8_stereo_fisheye2` | 19,24 | 0,703 | 0,303 | 1 giờ 10 phút 50 | 6,9 GB |
+| `20261127-072153-mcgs-3902` | B2 | MCGS-SLAM `full`, `--buffer` 865 | KITTI-360 0003 dài (864 khung), `every8_pinhole2` | 10,25 | 0,388 | 0,638 | 25 phút 39 | không đo |
+
 ### Giới hạn 90 độ của renderer và run 3DGEER 1000 bước (19–21/11/2026)
 
 - **Cả 3DGUT và 3DGEER không vẽ gì từ 90 độ lệch trục trở ra:** gsplat bỏ mọi Gaussian có tâm
