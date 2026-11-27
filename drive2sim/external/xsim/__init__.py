@@ -2,7 +2,8 @@
 
 XSIM (avision-team/XSIM) và renderer xsimgs chạy trong một venv riêng (Python 3.11, PyTorch 2.8
 CUDA 12.8), gọi qua tiến trình con ``drive2sim.external.xsim.worker``. Mã gốc được giữ nguyên ở
-revision chốt, chỉ thêm bản vá ``patches/runtime.patch``. Dữ liệu đưa vào XSIM là gói quan sát do
+revision chốt, chỉ thêm bản vá ``patches/runtime.patch`` (và ``patches/pytoast.patch`` cho
+submodule pytoast). Dữ liệu đưa vào XSIM là gói quan sát do
 stage ``prep.observations`` xuất từ đường dữ liệu chung của tool (CONTRACTS mục 5.4), nên XSIM nhận
 cùng ảnh, mask, pose, LiDAR, box và SMPL như các approach DriveStudio.
 

@@ -701,7 +701,7 @@ cài. Đợt sửa:
 | Môi trường | `pip install -e . "$root"` (drive2sim không editable), gói git không chốt | venv uv trong `D2S_XSIM_DIR`, `-e` cho cả hai, `envs/xsim-constraints.txt`; kiểm môi trường thật; nút cài Studio |
 | Remote | Kaggle, Colab từ chối XSIM | Cài thêm venv XSIM (Kaggle: ô riêng; Colab: tham số `xsim`, cache theo khoá riêng) |
 
-Giữ nguyên mã gốc XSIM ở revision chốt và bản vá `runtime.patch`. Khác cấu hình gốc có chủ ý:
+Giữ nguyên mã gốc XSIM ở revision chốt và bản vá `runtime.patch`; submodule pytoast (gitlink `6dadc76`) có thêm `pytoast.patch` (27/11/2026): `sample_trajectory` của backend torch gán `out_quats[invalid_mask, 0] = 1` với mask bool nhiều chiều, PyTorch báo `IndexError` ở cả SMPL lẫn `init_loader` của XSIM; bản vá thay bằng `torch.where` cho cùng kết quả (đã thử trên CPU với hai dạng đầu vào đó). Khác cấu hình gốc có chủ ý:
 `undistort_images` tắt (xsimgs vẽ thẳng pinhole có méo và mắt cá), đọc mẫu đồng bộ từng bước thay
 cho hàng đợi prefetch (để checkpoint giữa hai batch). Chưa có bằng chứng chạy thật: gói quan sát
 trên cảnh thật, build xsimgs, train, render và chấm trên GPU đều chưa chạy.

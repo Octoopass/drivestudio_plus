@@ -144,3 +144,17 @@ def test_native_config_env_fills_unused_waymo_paths_without_overriding() -> None
     }
     assert environ["WAYMO_ROOT_PATH"].startswith("/nonexistent/")
     assert environ["WAYMO_CACHE_PATH"] == "/data/cache"
+
+
+def test_pytoast_patch_replaces_the_failing_mask_assignment() -> None:
+    """Bản vá pytoast bỏ out_quats[invalid_mask, 0] = 1 (IndexError trên Kaggle, PyTorch 2.8)."""
+    from drive2sim import paths
+
+    patch = (paths.PACKAGE_DIR / "external" / "xsim" / "patches" / "pytoast.patch").read_text()
+    assert "-        out_quats[invalid_mask, 0] = 1" in patch
+    assert (
+        "+        out_quats = torch.where(invalid_mask.unsqueeze(-1), identity, out_quats)"
+        in patch
+    )
+    install = (paths.PACKAGE_DIR.parent / "envs" / "install_xsim.sh").read_text()
+    assert 'apply "$PYTOAST_PATCH"' in install

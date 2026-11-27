@@ -1,0 +1,19 @@
+diff --git a/src/toast/ops/torch/interpolation_ops.py b/src/toast/ops/torch/interpolation_ops.py
+index 99746dd..d5e743b 100644
+--- a/src/toast/ops/torch/interpolation_ops.py
++++ b/src/toast/ops/torch/interpolation_ops.py
+@@ -209,8 +209,12 @@ def sample_trajectory(
+         #     left_extr_mask.unsqueeze(-1),
+         #     extr_quats, slerp_quats
+         # )
+-        out_quats[invalid_mask, 0] = 1
+-        out_quats[invalid_mask, 1:] = 0
++        # drive2sim: out_quats[invalid_mask, 0] = 1 với mask bool nhiều chiều bị PyTorch từ chối
++        # (chỉ số nguyên áp trước mask nên số chiều lệch, IndexError). Cùng kết quả: quaternion đơn vị
++        # (1, 0, 0, 0) ở chỗ không có keyframe hợp lệ nào.
++        identity = torch.zeros_like(out_quats)
++        identity[..., 0] = 1
++        out_quats = torch.where(invalid_mask.unsqueeze(-1), identity, out_quats)
+ 
+         if return_velocities:
+             out_w = angular_velocity(left_q, right_q, delta_time.unsqueeze(-1))
