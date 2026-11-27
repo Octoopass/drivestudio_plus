@@ -124,7 +124,11 @@ cmd_pull() {
   if [ -n "$run_id" ]; then
     # run_id đi vào đường dẫn, nên chỉ nhận đúng định dạng (như engine/workdir.py::find_run)
     [[ "$run_id" =~ ^[0-9]{8}-[0-9]{6}-[a-z0-9]+-[0-9a-f]{4}$ ]] || { echo "run_id không hợp lệ"; exit 2; }
-    sync_from "$VAST_DIR/runs/" "$LOCAL_WORKDIR/runs/" --include "*/" --include "*/*/$run_id/***" --exclude "*"
+    # D2S_PULL_LIGHT=1: bỏ checkpoint (*.pth) và scene.ply (hàng trăm MB, ở mạng chậm mất hàng giờ);
+    # kéo lại không đặt biến này để lấy nốt. Bộ lọc rsync khớp theo thứ tự nên loại trừ đặt trước.
+    local light=()
+    if [ "${D2S_PULL_LIGHT:-0}" = 1 ]; then light=(--exclude '*.pth' --exclude 'scene.ply'); fi
+    sync_from "$VAST_DIR/runs/" "$LOCAL_WORKDIR/runs/" "${light[@]}" --include "*/" --include "*/*/$run_id/***" --exclude "*"
   else
     sync_from "$VAST_DIR/runs/" "$LOCAL_WORKDIR/runs/"
   fi

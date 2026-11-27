@@ -119,7 +119,16 @@ Run lỗi được ghi vào `logs/queue-wave<N>/failed`; chạy lại: `bash env
 
 ## 4. Chưa làm được trong đợt này
 
-- **#7 (A-L với fisheye, A2)**: từ 26/11 PVG và DeformableGS có renderer 3DGUT, 3DGEER (tắt CamPose); từ 27/11 #7 chạy với `--set renderer=3dgeer --set campose=false` (renderer fisheye chốt là 3DGEER); chưa chạy thật trên GPU. A2 A-L vì vậy so method thắng A-L ở cấu hình khác A1 (không CamPose).
+- **#7 (A-L với fisheye, A2)**: từ 26/11 PVG và DeformableGS có renderer 3DGUT, 3DGEER (tắt CamPose); từ 27/11 #7 chạy với `--set renderer=3dgeer --set campose=false` (renderer fisheye chốt là 3DGEER); đã chạy thật ngày 27/11 (run `fa62`: 19,24 dB, thấp bất thường, xem `benchmark_week04_wave2_results.md` mục 4). A2 A-L vì vậy so method thắng A-L ở cấu hình khác A1 (không CamPose).
 - **R3 của PVG, DeformableGS**: `export_ply.py` ghi tham số gốc của node `Background` (`_means`, `_opacities`). Với PVG đó là tâm chưa cộng dao động và độ đục chưa nhân suy giảm theo thời gian, nên mọi Gaussian (cả vệt của xe chạy) hiện cùng lúc; với DeformableGS là tâm chưa qua mạng biến dạng. Từ 26/11 `d2s benchmark` đánh dấu các run này `export_static: false` (bảng ghi `†`) và bỏ bước R3 khi phân xử các ô A-L, A-0; R3 cũng đổi từ export gap sang `ply_psnr` (PSNR tuyệt đối của `.ply` trên vùng nền tĩnh), gap chỉ báo kèm (CONTRACTS mục 6.5). PVG đã có cách xuất nền tĩnh: chỉ giữ Gaussian sống từ 20 khung trở lên (tham số gốc của PVG là mỗi Gaussian ở đỉnh của nó, nên không cần chọn thời điểm). **Kiểm trên run #2 (PVG trên W1) trước khi bỏ `pvg` khỏi `TIME_VARYING_METHODS`:** xem `time_varying` trong `eval.ply/background/scene.json` (số giữ, số bỏ, phân vị độ dài đời), ảnh render `.ply` không còn vệt xe, và `ply_psnr` không kém `native_psnr` quá khoảng 2 dB; nếu vẫn kém thì giữ cờ và ghi R3 là không áp dụng cho PVG. DeformableGS còn lại: biến dạng ở một thời điểm, làm sau khi có checkpoint của #3.
 - **#11 trong bảng xếp hạng**: `d2s benchmark` chưa có nhóm "chunked" gộp `frames.jsonl` của các chunk (ARCHITECTURE mục 2.17), nên 6 run chunk chạy được nhưng chưa vào `week04.yaml`.
 - **#14 (SplatAD)**: chưa có approach trong tool, nên không có lệnh ở đây.
+
+## 5. Đợt 2 đã chạy (27/11/2026)
+
+Kết quả đầy đủ ở `benchmark_week04_wave2_results.md`. Tóm tắt:
+
+- Máy: vast.ai 1× RTX 4090 (offer `62286745`), một worker. Thuê khoảng 6,5 giờ, tiêu khoảng 4,1 USD (giá thật 0,575 USD/giờ gồm phí lưu trữ và mạng; offer ghi 0,43), nhiều hơn ước lượng 3–4 USD vì ba lần chạy lại #8 và các run chẩn đoán.
+- Run: #4 (`76e9`, 29,02 dB), #6 (`7a64`, 22,61 dB, `image_00` 25,37 dB hơn #5), #7 (`fa62`, 19,24 dB), #8 (`3902`, 10,25 dB, ATE 21,1 m).
+- Lỗi gặp và cách sửa: 3DGEER điểm chính lệch tâm (đạt trên GPU); MCGS 2 thư mục (đạt một phần); `lidar=false` PVG chia 0 (`single.py`, thời gian điểm ngẫu nhiên); MCGS `--buffer` nhỏ (`train.mcgs` 0.1.1); MCGS mốc thời gian camera trùng ở chuỗi dài hơn 500 khung (`install_mcgs.sh` sửa `500*i`); đường truyền về máy mình 300 KB/s (up thẳng lên Drive bằng `rclone`, `D2S_PULL_LIGHT=1` cho `vast.sh pull`, `envs/vast_autopull.sh`); `waymo-auth` không có tty (FIFO).
+- Chưa chạy đợt 3 (chờ K chốt `--alb-winner`, cần nạp thêm credit).

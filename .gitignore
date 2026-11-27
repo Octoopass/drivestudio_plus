@@ -223,3 +223,4 @@ models/
 # máy vast.ai đang thuê (envs/week04_vast.sh rent)
 /.vast.env
 /.venv-waymo/
+.vast_pulled*

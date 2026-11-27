@@ -62,6 +62,8 @@ def build_command(input_dir: Path, output_dir: Path, mode: str) -> list[str]:
 
     Mỗi phần tử của ``layout`` trong ``mcgs_prep.json`` là một đối số của ``--imagedir`` theo đúng
     thứ tự; camera đối tác stereo lặp hai lần thì thư mục của nó cũng xuất hiện hai lần.
+    ``--buffer`` đặt bằng số khung của ``mcgs_prep.json`` cộng một để không keyframe nào bị đẩy
+    khỏi bộ đệm video (xem chú thích trong hàm).
 
     Args:
         input_dir: Thư mục ra của ``prep.mcgs``.
@@ -73,11 +75,18 @@ def build_command(input_dir: Path, output_dir: Path, mode: str) -> list[str]:
     """
     prep = json.loads((input_dir / PREP_FILE).read_text(encoding="utf-8"))
     directories = [str(input_dir / IMAGES_DIR / camera) for camera in prep["layout"]]
+    # Bộ đệm video của demo.py (``--buffer``, mặc định 200) giữ keyframe; đầy thì nó đẩy keyframe
+    # cũ sang bộ đệm toàn cục. Global BA cuối run đánh chỉ số mọi keyframe vào bộ đệm video, nên
+    # run dài hơn bộ đệm chết ở ``video.nets[ii, ...]`` (index out of bounds, run #8 đợt 2: 757
+    # keyframe, bộ đệm 215). Số keyframe không vượt số khung, nên bộ đệm lớn hơn số khung thì
+    # không bao giờ đẩy.
+    buffer = len(prep["frames"]) + 1
     return [
         str(mcgs.mcgs_python()), "demo.py",
         "--calib", str(input_dir / CALIB_FILE),
         "--imagedir", *directories,
         "--stride", "1",
+        "--buffer", str(buffer),
         "--output", str(output_dir),
         *MODE_FLAGS[mode],
     ]  # fmt: skip
@@ -111,7 +120,7 @@ def ply_vertex_count(path: Path) -> Optional[int]:
 class TrainMcgsStage(Stage):
     """Chạy MCGS-SLAM trên ảnh đã xuất, ghi quỹ đạo và bản đồ Gaussian."""
 
-    version: ClassVar[str] = "0.1.0"
+    version: ClassVar[str] = "0.1.1"
     cacheable: ClassVar[bool] = False
     uses_lidar: ClassVar[bool] = False
     inputs: ClassVar[dict[str, str]] = {"data": "mcgs_input"}
