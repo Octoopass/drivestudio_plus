@@ -63,8 +63,17 @@ class CarlaDrive:
         self._usage: tuple[float, list[dict]] = (0.0, [])
 
     # ------------------------------------------------------------------ bật / tắt
-    def start(self, run_id: str, camera: str = "", ratio: float = 0.5, fps: int = 20) -> dict:
+    def start(
+        self,
+        run_id: str,
+        camera: str = "",
+        ratio: float = 0.5,
+        fps: int = 20,
+        objects: bool = True,
+    ) -> dict:
         """Bật phiên lái thử cho ``run_id`` ở nền (tắt phiên cũ nếu có).
+
+        ``objects`` bật thì xe, người từ box 3D của cảnh thành actor trong CARLA.
 
         Returns:
             Trạng thái như ``status()`` (``state`` là ``starting``).
@@ -94,7 +103,7 @@ class CarlaDrive:
                 (self.drive_dir / name).unlink(missing_ok=True)
         threading.Thread(
             target=self._start,
-            args=(generation, run_dir, record, ply, clip_dir, camera, ratio, fps),
+            args=(generation, run_dir, record, ply, clip_dir, camera, ratio, fps, objects),
             daemon=True,
         ).start()
         return self.status()
@@ -109,6 +118,7 @@ class CarlaDrive:
         camera: str,
         ratio: float,
         fps: int,
+        objects: bool = True,
     ) -> None:
         """Luồng nền: dựng ``scene.usdz`` nếu cần, bật CARLA, server render và vòng lái."""
         assert self.drive_dir is not None
@@ -129,7 +139,7 @@ class CarlaDrive:
                     clip_dir / clip["clip"],
                     usdz,
                     sensors,
-                    carla_stage.CarlaParams(),
+                    carla_stage.CarlaParams(objects=objects),
                     self.workdir.scene_dir(record.scene_id),
                 ),
                 out / "scene.log",

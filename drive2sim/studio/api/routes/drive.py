@@ -28,6 +28,7 @@ class DriveStartBody(BaseModel):
         camera: Camera của cảnh dùng để nhìn (rỗng: camera trước).
         ratio: Tỉ lệ độ phân giải ảnh Gaussian.
         fps: Số ảnh Gaussian mỗi giây (cũng định nhịp tick: hai tick mỗi ảnh).
+        objects: Đưa xe, người từ box 3D của cảnh vào CARLA làm actor có vật lý.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -35,6 +36,7 @@ class DriveStartBody(BaseModel):
     camera: str = ""
     ratio: float = Field(default=0.5, ge=0.1, le=1)
     fps: int = Field(default=20, ge=5, le=30)
+    objects: bool = True
 
 
 class DriveControlBody(BaseModel):
@@ -57,7 +59,7 @@ def _drive(request: Request) -> CarlaDrive:
 def start_drive(run_id: str, body: DriveStartBody, request: Request) -> dict:
     """Bật phiên lái thử cho run; ``409`` nếu run không lái được (không phải NuRec, thiếu PLY)."""
     try:
-        return _drive(request).start(run_id, body.camera, body.ratio, body.fps)
+        return _drive(request).start(run_id, body.camera, body.ratio, body.fps, body.objects)
     except CarlaDriveError as error:
         raise HTTPException(409, str(error)) from None
 
