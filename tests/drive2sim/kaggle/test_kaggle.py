@@ -869,3 +869,33 @@ def test_notebook_completes_when_the_run_fails() -> None:
     last = "".join(notebook["cells"][-1]["source"])
     assert "run_exit_code" in last and "D2S_RUN_LIGHT" in last
     assert "SystemExit" not in last and "raise" not in last
+
+
+def test_pull_keeps_a_push_made_while_downloading(
+    setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Đẩy lại trong lúc Studio đang tải output lần trước: tải xong không xoá lần đẩy mới.
+
+    Đã gặp thật: ``pull_run`` ghi lại ``kaggle.json`` đọc lúc bắt đầu tải, làm số lần đẩy lùi lại
+    và đánh dấu đã tải, nên Studio thôi theo dõi notebook mới.
+    """
+    monkeypatch.setenv("D2S_KAGGLE_SMPL_DATASET", "alice/smpl-model")
+    workdir, fake = setup
+    first = executor.push_run(workdir, RUN_ID, client=fake)
+    fake_kaggle_run(fake, first.kernel, "failed", None)
+    download = fake.kernel_output
+    pushed: list[executor.KaggleState] = []
+
+    def push_while_downloading(
+        slug: str, destination: Path, file_pattern: Optional[str] = None
+    ) -> None:
+        download(slug, destination, file_pattern)
+        if not pushed:
+            pushed.append(executor.push_run(workdir, RUN_ID, client=fake))
+
+    monkeypatch.setattr(fake, "kernel_output", push_while_downloading)
+    executor.pull_run(workdir, RUN_ID, client=fake)
+    state = executor.load_state(workdir.find_run(RUN_ID))
+    assert state.attempt == 2 and state.kernel == pushed[0].kernel
+    assert state.kernels == [first.kernel, pushed[0].kernel]
+    assert state.pulled_utc is None  # lần đẩy mới chưa được tải

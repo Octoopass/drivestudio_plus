@@ -874,11 +874,27 @@ def pull_run(workdir: Workdir, run_id: str, client: Optional[KaggleClient] = Non
                 remote.merge_output(workdir, other_dir, output)
             except FileNotFoundError:
                 continue
-            other.pulled_utc = _now()
-            _save_state(other_dir, other)
-    state.pulled_utc = _now()
-    _save_state(run_dir, state)
+            _mark_pulled(other_dir, other)
+    _mark_pulled(run_dir, state)
     return files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
+
+
+def _mark_pulled(run_dir: Path, pulled: KaggleState) -> None:
+    """Ghi ``pulled_utc`` vào ``kaggle.json`` nếu run vẫn ở đúng lần đẩy vừa tải.
+
+    Đọc lại file thay vì ghi bản đã đọc lúc bắt đầu tải: tải output mất hàng chục phút, trong lúc
+    đó có thể đã có lần đẩy mới (``d2s kaggle push`` trong lúc Studio đang tự tải). Ghi bản cũ sẽ
+    xoá lần đẩy đó khỏi ``kaggle.json`` (lần đẩy sau dùng lại số lần đẩy cũ) và đánh dấu đã tải,
+    nên Studio thôi theo dõi notebook mới.
+    """
+    current = load_state(run_dir)
+    if current is None or (current.kernel, current.pushed_utc) != (
+        pulled.kernel,
+        pulled.pushed_utc,
+    ):
+        return
+    current.pulled_utc = _now()
+    _save_state(run_dir, current)
 
 
 def _runs_on_kernel(workdir: Workdir, kernel: str) -> list[tuple[Path, KaggleState]]:
