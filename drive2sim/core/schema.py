@@ -127,8 +127,8 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "preview": "d2s-preview/0.2",
     "job": "d2s-job/0.1",
     "result": "d2s-result/0.1",
-    "benchmark": "d2s-benchmark/0.2",
-    "benchresult": "d2s-benchresult/0.4",
+    "benchmark": "d2s-benchmark/0.3",
+    "benchresult": "d2s-benchresult/0.5",
 }
 
 OPTION_REFERENCE_RE = re.compile(r"^\$\{options\.([a-z][a-z0-9_]*)\}$")
@@ -1591,6 +1591,38 @@ class BenchmarkCalibration(StrictModel):
     runs: list[str] = Field(min_length=2)
 
 
+class BenchmarkChunk(StrictModel):
+    """Một chunk của một lần dựng chia chunk: một run thường trên split của đoạn đó.
+
+    Attributes:
+        split_id: Split của chunk (``frame_range`` là đoạn khung của chunk).
+        run_id: Run đã train trên split đó.
+    """
+
+    split_id: str
+    run_id: str
+
+
+class BenchmarkChunkedEntry(StrictModel):
+    """Một lần dựng cảnh dài chia chunk, gộp lại như một run (ARCHITECTURE mục 2.17, R6).
+
+    Các chunk là split có ``frame_range`` chồng nhau trên cùng cảnh, mỗi chunk một run thường;
+    ``d2s benchmark`` gộp metric từng ảnh của các chunk lên một trục quãng đường và đo PSNR quanh
+    chỗ nối. Thêm từ ``d2s-benchmark/0.3``.
+
+    Attributes:
+        bench_track: Track benchmark, thường là ``B`` (quãng đường dài).
+        label: Tên hiển thị, ví dụ ``"#11 OmniRe 3DGEER, 6 chunk"``.
+        scene_id: Cảnh của mọi chunk.
+        chunks: Các chunk, ít nhất hai; thứ tự không quan trọng (xếp theo khung đầu).
+    """
+
+    bench_track: BenchTrack = "B"
+    label: str
+    scene_id: str
+    chunks: list[BenchmarkChunk] = Field(min_length=2)
+
+
 class BenchmarkFile(VersionedFile):
     """Schema của file định nghĩa benchmark ``benchmarks/<tên>.yaml``.
 
@@ -1598,11 +1630,24 @@ class BenchmarkFile(VersionedFile):
         calibration: Các run lặp theo seed để hiệu chỉnh ngưỡng hoà (thêm từ
             ``d2s-benchmark/0.2``); thiếu thì dùng ngưỡng mặc định.
         entries: Các nhóm run được xếp hạng riêng.
+        chunked: Các lần dựng chia chunk (thêm từ ``d2s-benchmark/0.3``); không xếp hạng.
     """
 
     FILE_KIND: ClassVar[str] = "benchmark"
     calibration: Optional[BenchmarkCalibration] = None
-    entries: list[BenchmarkEntry] = Field(min_length=1)
+    entries: list[BenchmarkEntry] = []
+    chunked: list[BenchmarkChunkedEntry] = []
+
+    @model_validator(mode="after")
+    def _check_not_empty(self) -> "BenchmarkFile":
+        """Phải có ít nhất một nhóm ``entries`` hoặc một mục ``chunked``.
+
+        Raises:
+            ValueError: Nếu cả hai đều rỗng.
+        """
+        if not self.entries and not self.chunked:
+            raise ValueError("benchmark needs at least one entry or chunked item")
+        return self
 
 
 class BadSegment(StrictModel):
@@ -1746,6 +1791,125 @@ class BenchmarkGroup(StrictModel):
     warnings: list[str] = []
 
 
+class ChunkRow(StrictModel):
+    """Một chunk trong kết quả của một lần dựng chia chunk.
+
+    Attributes:
+        split_id: Split của chunk.
+        run_id: Run của chunk.
+        approach_id: Approach của run.
+        frame_range: Đoạn khung của chunk trong cảnh, tính cả hai đầu.
+        psnr: PSNR của run trên tập test của chính chunk (``summary.json``), dB.
+        ssim: SSIM.
+        lpips: LPIPS.
+        train_time_s: Thời gian train, giây.
+        peak_vram_mb: VRAM cao nhất khi train, megabyte.
+        ply_size_mb: Dung lượng ``scene.ply``, megabyte.
+        gpu: GPU đã chạy run.
+    """
+
+    split_id: str
+    run_id: str
+    approach_id: str
+    frame_range: tuple[int, int]
+    psnr: Optional[float] = None
+    ssim: Optional[float] = None
+    lpips: Optional[float] = None
+    train_time_s: Optional[float] = None
+    peak_vram_mb: Optional[int] = None
+    ply_size_mb: Optional[float] = None
+    gpu: Optional[str] = None
+
+
+class ChunkSeam(StrictModel):
+    """PSNR quanh chỗ nối giữa chunk ``index`` và chunk ``index + 1`` (R6).
+
+    Khung test trong đoạn chồng thuộc chunk có khung đó xa mép hơn (nửa đầu đoạn chồng thuộc
+    chunk trước, nửa sau thuộc chunk sau), nên metric gộp đếm mỗi ảnh một lần.
+
+    Attributes:
+        index: Số thứ tự chunk trước chỗ nối, từ 1.
+        overlap: Đoạn khung chung của hai chunk, tính cả hai đầu; ``None`` nếu hai chunk không
+            chồng (khi đó chỗ nối là giữa khung cuối chunk trước và khung đầu chunk sau).
+        at_m: Quãng đường tới chỗ nối, mét (trên trục chung của các khung test đã gộp).
+        window_frames: Nửa độ rộng của vùng quanh chỗ nối, số khung của cảnh.
+        num_frames: Số khung test (đã gộp) trong vùng quanh chỗ nối.
+        psnr_near: PSNR trung bình theo khung trong vùng đó, dB.
+        drop_db: Trung vị PSNR theo khung của cả lần dựng trừ ``psnr_near``; dương là chỗ nối
+            kém hơn phần còn lại.
+        overlap_frames: Số khung test trong đoạn chồng mà cả hai chunk đều đo.
+        overlap_psnr_before: PSNR của chunk trước trên các khung đó, dB.
+        overlap_psnr_after: PSNR của chunk sau trên các khung đó, dB.
+    """
+
+    index: int = Field(ge=1)
+    overlap: Optional[tuple[int, int]] = None
+    at_m: Optional[float] = None
+    window_frames: int = Field(ge=0)
+    num_frames: int = Field(ge=0)
+    psnr_near: Optional[float] = None
+    drop_db: Optional[float] = None
+    overlap_frames: int = Field(default=0, ge=0)
+    overlap_psnr_before: Optional[float] = None
+    overlap_psnr_after: Optional[float] = None
+
+
+class BenchmarkChunkedGroup(StrictModel):
+    """Kết quả gộp của một lần dựng chia chunk (thêm từ ``d2s-benchresult/0.5``).
+
+    Metric gộp lấy trung bình theo ảnh trên mọi ảnh test của camera đã train, mỗi ảnh một lần
+    (luật chia đoạn chồng ở ``ChunkSeam``); cùng cách tính ``overall`` của ``summary.json``.
+    Không xếp hạng cùng các nhóm ``groups``; so tay với run một khối cùng cảnh.
+
+    Attributes:
+        bench_track: Track benchmark.
+        label: Tên hiển thị của file định nghĩa.
+        scene_id: Cảnh.
+        approach_ids: Approach của các chunk (thường chỉ một).
+        chunks: Các chunk theo khung đầu.
+        psnr: PSNR gộp, dB.
+        ssim: SSIM gộp.
+        lpips: LPIPS gộp; ``None`` nếu có ảnh thiếu LPIPS.
+        avg_error: Avg của Mip-NeRF từ ba số gộp.
+        shift_psnr: PSNR gộp trên camera chỉ test (R2).
+        shift_psnr_cc: PSNR sau chỉnh màu gộp trên camera chỉ test (R2).
+        distance_m: Quãng đường qua các khung test đã gộp, mét, theo ``ego_pose/`` của cảnh.
+        train_time_s: Tổng thời gian train các chunk, giây; ``None`` nếu thiếu một chunk.
+        peak_vram_mb: VRAM cao nhất trong các chunk.
+        ply_size_mb: Tổng dung lượng ``scene.ply`` các chunk; ``None`` nếu thiếu một chunk.
+        gpu: GPU nếu mọi chunk chạy cùng một loại; ``None`` nếu khác hoặc thiếu.
+        train_s_per_100m: ``train_time_s`` chia ``distance_m / 100`` (R6).
+        ply_mb_per_100m: ``ply_size_mb`` chia ``distance_m / 100`` (R6).
+        frames_measured: Số cặp (khung, camera đã train) có metric sau khi gộp.
+        bad_segments: Đoạn đường hỏng (R7) trên trục gộp, theo nhóm camera.
+        seams: PSNR quanh từng chỗ nối.
+        warnings: Cảnh báo khi gộp (khác approach, khác GPU, chunk hở, thiếu metric).
+    """
+
+    bench_track: BenchTrack
+    label: str
+    scene_id: str
+    approach_ids: list[str]
+    chunks: list[ChunkRow]
+    psnr: Optional[float] = None
+    ssim: Optional[float] = None
+    lpips: Optional[float] = None
+    avg_error: Optional[float] = None
+    shift_psnr: Optional[float] = None
+    shift_psnr_cc: Optional[float] = None
+    distance_m: Optional[float] = None
+    train_time_s: Optional[float] = None
+    peak_vram_mb: Optional[int] = None
+    ply_size_mb: Optional[float] = None
+    gpu: Optional[str] = None
+    train_s_per_100m: Optional[float] = None
+    ply_mb_per_100m: Optional[float] = None
+    frames_measured: int = Field(default=0, ge=0)
+    bad_segments: dict[str, list[BadSegment]] = {}
+    seams: list[ChunkSeam] = []
+    warnings: list[str] = []
+
+
 class BenchmarkResult(VersionedFile):
     """Schema của file kết quả benchmark, do ``d2s benchmark --out`` ghi.
 
@@ -1755,6 +1919,7 @@ class BenchmarkResult(VersionedFile):
             nghĩa, ``default`` khi dùng ngưỡng mặc định 0,3 dB (thêm từ ``d2s-benchresult/0.2``).
         warnings: Cảnh báo chung của cả benchmark, ví dụ không hiệu chỉnh được ngưỡng.
         groups: Kết quả từng nhóm, theo thứ tự trong file định nghĩa.
+        chunked: Kết quả gộp của từng lần dựng chia chunk (thêm từ ``d2s-benchresult/0.5``).
     """
 
     FILE_KIND: ClassVar[str] = "benchresult"
@@ -1762,6 +1927,7 @@ class BenchmarkResult(VersionedFile):
     tie_threshold_source: Literal["default", "calibration"] = "default"
     warnings: list[str] = []
     groups: list[BenchmarkGroup]
+    chunked: list[BenchmarkChunkedGroup] = []
 
 
 # Tra lớp schema theo loại file trong schema_version, dùng bởi files.load_any.
