@@ -93,13 +93,20 @@ def list_approaches(args: argparse.Namespace) -> int:
     """
     approaches = [load_approach(approach_id) for approach_id in list_approach_ids()]
     rows = [
-        [a.approach_id, a.name, ", ".join(camera_support(a)["tracks"]), a.level, a.codebase]
+        [
+            a.approach_id,
+            a.name,
+            ", ".join(camera_support(a)["tracks"]),
+            a.level,
+            a.codebase,
+            "thử nghiệm" if a.experimental else "",
+        ]
         for a in approaches
     ]
     emit(
         args,
         [{**a.model_dump(mode="json"), "camera_support": camera_support(a)} for a in approaches],
-        format_table(["approach_id", "tên", "track", "mức", "codebase"], rows),
+        format_table(["approach_id", "tên", "track", "mức", "codebase", "trạng thái"], rows),
     )
     return 0
 

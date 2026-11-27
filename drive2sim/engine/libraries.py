@@ -12,11 +12,28 @@ File này chứa:
 - ``item_status``: trạng thái một mục trên máy này.
 - ``install_plan``: cách cài một mục (``("env", tên, bước)`` hoặc ``("command", lệnh)``).
 - ``catalog``: danh mục kèm trạng thái cho Studio.
+- ``bulk_ids``: các mục mà "Cài tất cả" cài, theo thứ tự phụ thuộc.
+
+"Cài tất cả" (``InstallFlow.start_all``, nút trên trang Thư viện, ``d2s libraries install --all``)
+cài lần lượt mọi mục cài được còn thiếu, bỏ mục ``bulk: False`` (Waymo kéo TensorFlow 2.11 và có
+thể đổi numpy của môi trường; nuPlan ghim nhiều gói): hai mục này vẫn cài riêng được.
+
+Mọi lệnh ``pip`` của bảng (``install_plan``) chạy với file ràng buộc ghim đúng phiên bản các gói
+đang có trong Python của Studio (``pip_constraints``): pip chỉ thêm gói mới, không nâng, hạ gói
+của môi trường chính (thử trên máy lab: nuscenes-devkit 1.2.0 kéo matplotlib 3.5.3 → 3.10.9 và
+opencv-python-headless đè lên cv2); không thoả được thì pip báo lỗi, môi trường giữ nguyên.
+Mục cần công cụ hệ thống (``needs``, ví dụ ``cargo`` để build av2) mà máy chưa có thì không cài,
+nói lý do.
+
+Sau mỗi lần cài, ``remove_stray_packages`` xoá package tên chung (``tests``) mà một gói cài nhầm
+vào thẳng ``site-packages``: gmplot (PandaSet devkit kéo theo) cài ``tests/__init__.py`` ở đó, che
+mất ``tests`` của repo nên ``pytest tests/drive2sim`` không import được.
 """
 
 import importlib
 import importlib.util
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Optional, Union
@@ -97,6 +114,7 @@ CATALOG: list[dict] = [
         "check": ("import", ["waymo_open_dataset"]),
         "install": ("pip", ["waymo-open-dataset-tf-2-11-0==1.6.0"]),
         "size": "~1.5 GB", "minutes": 5,
+        "bulk": False, "bulk_note": "kéo TensorFlow 2.11, có thể đổi numpy của môi trường chính",
     },
     {
         "id": "sdk-pandaset", "group": "Dữ liệu", "name": "PandaSet devkit", "dataset": "pandaset",
@@ -112,6 +130,7 @@ CATALOG: list[dict] = [
         "desc": "Đọc dữ liệu Argoverse 2.",
         "links": [["GitHub", "https://github.com/ziyc/av2-api"]],
         "check": ("import", ["av2"]), "install": ("pip", ["git+https://github.com/ziyc/av2-api"]),
+        "needs": [["cargo", "Rust (cargo) để build phần mở rộng của av2: https://rustup.rs"]],
         "size": "~50 MB", "minutes": 3,
     },
     {
@@ -128,6 +147,7 @@ CATALOG: list[dict] = [
         "check": ("import", ["nuplan"]),
         "install": ("pip", ["git+https://github.com/motional/nuplan-devkit"]),
         "size": "~500 MB", "minutes": 6,
+        "bulk": False, "bulk_note": "ghim nhiều gói, có thể đổi phiên bản trong môi trường chính",
     },
     {
         "id": "sdk-physicalai", "group": "Dữ liệu", "name": "PhysicalAI (Hugging Face hub)",
@@ -235,11 +255,15 @@ def install_plan(item_id: str, python: str = sys.executable) -> Plan:
     plan = item["install"]
     if plan is None:
         raise ValueError(f"{item['name']} cần cài tay (quyền quản trị): {item['links'][0][1]}")
+    for tool, why in item.get("needs", []):
+        if not _which(tool):
+            raise ValueError(f"cần {why}")
     kind = plan[0]
     if kind == "env":
         return ("env", plan[1], plan[2])
     if kind == "pip":
-        return ("command", [python, "-m", "pip", "install", *plan[1]])
+        constraints = pip_constraints(python)
+        return ("command", [*pip_command(python, "install"), "-c", str(constraints), *plan[1]])
     if kind == "hf":
         code = (
             "from transformers import SegformerForSemanticSegmentation as M; "
@@ -254,6 +278,92 @@ def install_plan(item_id: str, python: str = sys.executable) -> Plan:
     raise ValueError(f"kiểu cài lạ: {kind}")
 
 
+def _has_pip(python: str) -> bool:
+    try:
+        done = subprocess.run([python, "-m", "pip", "--version"], capture_output=True, check=False)
+    except OSError:
+        return False
+    return done.returncode == 0
+
+
+def pip_command(python: str, action: str) -> list[str]:
+    """Đầu lệnh pip cho ``python``, ví dụ ``[python, "-m", "pip", "install"]``.
+
+    Venv tạo bằng ``uv venv`` (không ``--seed``) không có pip: khi đó dùng
+    ``uv pip <action> --python <python>`` nếu có uv; không có cả hai thì vẫn trả lệnh pip, để lỗi
+    "No module named pip" hiện trong log.
+    """
+    if not _has_pip(python):
+        uv = _which("uv")
+        if uv:
+            return [uv, "pip", action, "--python", python]
+    return [python, "-m", "pip", action]
+
+
+def pip_constraints(python: str, path: Optional[Path] = None) -> Path:
+    """Ghi file ràng buộc pip ghim phiên bản mọi gói đang có trong ``python``.
+
+    Dòng cài từ đường dẫn, git (``tên @ url``) và gói editable bị bỏ: chúng không ghim được
+    bằng ``==`` và pip không nâng, hạ chúng khi không được yêu cầu.
+
+    Args:
+        python: Python mà pip cài vào.
+        path: File cần ghi; mặc định ``~/.cache/drive2sim/pip-constraints.txt``.
+
+    Returns:
+        Đường dẫn file.
+    """
+    path = path or Path.home() / ".cache" / "drive2sim" / "pip-constraints.txt"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    command = [*pip_command(python, "freeze"), "--exclude-editable"]
+    try:
+        frozen = subprocess.run(command, capture_output=True, text=True, check=False).stdout
+    except OSError:  # không chạy được Python đó: không ghim gì, lệnh pip sau sẽ báo lỗi rõ hơn
+        frozen = ""
+    pins = [line for line in frozen.splitlines() if "==" in line and " @ " not in line]
+    path.write_text("".join(f"{line}\n" for line in pins), encoding="utf-8")
+    return path
+
+
+STRAY_PACKAGES = ("tests",)
+
+
+def remove_stray_packages(site_packages: Optional[Path] = None) -> list[str]:
+    """Xoá package tên chung (``STRAY_PACKAGES``) mà một gói đã cài đặt nhầm vào site-packages.
+
+    Chỉ xoá khi thư mục nằm trong ``RECORD`` của một gói đã cài (tức do pip đặt vào), không đụng
+    thư mục do người dùng tự tạo.
+
+    Args:
+        site_packages: Thư mục cần dọn; mặc định ``purelib`` của Python đang chạy.
+
+    Returns:
+        Mô tả từng thư mục đã xoá, ví dụ ``["tests/ (của gmplot 1.4.1)"]``.
+    """
+    import sysconfig
+
+    root = site_packages or Path(sysconfig.get_paths()["purelib"])
+    removed = []
+    for name in STRAY_PACKAGES:
+        folder = root / name
+        if not (folder / "__init__.py").is_file():
+            continue
+        owner = None
+        for record in root.glob("*.dist-info/RECORD"):
+            try:
+                text = record.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if f"\n{name}/__init__.py," in "\n" + text:
+                owner = record.parent.name.removesuffix(".dist-info")
+                break
+        if owner is None:
+            continue
+        shutil.rmtree(folder, ignore_errors=True)
+        removed.append(f"{name}/ (của {owner})")
+    return removed
+
+
 def catalog() -> dict:
     """Danh mục kèm trạng thái cho Studio.
 
@@ -265,7 +375,19 @@ def catalog() -> dict:
     for item in CATALOG:
         public = {k: v for k, v in item.items() if k not in ("check", "install")}
         public.setdefault("requires", [])
+        public.setdefault("bulk", item["install"] is not None)
         public["installable"] = item["install"] is not None
         public.update(item_status(item))
         items.append(public)
     return {"groups": list(GROUPS), "items": items}
+
+
+def bulk_ids() -> list[str]:
+    """Các mục "Cài tất cả" cài: cài được, không đánh dấu ``bulk: False``, theo thứ tự ``CATALOG``.
+
+    Thứ tự trong ``CATALOG`` đã đặt mục được cần trước mục cần nó (môi trường chính trước renderer,
+    uv trước Colab CLI).
+    """
+    return [
+        item["id"] for item in CATALOG if item["install"] is not None and item.get("bulk", True)
+    ]

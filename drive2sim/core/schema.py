@@ -57,6 +57,9 @@ Level = Literal["L1", "L2", "L3", "L4"]
 # ``feed_forward`` suy ra cảnh bằng một lần chạy model đã học sẵn, ``slam`` vừa ước lượng pose
 # camera vừa dựng bản đồ.
 ApproachKind = Literal["per_scene", "feed_forward", "slam"]
+# Cách approach dựng vật chuyển động (xe, người): theo box 3D, theo thời gian, tuỳ mục cấu hình,
+# hoặc không dựng (bản đồ tĩnh). CONTRACTS mục 4.1.
+Dynamics = Literal["boxes", "time", "option", "static"]
 Dataset = Literal[
     "waymo",
     "nuscenes",
@@ -65,6 +68,7 @@ Dataset = Literal[
     "pandaset",
     "kitti",
     "kitti360",
+    "phenikaa",
     "physicalai",
     "carla",
     "colmap",
@@ -78,6 +82,7 @@ ArtifactType = Literal[
     "masks",
     "smpl",
     "ncore_clip",
+    "observations",
     "mcgs_input",
     "depth_prior",
     "points_init",
@@ -116,7 +121,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "report": "d2s-report/0.1",
     "approach": "d2s-approach/0.3",
     "artifact": "d2s-artifact/0.2",
-    "run": "d2s-run/0.3",
+    "run": "d2s-run/0.4",
     "summary": "d2s-summary/0.8",
     "env": "d2s-env/0.3",
     "preview": "d2s-preview/0.2",
@@ -706,6 +711,39 @@ def option_reference(value: object) -> Optional[str]:
     return None
 
 
+class CustomRange(StrictModel):
+    """Khoảng cho phép nhập một giá trị số tự chọn ngoài ``choices`` của mục cấu hình.
+
+    Attributes:
+        min: Giá trị nhỏ nhất.
+        max: Giá trị lớn nhất.
+        integer: ``True`` thì chỉ nhận số nguyên.
+    """
+
+    min: float
+    max: float
+    integer: bool = True
+
+    @model_validator(mode="after")
+    def _validate_range(self) -> "CustomRange":
+        """Kiểm tra ``min <= max``.
+
+        Raises:
+            ValueError: Nếu ``min`` lớn hơn ``max``.
+        """
+        if self.min > self.max:
+            raise ValueError("custom: min must not exceed max")
+        return self
+
+    def accepts(self, value: object) -> bool:
+        """Cho biết ``value`` là số (không phải bool) trong khoảng, nguyên nếu cần."""
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return False
+        if self.integer and not float(value).is_integer():
+            return False
+        return self.min <= value <= self.max
+
+
 class OptionSpec(StrictModel):
     """Một mục cấu hình của approach: các lựa chọn thay thế được cho nhau và giá trị mặc định.
 
@@ -727,6 +765,9 @@ class OptionSpec(StrictModel):
             mọi lựa chọn nhận đủ ``requires.camera_models``. Ví dụ renderer ``3dgs`` chỉ nhận
             ``opencv_pinhole``, còn ``3dgeer`` nhận thêm ``opencv_fisheye``, ``ftheta`` (thêm từ
             ``d2s-approach/0.3``).
+        custom: Khoảng cho phép nhập giá trị số tự chọn ngoài ``choices`` (Studio hiện ô "Tuỳ
+            chỉnh"); ``None`` thì chỉ nhận ``choices``. Thêm sau ``d2s-approach/0.3`` mà không
+            tăng phiên bản (không bắt buộc).
     """
 
     choices: list[OptionValue] = Field(min_length=1)
@@ -737,6 +778,13 @@ class OptionSpec(StrictModel):
     descriptions: list[str] = []
     group: Optional[str] = None
     camera_models: list[list[CameraModel]] = []
+    custom: Optional[CustomRange] = None
+
+    def accepts(self, value: object) -> bool:
+        """Cho biết ``value`` là một lựa chọn, hoặc một giá trị tự chọn trong ``custom``."""
+        return contains_value(self.choices, value) or (
+            self.custom is not None and self.custom.accepts(value)
+        )
 
     @model_validator(mode="after")
     def _validate_default(self) -> "OptionSpec":
@@ -819,6 +867,14 @@ class Approach(VersionedFile):
         kind: Loại phương pháp (``ApproachKind``); Studio chia danh sách approach theo nhóm
             này. Thêm sau ``d2s-approach/0.3`` mà không tăng phiên bản (không bắt buộc, mặc
             định ``per_scene``).
+        experimental: ``True`` khi approach đã nối vào tool nhưng chưa nghiệm thu (chưa có run
+            train, eval đầy đủ trên GPU); Studio và ``d2s approach list`` gắn nhãn "thử nghiệm".
+            Chỉ để hiển thị, engine không đọc. Thêm sau ``d2s-approach/0.3`` mà không tăng phiên
+            bản (không bắt buộc, mặc định ``False``).
+        dynamics: Cách dựng vật chuyển động (``Dynamics``): ``boxes`` (node riêng theo box 3D),
+            ``time`` (Gaussian đổi theo thời gian, không cần box), ``option`` (tuỳ mục cấu hình,
+            mặc định tắt), ``static`` (bản đồ tĩnh). Studio hiện thành nhãn trên thẻ approach. Chỉ
+            để hiển thị. Thêm sau ``d2s-approach/0.3`` mà không tăng phiên bản (không bắt buộc).
         requires: Điều kiện dữ liệu. Track (pinhole, fisheye) của approach và của từng preset suy
             ra từ mô hình camera nhận được (``CAMERA_TRACK``), không ghi riêng; file ``0.1``,
             ``0.2`` có trường ``track`` thì trường đó được bỏ qua.
@@ -841,6 +897,8 @@ class Approach(VersionedFile):
     codebase: str
     level: Level
     kind: ApproachKind = "per_scene"
+    experimental: bool = False
+    dynamics: Optional[Dynamics] = None
     requires: Requires
     options: dict[str, OptionSpec] = {}
     constraints: list[Constraint] = []
@@ -1064,6 +1122,8 @@ class StageRecord(StrictModel):
             lại kết quả cũ hoặc không đo được.
         params: Tham số đã gộp, để chạy tiếp đúng như lúc tạo run (thêm từ ``d2s-run/0.2``).
         error: Lỗi nếu stage ``failed``.
+        started_utc: Lúc stage bắt đầu chạy thật lần gần nhất (ISO 8601, UTC), để Studio tính
+            thời gian đã chạy; ``None`` khi chưa chạy hoặc run cũ.
     """
 
     stage_id: StageId
@@ -1075,6 +1135,7 @@ class StageRecord(StrictModel):
     peak_vram_mb: int = Field(default=0, ge=0)
     params: dict[str, Any] = {}
     error: Optional[ErrorInfo] = None
+    started_utc: Optional[datetime] = None
 
 
 class RunRecord(VersionedFile):
@@ -1086,6 +1147,7 @@ class RunRecord(VersionedFile):
     Attributes:
         run_id: Định danh run, ``YYYYMMDD-HHMMSS-<approach_id>-<4 hex>``.
         scene_id: Cảnh của run.
+        scene_mask_digest: SHA-256 của snapshot mask chính thức, None với run cũ.
         split_id: Split của run.
         approach: Approach và lựa chọn đã quyết định.
         level: Mức năng lực của approach.
@@ -1099,6 +1161,7 @@ class RunRecord(VersionedFile):
     FILE_KIND: ClassVar[str] = "run"
     run_id: str
     scene_id: SceneId
+    scene_mask_digest: Optional[str] = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     split_id: str
     approach: RunApproach
     level: Level

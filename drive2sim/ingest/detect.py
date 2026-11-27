@@ -30,14 +30,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from drive2sim.ingest import kitti360
+from drive2sim.ingest import kitti360, phenikaa
 from drive2sim.ingest.drivestudio import SOURCES
 from drive2sim.ingest.images import IMAGE_SUFFIXES, read_image_size
 from drive2sim.paths import SCENE_LISTS_DIR
 
 # Nguồn mà scene ingest chạy được: mọi dataset có script tiền xử lý của DriveStudio, cộng các
 # nguồn có converter tự viết trong drive2sim/ingest/ (KITTI-360).
-INGEST_SUPPORTED: frozenset[str] = frozenset(SOURCES) | {kitti360.DATASET}
+INGEST_SUPPORTED: frozenset[str] = frozenset(SOURCES) | {kitti360.DATASET, phenikaa.DATASET}
 _MAX_DEPTH = 3
 _MAX_INVENTORY = 20
 _MAX_SEARCH_DIRS = 200  # số thư mục con tối đa được xem khi tìm dataset nằm sâu hơn
@@ -242,8 +242,9 @@ def _detect_kitti360(root: Path, report: SourceReport) -> bool:
     """Nhận ra KITTI-360: ``calibration/calib_cam_to_pose.txt`` cùng ảnh trong ``data_2d_raw/``.
 
     Chuỗi lấy từ tên thư mục hoặc file ``.tar`` trong ``data_2d_raw/`` (``<chuỗi>_image_0X.tar``).
-    Không đọc file ``.pkl`` nào (ví dụ ``ImageSets-rosa-6class/``): đó là pickle từ nguồn bên
-    thứ ba, đọc có thể chạy mã tuỳ ý; converter chỉ dùng file chính thức.
+    Có box 3D khi có box chính thức (``data_3d_bboxes``) hoặc metadata ROSA
+    (``ImageSets-rosa-6class/``); ở đây chỉ xem file có không, không mở pickle (converter đọc nó
+    bằng unpickler chỉ cho mảng numpy, ``kitti360_boxes``).
 
     Args:
         root: Thư mục nguồn.
@@ -261,14 +262,51 @@ def _detect_kitti360(root: Path, report: SourceReport) -> bool:
     report.versions[""] = sequences
     report.cameras = list(kitti360.CAMERAS)
     report.has_lidar = any(kitti360.has_lidar(root, sequence) for sequence in sequences)
-    report.has_cuboids = False
-    if (root / "data_3d_bboxes").exists():
-        report.notes.append("có data_3d_bboxes nhưng converter chưa đọc box 3D")
-    if any(root.glob("*/*.pkl")) or any(root.glob("*.pkl")):
+    official = (root / "data_3d_bboxes").is_dir() or (root / "data_3d_bboxes.zip").is_file()
+    rosa = any((root / "ImageSets-rosa-6class" / name).is_file() for name in (
+        "kitti360_rosa_infos_train.pkl", "kitti360_rosa_infos_val.pkl"
+    ))  # fmt: skip
+    report.has_cuboids = official or rosa
+    if rosa and not official:
         report.notes.append(
-            "bỏ qua các file .pkl: converter không đọc pickle từ nguồn bên ngoài, chỉ đọc "
-            "calibration/, data_poses và dữ liệu thô"
+            "box 3D lấy từ metadata ROSA (ImageSets-rosa-6class/), đọc bằng unpickler chỉ cho "
+            "mảng numpy; chuỗi không có trong ROSA thì cảnh không có box"
         )
+    return True
+
+
+def _detect_phenikaa(root: Path, report: SourceReport) -> bool:
+    """Nhận ra PHENIKAA: thư mục chuỗi có ``camera/CAM_*``, ``ego_pose/``, ``lidar/*.laz``.
+
+    ``root`` là một chuỗi hoặc thư mục chứa các chuỗi (thường kèm ``calib/``). Chưa có ID theo dõi
+    cho box nên chưa có ``instances/``.
+
+    Args:
+        root: Thư mục nguồn.
+        report: Kết quả, được điền thêm nếu nhận ra.
+
+    Returns:
+        ``True`` nếu là PHENIKAA.
+    """
+    sequences = phenikaa.find_sequences(root)
+    if not sequences or not any(
+        (path / "camera").glob("CAM_*") and any((path / "lidar").glob("*.laz"))
+        for path in sequences.values()
+    ):
+        return False
+    report.dataset = phenikaa.DATASET
+    report.versions[""] = list(sequences)
+    report.cameras = list(phenikaa.CAMERAS)
+    report.has_lidar = True
+    report.has_cuboids = True
+    report.notes.append(
+        "box 3D của PHENIKAA không có ID theo dõi: converter tự nối box qua các khung "
+        "(phenikaa_tracking); camera pinhole được khử méo khi ingest; mask thân xe kèm theo tool"
+    )
+    try:
+        phenikaa.find_calib(next(iter(sequences.values())))
+    except phenikaa.IngestError as error:
+        report.errors.append(str(error))
     return True
 
 
@@ -315,6 +353,7 @@ def _detect_ncore(root: Path, report: SourceReport) -> bool:
 
 
 _DETECTORS = (
+    _detect_phenikaa,
     _detect_nuscenes,
     _detect_waymo,
     _detect_physicalai,
@@ -330,6 +369,7 @@ _DETECTORS = (
 # sâu), để mỗi thư mục xem tốn ít. PhysicalAI và NCore tìm đệ quy nên nếu có ở thư mục con thì
 # đã được nhận ra ở chính thư mục người dùng truyền.
 _SHALLOW_DETECTORS = (
+    _detect_phenikaa,
     _detect_nuscenes,
     _detect_waymo,
     _detect_nuplan,
@@ -400,6 +440,51 @@ def _find_candidates(root: Path) -> list[dict[str, str]]:
     return found
 
 
+VIDEO_SUFFIXES = (".mp4", ".webm", ".avi", ".mov", ".mkv")
+# Từ khoá tên thư mục của các cảm biến mà không converter nào dùng.
+UNUSED_SENSOR_WORDS = ("radar", "ultrasonic", "sonar", "thermal", "event")
+
+
+def _unused_data(root: Path) -> list[str]:
+    """Loại dữ liệu có trong nguồn mà tool không dùng, để báo cho người dùng biết.
+
+    Duyệt tới độ sâu ``_MAX_DEPTH`` (thư mục ẩn bỏ qua): file video (tool dựng cảnh từ ảnh từng
+    khung, không đọc video) và thư mục mang tên cảm biến trong ``UNUSED_SENSOR_WORDS`` (radar...).
+
+    Returns:
+        Mỗi loại một câu, ví dụ ``"video: 3 file .mp4"``; rỗng nếu không có.
+    """
+    videos: Counter[str] = Counter()
+    sensors: dict[str, list[str]] = {}
+    stack = [(root, 0)]
+    while stack:
+        directory, depth = stack.pop()
+        try:
+            entries = list(directory.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            if entry.name.startswith("."):
+                continue
+            if entry.is_dir():
+                lowered = entry.name.lower()
+                word = next((w for w in UNUSED_SENSOR_WORDS if w in lowered), None)
+                if word:
+                    sensors.setdefault(word, []).append(entry.relative_to(root).as_posix())
+                elif depth < _MAX_DEPTH:
+                    stack.append((entry, depth + 1))
+            elif entry.suffix.lower() in VIDEO_SUFFIXES:
+                videos[entry.suffix.lower()] += 1
+    found = []
+    if videos:
+        listed = ", ".join(f"{count} file {suffix}" for suffix, count in videos.most_common())
+        found.append(f"video: {listed}")
+    for word, folders in sorted(sensors.items()):
+        shown = ", ".join(sorted(folders)[:3]) + (" ..." if len(folders) > 3 else "")
+        found.append(f"{word}: {len(folders)} thư mục ({shown})")
+    return found
+
+
 def _inventory(root: Path) -> list[dict[str, object]]:
     """Liệt kê thư mục ảnh và các nhóm file cùng đuôi, tới độ sâu 3.
 
@@ -456,7 +541,13 @@ def inspect_source(path: Path) -> SourceReport:
     if not root.is_dir():
         raise FileNotFoundError(f"không có thư mục {root}")
     report = SourceReport(path=root)
+    unused = _unused_data(root)
     if any(detect(root, report) for detect in _DETECTORS):
+        if unused:
+            report.notes.append(
+                "nguồn có dữ liệu mà tool không dùng (bỏ qua khi ingest, không ảnh hưởng cảnh): "
+                + "; ".join(unused)
+            )
         if not report.ingest_supported:
             report.notes.append(
                 f"nhận ra {report.dataset} nhưng scene ingest chưa hỗ trợ nguồn này"
@@ -475,6 +566,15 @@ def inspect_source(path: Path) -> SourceReport:
     report.inventory = _inventory(root)
     report.notes.append(
         "không nhận ra dataset nào đã biết; cần viết converter mới, bắt đầu từ converter gần "
-        "nhất về hình dạng dữ liệu (ARCHITECTURE mục 4.2)"
+        "nhất về hình dạng dữ liệu (ARCHITECTURE mục 4.2). Một cảnh dựng được cần ít nhất: ảnh "
+        "từng khung của mỗi camera, thông số trong và vị trí gắn của camera (calib), pose xe theo "
+        "khung; LiDAR và box 3D tuỳ phương pháp"
     )
+    if unused:
+        report.notes.append("tool không đọc trực tiếp: " + "; ".join(unused))
+    if any(item.startswith("video") for item in unused):
+        report.notes.append(
+            "chỉ có video: tách thành ảnh từng khung trước (ví dụ ffmpeg); không có calib, pose "
+            "thì phải ước lượng bằng COLMAP, tool chưa có converter cho COLMAP"
+        )
     return report

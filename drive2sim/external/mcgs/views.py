@@ -256,6 +256,7 @@ def build_views(
     max_angle: Optional[float] = None,
     ego_masks_dir: Optional[Path] = None,
     pose_scale: float = POSE_SCALE,
+    dataset: Optional[str] = None,
 ) -> list[dict]:
     """Ghi ``views.npz`` cho các cặp (khung, camera) test và trả thông tin từng góc nhìn.
 
@@ -274,6 +275,7 @@ def build_views(
         max_angle: Góc lệch trục tối đa (rad) của camera fisheye; ``None`` là không giới hạn.
         ego_masks_dir: Thư mục ``<camera_id>.png`` (255 là vùng bỏ qua), ví dụ ảnh thân xe.
         pose_scale: Hệ số co của bản đồ.
+        dataset: Dataset nguồn để chọn mask hiệu lực; None dùng ego_masks_dir của caller cũ.
 
     Returns:
         Danh sách theo thứ tự trong ``views.npz``: ``{"frame", "camera_id", "camera_index",
@@ -302,11 +304,31 @@ def build_views(
         intrinsics, radial = read_intrinsics(scene_root, index, model)
         height, width = image.shape[:2]
         mask = np.zeros((height, width), dtype=bool)
-        if ego_masks_dir is not None and (ego_masks_dir / f"{camera_id}.png").is_file():
-            raw = cv2.imread(str(ego_masks_dir / f"{camera_id}.png"), cv2.IMREAD_GRAYSCALE)
+        from drive2sim.ingest.ego_masks import effective_mask
+
+        mask_path = (
+            effective_mask(scene_root, dataset, camera_id, index)
+            if dataset is not None
+            else ego_masks_dir / f"{camera_id}.png"
+            if ego_masks_dir is not None
+            else None
+        )
+        if mask_path is not None and mask_path.is_file():
+            raw = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+            if raw is None:
+                raise ValueError(f"không đọc được mask {mask_path}")
             mask |= cv2.resize(raw, (width, height), interpolation=cv2.INTER_NEAREST) > 127
         if model in FISHEYE_MODELS and max_angle is not None:
             mask |= fisheye_theta(intrinsics, radial, height, width) > max_angle
+        if model in PINHOLE_MODELS:
+            coefficients = np.loadtxt(scene_root / "intrinsics" / f"{index}.txt")[4:9]
+            if np.any(coefficients):
+                map_x, map_y = cv2.initUndistortRectifyMap(
+                    intrinsics, coefficients, None, intrinsics, (width, height), cv2.CV_32FC1
+                )
+                image = cv2.remap(image, map_x, map_y, cv2.INTER_LINEAR)
+                allowed = cv2.remap((~mask).astype(np.uint8), map_x, map_y, cv2.INTER_NEAREST)
+                mask = allowed == 0
         c2w = poses_source.c2w(frame, index)
         records["camera"].append(camera_id)
         records["model"].append("fisheye" if model in FISHEYE_MODELS else "pinhole")

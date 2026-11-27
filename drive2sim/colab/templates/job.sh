@@ -5,7 +5,9 @@
 # run.ipynb): clone đúng commit, cài môi trường bằng envs/install_main.sh, chạy "d2s kaggle run"
 # với gói job. Chưa chạy thử trên Colab thật.
 #
-#   bash job.sh <thư mục gốc> <url repo> <nhánh> <commit> <thư mục gói job> <thư mục cảnh>
+#   bash job.sh <thư mục gốc> <url repo> <nhánh> <commit> <thư mục gói job> <thư mục cảnh> [xsim]
+#
+# Tham số cuối bằng 1 khi run dùng approach XSIM: cài thêm venv XSIM bằng envs/install_xsim.sh.
 set -euo pipefail
 
 ROOT="$1"        # /content/d2s
@@ -14,6 +16,7 @@ BRANCH="$3"
 COMMIT="$4"
 BUNDLE="$5"      # gói job (run.json, split.json, scene_ref.json, resume.json)
 SCENE_INPUT="$6" # nơi đã giải nén cảnh; d2s kaggle run tìm cảnh theo manifest.yaml dưới đây
+XSIM="${7:-0}"
 REPO="$ROOT/repo"
 VENV="$ROOT/venv"
 WORK="$ROOT/work"
@@ -50,6 +53,22 @@ if [ "$(cat "$ROOT/env.done" 2>/dev/null || true)" != "$ENV_KEY" ]; then
   echo "$ENV_KEY" > "$ROOT/env.done"
 else
   echo "đã cài ($ENV_KEY)"
+fi
+
+if [ "$XSIM" = "1" ]; then
+  step "môi trường XSIM"
+  # Giữ lại trong phiên như môi trường chính: chỉ cài lại khi script, pin hoặc bản vá đổi.
+  export D2S_XSIM_DIR="$ROOT/xsim" D2S_CUDA_PREFIX="$ROOT/cuda-12.8"
+  XSIM_KEY="$(cat envs/install_xsim.sh envs/xsim-constraints.txt drive2sim/external/xsim/patches/runtime.patch | sha256sum | cut -c1-16)"
+  if [ "$(cat "$ROOT/xsim.done" 2>/dev/null || true)" != "$XSIM_KEY" ]; then
+    [ -d /usr/local/cuda/bin ] && export PATH="/usr/local/cuda/bin:$PATH"
+    TORCH_CUDA_ARCH_LIST="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | sort -u | paste -sd';')"
+    export TORCH_CUDA_ARCH_LIST
+    bash envs/install_xsim.sh --python "$VENV/bin/python"
+    echo "$XSIM_KEY" > "$ROOT/xsim.done"
+  else
+    echo "đã cài XSIM ($XSIM_KEY)"
+  fi
 fi
 
 step "run"

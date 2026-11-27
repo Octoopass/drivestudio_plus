@@ -1,4 +1,4 @@
-"""Test loader DriveStudio cho cảnh KITTI-360 (``drive2sim/recon/data/loaders/kitti360.py``).
+"""Test loader chung (``drive2sim/recon/data/loaders/standard.py``) trên cảnh kiểu KITTI-360.
 
 Dựng một cảnh giả rất nhỏ theo khung KITTI của converter KITTI-360 (một camera pinhole, một camera
 fisheye, hai khung, pose đơn vị) rồi kiểm tra:
@@ -32,7 +32,7 @@ from PIL import Image  # noqa: E402
 from drive2sim.core.camera import MEI_FIT_MAX_ANGLE  # noqa: E402
 from drive2sim.recon.data.base.pixel_source import get_rays  # noqa: E402
 from drive2sim.recon.data.loaders.kitti import KITTICameraData, KITTIPixelSource  # noqa: E402
-from drive2sim.recon.data.loaders.kitti360 import KITTI360PixelSource  # noqa: E402
+from drive2sim.recon.data.loaders.standard import StandardPixelSource  # noqa: E402
 from drive2sim.recon.utils.visualization import get_layout  # noqa: E402
 from tests.drive2sim.samples import FISHEYE_COEFFS_02, MANIFEST  # noqa: E402
 
@@ -88,7 +88,7 @@ def make_source(
     undistort: bool = False,
     fisheye_max_angle: Optional[float] = None,
     renderer_max_angle: Optional[float] = None,
-) -> KITTI360PixelSource:
+) -> StandardPixelSource:
     """Nạp nguồn ảnh của cảnh giả trên CPU: camera pinhole nạp nguyên, fisheye nạp một nửa."""
     config = OmegaConf.create(
         {
@@ -106,15 +106,15 @@ def make_source(
             "sampler": {"buffer_downscale": 1, "buffer_ratio": 0.0, "start_enhance_weight": 1},
         }
     )
-    return KITTI360PixelSource("kitti360", config, str(scene), 0, 2)
+    return StandardPixelSource("kitti360", config, str(scene), 0, 2)
 
 
 @pytest.fixture(scope="module")
-def source(tmp_path_factory: pytest.TempPathFactory) -> KITTI360PixelSource:
+def source(tmp_path_factory: pytest.TempPathFactory) -> StandardPixelSource:
     return make_source(make_scene(tmp_path_factory.mktemp("kitti360")))
 
 
-def test_fisheye_model_and_radial_coeffs_reach_camera_infos(source: KITTI360PixelSource) -> None:
+def test_fisheye_model_and_radial_coeffs_reach_camera_infos(source: StandardPixelSource) -> None:
     camera = source.camera_data[1]
     assert camera.cam_name == "image_02"
     assert (camera.HEIGHT, camera.WIDTH) == (20, 20)
@@ -128,12 +128,12 @@ def test_fisheye_model_and_radial_coeffs_reach_camera_infos(source: KITTI360Pixe
     assert torch.allclose(image["direction_norm"], torch.ones(20, 20, 1))
 
 
-def test_principal_point_ray_is_optical_axis(source: KITTI360PixelSource) -> None:
+def test_principal_point_ray_is_optical_axis(source: StandardPixelSource) -> None:
     image, _ = source.camera_data[1].get_image(0)
     assert torch.allclose(image["viewdirs"][10, 10], torch.tensor([0.0, 0.0, 1.0]), atol=1e-6)
 
 
-def test_off_axis_ray_angle_matches_opencv_fisheye(source: KITTI360PixelSource) -> None:
+def test_off_axis_ray_angle_matches_opencv_fisheye(source: StandardPixelSource) -> None:
     image, infos = source.camera_data[1].get_image(0)
     K = infos["intrinsics"].double().numpy()
     D = np.array(FISHEYE_COEFFS_02, dtype=np.float64)
@@ -149,7 +149,7 @@ def test_off_axis_ray_angle_matches_opencv_fisheye(source: KITTI360PixelSource) 
         assert np.allclose(direction, undistorted / np.linalg.norm(undistorted), atol=1e-5)
 
 
-def test_pixels_beyond_fit_angle_are_excluded_from_loss(source: KITTI360PixelSource) -> None:
+def test_pixels_beyond_fit_angle_are_excluded_from_loss(source: StandardPixelSource) -> None:
     image, _ = source.camera_data[1].get_image(0)
     angle = torch.acos(image["viewdirs"][..., 2].clamp(-1, 1))
     valid = image["valid_masks"]
@@ -224,11 +224,11 @@ def test_dark_border_outside_lens_circle_is_masked(tmp_path: Path) -> None:
     assert not bool((valid & dark & border).any())
 
 
-def test_uniform_images_have_no_dark_border(source: KITTI360PixelSource) -> None:
+def test_uniform_images_have_no_dark_border(source: StandardPixelSource) -> None:
     assert source.camera_data[1].dark_angle == math.pi
 
 
-def test_fisheye_project_points(source: KITTI360PixelSource) -> None:
+def test_fisheye_project_points(source: StandardPixelSource) -> None:
     camera = source.camera_data[1]
     off_axis = math.radians(30)
     beyond = MEI_FIT_MAX_ANGLE + 0.05
@@ -255,7 +255,7 @@ def test_fisheye_project_points(source: KITTI360PixelSource) -> None:
     assert np.allclose(pixels[1].numpy(), expected[0, 0], atol=1e-4)
 
 
-def test_pinhole_camera_keeps_kitti_path(source: KITTI360PixelSource) -> None:
+def test_pinhole_camera_keeps_kitti_path(source: StandardPixelSource) -> None:
     camera = source.camera_data[0]
     assert camera.cam_name == "image_00" and camera.camera_model == "pinhole"
     assert camera.radial_coeffs is None
@@ -348,7 +348,7 @@ def test_packaged_masks_keep_road_and_exclude_hardware() -> None:
         assert pixels[410, 700] == 0  # fixed sun streak is not vehicle hardware
 
 
-def test_masked_rgb_does_not_contribute_to_training_loss(source: KITTI360PixelSource) -> None:
+def test_masked_rgb_does_not_contribute_to_training_loss(source: StandardPixelSource) -> None:
     from types import SimpleNamespace
 
     from drive2sim.recon.trainers.base import BasicTrainer
@@ -373,7 +373,7 @@ def test_masked_rgb_does_not_contribute_to_training_loss(source: KITTI360PixelSo
 
 
 def test_evaluation_ignores_rgb_errors_inside_vehicle_mask(
-    source: KITTI360PixelSource, monkeypatch: pytest.MonkeyPatch
+    source: StandardPixelSource, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from drive2sim.recon.rendering.videos import render
 
@@ -470,7 +470,7 @@ def test_lidar_points_follow_the_camera_mask_angle() -> None:
     assert project_world_camera(*args)[2].tolist() == [True, True, True]
 
 
-def test_lidar_points_behind_the_lens_fold_are_rejected(source: KITTI360PixelSource) -> None:
+def test_lidar_points_behind_the_lens_fold_are_rejected(source: StandardPixelSource) -> None:
     """Điểm LiDAR phía sau, quá đỉnh của đa thức ống kính, bị loại.
 
     Sau đỉnh, bán kính giảm lại: điểm phía sau rơi đúng vào pixel của một điểm trong vùng dùng
@@ -509,3 +509,66 @@ def test_instance_num_is_zero_without_boxes() -> None:
     assert DrivingDataset.instance_num.fget(no_boxes) == 0
     boxes = SimpleNamespace(pixel_source=SimpleNamespace(instances_pose=torch.zeros(2, 3, 4, 4)))
     assert DrivingDataset.instance_num.fget(boxes) == 3
+
+
+@pytest.mark.parametrize(
+    "loader_path",
+    [
+        "drive2sim.recon.data.loaders.kitti360.KITTI360PixelSource",
+        "drive2sim.recon.data.loaders.phenikaa.PhenikaaPixelSource",
+        "drive2sim.recon.data.loaders.standard.StandardPixelSource",
+    ],
+)
+def test_saved_loader_paths_build_dataset_sources(tmp_path: Path, loader_path: str) -> None:
+    from drive2sim.recon.data.driving_dataset import DrivingDataset
+    from drive2sim.recon.utils.misc import import_str
+
+    scene = make_scene(tmp_path)
+    reference = make_source(scene)
+    dataset = DrivingDataset.__new__(DrivingDataset)
+    dataset.data_cfg = OmegaConf.create(
+        {
+            "dataset": "kitti360",
+            "preload_device": "cpu",
+            "pixel_source": {**OmegaConf.to_container(reference.data_cfg), "type": loader_path},
+            "lidar_source": {"load_lidar": False},
+        }
+    )
+    dataset.data_path = str(scene)
+    dataset.start_timestep = 0
+    dataset.end_timestep = 2
+    pixels, lidar = dataset.build_data_source()
+    assert import_str(loader_path) is StandardPixelSource
+    assert isinstance(pixels, StandardPixelSource)
+    assert lidar is None
+    for camera_id, camera in pixels.camera_data.items():
+        expected = reference.camera_data[camera_id]
+        torch.testing.assert_close(camera.images, expected.images)
+        torch.testing.assert_close(camera.cam_to_worlds, expected.cam_to_worlds)
+        torch.testing.assert_close(camera.intrinsics, expected.intrinsics)
+
+
+def test_physicalai_body_override_preserves_per_frame_sensor_mask(tmp_path: Path) -> None:
+    from drive2sim.ingest.ego_masks import set_state
+    from drive2sim.recon.data.loaders.physicalai import PhysicalAICameraData
+
+    camera = PhysicalAICameraData.__new__(PhysicalAICameraData)
+    camera.data_path = str(tmp_path)
+    camera.dataset_name = "physicalai"
+    camera.cam_name = "front"
+    camera.cam_id = 0
+    camera.start_timestep, camera.end_timestep = 0, 2
+    camera.rectification = None
+    sensor = torch.zeros(16, 32, dtype=torch.uint8)
+    sensor[0, 0] = 255
+    body = torch.zeros_like(sensor)
+    body[12:] = 255
+    (tmp_path / "ego_masks").mkdir()
+    Image.fromarray(body.numpy()).save(tmp_path / "ego_masks" / "front.png")
+    camera._read = lambda path, mask: body if path.parent.name == "ego_masks" else sensor
+    camera.load_egocar_mask()
+    assert camera.invalid_masks[:, 0, 0].all() and camera.invalid_masks[:, 15, 5].all()
+    (tmp_path / "ego_masks" / "front.png").unlink()
+    set_state(tmp_path, "front", "none")
+    camera.load_egocar_mask()
+    assert camera.invalid_masks[:, 0, 0].all() and not camera.invalid_masks[:, 15, 5].any()

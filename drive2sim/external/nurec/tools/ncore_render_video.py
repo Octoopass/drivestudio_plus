@@ -1,0 +1,332 @@
+"""(drive2sim) Video đi dọc đoạn đường từ PLY của Instant NuRec, như render_flythrough của Fisheye Fusion Lab.
+
+    <python môi trường chính> ncore_render_video.py <merged.ply> <views.npz> --out <video.mp4>
+        [--cameras a,b] [--fps 10] [--speed 1] [--height 360] [--no-gt] [--interp] [--gt-dense gt_dense.npz] [--gt-flow] [--gt-flow-window 0.2]
+
+``views.npz`` do ``ncore_eval_export.py --every 1`` ghi (mọi khung của clip NCore). Mỗi khung video
+là một hàng ảnh dựng của các camera (theo thứ tự ``--cameras``), mỗi ảnh co về cao ``--height``;
+mặc định có thêm hàng ảnh thật ở trên để so. Camera mắt cá vẽ bằng 3DGUT như
+``ncore_eval_render.py``. Ghi H.264 yuv420p (trình duyệt phát được) khi có ``imageio_ffmpeg``.
+``--speed`` > 0: video theo mốc thời gian thật của khung (``t_us`` của views.npz), mỗi khung giữ
+trên màn hình đúng khoảng tới khung sau chia ``speed`` (1 là tốc độ gốc), video vẫn ``--fps``
+khung/giây; ``--speed 0`` hoặc views không có ``t_us``: mỗi khung nguồn một khung video.
+``--interp``: khung video nằm giữa hai khung nguồn được vẽ thật từ pose nội suy (quay theo slerp,
+dời theo tuyến tính, trên pose camera→world) thay vì lặp lại khung trước, nên video mượt ở fps cao
+dù nguồn thưa (KITTI-360 bộ ROSA: 0,5 s một ảnh). Hàng ảnh thật giữ ảnh của khung nguồn gần nhất,
+trừ khi có ``--gt-dense`` (``kitti360_dense_gt.py``): khi đó khung video giữa hai khung nguồn dùng ảnh
+thật 10 Hz gần thời điểm đó nhất, nên cả hàng ảnh thật cũng mượt. Không có ảnh thật ở giữa mà có
+``--gt-flow``: ảnh giữa được nội suy từ hai ảnh thật bằng optical flow DIS của OpenCV (warp hai chiều
+rồi trộn; chỗ flow không qua kiểm tra xuôi-ngược thì chỉ hoà dần hai ảnh, không bẻ hình), chỉ trong
+đoạn cuối ``--gt-flow-window`` của mỗi quãng (0,2: 20%; phần còn lại giữ ảnh thật), ô ghi ``ground truth (interp)`` để không nhầm với ảnh thật.
+In ``progress <đã vẽ>/<tổng>`` sau mỗi khung để stage báo tiến độ.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import cv2
+import numpy as np
+import torch
+from gsplat import rasterization
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ncore_eval_render import load_ply  # noqa: E402
+
+
+def render(gaussians, viewmat, K, radial, model, w, h, dev):
+    means, quats, scales, opac, colors = gaussians
+    kw = dict(camera_model="fisheye", radial_coeffs=torch.from_numpy(radial)[None].to(dev),
+              with_ut=True, with_eval3d=True) if model == "fisheye" else {}
+    with torch.no_grad():
+        rgb, _, _ = rasterization(
+            means, quats, scales, opac, colors,
+            torch.from_numpy(viewmat)[None].to(dev), torch.from_numpy(K)[None].to(dev),
+            w, h, render_mode="RGB", packed=False, **kw,
+        )
+    return (rgb[0].clamp(0, 1).cpu().numpy() * 255).astype(np.uint8)
+
+
+def _quat(R: np.ndarray) -> np.ndarray:
+    """Ma trận quay 3x3 → quaternion (w, x, y, z) chuẩn hoá."""
+    m = R
+    t = np.trace(m)
+    if t > 0:
+        s = np.sqrt(t + 1.0) * 2
+        q = [0.25 * s, (m[2, 1] - m[1, 2]) / s, (m[0, 2] - m[2, 0]) / s, (m[1, 0] - m[0, 1]) / s]
+    elif m[0, 0] > m[1, 1] and m[0, 0] > m[2, 2]:
+        s = np.sqrt(1.0 + m[0, 0] - m[1, 1] - m[2, 2]) * 2
+        q = [(m[2, 1] - m[1, 2]) / s, 0.25 * s, (m[0, 1] + m[1, 0]) / s, (m[0, 2] + m[2, 0]) / s]
+    elif m[1, 1] > m[2, 2]:
+        s = np.sqrt(1.0 + m[1, 1] - m[0, 0] - m[2, 2]) * 2
+        q = [(m[0, 2] - m[2, 0]) / s, (m[0, 1] + m[1, 0]) / s, 0.25 * s, (m[1, 2] + m[2, 1]) / s]
+    else:
+        s = np.sqrt(1.0 + m[2, 2] - m[0, 0] - m[1, 1]) * 2
+        q = [(m[1, 0] - m[0, 1]) / s, (m[0, 2] + m[2, 0]) / s, (m[1, 2] + m[2, 1]) / s, 0.25 * s]
+    q = np.asarray(q, np.float64)
+    return q / np.linalg.norm(q)
+
+
+def _rot(q: np.ndarray) -> np.ndarray:
+    w, x, y, z = q
+    return np.array([
+        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+    ])
+
+
+def interp_viewmat(va: np.ndarray, vb: np.ndarray, alpha: float) -> np.ndarray:
+    """View matrix (world→camera) ở giữa ``va`` và ``vb``: nội suy trên pose camera→world."""
+    if alpha <= 0:
+        return va
+    ca, cb = np.linalg.inv(va.astype(np.float64)), np.linalg.inv(vb.astype(np.float64))
+    qa, qb = _quat(ca[:3, :3]), _quat(cb[:3, :3])
+    dot = float(qa @ qb)
+    if dot < 0:
+        qb, dot = -qb, -dot
+    if dot > 0.9995:
+        q = qa + alpha * (qb - qa)
+    else:
+        theta = np.arccos(dot)
+        q = (np.sin((1 - alpha) * theta) * qa + np.sin(alpha * theta) * qb) / np.sin(theta)
+    c = np.eye(4)
+    c[:3, :3] = _rot(q / np.linalg.norm(q))
+    c[:3, 3] = (1 - alpha) * ca[:3, 3] + alpha * cb[:3, 3]
+    return np.linalg.inv(c).astype(va.dtype)
+
+
+def flow_pair(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Optical flow DIS hai chiều giữa hai ảnh RGB cùng cỡ và độ tin (0..1) của từng điểm ảnh.
+
+    Điểm tin được khi đi a→b rồi b→a quay về gần chỗ cũ (kiểm tra xuôi-ngược) ở cả hai phía và
+    không trượt ra ngoài ảnh; vật bị che, vật ra khỏi khung, chuyển động quá lớn thì không tin.
+    """
+    dis = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
+    ga, gb = (cv2.cvtColor(x, cv2.COLOR_RGB2GRAY) for x in (a, b))
+    fab, fba = dis.calc(ga, gb, None), dis.calc(gb, ga, None)
+    h, w = ga.shape
+    gx, gy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
+
+    def consistent(f: np.ndarray, g: np.ndarray) -> np.ndarray:
+        x, y = gx + f[..., 0], gy + f[..., 1]
+        back = cv2.remap(g, x, y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        err = np.linalg.norm(f + back, axis=-1)
+        mag = np.linalg.norm(f, axis=-1)
+        inside = (x >= 0) & (x <= w - 1) & (y >= 0) & (y <= h - 1)
+        return inside & (err < 1.0 + 0.05 * mag) & (mag < 0.12 * w)
+
+    ok = (consistent(fab, fba) & consistent(fba, fab)).astype(np.float32)
+    ok = cv2.erode(ok, np.ones((5, 5), np.uint8))
+    conf = cv2.GaussianBlur(ok, (0, 0), 6)
+    return fab, fba, conf
+
+
+def flow_mid(a: np.ndarray, b: np.ndarray, fab: np.ndarray, fba: np.ndarray, conf: np.ndarray,
+             t: float) -> np.ndarray:
+    """Ảnh ở thời điểm ``t`` (0: a, 1: b): warp hai phía theo flow rồi trộn; chỗ flow không tin
+    được (``conf`` thấp) thì chỉ hoà dần hai ảnh thật, không bẻ hình."""
+    h, w = a.shape[:2]
+    gx, gy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
+    wa = cv2.remap(a, gx - t * fab[..., 0], gy - t * fab[..., 1], cv2.INTER_LINEAR,
+                   borderMode=cv2.BORDER_REPLICATE)
+    wb = cv2.remap(b, gx - (1 - t) * fba[..., 0], gy - (1 - t) * fba[..., 1], cv2.INTER_LINEAR,
+                   borderMode=cv2.BORDER_REPLICATE)
+    warped = (1 - t) * wa.astype(np.float32) + t * wb.astype(np.float32)
+    fade = (1 - t) * a.astype(np.float32) + t * b.astype(np.float32)
+    c = conf[..., None]
+    return np.clip(c * warped + (1 - c) * fade + 0.5, 0, 255).astype(np.uint8)
+
+
+def to_height(img: np.ndarray, height: int) -> np.ndarray:
+    h, w = img.shape[:2]
+    return cv2.resize(img, (max(2, round(w * height / h)), height), interpolation=cv2.INTER_AREA)
+
+
+def label(img: np.ndarray, text: str) -> np.ndarray:
+    out = img.copy()
+    cv2.putText(out, text, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3, cv2.LINE_AA)
+    cv2.putText(out, text, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+    return out
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("ply")
+    p.add_argument("views")
+    p.add_argument("--out", required=True)
+    p.add_argument("--cameras", default="", help="thứ tự camera trong hàng; mặc định theo views")
+    p.add_argument("--fps", type=float, default=10)
+    p.add_argument("--speed", type=float, default=1, help="1: tốc độ gốc; 0: mỗi khung một khung video")
+    p.add_argument("--height", type=int, default=360)
+    p.add_argument("--max-side", type=int, default=1408)
+    p.add_argument("--no-gt", action="store_true", help="chỉ hàng ảnh dựng")
+    p.add_argument("--interp", action="store_true",
+                   help="vẽ khung giữa hai khung nguồn từ pose nội suy thay vì lặp khung")
+    p.add_argument("--gt-dense", default="", help="gt_dense.npz: ảnh thật giữa các khung nguồn")
+    p.add_argument("--gt-flow", action="store_true",
+                   help="nội suy hàng ảnh thật giữa hai khung nguồn bằng optical flow")
+    p.add_argument("--gt-flow-window", type=float, default=0.2,
+                   help="phần cuối mỗi quãng được nội suy (0..1); phần trước giữ ảnh thật")
+    a = p.parse_args()
+    dev = "cuda"
+    gaussians = load_ply(Path(a.ply), dev)
+    with np.load(a.views, allow_pickle=True) as npz:  # nạp mỗi mảng một lần: đọc npz[k] mỗi lần là nạp lại cả mảng
+        v = {k: npz[k] for k in npz.files}
+    cameras = [c for c in a.cameras.split(",") if c] or list(dict.fromkeys(str(c) for c in v["camera"]))
+    by_frame: dict[int, dict[str, int]] = {}
+    for i, cam in enumerate(v["camera"]):
+        by_frame.setdefault(int(v["frame"][i]), {})[str(cam)] = i
+    frames = sorted(by_frame)
+    repeats = [1] * len(frames)
+    if a.speed > 0 and "t_us" in v:
+        stamp = [int(v["t_us"][next(iter(by_frame[f].values()))]) for f in frames]
+        gaps = [(b - c) / 1e6 for c, b in zip(stamp, stamp[1:])]
+        gaps.append(float(np.median(gaps)) if gaps else 1 / a.fps)  # khung cuối
+        # làm tròn theo tổng dồn để thời lượng cả video không lệch dần
+        done, clock = 0, 0.0
+        for k, gap in enumerate(gaps):
+            clock += max(gap, 0) / a.speed
+            repeats[k] = max(1, round(clock * a.fps) - done)
+            done += repeats[k]
+    dense: dict[str, tuple] = {}
+    clip_ids = None
+    if a.gt_dense and Path(a.gt_dense).is_file():
+        with np.load(a.gt_dense) as z:
+            clip_ids = z["clip_ids"]
+            dense = {c: (z[f"ids_{c}"], z[f"jpeg_{c}"], z[f"off_{c}"]) for c in cameras if f"ids_{c}" in z.files and len(z[f"ids_{c}"])}
+
+    def dense_row(frame: int, nxt: int, alpha: float, tiles_g: list):
+        """Hàng ảnh thật ở khung 10 Hz gần ``alpha`` nhất giữa hai khung nguồn; None: giữ hàng cũ."""
+        if clip_ids is None or max(frame, nxt) >= len(clip_ids):
+            return None
+        fa, fb = int(clip_ids[frame]), int(clip_ids[nxt])
+        fid = int(round(fa + alpha * (fb - fa)))
+        if fid == fa:
+            return None
+        tiles, changed = [], False
+        for cam, held in zip(cameras, tiles_g):
+            tile = held
+            if cam in dense:
+                ids, buf, off = dense[cam]
+                k = int(np.searchsorted(ids, fid))
+                if k < len(ids) and ids[k] == fid:
+                    img = cv2.imdecode(buf[off[k]:off[k + 1]], cv2.IMREAD_COLOR)
+                    if img is not None:
+                        tile = label(to_height(img[:, :, ::-1], a.height), f"{cam} ground truth")
+                        if tile.shape != held.shape:
+                            tile = cv2.resize(tile, (held.shape[1], held.shape[0]))
+                        changed = True
+            tiles.append(tile)
+        return np.concatenate(tiles, 1) if changed else None
+
+    widths: dict[str, int] = {}
+    rows: list[np.ndarray] = []
+    out = Path(a.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    raw = out.with_suffix(".mp4v.mp4")
+    writer = None
+    size = None
+    for n, frame in enumerate(frames):
+        following = by_frame[frames[n + 1]] if n + 1 < len(frames) else {}
+        # --interp: mỗi khung video vẽ lại từ pose nội suy; không thì vẽ một lần rồi lặp
+        steps = repeats[n] if a.interp and following else 1
+        tiles_g, gt_row = [], None
+        pairs: list = []  # --gt-flow: (ảnh này, ảnh sau, flow a→b, flow b→a) theo camera, hoặc None
+        for step in range(steps):
+            alpha = step / steps
+            tiles_r = []
+            for cam in cameras:
+                i = by_frame[frame].get(cam)
+                if i is None:  # camera thiếu ở khung này: ô đen cùng cỡ
+                    width = widths.get(cam, a.height)
+                    tiles_r.append(np.zeros((a.height, width, 3), np.uint8))
+                    if step == 0:
+                        tiles_g.append(np.zeros((a.height, width, 3), np.uint8))
+                        pairs.append(None)
+                    continue
+                img = v["image"][i]
+                h, w = img.shape[:2]
+                s = min(1.0, a.max_side / max(h, w))
+                K = v["K"][i].copy()
+                if s < 1:
+                    w, h = int(w * s), int(h * s)
+                    K[:2] *= s
+                viewmat = v["viewmat"][i]
+                j = following.get(cam)
+                if alpha > 0 and j is not None:
+                    viewmat = interp_viewmat(viewmat, v["viewmat"][j], alpha)
+                rgb = render(gaussians, viewmat, K, v["radial"][i], str(v["model"][i]), w, h, dev)
+                tile_r = label(to_height(rgb, a.height), f"{cam} render")
+                widths[cam] = tile_r.shape[1]
+                tiles_r.append(tile_r)
+                if step == 0:
+                    shown = img if s >= 1 else cv2.resize(
+                        img, (w, h), interpolation=cv2.INTER_AREA
+                    )
+                    plain = to_height(shown, a.height)
+                    tiles_g.append(label(plain, f"{cam} ground truth"))
+                    pair = None
+                    if a.gt_flow and a.interp and j is not None and not a.no_gt:
+                        nxt = v["image"][j]
+                        nxt = to_height(nxt if s >= 1 else cv2.resize(nxt, (w, h), interpolation=cv2.INTER_AREA), a.height)
+                        if nxt.shape != plain.shape:
+                            nxt = cv2.resize(nxt, (plain.shape[1], plain.shape[0]), interpolation=cv2.INTER_AREA)
+                        pair = (plain, nxt, *flow_pair(plain, nxt))
+                    pairs.append(pair)
+            row = np.concatenate(tiles_r, 1)
+            if not a.no_gt:
+                if gt_row is None:
+                    gt_row = np.concatenate(tiles_g, 1)
+                gt_now = None
+                if dense and alpha > 0 and n + 1 < len(frames):
+                    gt_now = dense_row(frame, frames[n + 1], alpha, tiles_g)
+                window = min(max(a.gt_flow_window, 0.0), 1.0)
+                blend = (alpha - (1 - window)) / window if window > 0 else 0.0
+                if gt_now is None and blend > 0 and any(pairs):
+                    blend = blend * blend * (3 - 2 * blend)  # vào, ra êm
+                    gt_now = np.concatenate([
+                        label(flow_mid(*pair, blend), f"{cam} ground truth (interp)") if pair else held
+                        for cam, pair, held in zip(cameras, pairs, tiles_g)
+                    ], 1)
+                row = np.concatenate([gt_row if gt_now is None else gt_now, row], 0)
+            h0, w0 = row.shape[:2]
+            if writer is None:
+                size = (w0 - w0 % 2, h0 - h0 % 2)
+                writer = cv2.VideoWriter(str(raw), cv2.VideoWriter_fourcc(*"mp4v"), a.fps, size)
+            if (row.shape[1], row.shape[0]) != size:
+                row = cv2.resize(row, size)
+            bgr = cv2.cvtColor(row, cv2.COLOR_RGB2BGR)
+            for _ in range(repeats[n] if steps == 1 else 1):
+                writer.write(bgr)
+        print(f"progress {n + 1}/{len(frames)}", flush=True)
+    if writer is None:
+        sys.exit("views.npz không có khung nào")
+    writer.release()
+    try:
+        import imageio_ffmpeg
+
+        done = subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y",
+                               "-i", str(raw), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "21",
+                               "-movflags", "+faststart", str(out)]).returncode == 0
+    except ImportError:
+        done = False
+    if done:
+        raw.unlink()
+    else:
+        raw.replace(out)
+    info = {"frames": len(frames), "video_frames": sum(repeats), "speed": a.speed if "t_us" in v else 0,
+            "cameras": cameras, "fps": a.fps, "duration_s": sum(repeats) / a.fps,
+            "size": [int(size[0]), int(size[1])], "with_gt": not a.no_gt,
+            "interpolated": bool(a.interp), "dense_gt": bool(dense),
+            "gt_flow": bool(a.gt_flow and a.interp and not a.no_gt and a.gt_flow_window > 0),
+            "gt_flow_window": a.gt_flow_window}
+    out.with_suffix(".json").write_text(json.dumps(info, indent=2) + "\n")
+    print(f"wrote {out}: {len(frames)} frames, {sum(repeats) / a.fps:.1f} s")
+
+
+if __name__ == "__main__":
+    main()

@@ -20,7 +20,8 @@ File này chứa:
 - ``GET /api/colab/cli``, ``POST /api/colab/cli/update``: phiên bản google-colab-cli và cập nhật
   (việc nền ``colab_update``).
 - ``/api/colab/drive/...``: lấy dữ liệu gốc từ Google Drive qua một phiên Colab CPU (phiên, mount
-  có bước đồng ý của Google, duyệt thư mục, tải về ``uploads/<tên>/``; ``colab/drive.py``).
+  có bước đồng ý của Google, duyệt thư mục, tải về ``uploads/<tên>/``; ``colab/drive.py``), và đẩy
+  file của run (PLY, ``scene.usdz``, video) lên một thư mục Drive (``/drive/push``).
 """
 
 from collections.abc import Callable
@@ -206,6 +207,22 @@ class DrivePullBody(DriveSessionBody):
     include: list[str] = Field(default_factory=list, max_length=200)
 
 
+class DrivePushBody(DriveSessionBody):
+    """Thân của ``POST /api/colab/drive/push``.
+
+    Attributes:
+        paths: File cần đẩy, đường dẫn tương đối với thư mục làm việc (như ``/api/runs/{id}/
+            downloads`` trả).
+        folder: Thư mục đích trong ``MyDrive``, tạo nếu chưa có.
+        prefix: Thêm vào đầu tên file trên Drive (``<prefix>_<tên>``), ví dụ 4 ký tự cuối của
+            run ID để file các run không đè nhau; rỗng là giữ tên.
+    """
+
+    paths: list[str] = Field(min_length=1, max_length=50)
+    folder: str = Field(min_length=1, max_length=1024)
+    prefix: str = Field(default="", pattern=r"^[A-Za-z0-9_-]{0,40}$")
+
+
 def _mount(request: Request) -> drive.MountFlow:
     """Lần mount Drive của Studio: một bản cho cả app, tạo khi cần."""
     app_state = request.app.state
@@ -240,8 +257,10 @@ def drive_session(body: DriveSessionBody, request: Request) -> dict:
 
 @router.post("/drive/session/stop")
 def drive_session_stop(body: DriveSessionBody) -> dict:
-    """Tắt phiên đọc Drive (trả VM cho Colab)."""
-    ColabClient().stop(body.session)
+    """Tắt phiên đọc Drive (trả VM cho Colab); trước đó đẩy nốt phần Drive còn đệm trên VM."""
+    client = ColabClient()
+    drive.flush_drive(client, body.session)
+    client.stop(body.session)
     return {"session": body.session, "stopped": True}
 
 
@@ -297,21 +316,93 @@ def drive_pull(body: DrivePullBody, request: Request) -> dict:
 
     Kết quả của việc là đường dẫn tuyệt đối của thư mục đích, để ô nạp cảnh xem thư mục đó.
     """
+    return submit_drive_pull(state_of(request), body.session, body.path, body.name, body.include)
+
+
+@router.post("/drive/push", status_code=202)
+def drive_push(body: DrivePushBody, request: Request) -> dict:
+    """Đẩy file của thư mục làm việc lên ``MyDrive/<folder>/`` ở nền (việc ``drive_push``).
+
+    Kết quả của việc là ``MyDrive/<folder>``. Huỷ rồi chạy lại thì đẩy tiếp phần còn thiếu.
+
+    Raises:
+        ValueError: Thư mục Drive sai, file không có hoặc nằm ngoài thư mục làm việc, tên trùng.
+    """
     state = state_of(request)
-    drive.safe_drive_path(body.path)
-    for prefix in body.include:
+    folder = drive.safe_drive_path(body.folder)
+    root = state.workdir.root
+    files = []
+    for rel in body.paths:
+        local = (root / rel).resolve()
+        if root not in local.parents or not local.is_file():
+            raise ValueError(f"không có file {rel}")
+        files.append((local, f"{body.prefix}_{local.name}" if body.prefix else local.name))
+    names = [name for _, name in files]
+    if len(set(names)) != len(names):
+        raise ValueError(f"trùng tên file trên Drive: {names}")
+
+    def work() -> str:
+        result = drive.push_files(
+            ColabClient(), body.session, files, folder, progress=state.jobs.report
+        )
+        return f"MyDrive/{result['folder']}"
+
+    label = f"Drive ← {len(files)} file → MyDrive/{folder}"
+    return state.jobs.submit("drive_push", label, work)
+
+
+@router.post("/drive/pull/{name}/resume", status_code=202)
+def drive_pull_resume(name: str, request: Request) -> dict:
+    """Tải tiếp ``uploads/<tên>/`` từ Drive với nguồn đã nhớ (sau khi huỷ, lỗi, tắt Studio).
+
+    Phiên Colab ghi trong nguồn phải còn và đã mount Drive; không thì việc lỗi, kết nối Drive lại
+    trong ngăn nạp cảnh rồi tải tiếp.
+
+    Returns:
+        Việc ``drive_pull`` mới (hoặc việc đang chạy cho cùng thư mục). Thư mục không tải từ Drive
+        trả ``400``.
+    """
+    state = state_of(request)
+    origin = uploads.load_origin(state.workdir, name)
+    if not origin or origin.get("kind") != "drive":
+        raise ValueError(f"uploads/{name} không tải từ Drive; chọn lại thư mục để tải tiếp")
+    return submit_drive_pull(
+        state, origin["session"], origin["path"], name, list(origin.get("include") or [])
+    )
+
+
+def submit_drive_pull(
+    state: StudioState, session: str, path: str, name: str, include: list[str]
+) -> dict:
+    """Xếp việc tải ``MyDrive/<path>`` về ``uploads/<name>/`` và nhớ nguồn để tải tiếp.
+
+    Đã có việc đang chờ hoặc chạy cho cùng thư mục thì trả việc đó (không tải hai lần).
+    """
+    drive.safe_drive_path(path)
+    for prefix in include:
         drive.safe_drive_path(prefix)
-    target = state.workdir.uploads_dir / body.name
+    active = state.jobs.active_for(name)
+    if active:
+        return active[0]
+    target = state.workdir.uploads_dir / name
+    previous = uploads.load_origin(state.workdir, name)
+    if previous and previous.get("path") == path and previous.get("include") and include:
+        # tải thêm chuỗi vào cùng thư mục: nhớ cả mục cũ để "Tải tiếp" không bỏ sót
+        include = list(dict.fromkeys([*previous["include"], *include]))
+    uploads.save_origin(
+        state.workdir,
+        name,
+        {"kind": "drive", "session": session, "path": path, "include": include},
+    )
 
     def work() -> str:
         result = drive.pull_folder(
-            ColabClient(), body.session, body.path, target, progress=state.jobs.report,
-            include=body.include,
-        )  # fmt: skip
+            ColabClient(), session, path, target, progress=state.jobs.report, include=include
+        )
         return result["path_abs"]
 
-    what = f"{body.path} ({len(body.include)} mục chọn)" if body.include else body.path
-    return state.jobs.submit("drive_pull", f"Drive: {what} → uploads/{body.name}", work)
+    what = f"{path} ({len(include)} mục chọn)" if include else path
+    return state.jobs.submit("drive_pull", f"Drive: {what} → uploads/{name}", work, target=name)
 
 
 @router.get("/{run_id}")

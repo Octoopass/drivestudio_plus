@@ -180,4 +180,85 @@ def test_ingest_without_boxes_warns(tmp_path: Path) -> None:
     )
     assert not (scene_dir / "instances").exists()
     report = files.load(scene_dir / "reports" / "validation.json", ValidationReport)
-    assert {c.check_id: c.severity for c in report.checks}["boxes.missing"] == "warning"
+    checks = {c.check_id: c for c in report.checks}
+    assert checks["boxes.missing"].severity == "warning"
+    assert "ROSA" in checks["boxes.missing"].message  # file ROSA giả không phải pickle: bỏ qua
+
+
+def write_rosa(raw: Path, items: list[dict], name: str = "kitti360_rosa_infos_val.pkl") -> None:
+    """Metadata ROSA giả: dict, list và mảng numpy như file thật."""
+    import pickle
+
+    import numpy as np
+
+    data = {
+        "metainfo": {
+            "classes": ["car", "truck", "trailer", "motorcycle", "bicycle", "pedestrian"]
+        },
+        "data_list": items,
+    }
+    for item in data["data_list"]:
+        item["lidar2cam"] = np.eye(4)  # như file thật: có mảng numpy
+    (raw / kitti360_boxes.ROSA_DIR / name).write_bytes(pickle.dumps(data))
+
+
+def test_ingest_reads_rosa_boxes(tmp_path: Path) -> None:
+    pytest.importorskip("numpy")
+    from tests.drive2sim.ingest.test_kitti360 import IMAGE_FRAMES
+
+    raw = make_raw(tmp_path / "raw")
+    yaw = 0.3
+    items = [
+        {
+            "frame_id": frame,
+            "lidar_path": f"data_3d_raw/{SEQ}/velodyne_points/data/{frame:010d}.bin",
+            "instances": [
+                {
+                    "bbox_3d": [8.0, -1.0, 0.5, 4.0, 2.0, 1.5, yaw],
+                    "bbox_label_3d": 0,
+                    "instance_token": "car-a",
+                },
+                {
+                    "bbox_3d": [5.0, 3.0, 0.2, 0.6, 0.6, 1.8, 0.0],
+                    "bbox_label_3d": 5,
+                    "instance_token": "person-b",
+                },
+            ],
+        }
+        for frame in IMAGE_FRAMES
+    ]
+    items.append({"frame_id": 1, "lidar_path": "data_3d_raw/other_sync/x.bin", "instances": []})
+    write_rosa(raw, items)
+    workdir = Workdir(tmp_path / "work")
+    options = kitti360.Kitti360Options(max_gap=1)
+    scene_dir = run_ingest(
+        raw, workdir, plan_ingest(inspect_source(raw)), kitti360_options=options
+    )
+    info = json.loads((scene_dir / "instances" / "instances_info.json").read_text())
+    assert sorted(v["class_name"] for v in info.values()) == ["Car", "Pedestrian"]
+    car = next(v for v in info.values() if v["class_name"] == "Car")["frame_annotations"]
+    assert car["frame_idx"][0] == 0 and car["box_size"][0] == [4.0, 2.0, 1.5]
+    # khung đầu: world của cảnh là hệ Velodyne của khung đó, nên box nằm đúng toạ độ ROSA
+    pose = car["obj_to_world"][0]
+    assert [round(pose[i][3], 6) for i in range(3)] == [8.0, -1.0, 0.5]
+    assert math.isclose(math.atan2(pose[1][0], pose[0][0]), yaw, abs_tol=1e-6)
+    report = files.load(scene_dir / "reports" / "validation.json", ValidationReport)
+    loaded = {c.check_id: c for c in report.checks}["boxes.loaded"]
+    assert loaded.details["source"] == kitti360_boxes.ROSA_DIR
+    assert any((scene_dir / "dynamic_masks" / "human").iterdir())
+
+
+def test_rosa_refuses_code_in_pickle(tmp_path: Path) -> None:
+    import os
+    import pickle
+
+    class Evil:
+        def __reduce__(self) -> tuple:
+            return (os.system, ("touch " + str(tmp_path / "pwned"),))
+
+    folder = tmp_path / kitti360_boxes.ROSA_DIR
+    folder.mkdir()
+    (folder / "kitti360_rosa_infos_val.pkl").write_bytes(pickle.dumps({"data_list": [Evil()]}))
+    with pytest.raises(ValueError, match="không cho phép"):
+        kitti360_boxes.read_rosa_items(tmp_path, SEQ)
+    assert not (tmp_path / "pwned").exists()

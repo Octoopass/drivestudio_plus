@@ -21,7 +21,8 @@ export type Route =
   | { page: "compare"; sceneId?: string; splitId?: string }
   | { page: "benchmark"; name?: string }
   | { page: "viewer"; runId?: string }
-  | { page: "storage" }
+  | { page: "drive"; runId?: string }
+  | { page: "storage"; focus?: string }
   | { page: "libraries" };
 
 export type Page = Route["page"];
@@ -52,8 +53,10 @@ export function parseRoute(hash: string): Route {
       return { page: "benchmark", name: parts[1] };
     case "viewer":
       return { page: "viewer", runId: get("run") };
+    case "drive":
+      return { page: "drive", runId: get("run") };
     case "storage":
-      return { page: "storage" };
+      return { page: "storage", focus: get("focus") };
     case "libraries":
       return { page: "libraries" };
     default:
@@ -94,8 +97,10 @@ export function href(route: Route): string {
       return route.name ? `#/benchmark/${enc(route.name)}` : "#/benchmark";
     case "viewer":
       return withQuery("viewer", { run: route.runId });
+    case "drive":
+      return withQuery("drive", { run: route.runId });
     case "storage":
-      return "#/storage";
+      return withQuery("storage", { focus: route.focus });
     case "libraries":
       return "#/libraries";
     default:

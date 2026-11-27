@@ -71,7 +71,7 @@ def test_compute_rig_reads_poses_through_the_dataset_loader(tmp_path) -> None:  
     """Cảnh KITTI-360 giả (một camera pinhole, một mắt cá) đi qua loader thật ở chế độ viewer."""
     pytest.importorskip("cv2")
     from drive2sim.recon.tools.scene_rig import compute_rig
-    from tests.drive2sim.recon.data.loaders.test_kitti360_loader import make_scene
+    from tests.drive2sim.recon.data.loaders.test_standard_loader import make_scene
 
     rig = compute_rig(make_scene(tmp_path))
     cameras = {c["camera_id"]: c for c in rig["cameras"]}

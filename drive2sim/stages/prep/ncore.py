@@ -29,6 +29,7 @@ from drive2sim.core.schema import Manifest, Split
 from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import Stage, StageContext
 from drive2sim.external import nurec
+from drive2sim.ingest.ego_masks import snapshot_masks
 from drive2sim.stages.commands import LOG_FILE, run_logged
 
 RAW_SOURCE_FILE = "raw_source.json"
@@ -75,6 +76,14 @@ def raw_kitti360_dir(scene_root: Path) -> Path:
     )
 
 
+def missing_raw_files(raw_dir: Path, sequence: str, cameras: list[str], lidar: bool) -> list[str]:
+    """Các archive của ``sequence`` mà converter sẽ mở nhưng không có trong ``raw_dir``."""
+    needed = [f"data_2d_raw/{sequence}_{camera}.tar" for camera in cameras]
+    if lidar:
+        needed.append(f"data_3d_raw/{sequence}.tar")
+    return [name for name in needed if not (raw_dir / name).is_file()]
+
+
 def build_command(
     raw_dir: Path,
     out_dir: Path,
@@ -84,6 +93,7 @@ def build_command(
     cameras: list[str],
     params: PrepNcoreParams,
     sequence_id: str,
+    ego_masks_dir: Optional[Path] = None,
 ) -> list[str]:
     """Câu lệnh ``kitti360_to_ncore.py`` bằng Python của môi trường NuRec."""
     command = [
@@ -92,6 +102,8 @@ def build_command(
         "--start", str(start), "--frames", str(frames), "--cameras", ",".join(cameras),
         "--sequence-id", sequence_id, "--fisheye-model", params.fisheye_model,
     ]  # fmt: skip
+    if ego_masks_dir is not None:
+        command += ["--ego-masks", str(ego_masks_dir)]
     if not params.lidar:
         command.append("--no-lidar")
     return command
@@ -101,7 +113,7 @@ def build_command(
 class PrepNcoreStage(Stage):
     """Chuyển đoạn khung của split sang clip NCore V4 (Instant NuRec đọc)."""
 
-    version: ClassVar[str] = "0.1.0"
+    version: ClassVar[str] = "0.2.0"
     cacheable: ClassVar[bool] = True
     uses_lidar: ClassVar[bool] = False
     inputs: ClassVar[dict[str, str]] = {"scene": "scene", "split": "split"}
@@ -150,11 +162,20 @@ class PrepNcoreStage(Stage):
         lidar = params.lidar and bool(manifest.lidars)
         options = params.model_copy(update={"lidar": lidar})
         sequence_id = f"{ctx.scene.scene_id}_{first}_{last}".replace("-", "_")
+        missing = missing_raw_files(raw, manifest.source.sequence_id, cameras, lidar)
+        if missing:
+            raise RuntimeError(
+                f"thư mục KITTI-360 gốc {raw} thiếu {len(missing)} file của chuỗi "
+                f"{manifest.source.sequence_id}: {', '.join(missing)}. Tải chuỗi này từ Drive "
+                "(trang Nguồn, ô Google Drive) vào cùng thư mục rồi chạy lại"
+            )
+        masks = ctx.output_dir / "ego_masks"
+        snapshot_masks(ctx.scene.root, manifest, masks)
         ctx.progress(0.0, f"chuyển {len(wanted)} khung, {len(cameras)} camera sang NCore")
         run_logged(
             build_command(
                 raw, ctx.output_dir, manifest.source.sequence_id, wanted[0], len(wanted),
-                cameras, options, sequence_id,
+                cameras, options, sequence_id, masks,
             ),
             ctx.output_dir / LOG_FILE,
             should_stop=ctx.should_stop,

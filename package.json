@@ -1,0 +1,17 @@
+{
+  "name": "drive2sim",
+  "version": "0.3.0",
+  "description": "Cài và bật drive2sim Studio: npx github:thaianh20021/drive2sim",
+  "type": "module",
+  "bin": {
+    "drive2sim": "envs/install.mjs"
+  },
+  "files": [
+    "envs/install.mjs"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "repository": "github:thaianh20021/drive2sim"
+}

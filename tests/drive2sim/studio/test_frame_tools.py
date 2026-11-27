@@ -94,8 +94,8 @@ def test_fast_projection_matches_the_kitti360_loader(tmp_path: Path) -> None:
     import torch
 
     from drive2sim.core.schema import Manifest
-    from tests.drive2sim.recon.data.loaders.test_kitti360_loader import make_scene as kitti_scene
-    from tests.drive2sim.recon.data.loaders.test_kitti360_loader import make_source
+    from tests.drive2sim.recon.data.loaders.test_standard_loader import make_scene as kitti_scene
+    from tests.drive2sim.recon.data.loaders.test_standard_loader import make_source
 
     scene = kitti_scene(tmp_path / "k")
     source = make_source(scene)

@@ -1,112 +1,90 @@
 // Tải dữ liệu gốc từ máy người dùng lên uploads/<tên>/ của thư mục làm việc (CONTRACTS mục 11.1),
 // cho Studio chạy trên máy khác (GPU thuê, server lab qua port forward). Chọn thư mục hoặc file;
-// mỗi file gửi theo khối 8 MiB, tải lại cùng tên thì đi tiếp phần còn thiếu. Tải xong thì gọi
-// onUploaded với đường dẫn trên máy chạy Studio để ô nạp cảnh xem thư mục đó.
-import { FileUp, FolderUp, X } from "lucide-react";
-import { useRef, useState } from "react";
-import { ApiError, asApiError, del, post, seg } from "../api/client";
+// mỗi file gửi theo khối 8 MiB qua hàng đợi chung (uploadQueue), nên đóng ngăn này việc tải vẫn
+// chạy và trang Lưu trữ quản lý được. Tải lại cùng tên thì đi tiếp phần còn thiếu. Tải xong thì
+// gọi onUploaded với đường dẫn trên máy chạy Studio để ô nạp cảnh xem thư mục đó.
+import { FileUp, FolderUp, Play, Square, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { type ApiError, asApiError } from "../api/client";
 import { useI18n } from "../i18n";
+import {
+  clock,
+  deleteUpload,
+  gib,
+  isActive,
+  NAME_RE,
+  pickedFrom,
+  type Picked,
+  startUpload,
+  stopUpload,
+  type UploadTask,
+  useUploads,
+} from "../uploadQueue";
 import { ErrorBox, InfoTip } from "./ui";
 
-const CHUNK = 8 * 1024 * 1024;
-
-interface PlanFile {
-  path: string;
-  size: number;
-  offset: number;
-  done: boolean;
+/** Thanh tiến độ và dòng trạng thái của một việc tải. */
+export function UploadProgress({ task }: { task: UploadTask }) {
+  const { t } = useI18n();
+  const pct = task.total ? Math.min(100, (100 * task.sent) / task.total) : task.status === "done" ? 100 : 0;
+  const left = task.rate > 0 ? (task.total - task.sent) / task.rate : null;
+  const text =
+    task.status === "done"
+      ? t("upload.finished")
+      : task.status === "stopping"
+        ? t("upload.stopping")
+        : task.status === "paused"
+          ? t("upload.paused", { sent: gib(task.sent), total: gib(task.total) })
+          : task.status === "failed"
+            ? t("upload.failed")
+            : t("upload.progress", {
+                sent: gib(task.sent),
+                total: gib(task.total),
+                rate: task.rate ? `${(task.rate / 1024 ** 2).toFixed(1)} MB/s` : "–",
+                left: left !== null ? clock(left) : "–",
+                file: task.file,
+              });
+  return (
+    <div className="stack" style={{ gap: 4, minWidth: 0 }}>
+      <div className={`progress${task.status === "running" && !task.total ? " indeterminate" : ""}`}>
+        <i style={{ width: `${pct}%` }} />
+      </div>
+      <span className="small muted ellipsis">{text}</span>
+    </div>
+  );
 }
 
-interface Plan {
-  name: string;
-  path_abs: string;
-  files: PlanFile[];
-  skipped: string[];
-  needed_bytes: number;
-}
-
-interface Picked {
-  file: File;
-  path: string;
-}
-
-function gib(bytes: number): string {
-  return bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(2)} GiB` : `${Math.max(1, Math.round(bytes / 1024 ** 2))} MiB`;
-}
-
-function clock(seconds: number): string {
-  const s = Math.max(0, Math.round(seconds));
-  return s >= 3600 ? `${Math.floor(s / 3600)}h${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-}
-
-/** Đường dẫn tương đối của file: với thư mục bỏ tên thư mục gốc (trùng tên lần tải). */
-function relative(file: File): string {
-  const rel = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
-  return rel ? rel.split("/").slice(1).join("/") : file.name;
-}
-
-export function UploadSource({ onUploaded }: { onUploaded: (pathAbs: string) => void }) {
+export function UploadSource({ onUploaded }: { onUploaded?: (pathAbs: string) => void }) {
   const { t } = useI18n();
   const folderInput = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [picked, setPicked] = useState<Picked[]>([]);
   const [name, setName] = useState("");
-  const [progress, setProgress] = useState<{ sent: number; total: number; file: string; rate: number } | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
-  const cancelled = useRef(false);
+  const [started, setStarted] = useState(false);
+  const task = useUploads().find((x) => x.name === name);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const choose = (list: FileList | null, folder: boolean) => {
     if (!list?.length) return;
-    const files = Array.from(list).map((file) => ({ file, path: folder ? relative(file) : file.name }));
+    const { picked: files, suggested } = pickedFrom(list, folder);
     setPicked(files);
-    const root = folder ? (list[0] as File & { webkitRelativePath?: string }).webkitRelativePath?.split("/")[0] : "";
-    setName((root || "upload").replace(/[^A-Za-z0-9_.-]/g, "_").replace(/^[^A-Za-z0-9]+/, "").slice(0, 80) || "upload");
+    setName(suggested);
     setError(null);
-    setProgress(null);
+    setStarted(false);
   };
 
-  const plan = () =>
-    post<Plan>("/api/sources/uploads", { name, files: picked.map((p) => ({ path: p.path, size: p.file.size })) });
-
   const start = async () => {
-    cancelled.current = false;
     setError(null);
+    setStarted(true);
     try {
-      let current = await plan();
-      const byPath = new Map(picked.map((p) => [p.path, p.file]));
-      const total = current.needed_bytes;
-      let sent = 0;
-      const began = performance.now();
-      setProgress({ sent: 0, total, file: "", rate: 0 });
-      for (let i = 0; i < current.files.length; i++) {
-        const entry = current.files[i];
-        const file = byPath.get(entry.path);
-        if (!file || entry.done) continue;
-        let offset = entry.offset;
-        while (offset < entry.size) {
-          if (cancelled.current) throw new ApiError(0, "cancelled", t("upload.cancelled"));
-          const blob = file.slice(offset, Math.min(entry.size, offset + CHUNK));
-          const query = `path=${seg(entry.path)}&offset=${offset}&total=${entry.size}`;
-          const response = await fetch(`/api/sources/uploads/${seg(name)}/chunk?${query}`, { method: "POST", body: blob });
-          if (response.status === 409) {
-            // máy chủ có số byte khác dự kiến (tab khác cũng đang tải): hỏi lại rồi đi tiếp
-            current = await plan();
-            offset = current.files.find((f) => f.path === entry.path)?.offset ?? 0;
-            continue;
-          }
-          if (!response.ok) {
-            const body = (await response.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
-            throw new ApiError(response.status, body?.error?.code ?? "internal", body?.error?.message ?? response.statusText);
-          }
-          const result = (await response.json()) as { offset: number };
-          sent += result.offset - offset;
-          offset = result.offset;
-          const seconds = (performance.now() - began) / 1000;
-          setProgress({ sent, total, file: entry.path, rate: seconds > 0 ? sent / seconds : 0 });
-        }
-      }
-      setProgress({ sent: total, total, file: "", rate: 0 });
-      onUploaded(current.path_abs);
+      const result = await startUpload(name, started ? undefined : picked);
+      if (result.status === "done" && mounted.current) onUploaded?.(result.pathAbs);
     } catch (err) {
       setError(asApiError(err));
     }
@@ -114,18 +92,17 @@ export function UploadSource({ onUploaded }: { onUploaded: (pathAbs: string) => 
 
   const discard = async () => {
     try {
-      await del(`/api/sources/uploads/${seg(name)}`);
+      await deleteUpload(name);
       setPicked([]);
-      setProgress(null);
+      setStarted(false);
     } catch (err) {
       setError(asApiError(err));
     }
   };
 
   const size = picked.reduce((sum, p) => sum + p.file.size, 0);
-  const running = progress !== null && progress.sent < progress.total;
-  const pct = progress && progress.total ? Math.min(100, (100 * progress.sent) / progress.total) : 0;
-  const left = progress && progress.rate > 0 ? (progress.total - progress.sent) / progress.rate : null;
+  const active = isActive(task);
+  const shown = started && task;
   return (
     <div className="stack" style={{ gap: 8 }}>
       <div className="row wrap" style={{ gap: 8, alignItems: "center" }}>
@@ -134,11 +111,11 @@ export function UploadSource({ onUploaded }: { onUploaded: (pathAbs: string) => 
           <InfoTip>{t("upload.help")}</InfoTip>
         </span>
         <span className="grow" />
-        <button className="btn sm" type="button" onClick={() => folderInput.current?.click()} disabled={running}>
+        <button className="btn sm" type="button" onClick={() => folderInput.current?.click()} disabled={active}>
           <FolderUp size={15} />
           {t("upload.pick_folder")}
         </button>
-        <button className="btn sm" type="button" onClick={() => fileInput.current?.click()} disabled={running}>
+        <button className="btn sm" type="button" onClick={() => fileInput.current?.click()} disabled={active}>
           <FileUp size={15} />
           {t("upload.pick_files")}
         </button>
@@ -148,53 +125,52 @@ export function UploadSource({ onUploaded }: { onUploaded: (pathAbs: string) => 
           multiple
           hidden
           {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
-          onChange={(e) => choose(e.target.files, true)}
+          onChange={(e) => {
+            choose(e.target.files, true);
+            e.target.value = "";
+          }}
         />
-        <input ref={fileInput} type="file" multiple hidden onChange={(e) => choose(e.target.files, false)} />
+        <input
+          ref={fileInput}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => {
+            choose(e.target.files, false);
+            e.target.value = "";
+          }}
+        />
       </div>
       {picked.length > 0 && (
         <div className="row wrap" style={{ gap: 8, alignItems: "flex-end" }}>
           <label className="field grow">
             <span>{t("upload.name")}</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,79}" disabled={running} spellCheck={false} />
+            <input value={name} onChange={(e) => setName(e.target.value)} pattern="[A-Za-z0-9][A-Za-z0-9_.\-]{0,79}" disabled={active || started} spellCheck={false} />
           </label>
           <span className="small muted">{t("upload.selected", { count: picked.length, size: gib(size) })}</span>
-          {running ? (
-            <button className="btn sm" type="button" onClick={() => (cancelled.current = true)}>
-              <X size={15} />
+          {active ? (
+            <button className="btn sm" type="button" onClick={() => stopUpload(name)} disabled={task?.status === "stopping"}>
+              <Square size={15} />
               {t("upload.stop")}
             </button>
           ) : (
-            <button className="btn primary sm" type="button" onClick={() => void start()} disabled={!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/.test(name)}>
-              {t(progress ? "upload.resume" : "upload.start")}
-            </button>
+            task?.status !== "done" && (
+              <button className="btn primary sm" type="button" onClick={() => void start()} disabled={!NAME_RE.test(name)}>
+                <Play size={15} />
+                {t(shown ? "upload.resume" : "upload.start")}
+              </button>
+            )
           )}
-          {!running && progress && (
+          {shown && !active && task.status !== "done" && (
             <button className="btn sm" type="button" onClick={() => void discard()}>
+              <Trash2 size={15} />
               {t("upload.discard")}
             </button>
           )}
         </div>
       )}
-      {progress && (
-        <div className="stack" style={{ gap: 4 }}>
-          <div className="progress">
-            <i style={{ width: `${pct}%` }} />
-          </div>
-          <span className="small muted">
-            {progress.sent >= progress.total
-              ? t("upload.done")
-              : t("upload.progress", {
-                  sent: gib(progress.sent),
-                  total: gib(progress.total),
-                  rate: progress.rate ? `${(progress.rate / 1024 ** 2).toFixed(1)} MB/s` : "–",
-                  left: left !== null ? clock(left) : "–",
-                  file: progress.file,
-                })}
-          </span>
-        </div>
-      )}
-      <ErrorBox error={error} />
+      {shown && <UploadProgress task={task} />}
+      <ErrorBox error={error ?? (shown ? task.error : null)} />
     </div>
   );
 }

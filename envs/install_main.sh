@@ -37,6 +37,9 @@ FUSED_SSIM="git+https://github.com/rahul-goel/fused-ssim.git@a7c48d6dd7ac6dc39a7
 # prep.smpl (OmniRe dựng người): 4D-Humans (submodule third_party/Humans4D, gói hmr2) và PHALP với hai
 # gói build CUDA nó cần. Chốt commit để mọi phiên cài cùng một bản.
 PHALP="git+https://github.com/brjathu/PHALP.git@96f7e6c09fb858ec3f597d59246c151ab4394bc3"
+# Submodule third_party/Humans4D: commit ghim trong repo, dùng khi cài từ gói nén không có .git.
+HUMANS4D_REPO="https://github.com/shubham-goel/4D-Humans.git"
+HUMANS4D_COMMIT="efe18deff163b29dff87ddbd575fa29b716a356c"
 DETECTRON2="git+https://github.com/facebookresearch/detectron2.git@247691a1c292654867deb35cabb27f18d75a1363"
 NMR="git+https://github.com/shubham-goel/NMR.git@e990b3c70f48d39231f607c79d76ce3db4bf7483"
 # gsplat-geer clone ngoài repo, để không lẫn vào git của repo.
@@ -179,14 +182,16 @@ if want 4; then
   # Bản fork của dự án (submodule third_party/gsplat-geer, docs/methods/fastergs.md): gsplat-geer
   # của Bosch cộng kỹ thuật Faster-GS, mặc định tắt nên khi không bật cho kết quả như bản gốc.
   # Repo clone kèm --recurse-submodules (notebook Kaggle) thì dùng luôn; không có thì clone bản Bosch.
+  # Gói nén của bản phát hành (không có .git) kèm sẵn nội dung submodule: dùng luôn, không gọi git.
   SUB_DIR="$REPO/third_party/gsplat-geer"
   if [ -f "$SUB_DIR/setup.py" ]; then
-    step "4/8 gsplat-geer $GSPLAT_VERSION (fork, submodule $(git -C "$SUB_DIR" rev-parse --short HEAD 2>/dev/null || echo "không có git"))"
     if [ -e "$REPO/.git" ]; then
+      step "4/8 gsplat-geer $GSPLAT_VERSION (fork, submodule $(git -C "$SUB_DIR" rev-parse --short HEAD))"
       git -C "$REPO" submodule update --init --recursive third_party/gsplat-geer
     else
-      # Repo chép bằng rsync (envs/vast.sh bỏ .git, nặng hàng trăm MB) không chạy được `git submodule`,
-      # và thư mục submodule glm rỗng; lấy glm 1.0.1 như nhánh clone Bosch bên dưới.
+      step "4/8 gsplat-geer $GSPLAT_VERSION (fork, kèm trong gói)"
+      # Repo chép bằng rsync (envs/vast.sh bỏ .git, nặng hàng trăm MB) có thư mục submodule glm
+      # rỗng; gói phát hành thì có sẵn. Thiếu thì lấy glm 1.0.1 như nhánh clone Bosch bên dưới.
       SUB_GLM="$SUB_DIR/gsplat/cuda/csrc/third_party/glm"
       if [ ! -f "$SUB_GLM/glm/gtc/type_ptr.hpp" ]; then
         rm -rf "$SUB_GLM"
@@ -239,10 +244,11 @@ if want 8; then
   if [ -e "$REPO/.git" ]; then
     git -C "$REPO" submodule update --init --depth 1 third_party/Humans4D
   elif [ ! -f "$REPO/third_party/Humans4D/setup.py" ]; then
-    # Repo chép bằng rsync không có .git (xem bước 4): clone đúng commit mà submodule ghi.
+    # Gói nén không kèm submodule, hoặc repo chép bằng rsync không có .git (xem bước 4): clone đúng
+    # commit mà repo ghim.
     rm -rf "$REPO/third_party/Humans4D"
-    git clone --quiet https://github.com/shubham-goel/4D-Humans.git "$REPO/third_party/Humans4D"
-    git -C "$REPO/third_party/Humans4D" checkout --quiet efe18deff163b29dff87ddbd575fa29b716a356c
+    git clone --quiet "$HUMANS4D_REPO" "$REPO/third_party/Humans4D"
+    git -C "$REPO/third_party/Humans4D" checkout --quiet "$HUMANS4D_COMMIT"
   fi
   build "$DETECTRON2" --no-build-isolation
   build "$NMR" --no-build-isolation

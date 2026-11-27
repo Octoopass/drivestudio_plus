@@ -50,6 +50,17 @@ def _torch_cuda() -> tuple[bool, str]:
     return lines[0] == "True", lines[1] if len(lines) > 1 else ""
 
 
+# Stage train không sinh checkpoint DriveStudio (Instant NuRec chỉ suy luận ra scene.ply): run
+# chỉ có những stage này thì không render GPU được, dù máy đủ điều kiện.
+NO_CHECKPOINT_TRAIN_STAGES = ("train.nurec",)
+
+
+def gpu_render_supported(run_dir: Path) -> bool:
+    """Run có stage train sinh checkpoint DriveStudio không (``False`` với run Instant NuRec)."""
+    stages = [p.name for p in (run_dir / "d2s" / "stages").glob("train.*") if p.is_dir()]
+    return not stages or any(name not in NO_CHECKPOINT_TRAIN_STAGES for name in stages)
+
+
 def _checkpoint(run_dir: Path) -> Optional[Path]:
     """Checkpoint cuối của stage train trong run, nếu có."""
     found = sorted((run_dir / "d2s" / "stages").glob(f"train.*/{CHECKPOINT}"))
@@ -63,7 +74,9 @@ def render_readiness(run_dir: Optional[Path] = None) -> dict[str, Any]:
         run_dir: Thư mục run cần xem; ``None`` thì bỏ qua bước kiểm tra checkpoint.
 
     Returns:
-        ``{"ready": bool, "checks": [{"id", "ok", "value"}]}``. ``id`` là một trong ``gpu``,
+        ``{"ready": bool, "supported": bool, "checks": [{"id", "ok", "value"}]}``.
+        ``supported`` là ``False`` khi approach của run không có checkpoint để render (Instant
+        NuRec); khi đó ``ready`` cũng ``False``. ``id`` là một trong ``gpu``,
         ``pytorch``, ``cuda``, ``gsplat``, ``checkpoint``; ``value`` là thứ đã thấy (tên GPU,
         phiên bản, đường dẫn) hoặc lý do lỗi, ``None`` nếu không có. Bước sau không chạy khi
         bước trước nó cần đã lỗi (không có PyTorch thì không hỏi CUDA).
@@ -114,4 +127,9 @@ def render_readiness(run_dir: Optional[Path] = None) -> dict[str, Any]:
                         "value": str(model) if model else SMPL_MODEL_NAME,
                     }
                 )
-    return {"ready": all(check["ok"] for check in checks), "checks": checks}
+    supported = run_dir is None or gpu_render_supported(run_dir)
+    return {
+        "ready": supported and all(check["ok"] for check in checks),
+        "supported": supported,
+        "checks": checks,
+    }

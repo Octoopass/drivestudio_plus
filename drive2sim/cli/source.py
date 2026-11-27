@@ -8,6 +8,7 @@ Lệnh chỉ đọc, không ghi gì (CONTRACTS mục 10.4).
 """
 
 import argparse
+import shlex
 from pathlib import Path
 
 from drive2sim.cli.output import emit, format_table
@@ -40,12 +41,13 @@ def _yes_no(value: object) -> str:
 
 def _suggestion(report: SourceReport) -> str:
     """Dựng lệnh ingest gợi ý cho một nguồn đã nhận ra."""
-    command = f"d2s scene ingest {report.path} --source-type {report.dataset}"
+    # Đặt trong ngoặc khi cần: tên chuỗi, đường dẫn có thể có dấu cách (PHENIKAA: COMPLEX CITY).
+    command = f"d2s scene ingest {shlex.quote(str(report.path))} --source-type {report.dataset}"
     for version, sequences in report.versions.items():
         if sequences:
             if version:
-                command += f" --version {version}"
-            return command + f" --sequence {sequences[0]}"
+                command += f" --version {shlex.quote(version)}"
+            return command + f" --sequence {shlex.quote(sequences[0])}"
     return command
 
 

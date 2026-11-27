@@ -10,18 +10,39 @@ import torch.distributed as dist
 
 logger = logging.getLogger()
 
-def import_str(string: str):
-    """ Import a python module given string paths
+# drive2sim: tên lớp loader cũ (ghi trong config của run cũ) → tên mới, sau khi các loader được
+# gộp vào loader chung ``loaders/standard.py``.
+LEGACY_CLASSES = {
+    "drive2sim.recon.data.loaders.kitti360.KITTI360PixelSource":
+        "drive2sim.recon.data.loaders.standard.StandardPixelSource",
+    "drive2sim.recon.data.loaders.phenikaa.PhenikaaPixelSource":
+        "drive2sim.recon.data.loaders.standard.StandardPixelSource",
+}
+
+
+def import_str(string: str) -> object:
+    """Nạp đối tượng từ đường dẫn Python, kể cả tên loader trong config run cũ.
+
+    DrivingDataset và các công cụ train, eval, viewer dùng hàm này để nạp lớp từ config.
+    Tên nguồn ảnh KITTI-360 và PHENIKAA trước khi gộp được đổi sang StandardPixelSource
+    để config đã lưu tiếp tục đọc được cảnh. Xem ARCHITECTURE mục 2.4.
 
     Args:
-        string (str): The given paths
+        string: Đường dẫn đầy đủ tới đối tượng, gồm module và tên thuộc tính cuối cùng.
 
     Returns:
-        Any: Imported python module / object
+        Đối tượng Python được khai báo tại đường dẫn sau khi áp dụng tên tương thích.
+
+    Raises:
+        ValueError: Nếu đường dẫn thiếu dấu chấm phân cách module và tên đối tượng.
+        ImportError: Nếu module cần nạp không tồn tại hoặc thiếu phụ thuộc.
+        AttributeError: Nếu module không có đối tượng được yêu cầu.
     """
     # From https://github.com/CompVis/taming-transformers
+    string = LEGACY_CLASSES.get(string, string)
     module, cls = string.rsplit(".", 1)
     return getattr(importlib.import_module(module, package=None), cls)
+
 
 def export_points_to_ply(
     positions: torch.tensor,

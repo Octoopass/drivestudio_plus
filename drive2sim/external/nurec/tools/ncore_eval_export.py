@@ -72,7 +72,9 @@ def main():
     p.add_argument("--every", type=int, default=4, help="use every Nth frame of each camera")
     p.add_argument("--cameras", default="", help="comma-separated camera ids (default: all)")
     p.add_argument("--frame-indices", default="", help="comma-separated frame indices to export (drive2sim: the split's test frames); overrides --every")
+    p.add_argument("--views-json", default="", help="drive2sim: sensor -> selected clip-frame indices")
     a = p.parse_args()
+    selected = json.loads(Path(a.views_json).read_text()) if a.views_json else None
 
     meta = json.loads(Path(a.json).read_text())
     base = UPath(a.json).parent
@@ -83,7 +85,7 @@ def main():
     rig_world, rig_ts = poses.get_dynamic_pose("rig", "world")
     wanted = [c for c in a.cameras.split(",") if c]
 
-    rec = {k: [] for k in ("camera", "model", "viewmat", "K", "radial", "image", "mask", "frame")}
+    rec = {k: [] for k in ("camera", "model", "viewmat", "K", "radial", "image", "mask", "frame", "t_us")}
     for cam_id, cam in r.open_component_readers(CameraSensorComponent.Reader).items():
         if wanted and cam_id not in wanted:
             continue
@@ -108,10 +110,14 @@ def main():
         picked = [int(i) for i in a.frame_indices.split(",") if i] if a.frame_indices else None
         stamps = stamps[[i for i in picked if 0 <= i < len(stamps)]] if picked is not None else stamps[:: a.every]
         for t_end in stamps:
+            frame_index = int(list(cam.frames_timestamps_us[:, 1]).index(t_end))
+            if selected is not None and str(frame_index) not in selected.get(cam_id, {}):
+                continue
             T_cam_world = interp_pose(rig_world, rig_ts, int(t_end)) @ T_cam_rig
             img = np.asarray(cam.get_frame_image(int(t_end)).convert("RGB"))
             rec["camera"].append(cam_id)
             rec["frame"].append(int(list(cam.frames_timestamps_us[:, 1]).index(t_end)))
+            rec["t_us"].append(int(t_end))  # drive2sim: video theo tốc độ gốc
             rec["model"].append(model)
             rec["viewmat"].append(np.linalg.inv(T_cam_world).astype(np.float32))
             rec["K"].append(K)
@@ -123,6 +129,7 @@ def main():
     out = {k: np.stack(rec[k]) for k in ("viewmat", "K", "radial")}
     out["camera"], out["model"] = np.array(rec["camera"]), np.array(rec["model"])
     out["frame"] = np.array(rec["frame"], dtype=np.int64)
+    out["t_us"] = np.array(rec["t_us"], dtype=np.int64)
     for k in ("image", "mask"):  # images differ in size between cameras
         arr = np.empty(len(rec[k]), dtype=object)
         arr[:] = rec[k]

@@ -5,8 +5,8 @@
 // DriveSource. Xong thì xem thư mục đã tải.
 import { FolderOpen, FolderSearch } from "lucide-react";
 import { useMemo, useState } from "react";
-import { asApiError, post, type ApiError } from "../api/client";
-import type { Job, SourceReport } from "../api/types";
+import { asApiError, post, useApi, type ApiError } from "../api/client";
+import type { Job, List, Manifest, SourceReport } from "../api/types";
 import { useI18n } from "../i18n";
 import { useLive } from "../live";
 import { Drawer, ErrorBox, InfoTip, Note, useToast, yesNo } from "./ui";
@@ -19,6 +19,7 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
   const { t } = useI18n();
   const toast = useToast();
   const live = useLive();
+  const scenes = useApi<List<Manifest>>(`/api/scenes?_=${live.tick}`);
   const [path, setPath] = useState(() => {
     try {
       return localStorage.getItem(PATH_KEY) ?? "";
@@ -95,7 +96,7 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
         source_type: report?.dataset,
         version: version || null,
         sequence,
-        scene_id: sceneId || null,
+        scene_id: effectiveId || null,
         interpolate_n: interpolate,
       });
       toast({ kind: "ok", title: t("ingest.toast.queued"), detail: job.label });
@@ -103,11 +104,18 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
       onClose();
     } catch (err) {
       setError(asApiError(err));
+    } finally {
       setBusy(false);
     }
   };
 
   const defaultId = report?.dataset && sequence ? `${report.dataset}_${sequence.toLowerCase().replace(/[^a-z0-9_-]/g, "-")}` : "";
+  const customId = sceneId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+  const prefix = report?.dataset ? `${report.dataset}_` : "";
+  const effectiveId = customId ? (customId.startsWith(prefix) ? customId : `${prefix}${customId}`) : defaultId;
+  const duplicate = Boolean(effectiveId && scenes.data?.items.some((s) => s.scene_id === effectiveId));
+  const inProgress = live.jobs.some((job) => job.kind === "ingest" && job.target === `scene:${effectiveId}` && (job.status === "queued" || job.status === "running"));
+  const nameWarning = duplicate ? t("ingest.scene_exists", { name: effectiveId }) : inProgress ? t("ingest.scene_busy", { name: effectiveId }) : null;
   const versions = Object.keys(report?.versions ?? {});
 
   return (
@@ -120,7 +128,7 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
           <button className="btn" onClick={onClose}>
             {t("common.action.cancel")}
           </button>
-          <button className="btn primary" onClick={ingest} disabled={!report?.ingest_supported || !sequence || busy || (interpolate > 0 && Boolean(report?.missing_sweeps?.length))}>
+          <button className="btn primary" onClick={ingest} disabled={!report?.ingest_supported || !sequence || busy || Boolean(nameWarning) || (interpolate > 0 && Boolean(report?.missing_sweeps?.length))}>
             {t("ingest.action.start")}
           </button>
         </>
@@ -246,7 +254,9 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
               <div className="form-grid">
                 <label className="field">
                   <span>{t("ingest.field.scene_id")}</span>
-                  <input type="text" value={sceneId} onChange={(e) => setSceneId(e.target.value)} placeholder={defaultId} spellCheck={false} />
+                  <input type="text" value={sceneId} onChange={(e) => { setSceneId(e.target.value); setError(null); }} placeholder={defaultId} spellCheck={false} aria-label={t("ingest.field.scene_id")} aria-invalid={Boolean(nameWarning)} aria-describedby={nameWarning ? "ingest-scene-name-warning" : undefined} />
+                  <span className="small muted">{t("ingest.scene_name_preview", { name: effectiveId })}</span>
+                  {nameWarning && <span id="ingest-scene-name-warning" className="small" role="status" style={{ color: "var(--warn)" }}>{nameWarning}</span>}
                 </label>
                 {report.dataset === "nuscenes" && (
                   <label className="field">

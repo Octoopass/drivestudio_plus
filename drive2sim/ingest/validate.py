@@ -182,6 +182,7 @@ def validate_scene(scene_dir: Path, manifest: Manifest) -> ValidationReport:
                 details={"output_version": outdated[0], "current_output_version": outdated[1]},
             )
         )
+    checks.extend(ego_mask_checks(scene_dir, manifest))
     checks.extend(projection_checks(scene_dir, manifest))
     return ValidationReport(
         schema_version=SCHEMA_VERSIONS["report"],
@@ -193,6 +194,45 @@ def validate_scene(scene_dir: Path, manifest: Manifest) -> ValidationReport:
         ),
         checks=checks,
     )
+
+
+def ego_mask_checks(scene_dir: Path, manifest: Manifest) -> list[Check]:
+    """Mask thân xe của từng camera (``ego_masks.camera_states``).
+
+    Camera chưa có mask và chưa được xác nhận không thấy thân xe: cảnh báo ``ego_mask.pending``
+    (vẫn train được; nếu camera thấy thân xe thì thân xe bị dựng lẫn vào cảnh). Mục
+    ``ego_mask.summary`` (info) ghi trạng thái của mọi camera.
+    """
+    from drive2sim.ingest.ego_masks import camera_states
+
+    states = camera_states(scene_dir, manifest)
+    checks = [
+        Check(
+            check_id="ego_mask.summary",
+            severity="info",
+            message="mask thân xe: "
+            + ", ".join(
+                f"{s['camera_id']} {s['state']}" + (f" ({s['source']})" if s["source"] else "")
+                for s in states
+            ),
+            details={"cameras": states},
+        )
+    ]
+    pending = [s["camera_id"] for s in states if s["state"] == "pending"]
+    if pending:
+        checks.append(
+            Check(
+                check_id="ego_mask.pending",
+                severity="warning",
+                message=(
+                    f"{len(pending)} camera chưa có mask thân xe và chưa xác nhận không thấy thân "
+                    f"xe: {', '.join(pending)}. Vẽ mask hoặc xác nhận ở Studio (tab Kiểm tra, mục "
+                    "Mask thân xe); bỏ qua thì thân xe (nếu có) bị dựng lẫn vào cảnh"
+                ),
+                details={"cameras": pending},
+            )
+        )
+    return checks
 
 
 # Ngưỡng của projection_checks: camera có mật độ điểm LiDAR (trên ảnh) dưới ngần này lần camera

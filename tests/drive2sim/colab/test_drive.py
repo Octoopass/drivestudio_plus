@@ -8,6 +8,7 @@ import contextlib
 import io
 import shutil
 import subprocess
+import threading
 from collections import namedtuple
 from pathlib import Path
 from typing import Optional
@@ -168,6 +169,57 @@ def test_drive_routes_and_job_progress(
         assert done["started_at"] is not None
 
 
+class GatedVM(FakeVM):
+    """VM giả dừng ở khối tải đầu tiên tới khi test mở cổng (để huỷ giữa chừng)."""
+
+    started = threading.Event()
+    gate = threading.Event()
+
+    def download(self, session: str, remote: str, local: Path) -> None:
+        """Chờ cổng mở rồi chép như ``FakeVM``."""
+        GatedVM.started.set()
+        GatedVM.gate.wait(10)
+        super().download(session, remote, local)
+
+
+def test_drive_pull_cancel_resume_and_delete(
+    my_drive: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from drive2sim.studio.api.routes import colab as colab_routes
+
+    monkeypatch.setattr(colab_routes, "ColabClient", GatedVM)
+    workdir = Workdir(tmp_path / "work")
+    app = create_app(workdir, registry=StageRegistry(), frontend_dir=None)
+    jobs = app.state.studio.jobs
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        body = {"path": "kitti", "name": "kitti"}
+        job = client.post("/api/colab/drive/pull", json=body).json()
+        assert job["cancellable"] and job["target"] == "kitti"
+        # cùng thư mục đang tải: trả việc cũ, không tải hai lần
+        assert client.post("/api/colab/drive/pull", json=body).json()["job_id"] == job["job_id"]
+        assert GatedVM.started.wait(10)
+        assert client.post(f"/api/jobs/{job['job_id']}/cancel").status_code == 200
+        GatedVM.gate.set()
+        jobs.wait_idle()
+        state = client.get(f"/api/jobs/{job['job_id']}").json()
+        assert state["status"] == "cancelled" and state["error"] is None
+        [item] = client.get("/api/sources/uploads").json()["items"]
+        assert item["origin"] == "drive" and item["partial"] == 1
+        resumed = client.post("/api/colab/drive/pull/kitti/resume")
+        assert resumed.status_code == 202
+        jobs.wait_idle()
+        assert client.get(f"/api/jobs/{resumed.json()['job_id']}").json()["status"] == "succeeded"
+        [item] = client.get("/api/sources/uploads").json()["items"]
+        assert item["partial"] == 0 and item["files"] == 2
+        assert client.post(f"/api/jobs/{job['job_id']}/retry").status_code == 202
+        jobs.wait_idle()
+        assert client.post("/api/colab/drive/pull/other/resume").status_code == 400
+        assert client.post("/api/jobs/nope/cancel").status_code == 404
+        assert client.delete("/api/sources/uploads/kitti").json() == {"removed": ["uploads/kitti"]}
+        assert not (workdir.uploads_dir / ".origins" / "kitti.json").exists()
+        assert client.get("/api/sources/uploads").json()["items"] == []
+
+
 def make_kitti360(root: Path) -> None:
     """Gốc KITTI-360 giả trên Drive: calib, pose, hai chuỗi, kèm thư mục không liên quan."""
     (root / "calibration").mkdir(parents=True)
@@ -267,3 +319,63 @@ def test_inspect_route(my_drive: Path, tmp_path: Path, monkeypatch: pytest.Monke
         app.state.studio.jobs.wait_idle()
         done = client.get(f"/api/jobs/{job.json()['job_id']}").json()
         assert done["status"] == "succeeded" and done["progress"]["total"] == 70
+
+
+class FakePushClient:
+    """VM giả: ``upload`` chép vào thư mục tạm, ``exec_python`` chạy code trên đó."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.uploads = 0
+
+    def _map(self, text: str) -> str:
+        return text.replace("/content", str(self.root / "content"))
+
+    def upload(self, session: str, local: Path, remote: str) -> None:  # noqa: D102
+        self.uploads += 1
+        target = Path(self._map(remote))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(local.read_bytes())
+
+    def exec_python(  # noqa: D102
+        self, session: str, code: str, timeout_s: float = 60, attempts: int = 3
+    ) -> str:
+        import contextlib
+        import io
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            exec(self._map(code), {})  # noqa: S102
+        return out.getvalue()
+
+
+def test_push_files_chunks_and_skips(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(drive, "CHUNK_BYTES", 10)
+    (tmp_path / "content" / "drive" / "MyDrive").mkdir(parents=True)
+    local = tmp_path / "scene.ply"
+    local.write_bytes(bytes(range(25)))
+    usdz = tmp_path / "scene.usdz"
+    usdz.write_bytes(b"usdz")
+    client = FakePushClient(tmp_path / "vm")
+    (tmp_path / "vm" / "content" / "drive" / "MyDrive").mkdir(parents=True)
+    seen = []
+    files = [(local, "8e5a_scene.ply"), (usdz, "8e5a_scene.usdz")]
+    result = drive.push_files(
+        client, "s", files, "drive2sim/run", progress=lambda d, t, n: seen.append((d, t))
+    )
+    target = tmp_path / "vm" / "content" / "drive" / "MyDrive" / "drive2sim" / "run"
+    assert (target / "8e5a_scene.ply").read_bytes() == bytes(range(25))
+    assert (target / "8e5a_scene.usdz").read_bytes() == b"usdz"
+    assert client.uploads == 4 and seen[-1] == (29, 29) and result["skipped"] == 0
+    again = drive.push_files(client, "s", [(local, "8e5a_scene.ply")], "drive2sim/run")
+    assert again["skipped"] == 1 and client.uploads == 4  # đã đủ trên Drive: không đẩy lại
+
+
+def test_push_files_needs_mount(tmp_path: Path) -> None:
+    client = FakePushClient(tmp_path / "vm")
+    local = tmp_path / "a.ply"
+    local.write_bytes(b"x")
+    with pytest.raises(ValueError, match="chưa mount"):
+        drive.push_files(client, "s", [(local, "a.ply")], "x")
+    with pytest.raises(ValueError):
+        drive.push_files(client, "s", [(local, "a/b.ply")], "x")

@@ -33,7 +33,7 @@ class InstallBody(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    env: Literal["main", "nurec"] = "main"
+    env: Literal["main", "nurec", "xsim"] = "main"
     from_step: int = Field(1, ge=1, le=20)
 
 

@@ -8,12 +8,17 @@ tên thì đi tiếp từ chỗ đã có. Tải xong, ô nạp cảnh xem và in
 
 File này chứa:
 - ``safe_relative``: kiểm tra đường dẫn tương đối của một file trong lần tải.
+- ``scenes_using``: cảnh nào đọc dữ liệu gốc từ một thư mục tải lên (``raw_source.json``).
+- ``save_origin``, ``load_origin``: nhớ lần tải từ Drive của một thư mục (để tải tiếp sau khi
+  huỷ hoặc khởi động lại Studio), trong ``uploads/.origins/<tên>.json``.
 - ``list_uploads``, ``plan_upload``, ``write_chunk``, ``delete_upload``.
 """
 
+import json
 import re
 import shutil
 from collections.abc import Iterable
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -25,6 +30,8 @@ CHUNK_MAX_BYTES = 64 * 1024 * 1024
 RESERVE_BYTES = 5 * 1024**3  # chừa trên ổ đĩa sau khi tải xong
 MAX_DEPTH = 12
 SKIP_NAMES = {".DS_Store", "Thumbs.db", "desktop.ini"}
+ORIGINS_DIR = ".origins"
+WORK_DIR = ".d2s_drive_tmp"  # thư mục tạm của drive.pull_folder trong thư mục đích
 
 
 class UploadError(ValueError):
@@ -60,26 +67,87 @@ def _root(workdir: Workdir, name: str) -> Path:
     return workdir.uploads_dir / name
 
 
+def _origin_path(workdir: Workdir, name: str) -> Path:
+    _root(workdir, name)
+    return workdir.uploads_dir / ORIGINS_DIR / f"{name}.json"
+
+
+def save_origin(workdir: Workdir, name: str, origin: dict) -> None:
+    """Ghi nguồn của ``uploads/<tên>/`` (``{"kind": "drive", "session", "path", "include"}``)."""
+    path = _origin_path(workdir, name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(origin, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def load_origin(workdir: Workdir, name: str) -> Optional[dict]:
+    """Nguồn đã ghi của ``uploads/<tên>/``, hoặc ``None`` (tải từ trình duyệt, hoặc file hỏng)."""
+    try:
+        origin = json.loads(_origin_path(workdir, name).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return origin if isinstance(origin, dict) else None
+
+
+def scenes_using(workdir: Workdir) -> dict[str, list[str]]:
+    """Cảnh nào đọc dữ liệu gốc từ thư mục tải lên nào.
+
+    Ingest KITTI-360 ghi ``data/<cảnh>/raw_source.json`` trỏ về thư mục gốc, và ``prep.ncore``
+    (Instant NuRec) đọc lại thư mục đó: xoá thư mục tải lên thì các cảnh này không chạy NuRec được.
+
+    Returns:
+        ``{tên lần tải: [scene_id]}``, chỉ gồm lần tải có cảnh dùng.
+    """
+    used: dict[str, list[str]] = {}
+    if not workdir.data_dir.is_dir() or not workdir.uploads_dir.is_dir():
+        return used
+    base = workdir.uploads_dir.resolve()
+    for source in sorted(workdir.data_dir.glob("*/raw_source.json")):
+        try:
+            raw = Path(json.loads(source.read_text(encoding="utf-8"))["raw_dir"]).resolve()
+            name = raw.relative_to(base).parts[0]
+        except (OSError, ValueError, KeyError, TypeError, IndexError):
+            continue
+        used.setdefault(name, []).append(source.parent.name)
+    return used
+
+
 def list_uploads(workdir: Workdir) -> list[dict]:
     """Các thư mục đã tải lên.
 
     Returns:
-        ``[{"name", "path" (tương đối), "path_abs", "files", "size_bytes", "partial"}]``;
-        ``partial`` là số file còn dở.
+        ``[{"name", "path" (tương đối), "path_abs", "files", "size_bytes", "partial",
+        "partial_bytes", "modified", "used_by"}]``; ``partial`` là số file còn dở,
+        ``partial_bytes`` số byte của chúng, ``modified`` lần ghi gần nhất (ISO, UTC),
+        ``used_by`` các cảnh đọc dữ liệu gốc từ đây (``scenes_using``), ``origin`` là ``"drive"``
+        khi tải từ Drive (tải tiếp được từ Studio), không thì ``"browser"``.
     """
     items = []
     if not workdir.uploads_dir.is_dir():
         return items
+    used = scenes_using(workdir)
     for root in sorted(p for p in workdir.uploads_dir.iterdir() if p.is_dir()):
-        files = [f for f in root.rglob("*") if f.is_file()]
+        if root.name.startswith("."):
+            continue
+        stats = [
+            (f, f.stat())
+            for f in root.rglob("*")
+            if f.is_file() and WORK_DIR not in f.relative_to(root).parts
+        ]
+        origin = load_origin(workdir, root.name)
+        parts = [st for f, st in stats if f.name.endswith(PART_SUFFIX)]
+        latest = max([st.st_mtime for _, st in stats] or [root.stat().st_mtime])
         items.append(
             {
                 "name": root.name,
                 "path": workdir.relative(root),
                 "path_abs": str(root),
-                "files": sum(1 for f in files if not f.name.endswith(PART_SUFFIX)),
-                "size_bytes": sum(f.stat().st_size for f in files),
-                "partial": sum(1 for f in files if f.name.endswith(PART_SUFFIX)),
+                "files": len(stats) - len(parts),
+                "size_bytes": sum(st.st_size for _, st in stats),
+                "partial": len(parts),
+                "partial_bytes": sum(st.st_size for st in parts),
+                "modified": datetime.fromtimestamp(latest, timezone.utc).isoformat(),
+                "used_by": used.get(root.name, []),
+                "origin": "drive" if origin and origin.get("kind") == "drive" else "browser",
             }
         )
     return items
@@ -178,6 +246,7 @@ def delete_upload(workdir: Workdir, name: str) -> dict:
         ``{"removed": [đường dẫn tương đối]}``.
     """
     root = _root(workdir, name)
+    _origin_path(workdir, name).unlink(missing_ok=True)
     if not root.is_dir():
         return {"removed": []}
     removed = workdir.relative(root)

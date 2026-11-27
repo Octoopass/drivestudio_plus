@@ -1,0 +1,35 @@
+--- a/src/xsim/data/reconstruction/sampling/subset.py
++++ b/src/xsim/data/reconstruction/sampling/subset.py
+@@ -99,12 +99,12 @@
+         indices = self.multi_indices
+         if components:
+             indices = [
+-                {k: v for k, v in cur_index.keys() if k in components}
++                {k: v for k, v in cur_index.items() if k in components}
+                 for cur_index in indices
+             ]
+ 
+         iter = self.dataset.multi_loader_iterator(
+-            self.loaders,
++            {k: v for k, v in self.loaders.items() if not components or k in components},
+             indices,
+             infinite_iterator=False,
+             shuffle=False,
+@@ -131,7 +131,7 @@
+             num_workers if num_workers is not None else self.dataset.config.load.num_workers
+         )
+         prefetch_factor = 2
+-        self.update_queue(n=real_num_workers * (prefetch_factor + 1))
++        self.update_queue(n=max(1, real_num_workers * (prefetch_factor + 1)))
+ 
+         for iter_batch in iter:
+             self.update_queue()
+--- a/src/xsim/modeling/nodes/render/xsimgs_renderer.py
++++ b/src/xsim/modeling/nodes/render/xsimgs_renderer.py
+@@ -35,5 +35,6 @@
+             expected_depth=expected_depth,
+             rays_from_sweep=rays_from_sweep,
+             camera_depth_max_density=camera_depth_max_density,
++            use_phm=use_phm,
+             losses=losses or [],
+         )

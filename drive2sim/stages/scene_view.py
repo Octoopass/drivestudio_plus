@@ -33,6 +33,7 @@ DRIVESTUDIO_DATASETS: dict[str, str] = {
     "pandaset": "pandaset",
     "kitti": "kitti",
     "kitti360": "kitti360",
+    "phenikaa": "phenikaa",
     "nuplan": "nuplan",
     "physicalai": "physicalai",
 }

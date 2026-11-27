@@ -1,13 +1,14 @@
 // Một run: trạng thái và hành động ở đầu trang (huỷ, chạy tiếp, xuất, xem 3D, Kaggle, Colab, xoá);
 // làn stage cập nhật trực tiếp qua SSE; các tab kết quả, metric trong lúc train, stage, video, log,
 // Kaggle, Colab.
-import { Box, Cloud, CloudDownload, CloudUpload, Download, Power, RefreshCw, RotateCcw, Square, Trash2, Zap, Trophy, Plus } from "lucide-react";
+import { Box, Car, Cloud, Gamepad2, Sparkles, CloudDownload, CloudUpload, Download, Power, RefreshCw, RotateCcw, Square, Trash2, Zap, Trophy, Plus } from "lucide-react";
 import { useRef, useEffect, useMemo, useState } from "react";
 import { asApiError, del, playableUrl, post, seg, useApi } from "../api/client";
 import type { ColabStatus, KaggleStatus, List, ReportRow, RunDetail, RunEvent, RunLog, Splats, Video } from "../api/types";
 import { LineChart, type Point } from "../components/charts";
-import { RunArtifacts } from "../components/RunArtifacts";
+import { RunArtifacts, RunDownloads } from "../components/RunArtifacts";
 import { MachineInfo, machineText } from "../components/RunInfo";
+import { RunConfig, RunProgress } from "../components/RunLive";
 import { StageRoad } from "../components/StageRoad";
 import { ago, Confirm, count, duration, Empty, ErrorBox, fixed, InfoTip, Loading, Note, PageHead, Status, Tabs, useToast } from "../components/ui";
 import { ConfigText, paramsLabel, useApproaches } from "../components/ConfigText";
@@ -93,6 +94,14 @@ export function RunPage({ runId }: { runId: string }) {
   );
   const [logStage, setLogStage] = useState("__engine__");
   const [deleting, setDeleting] = useState(false);
+  // Hộp "Tối ưu tiếp" (stage train.nurec_refine): số bước và cách thêm Gaussian.
+  const [refine, setRefine] = useState<{ iters: number; strategy: string } | null>(null);
+  // Hộp "Chạy trong CARLA" (stage render.carla): lựa chọn lần trước được nhớ trong trình duyệt.
+  const [carla, setCarlaState] = useState<CarlaSettings | null>(null);
+  const setCarla = (next: CarlaSettings | null) => {
+    setCarlaState(next);
+    if (next) localStorage.setItem(CARLA_KEY, JSON.stringify(next));
+  };
   // Tên đường cong: nhãn dịch nếu có (psnr, loss...), không thì giữ tên metric stage gửi lên.
   const curveLabel = (name: string) => (t(`run.curve.${name}`) === `run.curve.${name}` ? name : t(`run.curve.${name}`));
   const refresh = () => {
@@ -245,10 +254,36 @@ export function RunPage({ runId }: { runId: string }) {
                     {t("run.action.export_ply")}
                   </button>
                 )}
-                {!splats.data?.preview && (
+                {/* run NuRec không có checkpoint drivestudio: không xuất gói xem trước được */}
+                {!splats.data?.preview && data.approach.approach_id !== "nurec" && (
                   <button className="btn" onClick={() => action(t("run.toast.export", { kind: "preview" }), `${base}/export`, { kind: "preview" })}>
                     <Download size={19} />
                     {t("run.action.export_preview")}
+                  </button>
+                )}
+                {/* run NuRec tạo trước khi có stage video: thêm video đi dọc đoạn đường */}
+                {data.approach.approach_id === "nurec" && !data.stages?.some((s) => s.stage_id === "render.nurec_video") && (
+                  <button className="btn" onClick={() => action(t("run.toast.export", { kind: "video" }), `${base}/export`, { kind: "video" })} title={t("run.action.export_video_help")}>
+                    <Download size={19} />
+                    {t("run.action.export_video")}
+                  </button>
+                )}
+                {data.approach.approach_id === "nurec" && data.executor === "local" && !data.stages?.some((s) => s.stage_id === "train.nurec_refine" && Number(s.params?.iters ?? 0) > 0) && (
+                  <button className="btn" onClick={() => setRefine({ iters: 30000, strategy: "none" })} title={t("run.action.refine_help")}>
+                    <Sparkles size={19} />
+                    {t("run.action.refine")}
+                  </button>
+                )}
+                {data.approach.approach_id === "nurec" && data.executor === "local" && (
+                  <a className="btn" href={href({ page: "drive", runId })} title={t("run.action.drive_help")}>
+                    <Gamepad2 size={19} />
+                    {t("run.action.drive")}
+                  </a>
+                )}
+                {data.approach.approach_id === "nurec" && data.executor === "local" && (
+                  <button className="btn" onClick={() => setCarlaState(loadCarlaSettings())} title={t("run.action.carla_help")}>
+                    <Car size={19} />
+                    {t("run.action.carla")}
                   </button>
                 )}
               </>
@@ -316,11 +351,16 @@ export function RunPage({ runId }: { runId: string }) {
           ]}
         />
         <div className={`panel-body${tab === "logs" || tab === "stages" ? " flush" : ""}`}>
-          {tab === "result" &&
-            (!summary ? (
-              <Empty title={t("run.result.none")}>
-                <p>{t(active ? "run.result.wait" : "run.result.no_eval")}</p>
-              </Empty>
+          {tab === "result" && (
+            <div className="stack">
+              {active && <RunProgress runId={runId} data={data} stages={stages} progress={live.progress} />}
+              {!active && <RunDownloads runId={runId} nurec={data.approach.approach_id === "nurec"} />}
+            {!summary ? (
+              active ? null : (
+                <Empty title={t("run.result.none")}>
+                  <p>{t("run.result.no_eval")}</p>
+                </Empty>
+              )
             ) : (
               <div className="stack">
                 {row &&
@@ -381,7 +421,10 @@ export function RunPage({ runId }: { runId: string }) {
                   </div>
                 )}
               </div>
-            ))}
+            )}
+              <RunConfig data={data} stages={stages} approach={approaches?.[data.approach.approach_id]} />
+            </div>
+          )}
 
           {tab === "metrics" &&
             (Object.keys(live.metrics).length === 0 ? (
@@ -472,6 +515,7 @@ export function RunPage({ runId }: { runId: string }) {
             </div>
           )}
 
+          {tab === "artifacts" && !active && <RunDownloads runId={runId} nurec={data.approach.approach_id === "nurec"} />}
           {tab === "artifacts" && <RunArtifacts
               runId={runId}
               onReexport={
@@ -534,6 +578,85 @@ export function RunPage({ runId }: { runId: string }) {
         </div>
       </section>
 
+      {refine && (
+        <Confirm
+          title={t("run.refine.title")}
+          body={
+            <div className="stack" style={{ gap: 12 }}>
+              <p>{t("run.refine.body")}</p>
+              <CarlaNumber label={t("run.refine.iters")} value={refine.iters} min={1000} max={200000} step={1000} onChange={(iters) => setRefine({ ...refine, iters })} />
+              <label className="field">
+                <span>{t("run.refine.strategy")}</span>
+                <select value={refine.strategy} onChange={(e) => setRefine({ ...refine, strategy: e.target.value })}>
+                  {["none", "mcmc"].map((s) => (
+                    <option key={s} value={s}>
+                      {t(`run.refine.strategy.${s}`)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          }
+          confirmLabel={t("run.refine.start")}
+          onClose={() => setRefine(null)}
+          onConfirm={async () => {
+            await post(`${base}/export`, { kind: "refine", params: { iters: refine.iters, strategy: refine.strategy } });
+            toast({ kind: "ok", title: t("run.toast.export", { kind: "refine" }) });
+            live.restart();
+            refresh();
+          }}
+        />
+      )}
+
+      {carla && (
+        <Confirm
+          title={t("run.carla.title")}
+          body={
+            <div className="stack" style={{ gap: 12 }}>
+              <p>{t("run.carla.body")}</p>
+              <label className="field">
+                <span>{t("run.carla.ego")}</span>
+                <select value={carla.ego} onChange={(e) => setCarla({ ...carla, ego: e.target.value })}>
+                  {["trajectory", "replay", "autopilot"].map((ego) => (
+                    <option key={ego} value={ego}>
+                      {t(`run.carla.ego.${ego}`)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <CarlaNumber label={t("run.carla.seconds")} value={carla.seconds} min={0} max={600} step={5} onChange={(seconds) => setCarla({ ...carla, seconds })} />
+              <label className="field">
+                <span>{t("run.carla.quality")}</span>
+                <select value={carla.ratio} onChange={(e) => setCarla({ ...carla, ratio: Number(e.target.value) })}>
+                  {[0.25, 0.5, 0.75, 1].map((ratio) => (
+                    <option key={ratio} value={ratio}>
+                      {t(`run.carla.quality.${ratio * 100}`)}
+                    </option>
+                  ))}
+                </select>
+                <span className="hint">{t("run.carla.quality_hint")}</span>
+              </label>
+              <div className="row wrap" style={{ gap: 12 }}>
+                <CarlaNumber label={t("run.carla.video_height")} value={carla.height} min={120} max={1080} step={60} onChange={(height) => setCarla({ ...carla, height })} />
+                <CarlaNumber label={t("run.carla.fps")} value={carla.fps} min={5} max={60} step={5} onChange={(fps) => setCarla({ ...carla, fps })} />
+              </div>
+              <label className="chip-check" title={t("drive.objects_help")}>
+                <input type="checkbox" checked={carla.objects} onChange={(e) => setCarla({ ...carla, objects: e.target.checked })} />
+                {t("drive.objects")}
+              </label>
+            </div>
+          }
+          confirmLabel={t("run.carla.start")}
+          onClose={() => setCarla(null)}
+          onConfirm={async () => {
+            await post(`${base}/export`, { kind: "carla", params: { ego: carla.ego, max_seconds: carla.seconds, resolution_ratio: carla.ratio, video_height: carla.height, fps: carla.fps, objects: carla.objects } });
+            toast({ kind: "ok", title: t("run.toast.export", { kind: "CARLA" }) });
+            live.restart();
+            refresh();
+          }}
+        />
+      )}
+
       {deleting && (
         <Confirm
           title={t("run.delete.title", { run: runId })}
@@ -550,6 +673,28 @@ export function RunPage({ runId }: { runId: string }) {
         />
       )}
     </div>
+  );
+}
+
+type CarlaSettings = { ego: string; seconds: number; ratio: number; height: number; fps: number; objects: boolean };
+const CARLA_KEY = "d2s.carla.settings";
+const CARLA_DEFAULTS: CarlaSettings = { ego: "trajectory", seconds: 30, ratio: 0.5, height: 540, fps: 30, objects: true };
+
+// Lựa chọn lần trước của hộp CARLA; giá trị hỏng hoặc thiếu thì lấy mặc định.
+function loadCarlaSettings(): CarlaSettings {
+  try {
+    return { ...CARLA_DEFAULTS, ...JSON.parse(localStorage.getItem(CARLA_KEY) ?? "{}") };
+  } catch {
+    return CARLA_DEFAULTS;
+  }
+}
+
+function CarlaNumber({ label, value, min, max, step, onChange }: { label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void }) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <input type="number" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Math.max(min, Math.min(max, Number(e.target.value) || min)))} />
+    </label>
   );
 }
 

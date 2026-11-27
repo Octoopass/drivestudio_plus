@@ -186,9 +186,10 @@ def test_detect_kitti360_without_reading_pickles(
     assert report.dataset == "kitti360"
     assert report.versions == {"": [SEQ]}
     assert report.cameras == list(kitti360.CAMERAS)
-    assert report.has_lidar is True and report.has_cuboids is False
+    # có file ROSA nên có box; nhận dạng chỉ xem file có không, không mở pickle
+    assert report.has_lidar is True and report.has_cuboids is True
     assert report.ingest_supported
-    assert any(".pkl" in note for note in report.notes)
+    assert any("ROSA" in note for note in report.notes)
     assert plan_ingest(report).sequence == SEQ
 
 

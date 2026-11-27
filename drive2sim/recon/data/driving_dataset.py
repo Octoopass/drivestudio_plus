@@ -708,6 +708,12 @@ class DrivingDataset(SceneDataset):
                         & (cam_points[:, 1] < cam.HEIGHT)
                         & (depth > 0)
                     )  # (num_pts, )
+                    if cam.egocar_mask is not None:
+                        # điểm rơi lên thân xe không tô màu, không khởi tạo
+                        selected = valid_mask.nonzero().flatten()
+                        uv = cam_points[selected].long()
+                        egocar = cam.egocar_mask.bool().to(self.device)
+                        valid_mask[selected] &= ~egocar[uv[:, 1], uv[:, 0]]
                 depth = depth[valid_mask]
                 _cam_points = cam_points[valid_mask]
                 depth_map = nearest_depth_map(

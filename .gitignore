@@ -219,6 +219,7 @@ local_scripts/
 /docs/final-report/build/*
 !/docs/final-report/build/*.pdf
 /docs/slides/*/index.bundle.html
+models/
 # máy vast.ai đang thuê (envs/week04_vast.sh rent)
 /.vast.env
 /.venv-waymo/

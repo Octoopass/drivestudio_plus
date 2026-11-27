@@ -327,3 +327,39 @@ def test_build_views_finds_images_with_any_extension(tmp_path: Path) -> None:
         [(8, "CAM_FRONT")], alignment, tmp_path / "v.npz",
     )  # fmt: skip
     assert info[0]["frame"] == 8
+
+
+def test_pinhole_distortion_rectifies_rgb_and_official_mask_with_same_map(tmp_path: Path) -> None:
+    scene = tmp_path / "scene"
+    make_scene(scene)
+    coefficients = np.array([0.7, 0.03, 0.02, -0.01, 0.0])
+    save(scene / "intrinsics" / "0.txt", np.array(PINHOLE[:4] + coefficients.tolist()))
+    rng = np.random.default_rng(7)
+    image = rng.integers(0, 255, (*SIZE, 3), np.uint8)
+    cv2.imwrite(str(scene / "images" / "008_0.png"), cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+    (scene / "ego_masks").mkdir()
+    mask = np.zeros(SIZE, np.uint8)
+    mask[10:, 5:20] = 255
+    cv2.imwrite(str(scene / "ego_masks" / "CAM_FRONT.png"), mask)
+    alignment = {"scale": 1.0, "R": np.eye(3), "t": np.zeros(3)}
+    output = tmp_path / "views.npz"
+    views.build_views(
+        scene,
+        poses_of(scene),
+        ["CAM_FRONT", "CAM_FISH"],
+        {"CAM_FRONT": "opencv_pinhole"},
+        [(8, "CAM_FRONT")],
+        alignment,
+        output,
+        dataset="custom",
+    )
+    intrinsics, _ = views.read_intrinsics(scene, 0, "opencv_pinhole")
+    map_x, map_y = cv2.initUndistortRectifyMap(
+        intrinsics, coefficients, None, intrinsics, (SIZE[1], SIZE[0]), cv2.CV_32FC1
+    )
+    expected = cv2.remap(image, map_x, map_y, cv2.INTER_LINEAR)
+    allowed = cv2.remap((mask == 0).astype(np.uint8), map_x, map_y, cv2.INTER_NEAREST)
+    with np.load(output, allow_pickle=True) as result:
+        np.testing.assert_array_equal(result["image"][0], expected)
+        np.testing.assert_array_equal(result["mask"][0], allowed == 0)
+    assert not np.array_equal(image, expected)

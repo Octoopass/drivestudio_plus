@@ -319,7 +319,7 @@ def test_kitti360_config_resolves(
     data = load_config(paths.CONFIGS_DIR / "datasets" / f"{config}.yaml")["data"]
     assert data["dataset"] == "kitti360"
     pixel = data["pixel_source"]
-    assert pixel["type"] == "drive2sim.recon.data.loaders.kitti360.KITTI360PixelSource"
+    assert pixel["type"] == "drive2sim.recon.data.loaders.standard.StandardPixelSource"
     assert len(pixel["cameras"]) == len(pixel["downscale_when_loading"]) == len(cameras)
     assert pixel["undistort"] is False
     assert data["lidar_source"]["type"] == "drive2sim.recon.data.loaders.kitti.KITTILiDARSource"
@@ -643,7 +643,7 @@ def test_eval_summary_has_depth_when_measured(tmp_path: Path) -> None:
         3.4,
         0.93,
     )
-    assert summary.protocol.version == "0.5"
+    assert summary.protocol.version == "0.6"
     no_lidar = {"psnr": 25.0, "ssim": 0.8, "lpips": 0.2}
     write_metrics(tmp_path, "images_test_2026-11-21_090000.json", no_lidar)
     assert make_summary(read_drivestudio_metrics(tmp_path), "s", tmp_path).depth is None

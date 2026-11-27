@@ -64,9 +64,10 @@ from drive2sim.engine.cache import (
 from drive2sim.engine.environment import MissingModuleError
 from drive2sim.engine.machine import current_machine, package_versions, same_machine
 from drive2sim.engine.registry import REGISTRY, StageRegistry
-from drive2sim.engine.resolve import Plan, validate_params, wire_inputs
+from drive2sim.engine.resolve import Plan, ResolveError, validate_params, wire_inputs
 from drive2sim.engine.stage import SCENE_INPUT, Scene, StageCancelledError
 from drive2sim.engine.workdir import KAGGLE_SCENE_FILE, Workdir, WorkdirError
+from drive2sim.ingest.ego_masks import mask_digest, snapshot_masks
 
 D2S_DIR = "d2s"
 RUN_FILE = "run.json"
@@ -292,6 +293,9 @@ def create_run(
         schema_version=SCHEMA_VERSIONS["run"],
         run_id=run_id,
         scene_id=scene.scene_id,
+        scene_mask_digest=snapshot_masks(
+            scene.root, scene.manifest, run_dir / D2S_DIR / "scene_masks"
+        ),
         split_id=split.split_id,
         approach=RunApproach(
             approach_id=plan.approach_id,
@@ -336,12 +340,17 @@ def plan_cache_keys(
         for source in stage.input_sources.values():
             if source == SCENE_INPUT:
                 input_keys.append(
-                    input_key_for_scene(scene.scene_id, scene.manifest.source.converter_version)
+                    input_key_for_scene(
+                        scene.scene_id,
+                        scene.manifest.source.converter_version,
+                        mask_digest(scene.root, scene.manifest),
+                    )
                 )
             elif isinstance(source, int):
                 input_keys.append(keys[source])
             else:
-                input_keys.append(input_key_for_split(split.split_id))
+                content = split if registry.get(stage.stage_id).split_content_key else None
+                input_keys.append(input_key_for_split(split.split_id, content))
         key = None
         if stage.cacheable and None not in input_keys:
             key = identifiers.make_cache_key(
@@ -397,6 +406,7 @@ class _StageContext:
         stage_id: Stage đang chạy.
         sink: Hàm nhận sự kiện.
         cancel_file: File ``d2s/cancel`` của run; có file này là người dùng đã yêu cầu huỷ.
+        workdir: Thư mục làm việc (``Workdir.root``).
         peak_vram_mb: VRAM cao nhất stage tự báo (``report_peak_vram``), megabyte.
     """
 
@@ -407,6 +417,7 @@ class _StageContext:
     stage_id: str
     sink: EventSink
     cancel_file: Path
+    workdir: Path
     peak_vram_mb: int = 0
 
     def should_stop(self) -> bool:
@@ -485,6 +496,20 @@ class _Runner:
         """Đọc cảnh và split của run sau khi dataclass gán xong các trường."""
         self.scene = self.workdir.load_scene(self.record.scene_id)
         self.split = self.workdir.load_split(self.record.scene_id, self.record.split_id)
+        if self.record.scene_mask_digest is not None:
+            from drive2sim.stages.scene_view import build_view
+
+            masks = self.run_dir / D2S_DIR / "scene_masks"
+            if not masks.is_dir():
+                raise ValueError("run thiếu bản chụp mask d2s/scene_masks")
+            view = build_view(
+                self.scene.root,
+                self.workdir.root / ".runtime" / self.record.run_id / "scene_view",
+                extra={"ego_masks": masks},
+            )
+            if mask_digest(view, self.scene.manifest) != self.record.scene_mask_digest:
+                raise ValueError("bản chụp mask không khớp scene_mask_digest của run")
+            self.scene = Scene(self.scene.scene_id, view, self.scene.manifest)
 
     def save(self) -> None:
         """Ghi ``record`` hiện tại ra ``d2s/run.json`` để Studio và CLI đọc được trạng thái mới."""
@@ -506,20 +531,23 @@ class _Runner:
             }
         )
 
-    def input_key(self, kind: str) -> str:
+    def input_key(self, kind: str, split_content_key: bool) -> str:
         """Tạo khoá cache cho đầu vào ``"scene"`` hoặc ``"split"`` của run này.
 
         Args:
             kind: ``"scene"`` hoặc ``"split"``.
+            split_content_key: Băm nội dung split khi stage cần từng cặp ảnh.
 
         Returns:
             Khoá do ``input_key_for_scene`` hoặc ``input_key_for_split`` tạo.
         """
         if kind == SCENE_INPUT:
             return input_key_for_scene(
-                self.scene.scene_id, self.scene.manifest.source.converter_version
+                self.scene.scene_id,
+                self.scene.manifest.source.converter_version,
+                self.record.scene_mask_digest,
             )
-        return input_key_for_split(self.split.split_id)
+        return input_key_for_split(self.split.split_id, self.split if split_content_key else None)
 
     def write_artifact(
         self,
@@ -603,6 +631,7 @@ class _Runner:
             stage_record.stage_id,
             self.sink,
             self.run_dir / D2S_DIR / CANCEL_FILE,
+            self.workdir.root,
         )
         started = time.monotonic()
         output_paths = cls().run(ctx, inputs, params)
@@ -703,7 +732,7 @@ class _Runner:
                     inputs[input_name] = source_dir
                     input_keys.append(source_key)
                 else:
-                    input_keys.append(self.input_key(str(source)))
+                    input_keys.append(self.input_key(str(source), cls.split_content_key))
 
             started = time.monotonic()
             _peak_vram_mb()  # đặt lại bộ đếm VRAM trước stage
@@ -803,6 +832,7 @@ class _Runner:
         """
         stage_record.status = "running"
         stage_record.error = None
+        stage_record.started_utc = _now_utc()
         self.save()
         self.emit_status(stage_record.stage_id, "running")
 
@@ -928,40 +958,48 @@ def list_runs(workdir: Workdir, scene_id: Optional[str] = None) -> list[RunRecor
     return sorted(records, key=lambda record: record.run_id, reverse=True)
 
 
-def summary_path(run_dir: Path) -> Path:
-    """Trả về đường dẫn ``summary.json`` của một run (CONTRACTS mục 6.3).
-
-    Stage ``eval.standard`` (approach của DriveStudio) và ``eval.ncore`` (Instant NuRec) đều ghi
-    file này vào thư mục của mình, ví dụ ``d2s/stages/eval.standard/summary.json``. Run có đủ cả
-    hai thì ``eval.standard`` được ưu tiên; không có file nào thì trả đường dẫn của
-    ``eval.standard`` (file chưa tồn tại) để nơi gọi kiểm ``is_file``.
+def summary_path(run_dir: Path, record: Optional[RunRecord] = None) -> Optional[Path]:
+    """Chọn báo cáo của stage eval thành công cuối cùng theo thứ tự pipeline.
 
     Args:
-        run_dir: Thư mục run.
+        run_dir: Thư mục run cần đọc.
+        record: Bản ghi đã đọc nếu nơi gọi đang có.
 
     Returns:
-        Đường dẫn ``summary.json`` của stage ``eval.*`` đã ghi file.
+        Đường dẫn dự kiến của báo cáo hoặc None nếu chưa có eval thành công.
+        Run cũ thiếu danh sách stage dùng vị trí lịch sử của eval.standard.
     """
-    stages_dir = Path(run_dir) / D2S_DIR / "stages"
-    default = stages_dir / "eval.standard" / "summary.json"
+    directory = Path(run_dir) / D2S_DIR
+    record_path = directory / RUN_FILE
+    if record is None and record_path.is_file():
+        record = files.load(record_path, RunRecord)
+    if record and record.stages:
+        candidates = [
+            directory / "stages" / stage.stage_id / "summary.json"
+            for stage in reversed(record.stages)
+            if stage.stage_id.startswith("eval.") and stage.status == "succeeded"
+        ]
+        # Một stage đánh giá bổ sung có thể chỉ ghi báo cáo riêng, như export gap.
+        # Chọn summary đã tồn tại trước, giữ đường dẫn dự kiến khi chưa có file nào.
+        return next((path for path in candidates if path.is_file()), next(iter(candidates), None))
+    default = directory / "stages" / "eval.standard" / "summary.json"
     if default.is_file():
         return default
-    for candidate in sorted(stages_dir.glob("eval.*/summary.json")):
-        return candidate
-    return default
+    return next(iter(sorted((directory / "stages").glob("eval.*/summary.json"))), default)
 
 
-def load_summary(run_dir: Path) -> Optional[Summary]:
+def load_summary(run_dir: Path, record: Optional[RunRecord] = None) -> Optional[Summary]:
     """Đọc ``summary.json`` của một run nếu đã có.
 
     Args:
         run_dir: Thư mục run.
+        record: Bản ghi dùng để chọn stage trong cùng lần đọc của Studio hoặc report.
 
     Returns:
         Kết quả đánh giá, hoặc ``None`` nếu run chưa tới bước đánh giá.
     """
-    path = summary_path(run_dir)
-    return files.load(path, Summary) if path.is_file() else None
+    path = summary_path(run_dir, record)
+    return files.load(path, Summary) if path is not None and path.is_file() else None
 
 
 def load_env(run_dir: Path) -> Optional[EnvRecord]:
@@ -1038,7 +1076,93 @@ def request_cancel(run_dir: Path) -> RunRecord:
     return record
 
 
-def reset_stage(run_dir: Path, stage_id: str, registry: StageRegistry = REGISTRY) -> RunRecord:
+# Stage tự ghi ``scene.ply`` ở hệ world của cảnh thay cho ``export.ply_world`` (stage đó đọc
+# checkpoint train, mà approach này không có).
+PLY_EXPORT_OVERRIDES = ("export.nurec_ply",)
+
+
+def ply_export_stage(stage_ids: list[str]) -> str:
+    """Stage ghi scene.ply của run: export.nurec_ply nếu có, không thì export.ply_world."""
+    return next((s for s in PLY_EXPORT_OVERRIDES if s in stage_ids), "export.ply_world")
+
+
+def insert_stage(
+    run_dir: Path,
+    stage_id: str,
+    after: str,
+    registry: StageRegistry = REGISTRY,
+    params: Optional[dict] = None,
+) -> RunRecord:
+    """Chèn một stage vào run ngay sau ``after`` (hoặc chạy lại nó) và các stage dùng nó.
+
+    Dùng cho bước tối ưu thêm vào run đã xong, ví dụ ``train.nurec_refine`` sau
+    ``train.nurec``: stage mới tạo artifact cùng loại (``model``), nên các stage đứng sau cần
+    loại đó (chấm điểm, PLY, video) phải chạy lại để dùng kết quả mới; stage không dùng tới thì
+    giữ nguyên. Đầu vào được nối lại khi chạy (``wire_inputs``), nên stage đứng sau tự nhận
+    artifact của stage mới.
+
+    Args:
+        run_dir: Thư mục run.
+        stage_id: Stage cần chèn.
+        after: Stage của run mà stage mới đứng ngay sau (khi stage đã có thì không dùng).
+        registry: Bảng stage.
+        params: Tham số của stage, ghép lên tham số đã lưu nếu stage đã có.
+
+    Returns:
+        ``run.json`` sau khi sửa.
+
+    Raises:
+        KeyError: Nếu stage chưa đăng ký.
+        ValueError: Nếu ``params`` không hợp lệ.
+        ResolveError: Nếu run không có ``after`` hoặc thiếu đầu vào của stage.
+    """
+    run_dir = Path(run_dir)
+    cls = registry.get(stage_id)
+    record = files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
+    ids = [stage.stage_id for stage in record.stages]
+    if stage_id in ids:
+        position = ids.index(stage_id)
+        stage = record.stages[position]
+        stage.params = validate_params(stage_id, {**stage.params, **(params or {})}, registry)
+    else:
+        if after not in ids:
+            raise ResolveError(f"run không có stage {after} để đặt {stage_id} phía sau")
+        position = ids.index(after) + 1
+        record.stages.insert(
+            position,
+            StageRecord(
+                stage_id=stage_id,
+                status="pending",
+                params=validate_params(stage_id, dict(params or {}), registry),
+            ),
+        )
+        wire_inputs([stage.stage_id for stage in record.stages], registry)
+    changed = set(cls.outputs.values())  # loại artifact có kết quả mới
+    for index, stage in enumerate(record.stages[position:], start=position):
+        stage_cls = registry.get(stage.stage_id) if stage.stage_id in registry else None
+        if index > position and (
+            stage_cls is None or not changed & set(stage_cls.inputs.values())
+        ):
+            continue
+        stage.status = "pending"
+        stage.error = None
+        if stage_cls is not None:
+            changed |= set(stage_cls.outputs.values())
+            if not stage_cls.cacheable:
+                shutil.rmtree(run_dir / D2S_DIR / "stages" / stage.stage_id, ignore_errors=True)
+                stage.duration_s = 0
+                stage.peak_vram_mb = 0
+    record.status = "pending"
+    files.dump(record, run_dir / D2S_DIR / RUN_FILE)
+    return record
+
+
+def reset_stage(
+    run_dir: Path,
+    stage_id: str,
+    registry: StageRegistry = REGISTRY,
+    params: Optional[dict] = None,
+) -> RunRecord:
     """Chuẩn bị chạy lại một stage của run, hoặc thêm stage đó vào cuối run nếu chưa có.
 
     Dùng cho ``d2s export ply|preview <run_id>``: stage export được chạy lại mà không chạy lại
@@ -1050,12 +1174,15 @@ def reset_stage(run_dir: Path, stage_id: str, registry: StageRegistry = REGISTRY
         run_dir: Thư mục run.
         stage_id: Stage cần chạy lại hoặc thêm, ví dụ ``export.ply_world``.
         registry: Bảng stage.
+        params: Tham số đổi cho lần chạy này, ghép lên tham số đã lưu của stage rồi kiểm tra lại
+            (ví dụ ``{"fps": 30}`` cho ``render.nurec_video``); ``None`` giữ nguyên.
 
     Returns:
         ``run.json`` sau khi sửa.
 
     Raises:
         KeyError: Nếu ``stage_id`` chưa đăng ký.
+        ValueError: Nếu ``params`` không hợp lệ với stage.
         ResolveError: Nếu stage cần một đầu vào mà không stage nào của run tạo ra.
     """
     run_dir = Path(run_dir)
@@ -1066,6 +1193,8 @@ def reset_stage(run_dir: Path, stage_id: str, registry: StageRegistry = REGISTRY
         stage = existing[0]
         stage.status = "pending"
         stage.error = None
+        if params:
+            stage.params = validate_params(stage_id, {**stage.params, **params}, registry)
         if not cls.cacheable:
             shutil.rmtree(run_dir / D2S_DIR / "stages" / stage_id, ignore_errors=True)
             # Kết quả cũ bị xoá và chạy lại từ đầu: đo lại thời gian và VRAM. Không đặt lại thì
@@ -1078,7 +1207,7 @@ def reset_stage(run_dir: Path, stage_id: str, registry: StageRegistry = REGISTRY
             StageRecord(
                 stage_id=stage_id,
                 status="pending",
-                params=validate_params(stage_id, {}, registry),
+                params=validate_params(stage_id, dict(params or {}), registry),
             )
         )
         wire_inputs([stage.stage_id for stage in record.stages], registry)

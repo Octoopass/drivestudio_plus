@@ -2,7 +2,7 @@
 // máy, trên Kaggle hay trên Colab, train đầy đủ hay thử nhanh. Mỗi lần đổi lựa chọn, gọi /check để biết lựa chọn nào bị khoá (gạch và ghi
 // lý do) và vẽ trước làn stage sẽ chạy, stage nào dùng lại cache. Bấm chạy thì mở màn hình run.
 import { AlertTriangle, CheckCircle2, Cloud, Cpu, Database, Play, XCircle, Zap } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { asApiError, post, seg, useApi, type ApiError } from "../api/client";
 import type { Approach, CheckResult, List, Manifest, OptionValue, RunRecord, SceneDetail } from "../api/types";
 import { ColabSetup, type ColabSetupStatus } from "../components/ColabSetup";
@@ -44,6 +44,7 @@ export function NewRunPage({
   const scene = useApi<SceneDetail>(sceneId ? `/api/scenes/${seg(sceneId)}` : null);
   const [splitId, setSplitId] = useState(initialSplit ?? "");
   const [approachId, setApproachId] = useState(initialApproach ?? "");
+  const autoApproach = useRef(!initialApproach); // approach hiện tại do trang tự chọn
   // preset đề xuất (Trợ lý): điền sau khi approach, cảnh và split đã nạp, sau bước về mặc định
   const [pendingPreset, setPendingPreset] = useState(initialPreset);
   // Chỉ các mục cấu hình người dùng đã chọn khác đi; mục không có ở đây lấy giá trị mặc định của approach.
@@ -78,9 +79,17 @@ export function NewRunPage({
   useEffect(() => {
     if (scene.data && !scene.data.splits.includes(splitId)) setSplitId(scene.data.splits[0] ?? "");
   }, [scene.data]);
+  // Tự chọn approach đầu tiên dùng được trên cảnh (không bị khoá vì thiếu box 3D). Cảnh tải xong sau
+  // danh sách approach thì chọn lại nếu approach tự chọn trước đó bị khoá; approach người dùng chọn
+  // hoặc có trong URL thì giữ nguyên.
   useEffect(() => {
-    if (!approachId && approaches.data?.items[0]) setApproachId(approaches.data.items[0].approach_id);
-  }, [approaches.data, approachId]);
+    const items = approaches.data?.items ?? [];
+    if (items.length === 0) return;
+    const current = items.find((a) => a.approach_id === approachId);
+    if (approachId && !(autoApproach.current && current && boxReason(current))) return;
+    const pick = items.find((a) => !boxReason(a)) ?? items[0];
+    if (pick.approach_id !== approachId) setApproachId(pick.approach_id);
+  }, [approaches.data, approachId, scene.data]);
   // Đổi approach, cảnh hay split thì về cấu hình mặc định; nếu mặc định không vẽ được camera của
   // split (ví dụ 3DGS trên split có camera mắt cá) thì chọn sẵn preset đầu tiên vẽ được, thay vì để
   // người dùng gặp lỗi bị khoá.
@@ -154,6 +163,11 @@ export function NewRunPage({
   const trackText = (fit: { tracks: string[] }) => fit.tracks.map((track) => t(`new.track.${track}`)).join(", ");
   const cameraReason = (fit: { camera_models: string[] }) =>
     scene.data && !fits(fit.camera_models) ? t("new.camera.mismatch", { models: usedModels.join(", ") }) : undefined;
+  // Cùng quy tắc với kiểm tra lúc tạo run (engine/resolve.py): approach bắt buộc box 3D mà cảnh không có box.
+  const boxReason = (a: Approach) =>
+    scene.data && a.requires.cuboids === "required" && scene.data.manifest.available.cuboids === "none"
+      ? t("new.boxes.missing.hint")
+      : undefined;
   const choiceCameraReason = (name: string, choice: OptionValue) => {
     const spec = specs[name];
     const index = (spec?.choices as OptionValue[] | undefined)?.indexOf(choice) ?? -1;
@@ -278,10 +292,21 @@ export function NewRunPage({
                       className="choice"
                       data-kind={kind}
                       aria-pressed={a.approach_id === approachId}
-                      onClick={() => setApproachId(a.approach_id)}
-                      title={cameraReason(a.camera_support)}
+                      onClick={() => {
+                        autoApproach.current = false;
+                        setApproachId(a.approach_id);
+                      }}
+                      disabled={Boolean(boxReason(a)) && a.approach_id !== approachId}
+                      title={boxReason(a) ?? cameraReason(a.camera_support)}
                     >
-                      <span className="name">{a.name}</span>
+                      <span className="name">
+                        {a.name}
+                        {a.experimental && (
+                          <span className="tag warn" title={t("new.approach.experimental.hint")} style={{ marginLeft: 8 }}>
+                            {t("new.approach.experimental")}
+                          </span>
+                        )}
+                      </span>
                       <span className="desc">{t("new.approach.meta", { codebase: a.codebase, level: a.level, stages: a.stages.length })}</span>
                       <span className="row wrap" style={{ gap: 6 }}>
                         {a.camera_support.tracks.map((track) => (
@@ -289,7 +314,13 @@ export function NewRunPage({
                             {t(`new.track.${track}`)}
                           </span>
                         ))}
+                        {a.dynamics && (
+                          <span className="tag" title={t(`new.dynamics.${a.dynamics}.hint`)}>
+                            {t(`new.dynamics.${a.dynamics}`)}
+                          </span>
+                        )}
                         {cameraReason(a.camera_support) && <span className="tag warn">{t("new.camera.unfit")}</span>}
+                        {boxReason(a) && <span className="tag warn">{t("new.boxes.missing")}</span>}
                       </span>
                     </button>
                   ))}
@@ -383,17 +414,28 @@ export function NewRunPage({
                               </span>
                             </InfoTip>
                           </div>
-                          <Segmented<OptionValue>
-                            label={optionLabel(name)}
-                            value={current(name)}
-                            onChange={(choice) => setOptions({ ...options, [name]: choice })}
-                            options={choices.map((choice) => ({
-                              value: choice,
-                              label: choiceLabel(name, choice),
-                              disabled: Boolean(reasonOf(choice)),
-                              title: reasonOf(choice),
-                            }))}
-                          />
+                          <div className="row wrap" style={{ gap: 10 }}>
+                            <Segmented<OptionValue>
+                              label={optionLabel(name)}
+                              value={current(name)}
+                              onChange={(choice) => setOptions({ ...options, [name]: choice })}
+                              options={choices.map((choice) => ({
+                                value: choice,
+                                label: choiceLabel(name, choice),
+                                disabled: Boolean(reasonOf(choice)),
+                                title: reasonOf(choice),
+                              }))}
+                            />
+                            {spec.custom && (
+                              <CustomValue
+                                key={`${approachId}-${name}`}
+                                range={spec.custom}
+                                value={current(name)}
+                                isChoice={choices.includes(current(name))}
+                                onChange={(value) => setOptions({ ...options, [name]: value })}
+                              />
+                            )}
+                          </div>
                         </div>
                       );
                     })}
@@ -418,6 +460,11 @@ export function NewRunPage({
                   }))}
                 />
                 {check.lidar_usage.length === 0 && <p className="muted small">{t("new.plan.no_lidar")}</p>}
+                {(check.data_warnings ?? []).map((w) => (
+                  <p key={w} className="small" style={{ color: "var(--warn, #d97706)" }}>
+                    ⚠ {w}
+                  </p>
+                ))}
               </div>
             )}
             {!check && !checking && !checkError && <p className="muted">{t("new.plan.waiting")}</p>}
@@ -570,7 +617,7 @@ function LocalEnvironment({ approachId, stages }: { approachId: string; stages: 
         ) : (
         <span className="small">
           {t("new.env.install")} <code>{data.install}</code>
-          <InfoTip>{t(data.env === "nurec" ? "new.env.install_hint_nurec" : "new.env.install_hint", { file: data.file ?? "" })}</InfoTip>
+          <InfoTip>{t(data.env === "nurec" || data.env === "xsim" ? `new.env.install_hint_${data.env}` : "new.env.install_hint", { file: data.file ?? "" })}</InfoTip>
         </span>
         )}
         {data.env === "nurec" && (
@@ -594,5 +641,46 @@ function LocalEnvironment({ approachId, stages }: { approachId: string; stages: 
         )}
       </div>
     </Note>
+  );
+}
+
+/** Ô nhập giá trị số tự chọn của một mục cấu hình có ``custom`` (ví dụ số Gaussian của NuRec). */
+function CustomValue({
+  range,
+  value,
+  isChoice,
+  onChange,
+}: {
+  range: { min: number; max: number; integer?: boolean };
+  value: OptionValue;
+  isChoice: boolean;
+  onChange: (value: number) => void;
+}) {
+  const { t } = useI18n();
+  const [text, setText] = useState(isChoice ? "" : String(value));
+  // Chọn lại một lựa chọn sẵn có thì xoá ô nhập.
+  useEffect(() => {
+    if (isChoice) setText("");
+  }, [isChoice, value]);
+  const number = Number(text.replace(/[\s.,_]/g, ""));
+  const valid = text.trim() !== "" && Number.isFinite(number) && number >= range.min && number <= range.max && (!range.integer || Number.isInteger(number));
+  const hint = t("new.option.custom_range", { min: range.min.toLocaleString(), max: range.max.toLocaleString() });
+  return (
+    <label className={`custom-value${!isChoice && text ? " active" : ""}${text && !valid ? " invalid" : ""}`} title={hint}>
+      <span className="small muted">{t("new.option.custom")}</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={text}
+        placeholder={hint}
+        aria-invalid={Boolean(text) && !valid}
+        onChange={(e) => {
+          setText(e.target.value);
+          const next = Number(e.target.value.replace(/[\s.,_]/g, ""));
+          if (e.target.value.trim() && Number.isFinite(next) && next >= range.min && next <= range.max && (!range.integer || Number.isInteger(next))) onChange(next);
+        }}
+      />
+      {text && valid && <span className="small dense">{number.toLocaleString()}</span>}
+    </label>
   );
 }

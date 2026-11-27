@@ -31,6 +31,7 @@ from drive2sim.cli import (
     colab,
     export,
     kaggle,
+    libraries,
     pack,
     report,
     run,
@@ -106,6 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
         cache,
         kaggle,
         colab,
+        libraries,
         studio,
         schema,
     ):

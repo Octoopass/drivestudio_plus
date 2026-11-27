@@ -98,7 +98,7 @@ def test_make_summary_with_test_only_camera_fills_shifted(tmp_path: Path) -> Non
         frames=frames,
         test_only_cameras=["image_01"],
     )
-    assert summary.protocol.version == PROTOCOL_VERSION == "0.5"
+    assert summary.protocol.version == PROTOCOL_VERSION == "0.6"
     assert summary.overall.psnr == pytest.approx(27.0)  # chỉ image_00
     assert summary.shifted is not None
     assert summary.shifted.cameras == ["image_01"]

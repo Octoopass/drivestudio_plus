@@ -141,7 +141,11 @@ def status(args: argparse.Namespace) -> int:
         Mã thoát ``0``.
     """
     data = executor.kernel_state(Workdir.from_env(args.workdir), args.run_id)
-    emit(args, data, f"{data['kernel']} (lần {data['attempt']}): {data['status']}")
+    text = f"{data['kernel']} (lần {data['attempt']}): {data['status']}"
+    if data["status"] == "complete":
+        # Notebook kết thúc complete cả khi run lỗi (templates/run.ipynb); trạng thái ở run.json.
+        text += f"; xem run thành công hay lỗi: d2s kaggle pull {args.run_id} --light"
+    emit(args, data, text)
     return 0
 
 

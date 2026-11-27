@@ -52,3 +52,15 @@ def test_metrics_without_mask_use_whole_image() -> None:
 def test_image_without_valid_pixel_is_skipped() -> None:
     rgb, gt, valid = _images()
     assert compute_image_metrics(rgb, gt, torch.zeros_like(valid), _mean_abs_lpips) is None
+
+
+def test_raw_and_zeroed_invalid_pixels_produce_identical_metrics() -> None:
+    rgb, gt, valid = _images()
+    raw = compute_image_metrics(rgb, gt, valid, _mean_abs_lpips)
+    zeroed = compute_image_metrics(
+        rgb * valid[..., None], gt * valid[..., None], valid, _mean_abs_lpips
+    )
+    assert raw == pytest.approx(zeroed, abs=1e-7)
+    rgb[~valid] = 1.0
+    gt[~valid] = 0.1
+    assert compute_image_metrics(rgb, gt, valid, _mean_abs_lpips) == pytest.approx(raw)

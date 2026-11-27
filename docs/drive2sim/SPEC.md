@@ -65,6 +65,9 @@ Trên giao diện có thể cho chọn approach sớm để người dùng biế
 
 ## 6. Dữ liệu
 
+Hiện trạng loader (26/11/2026): KITTI-360 và PHENIKAA cùng dùng loader đọc manifest và khung dữ liệu KITTI. Config run đã lưu với tên loader cũ tiếp tục được hỗ trợ. Các dataset DriveStudio khác vẫn có loader riêng; định dạng chung cho mọi nguồn còn là thiết kế đích (ARCHITECTURE mục 2.4).
+
+
 ### 6.1 Nguồn dữ liệu được hỗ trợ
 
 - Waymo, nuScenes, nuPlan, Argoverse 2, PandaSet, KITTI, PhysicalAI.
@@ -166,6 +169,10 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 
 ## 9. Đánh giá
 
+Với XSIM, worker train lưu checkpoint theo chu kỳ để có thể tiếp tục một run bị gián đoạn. Approach XSIM nhận gói quan sát xuất từ cùng loader DriveStudio như OmniRe và được chấm bằng cùng hàm, ảnh thật và mask, nên số đo so được với approach DriveStudio trên cùng cảnh, split, độ phân giải. Phần train và render native còn chờ kiểm chứng trên GPU.
+
+Khi pipeline có nhiều bước đánh giá, bảng so sánh hiển thị kết quả của bước đánh giá thành công cuối cùng theo thứ tự pipeline.
+
 - Cùng split, cùng độ phân giải, đo trên ảnh 8 bit.
 - PSNR, SSIM, LPIPS; ghi rõ backbone và phiên bản của LPIPS. Đo một lần sau khi train xong, trên mọi ảnh của tập test, rồi lấy trung bình.
 - Chỉ số gộp Avg của Mip-NeRF: trung bình nhân của `10^(−PSNR/10)`, `√(1 − SSIM)` và LPIPS (thấp là tốt), dùng để xếp hạng mặc định; không dùng tổng có trọng số tự đặt hay chuẩn hoá theo nhóm run đang so.
@@ -196,6 +203,8 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 - Ingest gợi ý thư mục dataset đúng và báo thiếu sweeps trước khi chạy. Run local báo thiếu môi trường kèm cách cài. OmniRe tự bỏ SMPL chỉ khi nhãn xác nhận đoạn frame của split không có người; dữ liệu chưa biết không bị xem là không có người.
 
 - Nhẹ: một tiến trình phục vụ cả API lẫn giao diện; trạng thái lưu trong thư mục, không cần cơ sở dữ liệu.
+- Approach chạy ở môi trường khác (XSIM) nhận dữ liệu qua gói quan sát xuất từ loader chung, không tự đọc lại thư mục cảnh.
+- XSIM hướng tới L1 trên local, Kaggle và Colab. Tiến độ và bằng chứng nằm trong [kế hoạch XSIM](XSIM_INTEGRATION_PLAN.md).
 - Approach từ codebase khác chạy trong môi trường riêng; các approach dòng DriveStudio dùng chung môi trường của repo.
 - Mọi run ghi kết quả theo cùng một định dạng, kèm cấu hình đầy đủ, phiên bản mã nguồn và thông tin phần cứng để chạy lại được.
 - Thêm approach mới chỉ cần khai báo và thêm stage còn thiếu; không sửa engine, Studio hay server.
@@ -227,3 +236,38 @@ Thứ tự làm thật (`ARCHITECTURE.md` mục 7.4) là bộ khung trước, t�
 1. Định dạng bộ dữ liệu riêng của mentor.
 2. AD stack dùng để chạy thử ở mức L4 (agent có sẵn của CARLA hay planner tự viết) và tiêu chí chấm điểm (va chạm, lệch làn, hoàn thành tuyến hay tiêu chí khác).
 3. ~~Ngưỡng chênh PSNR chấp nhận được ở nghiệm thu tầng dữ liệu.~~ Không cần: nghiệm thu so dữ liệu từng bit (mục 13).
+
+
+Công cụ mask thân xe của Studio cho biết camera đang sửa, hướng dẫn điểm xanh/đỏ và báo đang
+nạp ảnh hoặc tạo mask. Người dùng có thể tẩy mask nháp hay mask đã lưu bằng cọ điều chỉnh
+kích thước, xem lại rồi lưu. Mỗi camera dùng một mask cố định cho các khung của cảnh.
+
+
+Khi nạp cảnh trong Studio, tên cảnh đã tồn tại hoặc đang được nạp phải được báo trước khi
+xếp việc. Hộp thoại giữ lựa chọn nguồn để người dùng sửa tên và thử lại. Ô tên nhận tên ngắn và
+hiển thị tên đầy đủ có tiền tố dataset trước khi nạp. Việc nạp thất bại
+không ngăn người dùng tạo yêu cầu tiếp theo.
+
+
+Khi hợp nhất benchmark và XSIM, camera chỉ test phải được giữ ngoài dữ liệu train và metric tổng
+của camera đã train. Kết quả của nhóm camera này được báo riêng để so khả năng tổng hợp góc nhìn.
+Bước đánh giá PLY bổ sung phải giữ khả năng mở báo cáo chính của run.
+
+
+### Tính nhất quán sau tích hợp (26/11/2026)
+
+- Lưu, xoá hoặc xác nhận không có thân xe ảnh hưởng các run mới. Mỗi run giữ một snapshot mask
+  để resume trên local/Kaggle/Colab không đổi dữ liệu giám sát khi người dùng sửa cảnh về sau.
+  Mask nháp và ảnh trung vị không ảnh hưởng cache; run cũ chưa có snapshot giữ hành vi lịch sử.
+- Mask thân xe ưu tiên bản của cảnh, xác nhận không dùng, rồi asset. Mask cảm biến không hợp lệ
+  theo khung vẫn được giữ riêng. NuRec dùng mask chính thức qua cùng rectifier với RGB; MCGS
+  dùng mask hiệu lực và khử méo RGB/mask pinhole theo cùng bản đồ OpenCV trước khi chấm.
+- `test_only_cameras` không vào context NuRec hoặc refinement. Refinement chỉ dùng các cặp
+  `split.train`; điểm test của camera có train vào `overall`, camera chỉ test vào `shifted`,
+  kể cả PSNR/LPIPS khớp màu. Nếu `image_00` chỉ test thì approach báo lý do không chạy được.
+  NuRec vẫn dùng khung test theo thời gian của camera context trong lượt suy luận ban đầu.
+- Protocol `0.6` chuẩn hoá phần ngoài mask ngay trong scorer chung. Benchmark không xếp hạng
+  chung NuRec protocol `0.5` cũ với scorer chung; kết quả lịch sử không bị sửa.
+- Chuyển camera trong editor rồi quay lại vẫn hiện bản nháp đang có. Bỏ nháp xoá file nháp
+  trên server; tẩy dùng đúng overlay đang hiển thị. Nhiều tab sửa cùng camera được phát hiện
+  bằng revision và tải lại khi có xung đột.

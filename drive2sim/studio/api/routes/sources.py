@@ -20,8 +20,10 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
+from drive2sim.core import identifiers
 from drive2sim.ingest.detect import SourceReport, inspect_source
 from drive2sim.ingest.dispatch import plan_ingest, run_ingest
+from drive2sim.ingest.drivestudio import default_scene_id
 from drive2sim.ingest.reports import scene_reports
 from drive2sim.studio.api import uploads
 from drive2sim.studio.api.state import state_of
@@ -80,7 +82,10 @@ def inspect(body: InspectBody) -> dict:
 
 @router.post("/api/sources/ingest", status_code=202)
 def ingest(body: IngestBody, request: Request) -> dict:
-    """Ingest một chuỗi ở nền.
+    """Kiểm tra tên cảnh trước khi xếp việc ingest vào hàng đợi.
+
+    Tên đã tồn tại hoặc đang được một việc ingest giữ trả 409 ngay, nên người dùng có thể
+    sửa tên trong hộp thoại rồi gửi lại. Việc thất bại không tiếp tục giữ tên cảnh.
 
     Returns:
         Việc vừa xếp hàng: ``{"job_id", "status": "queued", "label", ...}``.
@@ -95,12 +100,18 @@ def ingest(body: IngestBody, request: Request) -> dict:
         interpolate_n=body.interpolate_n,
     )
 
+    scene_id = body.scene_id or default_scene_id(target.dataset, target.sequence)
+    identifiers.check_scene_id(scene_id)
+    scene_dir = state.workdir.scene_dir(scene_id)
+    if scene_dir.exists() or scene_dir.is_symlink():
+        raise HTTPException(409, f"cảnh {scene_id} đã có; đặt tên cảnh khác để nạp")
+
     def work() -> str:
         scene_dir = run_ingest(
             raw_dir,
             state.workdir,
             target,
-            scene_id=body.scene_id,
+            scene_id=scene_id,
             interpolate_n=body.interpolate_n,
         )
         # Sơ đồ camera, ảnh chồng LiDAR; lỗi không làm hỏng cảnh vừa ingest (trang cảnh có nút
@@ -108,7 +119,16 @@ def ingest(body: IngestBody, request: Request) -> dict:
         scene_reports(scene_dir)
         return scene_dir.name
 
-    return state.jobs.submit("ingest", f"{target.dataset} {target.sequence}", work)
+    try:
+        return state.jobs.submit(
+            "ingest",
+            f"{target.dataset} {target.sequence}",
+            work,
+            target=f"scene:{scene_id}",
+            exclusive=True,
+        )
+    except ValueError as error:
+        raise HTTPException(409, str(error)) from None
 
 
 @router.get("/api/jobs")
@@ -129,6 +149,33 @@ def get_job(job_id: str, request: Request) -> dict:
     if job is None:
         raise HTTPException(404, f"không có việc {job_id}")
     return job
+
+
+@router.post("/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: str, request: Request) -> dict:
+    """Huỷ việc tải từ Drive đang chờ hoặc đang chạy; phần đã tải giữ lại để tải tiếp.
+
+    Returns:
+        Trạng thái việc (``cancelled`` ngay nếu còn chờ; đang chạy thì thành ``cancelled`` sau
+        vài giây). Không có việc trả ``404``, loại việc không huỷ được trả ``400``.
+    """
+    try:
+        return state_of(request).jobs.cancel(job_id)
+    except KeyError:
+        raise HTTPException(404, f"không có việc {job_id}") from None
+
+
+@router.post("/api/jobs/{job_id}/retry", status_code=202)
+def retry_job(job_id: str, request: Request) -> dict:
+    """Tải tiếp việc tải từ Drive đã huỷ hoặc lỗi (một việc mới, đi tiếp từ phần đã có).
+
+    Returns:
+        Việc mới (hoặc việc đang chạy cho cùng thư mục). Không có việc trả ``404``.
+    """
+    try:
+        return state_of(request).jobs.retry(job_id)
+    except KeyError:
+        raise HTTPException(404, f"không có việc {job_id}") from None
 
 
 class UploadFile(BaseModel):
@@ -164,7 +211,8 @@ def list_uploads(request: Request) -> dict:
     """Các thư mục đã tải lên.
 
     Returns:
-        ``{"items": [{"name", "path", "path_abs", "files", "size_bytes", "partial"}], "total"}``.
+        ``{"items": [{"name", "path", "path_abs", "files", "size_bytes", "partial",
+        "partial_bytes", "modified", "used_by"}], "total"}`` (``uploads.list_uploads``).
     """
     items = uploads.list_uploads(state_of(request).workdir)
     return {"items": items, "total": len(items)}
@@ -203,7 +251,16 @@ async def upload_chunk(name: str, path: str, offset: int, total: int, request: R
 def delete_upload(name: str, request: Request) -> dict:
     """Xoá thư mục ``uploads/<tên>/``.
 
+    Việc tải từ Drive đang ghi vào thư mục này bị huỷ và chờ dừng trước; giao diện dừng việc tải
+    từ trình duyệt trước, và cảnh báo khi có cảnh đọc dữ liệu gốc từ đây.
+
     Returns:
-        ``{"removed": [...]}``.
+        ``{"removed": [...]}``; việc tải không dừng kịp trả ``409``.
     """
-    return uploads.delete_upload(state_of(request).workdir, name)
+    state = state_of(request)
+    active = [job["job_id"] for job in state.jobs.active_for(name)]
+    for job_id in active:
+        state.jobs.cancel(job_id)
+    if active and not state.jobs.wait_stopped(active):
+        raise HTTPException(409, "việc tải từ Drive chưa dừng kịp; thử xoá lại sau ít giây")
+    return uploads.delete_upload(state.workdir, name)

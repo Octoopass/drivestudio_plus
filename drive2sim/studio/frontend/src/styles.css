@@ -217,6 +217,10 @@ kbd { font-family: var(--font-dense); font-size: 12.5px; border: 1px solid var(-
 
 /* ------------------------------------------------------------------ panel */
 
+tr.flash > td { animation: flash-row 2.4s ease-out; }
+@keyframes flash-row { 0%, 40% { background: color-mix(in srgb, var(--accent) 22%, transparent); } 100% { background: transparent; } }
+.job-card { cursor: pointer; transition: border-color 0.15s; }
+.job-card:hover, .job-card:focus-visible { border-color: var(--accent); outline: none; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; min-width: 0; box-shadow: var(--shadow-soft); }
 .panel-head { display: flex; align-items: center; gap: 12px; padding: 15px 20px; border-bottom: 1px solid var(--line); min-height: 61px; }
 .panel-head h2 { font-size: 16px; }
@@ -458,6 +462,8 @@ pre.log {
 }
 .choice:hover { border-color: var(--line-strong); }
 .choice[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.choice:disabled { opacity: 0.5; cursor: not-allowed; }
+.choice:disabled:hover { border-color: var(--line); }
 .choice .name { font-weight: 600; }
 .approach-group + .approach-group { margin-top: 20px; }
 .approach-group-title { margin: 0 0 8px; font-size: 14px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 6px; }
@@ -803,3 +809,77 @@ table.centered td.block-head { text-align: left; }
 /* Nút xuất hình dưới biểu đồ (components/figureExport.tsx) */
 .exportable { display: flex; flex-direction: column; gap: 6px; }
 .export-row { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+
+
+/* Mask thân xe: camera đang chọn và phản hồi thao tác đặt cạnh ảnh đang sửa. */
+.egomask-layout { display: grid; grid-template-columns: 164px minmax(0, 1fr); gap: 14px; align-items: start; }
+.egomask-workspace { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.egomask-cameras { display: flex; flex-direction: column; gap: 8px; }
+.egomask-summary { order: -1; flex-basis: 100%; }
+.egomask-modes { display: flex; flex-wrap: wrap; gap: 8px; }
+.egomask-modes .btn[aria-pressed="true"] { color: var(--accent-ink); border-color: var(--accent); background: var(--accent-soft); }
+.egomask-actions .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.egomask-camera { display: grid; gap: 6px; padding: 11px 12px; text-align: left; color: var(--text); background: var(--panel); border: 1px solid var(--line-strong); border-radius: 10px; cursor: pointer; font: inherit; font-size: 12px; }
+.egomask-camera[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.egomask-camera:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.egomask-camera:disabled { cursor: wait; opacity: .7; }
+.egomask-camera-name { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 650; }
+.egomask-guide { display: flex; gap: 12px 24px; flex-wrap: wrap; padding: 12px 14px; background: var(--raised); border-radius: 10px; font-size: 13px; }
+.egomask-guide > span, .egomask-guide label { display: flex; align-items: center; gap: 8px; }
+.egomask-image { position: relative; max-width: 960px; min-height: 180px; user-select: none; overflow: hidden; background: var(--sunken); border: 1px solid var(--line-strong); border-radius: 10px; }
+.egomask-canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.egomask-loading { position: absolute; inset: 0; display: flex; gap: 10px; align-items: center; justify-content: center; padding: 24px; background: color-mix(in srgb, var(--panel) 85%, transparent); color: var(--text); text-align: center; font-size: 14px; }
+.egomask-spinner { flex-shrink: 0; animation: egomask-spin 1s linear infinite; }
+@keyframes egomask-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .egomask-spinner { animation: none; } }
+@media (max-width: 600px) { .egomask-layout { grid-template-columns: 106px minmax(0, 1fr); gap: 8px; } .egomask-camera { padding: 8px; font-size: 11px; overflow-wrap: anywhere; } .egomask-guide label { flex-wrap: wrap; } .egomask-image { min-height: 100px; } }
+/* Trang run: tiến trình trực tiếp và bảng cấu hình (components/RunLive.tsx) */
+.live-panel { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+.live-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.live-head h3 { font-size: 16px; margin: 0; }
+.live-big { font-size: 26px; font-weight: 600; color: var(--lane); }
+.progress.lg { height: 10px; border-radius: 5px; }
+.progress.vram > i { background: color-mix(in srgb, var(--lane) 55%, var(--muted)); }
+.live-stages { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.live-stage { display: grid; grid-template-columns: 22px minmax(150px, 1.1fr) minmax(0, 3fr) auto; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 10px; }
+.live-stage.running { background: color-mix(in srgb, var(--lane) 11%, transparent); }
+.live-stage.succeeded .live-icon { color: var(--ok, #3fb37f); }
+.live-stage.failed .live-icon, .live-stage.cancelled .live-icon { color: var(--stop); }
+.live-stage.running .live-icon { color: var(--lane); }
+.live-stage.pending { color: var(--muted); }
+.live-icon { display: grid; place-items: center; }
+.live-note { min-width: 0; display: flex; flex-direction: column; }
+.live-time { text-align: right; white-space: nowrap; }
+.live-grid { align-items: start; }
+pre.log.live-log { max-height: 330px; min-height: 120px; overflow: auto; margin: 0; border-radius: 10px; font-size: 12.5px; }
+.gpu-row { display: flex; flex-direction: column; gap: 5px; }
+.cfg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 12px; }
+.cfg-card { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-width: 0; }
+.cfg-card.running { border-color: color-mix(in srgb, var(--lane) 55%, var(--line)); }
+.cfg-card h4 { font-size: 14.5px; margin: 0 0 10px; display: flex; gap: 8px; align-items: center; min-width: 0; }
+.cfg-card.running h4 svg { color: var(--lane); }
+.cfg-card.succeeded h4 svg { color: var(--ok, #3fb37f); }
+.kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 14px; margin: 0; font-size: 14px; }
+.kv dt { color: var(--muted); white-space: nowrap; }
+.kv dd { margin: 0; font-family: var(--font-dense); text-align: right; overflow-wrap: anywhere; }
+.machine-box .machine { display: flex; flex-direction: column; gap: 2px; }
+@media (max-width: 900px) { .live-stage { grid-template-columns: 22px minmax(0, 1fr) auto; } .live-note { grid-column: 2 / -1; } }
+
+/* Ô "Tuỳ chỉnh" của mục cấu hình nhận số tự chọn (NewRunPage CustomValue) */
+.custom-value { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 4px 6px 4px 10px; }
+.custom-value input { width: 150px; border: none; background: transparent; color: inherit; font-family: var(--font-dense); padding: 4px 2px; outline: none; }
+.custom-value.active { border-color: var(--lane); box-shadow: 0 0 0 1px var(--lane) inset; }
+.custom-value.invalid { border-color: var(--stop); }
+
+/* Lái thử (DrivePage) */
+.drive-settings { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; padding: 16px; }
+.drive-settings .field { min-width: 180px; }
+.drive-settings p { flex-basis: 100%; margin: 0; }
+.drive-hud { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 4px 0 10px; }
+.drive-speed { display: inline-flex; align-items: center; gap: 6px; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.drive-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 12px; }
+.drive-view { margin: 0; overflow: hidden; }
+.drive-view figcaption { padding: 8px 12px; font-size: 13.5px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.drive-view img { display: block; width: 100%; height: auto; background: #000; }
+.drive-empty { aspect-ratio: 16 / 9; display: grid; place-items: center; color: var(--muted); }
+.drive-log { max-height: 220px; overflow: auto; font-size: 12px; white-space: pre-wrap; margin: 8px 0 0; }

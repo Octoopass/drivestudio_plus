@@ -66,7 +66,7 @@ MAX_PARALLEL_RUNS = 2  # số run mỗi notebook: một run một GPU
 PARALLEL_ACCELERATOR = "NvidiaTeslaT4"  # máy Kaggle có 2 GPU (T4 x2)
 DATASET_WAIT_S = 900  # chờ Kaggle xử lý xong dataset cảnh vừa upload, tối đa 15 phút
 DATASET_POLL_S = 10
-SMPL_DATASET_ENV = "D2S_KAGGLE_SMPL_DATASET"  # dataset private chứa SMPL_NEUTRAL.pkl
+SMPL_DATASET_ENV = "D2S_KAGGLE_SMPL_DATASET"  # ghi đè dataset chứa SMPL_NEUTRAL.pkl
 REPO_ENV = "D2S_KAGGLE_REPO"  # đổi repo notebook clone (mặc định remote origin)
 
 
@@ -252,7 +252,7 @@ def _cache_sources(
             status = client.kernel_status(state.kernel)
         except KaggleError:
             continue
-        if status not in ("complete", "error"):
+        if status != "complete":  # Kaggle bỏ khỏi kernel_sources notebook có lần chạy cuối lỗi
             continue
         found.append(state.kernel)
         missing -= covers
@@ -414,7 +414,9 @@ def wait_dataset_ready(
         waited += DATASET_POLL_S
 
 
-def build_notebook(bundles: dict[str, dict], commit: str, repo_url: str, branch: str) -> str:
+def build_notebook(
+    bundles: dict[str, dict], commit: str, repo_url: str, branch: str, xsim: bool = False
+) -> str:
     """Điền template notebook.
 
     Args:
@@ -422,6 +424,7 @@ def build_notebook(bundles: dict[str, dict], commit: str, repo_url: str, branch:
         commit: Commit notebook clone.
         repo_url: Repo để clone.
         branch: Branch để clone.
+        xsim: Có cài thêm môi trường XSIM (``envs/install_xsim.sh``) không.
 
     Returns:
         Nội dung file ``.ipynb``.
@@ -432,6 +435,7 @@ def build_notebook(bundles: dict[str, dict], commit: str, repo_url: str, branch:
         "repo_url": repo_url,
         "branch": branch,
         "bundles_json": json.dumps(bundles),
+        "xsim": "1" if xsim else "0",
     }
     notebook = json.loads(TEMPLATE.read_text("utf-8"))
     for cell in notebook["cells"]:
@@ -502,16 +506,9 @@ def _prepare(
         )
         sources = [dataset]
     # Run có dựng người (prep.smpl) thì trainer cần file mô hình SMPL, file có bản quyền nên không
-    # đi kèm repo: người dùng tự đưa nó lên một dataset private và đặt tên dataset ở biến này.
+    # đi kèm repo: người dùng tự đưa nó lên một dataset private.
     if produces_artifact((stage.stage_id for stage in record.stages), "smpl"):
-        smpl_dataset = os.environ.get(SMPL_DATASET_ENV, "").strip()
-        if not smpl_dataset:
-            raise KaggleError(
-                "run dựng người (prep.smpl) cần file mô hình SMPL trên Kaggle: upload "
-                "SMPL_NEUTRAL.pkl thành một dataset private rồi đặt biến "
-                f"{SMPL_DATASET_ENV}=<người dùng>/<tên dataset> trước khi đẩy"
-            )
-        sources.append(smpl_dataset)
+        sources.append(smpl_dataset(client, username))
     history = _previous_kernels(previous, run_id)
     # Gắn output của tối đa MAX_RESUME_SOURCES lần đẩy trước, mới nhất trước: lần gần nhất có thể
     # lỗi trước khi ghi được gì (ví dụ lúc cài môi trường), khi đó notebook chạy tiếp từ lần cũ hơn
@@ -544,6 +541,37 @@ def _prepare(
         datasets=sources,
         kernels=scene_kernels + resume + kernels,
     )
+
+
+def smpl_dataset(client: KaggleClient, username: str) -> str:
+    """Dataset Kaggle chứa ``SMPL_NEUTRAL.pkl`` mà notebook của run dựng người gắn vào.
+
+    Mặc định là ``<tài khoản đang đăng nhập>/d2s-model-smpl`` (CONTRACTS mục 10.1), nên đổi tài
+    khoản Kaggle không phải đổi cấu hình. Biến ``D2S_KAGGLE_SMPL_DATASET`` ghi đè, ví dụ để dùng
+    dataset tài khoản khác chia sẻ.
+
+    Args:
+        client: Lệnh kaggle.
+        username: Tài khoản lệnh kaggle đang đăng nhập.
+
+    Returns:
+        Định danh đầy đủ ``<tài khoản>/<tên>``.
+
+    Raises:
+        KaggleError: Nếu tài khoản này không thấy dataset đó (chưa upload hoặc chưa được chia sẻ):
+            báo ngay trên máy thay vì để notebook lỗi trên Kaggle.
+    """
+    override = os.environ.get(SMPL_DATASET_ENV, "").strip()
+    dataset = override or f"{username}/{names.SMPL_DATASET}"
+    if not client.dataset_exists(dataset):
+        source = f"biến {SMPL_DATASET_ENV}" if override else "tên mặc định"
+        raise KaggleError(
+            f"run dựng người (prep.smpl) cần file mô hình SMPL trên Kaggle, nhưng tài khoản "
+            f"{username} không thấy dataset {dataset} ({source}): upload SMPL_NEUTRAL.pkl thành "
+            f"dataset private tên {names.SMPL_DATASET} bằng tài khoản {username}, hoặc đặt "
+            f"{SMPL_DATASET_ENV}=<tài khoản>/<tên> trỏ tới dataset đã chia sẻ cho {username}"
+        )
+    return dataset
 
 
 def _unique(items: Sequence[str]) -> list[str]:
@@ -605,9 +633,12 @@ def push_runs(
     client = client or KaggleClient()
     username = client.username()
     commit, repo_url = code_source(branch)
+    # Kiểm codebase trước _prepare: _prepare có thể upload cảnh, cache lên Kaggle.
+    needs_xsim = False
+    for run_id in run_ids:
+        record = files.load(workdir.find_run(run_id) / D2S_DIR / RUN_FILE, RunRecord)
+        needs_xsim |= remote.require_remote_codebase(record.approach.approach_id, "Kaggle")
     prepared = [_prepare(client, workdir, run_id, username, rerun) for run_id in run_ids]
-    for one in prepared:
-        remote.require_main_codebase(one.record.approach.approach_id, "Kaggle")
     if len(prepared) == 1:
         one = prepared[0]
         defaults = {
@@ -629,7 +660,9 @@ def push_runs(
 
     with tempfile.TemporaryDirectory(dir=_staging(workdir)) as folder:
         folder_path = Path(folder)
-        notebook = build_notebook({p.run_id: p.bundle for p in prepared}, commit, repo_url, branch)
+        notebook = build_notebook(
+            {p.run_id: p.bundle for p in prepared}, commit, repo_url, branch, xsim=needs_xsim
+        )
         (folder_path / "run.ipynb").write_text(notebook, "utf-8")
         metadata = {
             "id": kernel,
@@ -766,7 +799,11 @@ def skip_local_cache(workdir: Workdir) -> Optional[str]:
 
 
 def wheel_kernel(client: KaggleClient, workdir: Workdir, username: str) -> Optional[str]:
-    """Notebook mới nhất đã chạy xong của cùng tài khoản, để notebook mới lấy wheel đã build.
+    """Notebook mới nhất chạy xong (``complete``) của cùng tài khoản, để lấy wheel đã build.
+
+    Notebook có lần chạy cuối lỗi không dùng được: Kaggle âm thầm bỏ nó khỏi ``kernel_sources``
+    (đã thử với notebook thật, 27/11/2026). Notebook train kết thúc ``complete`` kể cả khi run lỗi
+    (``templates/run.ipynb``), nên chỉ notebook lỗi lúc cài môi trường mới bị bỏ qua.
 
     Notebook nào cũng lưu wheel của gsplat-geer, nvdiffrast, pytorch3d... vào ``wheels/`` trong
     output (``envs/install_main.sh``, biến ``D2S_WHEEL_CACHE``): wheel tự build hoặc wheel lấy lại
@@ -787,7 +824,7 @@ def wheel_kernel(client: KaggleClient, workdir: Workdir, username: str) -> Optio
             status = client.kernel_status(state.kernel)
         except KaggleError:
             continue
-        if status in ("complete", "error"):
+        if status == "complete":
             return state.kernel
     return None
 
@@ -837,11 +874,27 @@ def pull_run(workdir: Workdir, run_id: str, client: Optional[KaggleClient] = Non
                 remote.merge_output(workdir, other_dir, output)
             except FileNotFoundError:
                 continue
-            other.pulled_utc = _now()
-            _save_state(other_dir, other)
-    state.pulled_utc = _now()
-    _save_state(run_dir, state)
+            _mark_pulled(other_dir, other)
+    _mark_pulled(run_dir, state)
     return files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
+
+
+def _mark_pulled(run_dir: Path, pulled: KaggleState) -> None:
+    """Ghi ``pulled_utc`` vào ``kaggle.json`` nếu run vẫn ở đúng lần đẩy vừa tải.
+
+    Đọc lại file thay vì ghi bản đã đọc lúc bắt đầu tải: tải output mất hàng chục phút, trong lúc
+    đó có thể đã có lần đẩy mới (``d2s kaggle push`` trong lúc Studio đang tự tải). Ghi bản cũ sẽ
+    xoá lần đẩy đó khỏi ``kaggle.json`` (lần đẩy sau dùng lại số lần đẩy cũ) và đánh dấu đã tải,
+    nên Studio thôi theo dõi notebook mới.
+    """
+    current = load_state(run_dir)
+    if current is None or (current.kernel, current.pushed_utc) != (
+        pulled.kernel,
+        pulled.pushed_utc,
+    ):
+        return
+    current.pulled_utc = _now()
+    _save_state(run_dir, current)
 
 
 def _runs_on_kernel(workdir: Workdir, kernel: str) -> list[tuple[Path, KaggleState]]:

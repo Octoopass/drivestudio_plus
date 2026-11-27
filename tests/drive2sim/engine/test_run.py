@@ -31,17 +31,20 @@ from drive2sim.core.schema import (
     Manifest,
     RunRecord,
     Split,
+    StageRecord,
 )
 from drive2sim.engine.cache import CacheBusyError, CacheStore
 from drive2sim.engine.registry import StageRegistry
-from drive2sim.engine.resolve import resolve
+from drive2sim.engine.resolve import ResolveError, resolve
 from drive2sim.engine.run import (
     RunActiveError,
     create_run,
     execute_run,
+    insert_stage,
     request_cancel,
     reset_stage,
     run_is_active,
+    summary_path,
 )
 from drive2sim.engine.stage import Stage, StageContext
 from drive2sim.engine.workdir import Workdir, WorkdirError
@@ -163,7 +166,9 @@ def test_run_succeeds_and_writes_contracts_files(workdir: Workdir) -> None:
     artifact = files.load(init_dir / "artifact.json", ArtifactRecord)
     assert artifact.artifact_type == "points_init"
     assert artifact.files == ["points_init.npz"]
-    assert artifact.inputs == [f"scene:{MANIFEST['scene_id']}@0.1.0+test"]
+    assert artifact.inputs == [
+        f"scene:{MANIFEST['scene_id']}@0.1.0+test:masks-{record.scene_mask_digest}"
+    ]
 
     train_dir = run_dir / "d2s" / "stages" / "train.toy"
     assert (train_dir / "done").is_file()
@@ -188,7 +193,7 @@ def test_quick_flag_written_to_run_json(workdir: Workdir) -> None:
     run_dir = create_run(plan, workdir, scene, split)
     record = files.load(run_dir / "d2s" / "run.json", RunRecord)
     assert record.approach.quick is True
-    assert record.schema_version == "d2s-run/0.3"
+    assert record.schema_version == "d2s-run/0.4"
 
 
 def test_cache_shared_between_runs(workdir: Workdir) -> None:
@@ -469,3 +474,136 @@ def test_execute_run_stops_viewer_gpu_process_first(workdir: Workdir) -> None:
         assert any(e.get("event") == "log" and marker in e.get("message", "") for e in events)
     finally:
         process.kill()
+
+
+def test_summary_follows_successful_eval_order(workdir: Workdir) -> None:
+    run_dir = new_run(workdir, make_registry())
+    record_path = run_dir / "d2s" / "run.json"
+    record = files.load(record_path, RunRecord)
+    stages = run_dir / "d2s" / "stages"
+    assert summary_path(run_dir) is None
+    record.stages.extend(
+        [
+            StageRecord(stage_id="eval.standard", status="succeeded"),
+            StageRecord(stage_id="eval.xsim", status="running"),
+        ]
+    )
+    files.dump(record, record_path)
+    assert summary_path(run_dir) == stages / "eval.standard" / "summary.json"
+    record.stages[-1].status = "succeeded"
+    files.dump(record, record_path)
+    assert summary_path(run_dir) == stages / "eval.xsim" / "summary.json"
+
+
+def test_reset_stage_overrides_params(workdir: Workdir) -> None:
+    """``d2s export video --fps 30``: tham số mới ghép lên tham số đã lưu, rồi kiểm tra lại."""
+    from drive2sim.engine.resolve import ResolveError
+
+    registry = make_registry()
+    run_dir = new_run(workdir, registry)
+    execute_run(run_dir, workdir, registry)
+    record = reset_stage(run_dir, "init.toy", registry, params={"num_points": 7})
+    assert record.stages[0].params["num_points"] == 7
+    assert execute_run(run_dir, workdir, registry).status == "succeeded"
+    with pytest.raises(ResolveError):
+        reset_stage(run_dir, "init.toy", registry, params={"bogus": 1})
+
+
+def test_insert_stage_reruns_only_stages_that_use_it(workdir: Workdir) -> None:
+    """Stage chèn giữa run: đứng ngay sau ``after``, stage dùng kết quả của nó chạy lại."""
+
+    def refine_run(
+        self: Stage, ctx: StageContext, inputs: dict[str, Path], params: BaseModel
+    ) -> dict[str, Path]:
+        CALLS["train.toy_refine"] = CALLS.get("train.toy_refine", 0) + 1
+        source = (inputs["points"] / "points_init.npz").read_text()
+        (ctx.output_dir / "points_init.npz").write_text(f"refined {source}")
+        return {"points": ctx.output_dir}
+
+    registry = make_registry()
+    body = {
+        "version": "0.1.0",
+        "inputs": {"points": "points_init"},
+        "outputs": {"points": "points_init"},
+        "run": refine_run,
+    }
+    registry.register("train.toy_refine")(type("TrainToyRefineStage", (Stage,), body))
+    run_dir = new_run(workdir, registry)
+    execute_run(run_dir, workdir, registry)
+    with pytest.raises(ResolveError):
+        insert_stage(run_dir, "train.toy_refine", "missing.toy", registry)
+    record = insert_stage(run_dir, "train.toy_refine", "init.toy", registry)
+    assert [s.stage_id for s in record.stages] == ["init.toy", "train.toy_refine", "train.toy"]
+    assert [s.status for s in record.stages] == ["succeeded", "pending", "pending"]
+    record = execute_run(run_dir, workdir, registry)
+    assert record.status == "succeeded"
+    assert CALLS == {"init.toy": 1, "train.toy_refine": 1, "train.toy": 2}
+    model = (run_dir / "d2s" / "stages" / "train.toy" / "model.txt").read_text()
+    assert model.startswith("trained on refined ")
+
+
+def test_summary_skips_auxiliary_eval_without_summary(workdir: Workdir) -> None:
+    run_dir = new_run(workdir, make_registry())
+    record_path = run_dir / "d2s" / "run.json"
+    record = files.load(record_path, RunRecord)
+    record.stages.extend(
+        [
+            StageRecord(stage_id="eval.xsim", status="succeeded"),
+            StageRecord(stage_id="eval.ply", status="succeeded"),
+        ]
+    )
+    files.dump(record, record_path)
+    native = run_dir / "d2s" / "stages" / "eval.xsim" / "summary.json"
+    native.parent.mkdir(parents=True)
+    native.write_text("{}")
+    assert summary_path(run_dir) == native
+
+
+def test_saved_mask_changes_cache_and_runs_keep_their_snapshot(workdir: Workdir) -> None:
+    from drive2sim.engine.run import plan_cache_keys
+
+    registry = make_registry()
+    scene = workdir.load_scene(MANIFEST["scene_id"])
+    split = workdir.load_split(scene.scene_id, SPLIT["split_id"])
+    masks = scene.root / "ego_masks"
+    masks.mkdir()
+    mask = masks / f"{scene.manifest.cameras[0].camera_id}.png"
+    mask.write_bytes(b"first mask")
+    plan = resolve(Approach.model_validate(APPROACH), scene.manifest, split, registry=registry)
+    preview = plan_cache_keys(plan, scene, split, registry)
+    first = new_run(workdir, registry)
+    mask.write_bytes(b"second mask")
+    second = new_run(workdir, registry)
+    old = execute_run(first, workdir, registry)
+    new = execute_run(second, workdir, registry)
+    assert old.status == new.status == "succeeded"
+    assert old.stages[0].cache_key == preview[0]
+    assert old.stages[0].cache_key != new.stages[0].cache_key
+    assert old.scene_mask_digest != new.scene_mask_digest
+    assert (first / "d2s" / "scene_masks" / mask.name).read_bytes() == b"first mask"
+    assert (
+        workdir.root / ".runtime" / old.run_id / "scene_view" / "000" / "ego_masks" / mask.name
+    ).read_bytes() == b"first mask"
+
+
+def test_remote_bundle_carries_masks_even_when_scene_dataset_is_old(
+    workdir: Workdir, tmp_path: Path
+) -> None:
+    from drive2sim.ingest.ego_masks import mask_digest
+    from drive2sim.kaggle.bundle import materialize, write_bundle
+
+    registry = make_registry()
+    scene = workdir.load_scene(MANIFEST["scene_id"])
+    (scene.root / "ego_masks").mkdir()
+    name = scene.manifest.cameras[0].camera_id + ".png"
+    (scene.root / "ego_masks" / name).write_bytes(b"local correction")
+    run = new_run(workdir, registry)
+    bundle = write_bundle(run, workdir, "alice/old-dataset")
+    (scene.root / "ego_masks" / name).write_bytes(b"old dataset mask")
+    remote = Workdir(tmp_path / "remote")
+    target = materialize(bundle, remote, workdir.data_dir)
+    assert (target / "d2s" / "scene_masks" / name).read_bytes() == b"local correction"
+    record = execute_run(target, remote, registry)
+    assert record.status == "succeeded"
+    view = remote.root / ".runtime" / record.run_id / "scene_view" / "000"
+    assert mask_digest(view, scene.manifest) == record.scene_mask_digest

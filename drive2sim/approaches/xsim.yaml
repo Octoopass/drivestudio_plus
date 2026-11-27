@@ -1,0 +1,66 @@
+# Approach XSIM: dựng cảnh bằng XSIM gốc (avision-team/XSIM, revision chốt, renderer xsimgs) chạy
+# trong môi trường riêng (drive2sim/external/xsim). Dữ liệu vào là gói quan sát do
+# prep.observations xuất từ đường dữ liệu DriveStudio, nên XSIM nhận cùng ảnh, mask, pose, LiDAR,
+# box, SMPL và được chấm cùng cách như OmniRe trên cùng split. Định dạng file: CONTRACTS mục 4.1.
+schema_version: d2s-approach/0.3
+approach_id: xsim
+name: XSIM
+version: 0.2.0
+codebase: external:xsim
+level: L1
+dynamics: boxes
+# Đã nối đủ đường local, Kaggle, Colab nhưng chưa có run train, eval XSIM nào chạy xong trên GPU
+# (docs/drive2sim/XSIM_INTEGRATION_PLAN.md): Studio gắn nhãn "thử nghiệm". Bỏ khi đã nghiệm thu.
+experimental: true
+requires:
+  camera_models: [opencv_pinhole, opencv_fisheye]
+  cuboids: optional
+  split_strategies: [every_nth_frame]
+
+groups:
+  core:
+    label: "Cách dựng"
+    help: "Dữ liệu đưa vào XSIM: độ phân giải ảnh và cách che pixel mắt cá, để so được với approach DriveStudio."
+  data:
+    label: "Chuẩn bị dữ liệu"
+    help: "Các bước chuẩn bị chạy trước khi train, kết quả lưu cache để run sau dùng lại."
+
+options:
+  match_renderer:
+    choices: [3dgut, 3dgeer, 3dgs]
+    default: 3dgut
+    group: core
+    label: "Che pixel như renderer"
+    help: "Gói quan sát che pixel camera mắt cá giống run DriveStudio dùng renderer này, để hai bên được chấm trên cùng pixel. Không ảnh hưởng camera pinhole."
+    labels: ["3DGUT", "3DGEER", "3DGS"]
+    descriptions:
+      - "Che pixel từ 88 độ, như run DriveStudio dùng 3DGUT."
+      - "Che pixel từ 88 độ, như run DriveStudio dùng 3DGEER."
+      - "Không che thêm theo renderer (OmniRe 3DGS không vẽ được camera mắt cá)."
+  downscale:
+    choices: [dataset, 1, 2, 4]
+    default: dataset
+    group: core
+    label: "Hệ số thu nhỏ ảnh"
+    help: "Thu ảnh khi nạp; mặc định theo config dataset của DriveStudio (KITTI-360 là 2), như OmniRe."
+    labels: ["Theo dataset", "1", "2", "4"]
+  smpl:
+    choices: [prep.smpl_release, prep.smpl, none]
+    default: auto
+    group: data
+    label: "Nguồn SMPL (người)"
+    help: "Tư thế người đi bộ (SMPL) cho node người của XSIM, cùng nguồn với OmniRe."
+    labels: ["DriveStudio SMPL", "Tự tính SMPL", "Không dùng SMPL"]
+
+stages:
+  # Chỉ cần mask bầu trời: gói quan sát không có mask vật động, và mask tinh cần cảnh có box.
+  # Cùng tham số với PVG, DeformableGS nên dùng chung cache mask; SMPL dùng chung với OmniRe.
+  - {stage: prep.masks_segformer, params: {dynamic: false}}
+  - {stage: "${options.smpl}"}
+  - stage: prep.observations
+    params:
+      method: omnire
+      renderer: "${options.match_renderer}"
+      downscale_when_loading: "${options.downscale}"
+  - {stage: train.xsim}
+  - {stage: eval.xsim}

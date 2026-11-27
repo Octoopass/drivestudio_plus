@@ -10,10 +10,10 @@ import { useRef, useState } from "react";
 import { ApiError, api, asApiError, post, seg } from "../api/client";
 import type { Job, SourceReport } from "../api/types";
 import { useI18n } from "../i18n";
-import { JobProgress } from "./JobProgress";
+import { JobActions, JobProgress } from "./JobProgress";
 import { ErrorBox, InfoTip, Note } from "./ui";
 
-interface Mount {
+export interface Mount {
   state: "idle" | "needs_consent" | "running" | "succeeded" | "failed";
   session: string | null;
   url: string | null;
@@ -52,7 +52,7 @@ function folderName(path: string): string {
   return last.replace(/[^A-Za-z0-9_.-]/g, "_").replace(/^[^A-Za-z0-9]+/, "").slice(0, 80) || "drive";
 }
 
-async function waitJob(job: Job, onUpdate: (job: Job) => void): Promise<Job> {
+export async function waitJob(job: Job, onUpdate: (job: Job) => void): Promise<Job> {
   onUpdate(job);
   while (job.status === "queued" || job.status === "running") {
     await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -165,6 +165,7 @@ export function DriveSource({ onPulled }: { onPulled: (pathAbs: string) => void 
       if (!listing) return;
       const body = { session, path: listing.path, name, include };
       const done = await waitJob(await post<Job>("/api/colab/drive/pull", body), setJob);
+      if (done.status === "cancelled") return; // phần đã tải giữ lại; tải tiếp ở Hoạt động, Lưu trữ
       if (done.status === "failed") throw new ApiError(502, "colab_failed", done.error ?? "");
       if (done.result) onPulled(done.result);
     });
@@ -288,7 +289,14 @@ export function DriveSource({ onPulled }: { onPulled: (pathAbs: string) => void 
           {listing.path && include.length > 0 && <span className="small faint">{t("drive.pull_some_help")}</span>}
         </div>
       )}
-      {busy === "pull" && job && <JobProgress job={job} />}
+      {busy === "pull" && job && (
+        <div className="row" style={{ gap: 8, alignItems: "flex-end" }}>
+          <div className="grow">
+            <JobProgress job={job} />
+          </div>
+          <JobActions job={job} />
+        </div>
+      )}
       <ErrorBox error={error} />
     </details>
   );

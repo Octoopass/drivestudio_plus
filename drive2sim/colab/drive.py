@@ -15,6 +15,12 @@ File này chứa:
 - ``MountFlow``: một lần ``colab drivemount`` đang chạy hoặc chờ người dùng đồng ý.
 - ``browse``: liệt kê một thư mục trên Drive.
 - ``pull_folder``: tải cả một thư mục (hoặc một file) trên Drive về máy.
+- ``push_files``: đẩy file trên máy (PLY, ``scene.usdz``, video của run) lên một thư mục Drive.
+
+Đẩy lên đi ngược chiều: mỗi phần ``CHUNK_BYTES`` được ``colab upload`` lên VM, kiểm MD5 rồi nối
+vào ``<tên>.part`` trên ổ của VM (``PUSH_DIR``); đủ thì chép một lần vào thư mục Drive (ghi từng
+phần thẳng vào Drive làm Drive đồng bộ lại cả file mỗi lần). Đẩy lại thì file trên Drive đã cùng
+dung lượng được bỏ qua và file dở đi tiếp từ phần đã có trên VM.
 """
 
 import hashlib
@@ -35,6 +41,8 @@ from drive2sim.colab.client import ColabClient, ColabError
 MOUNT_POINT = "/content/drive"
 MY_DRIVE = f"{MOUNT_POINT}/MyDrive"
 VM_TMP = "/content/d2s_drive"
+PUSH_DIR = f"{VM_TMP}/push"
+FINISH_TIMEOUT_S = 3600  # chép một file lớn (tới chục GB) vào Drive
 CHUNK_BYTES = 32 * 1024 * 1024
 RESERVE_BYTES = 5 * 1024**3  # chừa trên ổ đĩa sau khi tải xong
 MAX_FILES = 50000
@@ -241,6 +249,148 @@ with open({target!r}, "wb") as stream:
     stream.write(data)
 print({marker!r} + json.dumps({{"bytes": len(data), "md5": hashlib.md5(data).hexdigest()}}))
 """
+
+
+PUSH_PLAN_CODE = r"""
+import json, os, shutil
+folder, sizes, push = {folder!r}, {sizes!r}, {push_dir!r}
+out = {{"mounted": os.path.isdir({my_drive!r}), "free": 0, "drive": {{}}, "vm": {{}}}}
+os.makedirs(push, exist_ok=True)
+out["free"] = shutil.disk_usage(push).free
+if out["mounted"]:
+    os.makedirs(folder, exist_ok=True)
+for name, size in sizes.items():
+    target = os.path.join(folder, name)
+    there = out["mounted"] and os.path.isfile(target)
+    out["drive"][name] = os.path.getsize(target) if there else -1
+    part = os.path.join(push, name + ".part")
+    have = os.path.getsize(part) if os.path.isfile(part) else 0
+    if have > size:
+        os.remove(part)
+        have = 0
+    out["vm"][name] = have
+print({marker!r} + json.dumps(out))
+"""
+
+APPEND_CODE = r"""
+import hashlib, json, os
+chunk, part = {chunk!r}, {part!r}
+data = open(chunk, "rb").read()
+ok = len(data) == {size} and hashlib.md5(data).hexdigest() == {md5!r}
+have = os.path.getsize(part) if os.path.isfile(part) else 0
+if ok and have == {offset}:
+    with open(part, "ab") as stream:
+        stream.write(data)
+os.remove(chunk)
+size = os.path.getsize(part) if os.path.isfile(part) else 0
+print({marker!r} + json.dumps({{"ok": ok, "size": size}}))
+"""
+
+FINISH_CODE = r"""
+import json, os, shutil
+part, final = {part!r}, {final!r}
+temp = final + ".d2s_part"
+shutil.copyfile(part, temp)
+os.replace(temp, final)
+os.remove(part)
+os.sync()
+print({marker!r} + json.dumps({{"size": os.path.getsize(final)}}))
+"""
+
+FLUSH_CODE = r"""
+try:
+    from google.colab import drive
+    drive.flush_and_unmount()
+    print("flushed")
+except Exception as error:
+    print("flush skipped:", error)
+"""
+
+
+def push_files(
+    client: ColabClient,
+    session: str,
+    files: Sequence[tuple[Path, str]],
+    folder: str,
+    progress: Optional[Progress] = None,
+) -> dict:
+    """Đẩy các file trên máy lên ``MyDrive/<folder>/`` qua phiên Colab đã mount Drive.
+
+    Args:
+        client: Client Colab.
+        session: Phiên đã mount Drive.
+        files: ``(file trên máy, tên trên Drive)``.
+        folder: Thư mục đích trong ``MyDrive`` (tạo nếu chưa có).
+        progress: Gọi ``progress(byte đã đẩy, tổng byte, tên file)`` sau mỗi phần.
+
+    Returns:
+        ``{"folder", "files", "bytes", "skipped"}``: ``skipped`` là số file trên Drive đã cùng
+        dung lượng từ trước.
+
+    Raises:
+        ValueError: Tên hay thư mục sai, Drive chưa mount, hoặc ổ của VM không đủ chỗ.
+        ColabError: Phiên lỗi, đã mất, hoặc dữ liệu tới VM sai MD5.
+    """
+    rel = safe_drive_path(folder)
+    names = [name for _, name in files]
+    if not files or len(set(names)) != len(names) or not all(_plain_name(n) for n in names):
+        raise ValueError(f"tên file đẩy lên Drive không hợp lệ hoặc trùng: {names}")
+    sizes = {name: local.stat().st_size for local, name in files}
+    target_dir = _remote(rel)
+    code = PUSH_PLAN_CODE.format(
+        folder=target_dir, sizes=sizes, push_dir=PUSH_DIR, my_drive=MY_DRIVE, marker=MARKER
+    )
+    plan = _json(client.exec_python(session, code, timeout_s=300))
+    if not plan["mounted"]:
+        raise ValueError("Drive chưa mount vào phiên Colab này; kết nối Drive trước")
+    todo = [(local, name) for local, name in files if plan["drive"].get(name) != sizes[name]]
+    total = sum(sizes[name] for _, name in todo)
+    done = sum(int(plan["vm"].get(name, 0)) for _, name in todo)
+    # file dựng trên ổ VM rồi chép vào Drive (Drive giữ thêm một bản đệm trên cùng ổ)
+    need = 2 * max((sizes[name] for _, name in todo), default=0) + 1024**3
+    if todo and plan["free"] < need:
+        raise ValueError(
+            f"ổ của VM Colab không đủ chỗ: cần {need / 1024**3:.1f} GiB, còn "
+            f"{plan['free'] / 1024**3:.1f} GiB"
+        )
+    if progress:
+        progress(done, total, "")
+    with tempfile.TemporaryDirectory(prefix="d2s-push-") as work:
+        chunk_local = Path(work) / "chunk.bin"
+        for local, name in todo:
+            size, offset = sizes[name], int(plan["vm"].get(name, 0))
+            part = f"{PUSH_DIR}/{name}.part"
+            with local.open("rb") as source:
+                while offset < size:
+                    source.seek(offset)
+                    data = source.read(CHUNK_BYTES)
+                    chunk_local.write_bytes(data)
+                    remote = f"{PUSH_DIR}/chunk.bin"
+                    client.upload(session, chunk_local, remote)
+                    code = APPEND_CODE.format(
+                        chunk=remote, part=part, size=len(data),
+                        md5=hashlib.md5(data).hexdigest(), offset=offset, marker=MARKER,
+                    )  # fmt: skip
+                    result = _json(client.exec_python(session, code, timeout_s=300))
+                    if not result["ok"]:
+                        raise ColabError(f"phần đẩy lên Colab sai MD5: {name} @ {offset}")
+                    done += int(result["size"]) - offset  # VM có thể lệch (lần trước dở): theo VM
+                    offset = int(result["size"])
+                    if progress:
+                        progress(done, total, name)
+            code = FINISH_CODE.format(part=part, final=f"{target_dir}/{name}", marker=MARKER)
+            final = _json(client.exec_python(session, code, timeout_s=FINISH_TIMEOUT_S))
+            if int(final["size"]) != size:
+                raise ColabError(f"file trên Drive sai dung lượng: {name}")
+    return {"folder": rel, "files": len(files), "bytes": total, "skipped": len(files) - len(todo)}
+
+
+def flush_drive(client: ColabClient, session: str) -> None:
+    """Đẩy nốt phần Drive còn đệm trên VM rồi gỡ mount (trước khi tắt phiên); lỗi thì bỏ qua."""
+    try:
+        client.exec_python(session, FLUSH_CODE, timeout_s=900, attempts=1)
+    except ColabError:
+        pass
 
 
 def browse(client: ColabClient, session: str, path: str = "") -> dict:

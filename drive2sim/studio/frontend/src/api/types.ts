@@ -56,6 +56,8 @@ export interface CheckResult {
   lidar_usage: string[];
   stages: { stage_id: string; params: Record<string, unknown>; cache_hit: boolean }[];
   blocked_choices: Record<string, { choice: OptionValue; message: string }[]>;
+  /** Cảnh báo không khoá, ví dụ camera chưa xử lý mask thân xe. */
+  data_warnings?: string[];
 }
 
 export interface RunDetail extends RunRecord {
@@ -206,9 +208,9 @@ export interface RunEvent {
 /** Việc nền của Studio: ingest, đẩy và tải Kaggle, Colab, Drive (GET /api/jobs). */
 export interface Job {
   job_id: string;
-  kind: "ingest" | "kaggle_push" | "kaggle_pull" | "colab_push" | "colab_pull" | "colab_update" | "colab_session" | "drive_pull";
+  kind: "ingest" | "kaggle_push" | "kaggle_pull" | "colab_push" | "colab_pull" | "colab_update" | "colab_session" | "drive_pull" | "drive_push";
   label: string;
-  status: "queued" | "running" | "succeeded" | "failed";
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
   result: string | null;
   error: string | null;
   /** Việc biết tiến độ (drive_pull, theo byte); first là phần đã có lúc bắt đầu. */
@@ -216,6 +218,10 @@ export interface Job {
   created_at: number;
   started_at?: number | null;
   finished_at: number | null;
+  /** Thư mục uploads/<tên>/ việc ghi vào (drive_pull). */
+  target?: string | null;
+  /** Huỷ và tải tiếp được (POST /api/jobs/{id}/cancel, /retry). */
+  cancellable?: boolean;
 }
 
 /** Kết quả nhận dạng thư mục dữ liệu gốc (POST /api/sources/inspect). */
@@ -273,6 +279,8 @@ export interface Splats {
   ply: string | null;
   /** cameras.json: pose và thông số camera gốc theo khung, cùng hệ toạ độ với các file trên. */
   cameras: string | null;
+  /** Run có checkpoint để render GPU không (``false`` với run Instant NuRec). */
+  gpu?: boolean;
 }
 
 export interface ActorPoses {

@@ -1,0 +1,45 @@
+# PHENIKAA dataset configuration (drive2sim; scene written by drive2sim/ingest/phenikaa.py)
+# Cameras (index: name, model, original size w x h); model and size are read from manifest.yaml:
+#   0 CAM_P_F, 1 CAM_P_FL, 2 CAM_P_FR, 3 CAM_P_B (pinhole, 1920x1536, undistorted at ingest)
+#   4 CAM_P_L, 5 CAM_P_R (pinhole 128 deg, 1920x1536, undistorted at ingest)
+#   6 CAM_F_F, 7 CAM_F_L, 8 CAM_F_R, 9 CAM_F_B (fisheye Kannala-Brandt, 1920x1080)
+# Fisheye cameras need render_mode ut or geer (recon/trainers/base.py).
+
+data:
+  data_root: data/phenikaa/processed # data root for the dataset
+  dataset: phenikaa # dataset type
+  scene_idx: 0 # which scene to use
+  start_timestep: 0 # which timestep to start from
+  end_timestep: -1 # which timestep to end at, -1 means the last timestep
+  preload_device: cuda # choose from ["cpu", "cuda"], cache the data on this device
+  pixel_source: # image source and object annotations
+    type: drive2sim.recon.data.loaders.standard.StandardPixelSource
+    cameras: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] # which cameras to use
+    # Factor 2 for every camera: pinhole 1920x1536 -> 960x768, fisheye 1920x1080 -> 960x540.
+    downscale_when_loading: [2, 2, 2, 2, 2, 2, 2, 2, 2, 2] # the size of the images to load
+    downscale: 1 # downscale factor wrt to the downscale_when_loading
+    undistort: False # pinhole images are undistorted at ingest; fisheye images are rendered natively
+    test_image_stride: 0 # use every Nth timestep for the test set. if 0, use all images for training and none for testing
+    load_sky_mask: True # whether to load sky mask
+    load_dynamic_mask: True # boxes tracked at ingest (drive2sim/ingest/phenikaa_tracking.py)
+    load_objects: True # instances/ written from tracked label boxes
+    load_smpl: True # train.drivestudio turns it off when the scene has no humanpose/smpl.pkl
+    sampler: # error based image sampler
+      buffer_downscale: 8 # downscale factor for the buffer wrt load_size
+      buffer_ratio: 0.5 # the percentage of images sampled according to the error buffer
+      start_enhance_weight: 3 # give more chance to sample starting frames, which usually have more errors
+  lidar_source: # everything related to "lidar" --- from lidar points
+    type: drive2sim.recon.data.loaders.kitti.KITTILiDARSource # same lidar/<frame>.bin layout as KITTI
+    load_lidar: True # whether to load lidar
+    # ---- compute aabb from lidar ---- #
+    # if load_lidar is True, we compute aabb from lidar, otherwise we compute aabb from cameras
+    # 1) downsample lidar by random sampling to 1/lidar_downsample_factor number of points
+    # 2) compute aabb from the downsampled lidar points by using the percentile of lidar_percentiles
+    lidar_downsample_factor: 4 # downsample lidar by this factor to compute percentile
+    lidar_percentile: 0.02  # percentile to compute aabb from lidar
+
+# dataset specific configurations (same as kitti)
+model:
+  RigidNodes:
+    ctrl:
+      stop_split_at: 30000

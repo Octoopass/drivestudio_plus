@@ -322,6 +322,7 @@ def test_run_lifecycle(client: TestClient) -> None:
         "preview": None,
         "ply": None,
         "cameras": None,
+        "gpu": True,
     }
     preview_dir = (
         Path(client.app.state.studio.workdir.find_run(run_id)) / "d2s/stages/export.preview"
@@ -535,10 +536,15 @@ def test_source_inspect_and_ingest_job(
     done = client.get(f"/api/jobs/{job.json()['job_id']}").json()
     assert done["status"] == "succeeded" and done["result"] == "nuscenes_scene-0103"
     again = client.post("/api/sources/ingest", json={"path": str(raw), "sequence": "scene-0103"})
+    assert again.status_code == 409 and "đã có" in again.json()["error"]["message"]
+    assert client.get("/api/jobs").json()["total"] == 1
+    renamed = client.post(
+        "/api/sources/ingest",
+        json={"path": str(raw), "sequence": "scene-0103", "scene_id": "nuscenes_retry"},
+    )
+    assert renamed.status_code == 202
     client.app.state.studio.jobs.wait_idle()
-    failed = client.get(f"/api/jobs/{again.json()['job_id']}").json()
-    assert failed["status"] == "failed" and "đã có" in failed["error"]
-    assert client.get("/api/jobs").json()["total"] == 2
+    assert client.get(f"/api/jobs/{renamed.json()['job_id']}").json()["status"] == "succeeded"
     assert client.get("/api/jobs/nope").status_code == 404
 
 
@@ -564,6 +570,14 @@ def test_foreign_host_and_origin_rejected(client: TestClient) -> None:
 )
 def test_local_request_rule(host: str, origin: Optional[str], method: str, allowed: bool) -> None:
     assert is_local_request(host, origin, method) is allowed
+
+
+def test_extra_host_allowed_only_when_given() -> None:
+    tailnet = frozenset({"127.0.0.1", "localhost", "[::1]", "100.94.163.83"})
+    assert not is_local_request("100.94.163.83:8765", None, "GET")
+    assert is_local_request("100.94.163.83:8765", "http://100.94.163.83:8765", "POST", tailnet)
+    assert not is_local_request("100.94.163.83:8765", "https://evil.example", "POST", tailnet)
+    assert not is_local_request("evil.example", None, "GET", tailnet)
 
 
 def test_run_held_by_another_job_is_not_queued_twice(client: TestClient) -> None:
@@ -625,3 +639,125 @@ def test_frame_lidar_falls_back_to_loader_overlays(client: TestClient, tmp_path:
     assert ok.headers["x-d2s-source"] == "loader"
     missing = client.get(f"/api/scenes/{SCENE}/frames/4/lidar?camera=CAM_FRONT")
     assert missing.status_code == 400 and "khung 3" in missing.text
+
+
+def test_ego_mask_erase_route_validates_stroke_and_returns_coverage(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from drive2sim.studio.api import ego_mask_tool
+
+    calls = []
+
+    def erase(
+        root: Path,
+        manifest: Manifest,
+        camera: str,
+        points: list,
+        radius: int,
+        source: str = "saved",
+    ) -> float:
+        calls.append((camera, points, radius))
+        return 0.125
+
+    monkeypatch.setattr(ego_mask_tool, "erase", erase)
+    camera = MANIFEST["cameras"][0]["camera_id"]
+    url = f"/api/scenes/{SCENE}/egomask/{camera}/erase"
+    result = client.post(url, json={"points": [[10, 20], [30, 20]], "radius": 12})
+    assert result.status_code == 200 and result.json()["coverage"] == 0.125
+    assert calls == [(camera, [(10.0, 20.0), (30.0, 20.0)], 12)]
+    assert client.post(url, json={"points": [], "radius": 12}).status_code == 400
+    assert client.post(url, json={"points": [[10, 20]], "radius": 0}).status_code == 400
+
+
+def test_ingest_rejects_active_name_and_can_retry_after_failure(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from drive2sim.studio.api.routes import sources
+    from tests.drive2sim.ingest.test_ingest import make_raw_nuscenes
+
+    raw = make_raw_nuscenes(tmp_path / "raw")
+    gate = threading.Event()
+    calls = []
+
+    def run_ingest(raw_dir: Path, workdir: Workdir, target: object, **kwargs: object) -> Path:
+        calls.append(kwargs["scene_id"])
+        assert gate.wait(10)
+        if len(calls) == 1:
+            raise RuntimeError("lỗi converter giả")
+        directory = workdir.scene_dir(str(kwargs["scene_id"]))
+        directory.mkdir(parents=True)
+        return directory
+
+    monkeypatch.setattr(sources, "run_ingest", run_ingest)
+    monkeypatch.setattr(sources, "scene_reports", lambda directory: None)
+    body = {"path": str(raw), "sequence": "scene-0103", "scene_id": "nuscenes_retry"}
+    try:
+        first = client.post("/api/sources/ingest", json=body)
+        assert first.status_code == 202
+        second = client.post("/api/sources/ingest", json=body)
+        assert second.status_code == 409
+        assert client.get("/api/jobs").json()["total"] == 1
+    finally:
+        gate.set()
+    client.app.state.studio.jobs.wait_idle()
+    assert client.get(f"/api/jobs/{first.json()['job_id']}").json()["status"] == "failed"
+    retry = client.post("/api/sources/ingest", json=body)
+    assert retry.status_code == 202
+    client.app.state.studio.jobs.wait_idle()
+    assert client.get(f"/api/jobs/{retry.json()['job_id']}").json()["status"] == "succeeded"
+    assert calls == ["nuscenes_retry", "nuscenes_retry"]
+
+
+def test_ingest_checks_explicit_scene_name_before_creating_job(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from drive2sim.studio.api.routes import sources
+    from tests.drive2sim.ingest.test_ingest import make_raw_nuscenes
+
+    raw = make_raw_nuscenes(tmp_path / "raw")
+
+    def must_not_run(*args: object, **kwargs: object) -> None:
+        pytest.fail("converter không được chạy khi tên đã có hoặc sai")
+
+    monkeypatch.setattr(sources, "run_ingest", must_not_run)
+    body = {"path": str(raw), "sequence": "scene-0103", "scene_id": SCENE}
+    assert client.post("/api/sources/ingest", json=body).status_code == 409
+    body["scene_id"] = "../bad"
+    assert client.post("/api/sources/ingest", json=body).status_code == 400
+    assert client.get("/api/jobs").json()["total"] == 0
+
+
+def test_drive_routes_without_session(client: TestClient) -> None:
+    """Lái thử: chưa có phiên thì lệnh lái, ảnh báo 409; run không phải NuRec không lái được."""
+    assert client.get("/api/drive").json()["state"] == "idle"
+    assert client.post("/api/drive/control", json={"throttle": 0.5}).status_code == 409
+    assert client.get("/api/drive/frame/gaussian").status_code == 409
+    assert client.post("/api/drive/control", json={"throttle": 2}).status_code == 400
+    split_id = create_split(client)
+    created = client.post(
+        "/api/runs", json={"approach_id": "toy", "scene_id": SCENE, "split_id": split_id}
+    )
+    run_id = created.json()["run_id"]
+    client.app.state.studio.queue.wait_idle()
+    refused = client.post(f"/api/runs/{run_id}/drive", json={})
+    assert refused.status_code == 409 and "NuRec" in refused.json()["error"]["message"]
+    assert client.get("/api/drive").json()["state"] == "idle"
+    assert client.delete("/api/drive").json()["state"] == "idle"
+
+
+def test_draft_discard_rejects_stale_revision(client: TestClient) -> None:
+    from drive2sim.studio.api import ego_mask_tool
+
+    camera = MANIFEST["cameras"][0]["camera_id"]
+    root = client.app.state.studio.workdir.scene_dir(SCENE)
+    draft = root / ego_mask_tool.TOOL_DIR / f"draft_{camera}.png"
+    draft.parent.mkdir(parents=True)
+    draft.write_bytes(b"first revision")
+    revision = ego_mask_tool.revision(root, camera)
+    draft.write_bytes(b"edited in another tab")
+    url = f"/api/scenes/{SCENE}/egomask/{camera}/draft"
+    result = client.delete(url, params={"revision": revision})
+    assert result.status_code == 409 and draft.exists()
+    result = client.delete(url, params={"revision": ego_mask_tool.revision(root, camera)})
+    assert result.status_code == 200 and not draft.exists()
+    assert result.json()["revision"] == ego_mask_tool.revision(root, camera)

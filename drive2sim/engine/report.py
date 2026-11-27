@@ -323,7 +323,7 @@ def report_rows(
                 f"gsplat {env.gsplat}" if env.gsplat else "",
             ]
             row.software = ", ".join(part for part in parts if part) or None
-        summary = load_summary(run_dir)
+        summary = load_summary(run_dir, record)
         if summary is not None:
             metrics = summary.overall
             row.psnr, row.ssim, row.lpips = metrics.psnr, metrics.ssim, metrics.lpips

@@ -10,6 +10,7 @@ export type Dataset =
   | "pandaset"
   | "kitti"
   | "kitti360"
+  | "phenikaa"
   | "physicalai"
   | "carla"
   | "colmap"

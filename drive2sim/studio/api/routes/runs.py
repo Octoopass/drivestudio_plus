@@ -20,6 +20,7 @@ File này chứa:
 - ``GET /api/runs/{run_id}/video_sets``: video đánh giá gom theo bộ (test, full) và kênh (gốc,
   render, sai khác, độ sâu, lớp), kèm khung từng camera nếu có (``engine/videos.py``).
 - ``GET /api/runs/{run_id}/artifacts``: nơi lưu kết quả của từng stage và các file trong đó.
+- ``GET /api/runs/{run_id}/downloads``: file nên tải về máy (PLY, ``scene.usdz`` cho CARLA...).
 - ``GET /api/runs/{run_id}/curve``: đường cong train (PSNR, loss, số Gaussian theo bước).
 - ``GET /api/runs/{run_id}/splats``: file Gaussian xem được trong trình duyệt (gói xem trước,
   ``scene.ply``), kèm đường dẫn.
@@ -27,6 +28,7 @@ File này chứa:
 """
 
 import re
+import time
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -38,20 +40,24 @@ from drive2sim.core import files
 from drive2sim.core.schema import Preview, RunRecord
 from drive2sim.engine import housekeeping, remote
 from drive2sim.engine.approaches import load_approach
-from drive2sim.engine.artifacts import run_artifacts, train_curve
+from drive2sim.engine.artifacts import run_artifacts, run_downloads, train_curve
 from drive2sim.engine.densify_info import load_densify_info
 from drive2sim.engine.environment import require_local_environment
+from drive2sim.engine.machine import gpu_usage
 from drive2sim.engine.registry import produces_artifact
-from drive2sim.engine.render_check import render_readiness
+from drive2sim.engine.render_check import gpu_render_supported, render_readiness
 from drive2sim.engine.report import train_params
+from drive2sim.engine.resolve import ResolveError
 from drive2sim.engine.run import (
     D2S_DIR,
     LOG_FILE,
     RUN_FILE,
     create_run,
+    insert_stage,
     list_runs,
     load_env,
     load_summary,
+    ply_export_stage,
     request_cancel,
     reset_stage,
     run_is_active,
@@ -69,19 +75,36 @@ from drive2sim.studio.api.state import state_of
 router = APIRouter(tags=["runs"])
 LOG_TAIL_LINES = 200
 FINISHED = ("succeeded", "failed", "cancelled")
-EXPORT_STAGES = {"ply": "export.ply_world", "preview": "export.preview"}
+NUREC_TRAIN = "train.nurec"  # run có stage này không có checkpoint cho export.preview
+EXPORT_STAGES = {
+    "ply": "export.ply_world",
+    "preview": "export.preview",
+    "video": "render.nurec_video",
+    "carla": "render.carla",
+    "refine": "train.nurec_refine",
+}
+# Stage chèn vào giữa run (ngay sau stage này) thay vì thêm vào cuối; các stage dùng kết quả
+# của nó chạy lại.
+INSERT_AFTER = {"train.nurec_refine": "train.nurec"}
 
 
 class ExportBody(BaseModel):
     """Thân của ``POST /api/runs/{run_id}/export``.
 
     Attributes:
-        kind: ``ply`` (``export.ply_world``) hoặc ``preview`` (``export.preview``).
+        kind: ``ply`` (``export.ply_world``), ``preview`` (``export.preview``), ``video``
+            (``render.nurec_video``, video đi dọc đoạn đường của run Instant NuRec) hoặc ``carla``
+            (``render.carla``, chạy cảnh NuRec trong CARLA rồi ghi video) hoặc ``refine``
+            (``train.nurec_refine``, tối ưu tiếp PLY của NuRec; chèn sau ``train.nurec`` và chạy
+            lại chấm điểm, PLY, video).
+        params: Tham số đổi cho lần chạy này, ghép lên tham số đã lưu của stage (ví dụ
+            ``{"ego": "replay", "max_seconds": 20}`` cho ``carla``).
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["ply", "preview"]
+    kind: Literal["ply", "preview", "video", "carla", "refine"]
+    params: Optional[dict[str, object]] = None
 
 
 class CreateRunBody(PlanBody):
@@ -172,7 +195,7 @@ def start_run(body: CreateRunBody, request: Request) -> dict:
     if body.executor == "local":
         _require_local(request, plan.approach_id, [stage.stage_id for stage in plan.stages])
     else:
-        remote.require_main_codebase(plan.approach_id, body.executor.capitalize())
+        remote.require_remote_codebase(plan.approach_id, body.executor.capitalize())
     run_dir = create_run(plan, state.workdir, scene, split, executor=body.executor)
     if body.executor == "kaggle":
         kaggle.submit_push(state, run_dir.name)
@@ -217,7 +240,7 @@ def get_run(run_id: str, request: Request) -> dict:
     của stage train (``densify_info``), ``null`` khi train chưa bắt đầu.
     """
     run_dir, record = _load(request, run_id)
-    summary = load_summary(run_dir)
+    summary = load_summary(run_dir, record)
     data = record.model_dump(mode="json")
     data["train_params"] = train_params(record)
     data["remote"] = _remote(state_of(request).workdir, record)
@@ -285,13 +308,30 @@ def export_run(run_id: str, body: ExportBody, request: Request) -> dict:
         ``run.json`` sau khi đặt lại stage; run được xếp vào hàng đợi.
     """
     state = state_of(request)
-    run_dir, _ = _load(request, run_id)
+    run_dir, current = _load(request, run_id)
     stage_id = EXPORT_STAGES[body.kind]
+    stage_ids = [s.stage_id for s in current.stages]
+    if body.kind == "ply":  # run Instant NuRec: export.nurec_ply, không phải export.ply_world
+        stage_id = ply_export_stage(stage_ids)
+    if body.kind == "preview" and NUREC_TRAIN in stage_ids:
+        raise HTTPException(
+            400,
+            f"run {run_id} là Instant NuRec (không có checkpoint_final.pth): gói xem trước chỉ "
+            "dành cho run drivestudio; xem 3D bằng PLY (export.nurec_ply)",
+        )
     if stage_id not in state.registry:
         raise HTTPException(400, f"stage {stage_id} chưa có")
     _claim(request, run_dir, run_id)
     try:
-        record = reset_stage(run_dir, stage_id, state.registry)
+        if stage_id in INSERT_AFTER:
+            record = insert_stage(
+                run_dir, stage_id, INSERT_AFTER[stage_id], state.registry, params=body.params
+            )
+        else:
+            record = reset_stage(run_dir, stage_id, state.registry, params=body.params)
+    except (ResolveError, ValueError) as error:  # ví dụ video NuRec cho run không có clip NCore
+        state.queue.release(run_dir)
+        raise HTTPException(400, f"run {run_id} không xuất được {body.kind}: {error}") from None
     except BaseException:
         state.queue.release(run_dir)
         raise
@@ -355,6 +395,49 @@ def run_log(run_id: str, request: Request) -> dict:
     }
 
 
+LIVE_TAIL_LINES = 40
+# Thanh tiến độ tqdm trong log, ví dụ "Predicting in chunks:  62%|██▎ | 5/8 [00:04<00:02, ...]".
+TQDM_BAR = re.compile(r"([^\r\n|]*?):?\s*\d+%\|[^|\r\n]*\|\s*(\d+)/(\d+)\s*\[")
+
+
+def log_progress(text: str) -> Optional[dict]:
+    """Thanh tiến độ tqdm cuối cùng trong log: ``{"label", "done", "total"}``, hoặc ``None``."""
+    found = TQDM_BAR.findall(text)
+    if not found:
+        return None
+    label, done, total = found[-1]
+    return {"label": label.strip(), "done": int(done), "total": int(total)}
+
+
+@router.get("/api/runs/{run_id}/live")
+def run_live(run_id: str, request: Request) -> dict:
+    """Tình hình lúc này của run: stage đang chạy, log cuối của nó, log im bao lâu, tải GPU.
+
+    Log không có dòng mới lâu mà GPU rảnh thường là lệnh con đã treo; Studio dựa vào đây để báo.
+
+    Returns:
+        ``{"active", "stage_id", "log_tail", "log_idle_s", "log_progress", "gpus"}``;
+        ``stage_id`` là ``None`` khi không có stage nào đang chạy (khi đó log là log engine).
+    """
+    run_dir, record = _load(request, run_id)
+    stage = next((s for s in record.stages if s.status == "running"), None)
+    log_path = (
+        run_dir / D2S_DIR / "stages" / stage.stage_id / LOG_FILE
+        if stage
+        else run_dir / D2S_DIR / LOG_FILE
+    )
+    idle = time.time() - log_path.stat().st_mtime if log_path.is_file() else None
+    active = run_is_active(run_dir)
+    return {
+        "active": active,
+        "stage_id": stage.stage_id if stage else None,
+        "log_tail": _tail(log_path, LIVE_TAIL_LINES),
+        "log_idle_s": round(idle, 1) if idle is not None else None,
+        "log_progress": log_progress(_tail(log_path, LIVE_TAIL_LINES)) if stage else None,
+        "gpus": gpu_usage() if active else [],
+    }
+
+
 @router.get("/api/runs/{run_id}/artifacts")
 def artifacts(run_id: str, request: Request) -> dict:
     """Nơi lưu kết quả của từng stage (thư mục run hay cache) và các file cấp một trong đó.
@@ -364,6 +447,17 @@ def artifacts(run_id: str, request: Request) -> dict:
     """
     run_dir, record = _load(request, run_id)
     return run_artifacts(state_of(request).workdir, record, run_dir)
+
+
+@router.get("/api/runs/{run_id}/downloads")
+def downloads(run_id: str, request: Request) -> dict:
+    """File của run nên tải về máy: PLY, ``scene.usdz`` cho CARLA, checkpoint, video.
+
+    Returns:
+        ``{"items": [...]}`` theo ``run_downloads``; tải bằng ``/files/<path>?download=1``.
+    """
+    run_dir, record = _load(request, run_id)
+    return {"items": run_downloads(state_of(request).workdir, record, run_dir)}
 
 
 @router.get("/api/runs/{run_id}/curve")
@@ -592,6 +686,8 @@ def run_splats(run_id: str, request: Request) -> dict:
     )
     return {
         "preview": preview,
-        "ply": url(stages_dir / "export.ply_world" / "scene.ply"),
+        "ply": url(stages_dir / "export.ply_world" / "scene.ply")
+        or url(stages_dir / "export.nurec_ply" / "scene.ply"),
         "cameras": cameras,
+        "gpu": gpu_render_supported(run_dir),
     }

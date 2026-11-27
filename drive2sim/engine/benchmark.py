@@ -54,7 +54,7 @@ EQUAL_PLY_PSNR_DB = 0.3
 TIME_VARYING_METHODS = frozenset({"pvg", "deformablegs"})
 # Các protocol của eval.standard đo PSNR, SSIM, LPIPS trên camera đã train theo cùng một cách
 # (CONTRACTS 6.3), nên xếp hạng chung được; protocol khác (ví dụ ncore-0.3) thì không.
-COMPARABLE_PROTOCOLS = frozenset({"0.3", "0.4", "0.5"})
+COMPARABLE_PROTOCOLS = frozenset({"0.3", "0.4", "0.5", "0.6"})
 # Đoạn đường hỏng: ít nhất ngần này khung test liền nhau, mỗi khung thấp hơn trung vị quá ngần
 # này dB (R7).
 BAD_SEGMENT_MIN_FRAMES = 5
@@ -185,7 +185,7 @@ def bad_segments_by_group(
 
 
 def _protocol_family(version: str) -> str:
-    """Nhóm protocol so được với nhau: ``0.3``, ``0.4``, ``0.5`` cùng một nhóm, còn lại riêng."""
+    """Gộp protocol DriveStudio từ 0.3 tới 0.6, giữ protocol khác riêng biệt."""
     return "drivestudio" if version in COMPARABLE_PROTOCOLS else version
 
 
@@ -495,8 +495,9 @@ def build_row(
     """
     summary = load_summary(run_dir)
     # frames.jsonl nằm cạnh summary.json của stage eval.* đã ghi nó (eval.standard, eval.mcgs)
-    stage_dir = summary_path(run_dir).parent
-    frames = read_frames(stage_dir / FRAMES_FILE)
+    summary_file = summary_path(run_dir)
+    stage_dir = summary_file.parent if summary_file is not None else None
+    frames = read_frames(stage_dir / FRAMES_FILE) if stage_dir is not None else []
     trained = [r for r in frames if r["camera_index"] not in context.test_only_indices]
     per_frame = _distance_by_frame(trained)
     distance_m = max((distance for distance, _ in per_frame.values()), default=None)
@@ -533,7 +534,7 @@ def build_row(
         distance_m=distance_m,
         train_s_per_100m=_per_100m(row.train_time_s, distance_m) if per_100m else None,
         ply_mb_per_100m=_per_100m(row.ply_size_mb, distance_m) if per_100m else None,
-        ate_rmse_m=_ate_rmse_m(stage_dir),
+        ate_rmse_m=_ate_rmse_m(stage_dir) if stage_dir is not None else None,
         bad_segments=bad_segments_by_group(
             frames, context.fisheye_indices, context.test_only_indices
         ),
@@ -606,7 +607,15 @@ def run_group(
             ply_psnr=_ply_psnr(run_dirs[run_id]),
             export_static=run_export_static(run_dirs[run_id]),
             export_applicable=run_export_applicable(run_dirs[run_id]),
-            protocol=summary.protocol.version if summary is not None else None,
+            protocol=(
+                "ncore-legacy-0.5"
+                if summary is not None
+                and summary.protocol.version == "0.5"
+                and "eval.ncore" in (run_stage_ids(run_dirs[run_id]) or [])
+                else summary.protocol.version
+                if summary is not None
+                else None
+            ),
         )
         for run_id, summary in summaries.items()
     }

@@ -11,6 +11,7 @@ name: "DeformableGS"
 version: 0.1.0
 codebase: drivestudio
 level: L1
+dynamics: time
 kind: per_scene
 requires:
   camera_models: [opencv_pinhole, opencv_fisheye, ftheta]   # với ít nhất một renderer

@@ -42,7 +42,6 @@ from typing import ClassVar, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from drive2sim import paths
 from drive2sim.core import files
 from drive2sim.core.schema import ShiftedMetrics, Split, Summary
 from drive2sim.engine.registry import register_stage
@@ -213,7 +212,7 @@ def summarize(
 class EvalMcgsStage(Stage):
     """Chấm ``3dgs_final.ply`` của MCGS-SLAM trên khung test của split, ghi ``summary.json``."""
 
-    version: ClassVar[str] = "0.2.0"
+    version: ClassVar[str] = "0.3.0"
     cacheable: ClassVar[bool] = False
     uses_lidar: ClassVar[bool] = False
     inputs: ClassVar[dict[str, str]] = {"model": "model", "split": "split"}
@@ -278,7 +277,7 @@ class EvalMcgsStage(Stage):
             alignment,
             views_path,
             max_angle=params.max_angle,
-            ego_masks_dir=paths.EGO_MASKS_DIR / "kitti360" if dataset == "kitti360" else None,
+            dataset=dataset,
             pose_scale=params.pose_scale,
         )
         ctx.progress(0.4, "vẽ và chấm bằng gsplat")
