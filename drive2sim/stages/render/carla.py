@@ -71,6 +71,7 @@ class CarlaParams(BaseModel):
         fps: Số tick camera mỗi giây, cũng là FPS của video.
         video_height: Chiều cao (pixel) mỗi ô camera trong ``carla.mp4``.
         keep_frames: Giữ ảnh từng camera (``frames/``) sau khi ghép video.
+        objects: Đưa xe, người từ box 3D của cảnh (``instances/``) vào CARLA làm actor có vật lý.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -84,6 +85,7 @@ class CarlaParams(BaseModel):
     fps: float = Field(default=30, ge=5, le=60)
     video_height: int = Field(default=540, ge=120, le=1080)
     keep_frames: bool = False
+    objects: bool = True
 
 
 def carla_root() -> Path:
@@ -127,14 +129,24 @@ def stop_process(process: Optional[subprocess.Popen], grace_s: float = 15.0) -> 
 
 
 def scene_command(
-    clip_json: Path, out: Path, cameras: list[str], params: CarlaParams
+    clip_json: Path,
+    out: Path,
+    cameras: list[str],
+    params: CarlaParams,
+    scene_root: Optional[Path] = None,
 ) -> list[str]:
-    """Câu lệnh ``ncore_carla_scene.py`` bằng Python của môi trường NuRec."""
-    return [
+    """Câu lệnh ``ncore_carla_scene.py`` bằng Python của môi trường NuRec.
+
+    ``scene_root`` (thư mục cảnh) có và ``params.objects`` bật thì xe, người lấy từ box của cảnh.
+    """
+    command = [
         str(nurec.nurec_python()), "-u", str(nurec.TOOLS_DIR / "ncore_carla_scene.py"),
         str(clip_json), "--out", str(out), "--cameras", ",".join(cameras),
         "--rig-height", str(params.rig_height), "--lane-width", str(params.lane_width),
     ]  # fmt: skip
+    if scene_root is not None and params.objects:
+        command += ["--scene-root", str(scene_root)]
+    return command
 
 
 def runner_command(usdz: Path, render_port: int, out_dir: Path, params: CarlaParams) -> list[str]:
@@ -269,7 +281,7 @@ def start_render_server(
 class RenderCarlaStage(Stage):
     """Chạy cảnh NuRec trong CARLA (server render drive2sim), ghi ``carla.mp4``."""
 
-    version: ClassVar[str] = "0.2.0"
+    version: ClassVar[str] = "0.3.0"
     cacheable: ClassVar[bool] = False
     uses_lidar: ClassVar[bool] = False
     inputs: ClassVar[dict[str, str]] = {"model": "model", "clip": "ncore_clip", "split": "split"}
@@ -305,7 +317,7 @@ class RenderCarlaStage(Stage):
         usdz = out / SCENE_FILE
         ctx.progress(0.02, f"dựng bản đồ và quỹ đạo cho CARLA ({len(sensors)} camera)")
         run_logged(
-            scene_command(inputs["clip"] / clip["clip"], usdz, sensors, params),
+            scene_command(inputs["clip"] / clip["clip"], usdz, sensors, params, ctx.scene.root),
             log,
             should_stop=ctx.should_stop,
         )
