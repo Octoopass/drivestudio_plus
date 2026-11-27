@@ -93,3 +93,11 @@ def test_every_camera_model_reachable(path: Path) -> None:
         for model in camera_models_for(approach, chosen)
     }
     assert reachable == set(approach.requires.camera_models)
+
+
+def test_only_unvalidated_approaches_are_marked_experimental() -> None:
+    """XSIM chưa có run train, eval nào chạy xong trên GPU: Studio gắn nhãn "thử nghiệm"."""
+    experimental = {
+        path.stem for path in APPROACH_FILES if files.load(path, Approach).experimental
+    }
+    assert experimental == {"xsim"}

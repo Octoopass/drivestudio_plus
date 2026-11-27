@@ -276,6 +276,8 @@
   "new.field.executor": "Chạy ở đâu",
   "new.executor.local": "Máy này",
   "new.approach.meta": "{codebase}, {level}, {stages} stage",
+  "new.approach.experimental": "Thử nghiệm",
+  "new.approach.experimental.hint": "Đã nối vào tool nhưng chưa nghiệm thu: chưa có run train và eval đầy đủ nào chạy xong trên GPU. Vẫn tạo và chạy run được, nhưng có thể gặp lỗi và kết quả chưa so sánh được.",
   "new.need.scene": "Chưa có cảnh nào. Nạp cảnh ở",
   "new.need.split": "Cảnh chưa có split. Tạo split ở",
   "new.options.title": "Cấu hình approach",

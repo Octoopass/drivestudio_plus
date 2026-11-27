@@ -276,6 +276,8 @@
   "new.field.executor": "Where to run",
   "new.executor.local": "This machine",
   "new.approach.meta": "{codebase}, {level}, {stages} stages",
+  "new.approach.experimental": "Experimental",
+  "new.approach.experimental.hint": "Wired into the tool but not yet validated: no full training and evaluation run has finished on a GPU. Runs work, but expect failures and results that are not yet comparable.",
   "new.need.scene": "No scenes yet. Import one in",
   "new.need.split": "This scene has no split. Create one in",
   "new.options.title": "Approach config",

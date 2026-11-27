@@ -281,7 +281,14 @@ export function NewRunPage({
                       onClick={() => setApproachId(a.approach_id)}
                       title={cameraReason(a.camera_support)}
                     >
-                      <span className="name">{a.name}</span>
+                      <span className="name">
+                        {a.name}
+                        {a.experimental && (
+                          <span className="tag warn" title={t("new.approach.experimental.hint")} style={{ marginLeft: 8 }}>
+                            {t("new.approach.experimental")}
+                          </span>
+                        )}
+                      </span>
                       <span className="desc">{t("new.approach.meta", { codebase: a.codebase, level: a.level, stages: a.stages.length })}</span>
                       <span className="row wrap" style={{ gap: 6 }}>
                         {a.camera_support.tracks.map((track) => (

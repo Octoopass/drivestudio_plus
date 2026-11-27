@@ -8,6 +8,9 @@ name: XSIM
 version: 0.2.0
 codebase: external:xsim
 level: L1
+# Đã nối đủ đường local, Kaggle, Colab nhưng chưa có run train, eval XSIM nào chạy xong trên GPU
+# (docs/drive2sim/XSIM_INTEGRATION_PLAN.md): Studio gắn nhãn "thử nghiệm". Bỏ khi đã nghiệm thu.
+experimental: true
 requires:
   camera_models: [opencv_pinhole, opencv_fisheye]
   cuboids: optional

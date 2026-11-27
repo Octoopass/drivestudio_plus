@@ -864,6 +864,10 @@ class Approach(VersionedFile):
         kind: Loại phương pháp (``ApproachKind``); Studio chia danh sách approach theo nhóm
             này. Thêm sau ``d2s-approach/0.3`` mà không tăng phiên bản (không bắt buộc, mặc
             định ``per_scene``).
+        experimental: ``True`` khi approach đã nối vào tool nhưng chưa nghiệm thu (chưa có run
+            train, eval đầy đủ trên GPU); Studio và ``d2s approach list`` gắn nhãn "thử nghiệm".
+            Chỉ để hiển thị, engine không đọc. Thêm sau ``d2s-approach/0.3`` mà không tăng phiên
+            bản (không bắt buộc, mặc định ``False``).
         requires: Điều kiện dữ liệu. Track (pinhole, fisheye) của approach và của từng preset suy
             ra từ mô hình camera nhận được (``CAMERA_TRACK``), không ghi riêng; file ``0.1``,
             ``0.2`` có trường ``track`` thì trường đó được bỏ qua.
@@ -886,6 +890,7 @@ class Approach(VersionedFile):
     codebase: str
     level: Level
     kind: ApproachKind = "per_scene"
+    experimental: bool = False
     requires: Requires
     options: dict[str, OptionSpec] = {}
     constraints: list[Constraint] = []
