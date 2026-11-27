@@ -89,7 +89,19 @@ def test_carla_stage_commands(tmp_path: Path) -> None:
     )
     assert "--max-seconds" not in whole
     scene = carla.scene_command(tmp_path / "c.json", tmp_path / "s.usdz", ["a", "b"], params)
-    assert scene[scene.index("--cameras") + 1] == "a,b"
+    assert scene[scene.index("--cameras") + 1] == "a,b" and "--scene-root" not in scene
+    with_objects = carla.scene_command(
+        tmp_path / "c.json", tmp_path / "s.usdz", ["a"], params, tmp_path / "scene"
+    )
+    assert with_objects[with_objects.index("--scene-root") + 1] == str(tmp_path / "scene")
+    no_objects = carla.scene_command(
+        tmp_path / "c.json",
+        tmp_path / "s.usdz",
+        ["a"],
+        carla.CarlaParams(objects=False),
+        tmp_path / "scene",
+    )
+    assert "--scene-root" not in no_objects
     with pytest.raises(ValidationError):
         carla.CarlaParams(ego="fly")
     with pytest.raises(ValidationError):

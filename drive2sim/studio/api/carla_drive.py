@@ -63,8 +63,17 @@ class CarlaDrive:
         self._usage: tuple[float, list[dict]] = (0.0, [])
 
     # ------------------------------------------------------------------ bật / tắt
-    def start(self, run_id: str, camera: str = "", ratio: float = 0.5, fps: int = 20) -> dict:
+    def start(
+        self,
+        run_id: str,
+        camera: str = "",
+        ratio: float = 0.5,
+        fps: int = 20,
+        objects: bool = True,
+    ) -> dict:
         """Bật phiên lái thử cho ``run_id`` ở nền (tắt phiên cũ nếu có).
+
+        ``objects`` bật thì xe, người từ box 3D của cảnh thành actor trong CARLA.
 
         Returns:
             Trạng thái như ``status()`` (``state`` là ``starting``).
@@ -94,7 +103,7 @@ class CarlaDrive:
                 (self.drive_dir / name).unlink(missing_ok=True)
         threading.Thread(
             target=self._start,
-            args=(generation, run_dir, record, ply, clip_dir, camera, ratio, fps),
+            args=(generation, run_dir, record, ply, clip_dir, camera, ratio, fps, objects),
             daemon=True,
         ).start()
         return self.status()
@@ -109,6 +118,7 @@ class CarlaDrive:
         camera: str,
         ratio: float,
         fps: int,
+        objects: bool = True,
     ) -> None:
         """Luồng nền: dựng ``scene.usdz`` nếu cần, bật CARLA, server render và vòng lái."""
         assert self.drive_dir is not None
@@ -118,21 +128,23 @@ class CarlaDrive:
             return generation != self.generation
 
         try:
-            usdz = run_dir / D2S_DIR / "stages" / "render.carla" / carla_stage.SCENE_FILE
-            if not usdz.is_file():
-                usdz = out / carla_stage.SCENE_FILE
-                if not usdz.is_file():
-                    self._set(generation, "dựng bản đồ và quỹ đạo cho CARLA")
-                    clip = json.loads((clip_dir / CLIP_FILE).read_text(encoding="utf-8"))
-                    split = self.workdir.load_split(record.scene_id, record.split_id)
-                    sensors = [clip["sensors"][c] for c in split.cameras if c in clip["sensors"]]
-                    run_logged(
-                        carla_stage.scene_command(
-                            clip_dir / clip["clip"], usdz, sensors, carla_stage.CarlaParams()
-                        ),
-                        out / "scene.log",
-                        should_stop=cancelled,
-                    )
+            # Dựng lại mỗi lần (vài giây): bản đồ, quỹ đạo và xe, người từ box của cảnh.
+            usdz = out / carla_stage.SCENE_FILE
+            self._set(generation, "dựng bản đồ, quỹ đạo, xe và người cho CARLA")
+            clip = json.loads((clip_dir / CLIP_FILE).read_text(encoding="utf-8"))
+            split = self.workdir.load_split(record.scene_id, record.split_id)
+            sensors = [clip["sensors"][c] for c in split.cameras if c in clip["sensors"]]
+            run_logged(
+                carla_stage.scene_command(
+                    clip_dir / clip["clip"],
+                    usdz,
+                    sensors,
+                    carla_stage.CarlaParams(objects=objects),
+                    self.workdir.scene_dir(record.scene_id),
+                ),
+                out / "scene.log",
+                should_stop=cancelled,
+            )
             gpu = carla_stage.pick_gpu()
             env = carla_stage.carla_env(gpu)
             with self.lock:

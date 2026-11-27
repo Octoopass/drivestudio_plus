@@ -333,6 +333,8 @@
   "drive.camera_front": "Camera trước (mặc định)",
   "drive.ratio": "Độ phân giải ảnh Gaussian",
   "drive.fps": "Khung/giây",
+  "drive.objects": "Xe, người từ box 3D",
+  "drive.objects_help": "Đưa xe, người của cảnh (box 3D, như StreetGS dùng) vào CARLA thành actor có vật lý và va chạm. Chỉ hiện trong thế giới CARLA, không đổi ảnh Gaussian; cảnh không có box thì không có tác dụng.",
   "drive.settings_hint": "50% và 20 khung/giây đủ mượt để lái. Lần đầu bật CARLA mất khoảng 30 giây; phiên dùng GPU còn trống nhiều VRAM nhất.",
   "drive.starting": "Đang bật phiên lái thử",
   "drive.failed": "Không bật được phiên lái thử:",

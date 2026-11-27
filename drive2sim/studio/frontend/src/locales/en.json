@@ -333,6 +333,8 @@
   "drive.camera_front": "Front camera (default)",
   "drive.ratio": "Gaussian render resolution",
   "drive.fps": "Frames per second",
+  "drive.objects": "Vehicles, people from 3D boxes",
+  "drive.objects_help": "Put the scene's vehicles and people (3D boxes, as StreetGS uses) into CARLA as actors with physics and collisions. Only in the CARLA world, the Gaussian view is unchanged; no effect on scenes without boxes.",
   "drive.settings_hint": "50% at 20 fps is smooth enough to drive. Starting CARLA the first time takes about 30 seconds; the session uses the GPU with the most free VRAM.",
   "drive.starting": "Starting the drive session",
   "drive.failed": "Could not start the drive session:",

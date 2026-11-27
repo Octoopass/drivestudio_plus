@@ -86,6 +86,7 @@ export function DrivePage({ runId }: { runId?: string }) {
   const [camera, setCamera] = useState("");
   const [ratio, setRatio] = useState(0.5);
   const [fps, setFps] = useState(20);
+  const [objects, setObjects] = useState(true);
   const [reverse, setReverse] = useState(false);
   const [focused, setFocused] = useState(true);
   const pressed = useRef(new Set<string>());
@@ -177,7 +178,7 @@ export function DrivePage({ runId }: { runId?: string }) {
   const start = async () => {
     if (!runId) return;
     try {
-      setStatus(await post<DriveStatus>(`/api/runs/${seg(runId)}/drive`, { camera, ratio, fps }));
+      setStatus(await post<DriveStatus>(`/api/runs/${seg(runId)}/drive`, { camera, ratio, fps, objects }));
       reverseRef.current = false;
       setReverse(false);
     } catch (err) {
@@ -266,6 +267,10 @@ export function DrivePage({ runId }: { runId?: string }) {
                 </option>
               ))}
             </select>
+          </label>
+          <label className="chip-check" title={t("drive.objects_help")}>
+            <input type="checkbox" checked={objects} onChange={(e) => setObjects(e.target.checked)} />
+            {t("drive.objects")}
           </label>
           <p className="small muted">{t("drive.settings_hint")}</p>
         </section>

@@ -637,12 +637,16 @@ export function RunPage({ runId }: { runId: string }) {
                 <CarlaNumber label={t("run.carla.video_height")} value={carla.height} min={120} max={1080} step={60} onChange={(height) => setCarla({ ...carla, height })} />
                 <CarlaNumber label={t("run.carla.fps")} value={carla.fps} min={5} max={60} step={5} onChange={(fps) => setCarla({ ...carla, fps })} />
               </div>
+              <label className="chip-check" title={t("drive.objects_help")}>
+                <input type="checkbox" checked={carla.objects} onChange={(e) => setCarla({ ...carla, objects: e.target.checked })} />
+                {t("drive.objects")}
+              </label>
             </div>
           }
           confirmLabel={t("run.carla.start")}
           onClose={() => setCarla(null)}
           onConfirm={async () => {
-            await post(`${base}/export`, { kind: "carla", params: { ego: carla.ego, max_seconds: carla.seconds, resolution_ratio: carla.ratio, video_height: carla.height, fps: carla.fps } });
+            await post(`${base}/export`, { kind: "carla", params: { ego: carla.ego, max_seconds: carla.seconds, resolution_ratio: carla.ratio, video_height: carla.height, fps: carla.fps, objects: carla.objects } });
             toast({ kind: "ok", title: t("run.toast.export", { kind: "CARLA" }) });
             live.restart();
             refresh();
@@ -669,9 +673,9 @@ export function RunPage({ runId }: { runId: string }) {
   );
 }
 
-type CarlaSettings = { ego: string; seconds: number; ratio: number; height: number; fps: number };
+type CarlaSettings = { ego: string; seconds: number; ratio: number; height: number; fps: number; objects: boolean };
 const CARLA_KEY = "d2s.carla.settings";
-const CARLA_DEFAULTS: CarlaSettings = { ego: "trajectory", seconds: 30, ratio: 0.5, height: 540, fps: 30 };
+const CARLA_DEFAULTS: CarlaSettings = { ego: "trajectory", seconds: 30, ratio: 0.5, height: 540, fps: 30, objects: true };
 
 // Lựa chọn lần trước của hộp CARLA; giá trị hỏng hoặc thiếu thì lấy mặc định.
 function loadCarlaSettings(): CarlaSettings {
