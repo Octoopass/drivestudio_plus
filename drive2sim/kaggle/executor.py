@@ -252,7 +252,7 @@ def _cache_sources(
             status = client.kernel_status(state.kernel)
         except KaggleError:
             continue
-        if status not in ("complete", "error"):
+        if status != "complete":  # Kaggle bỏ khỏi kernel_sources notebook có lần chạy cuối lỗi
             continue
         found.append(state.kernel)
         missing -= covers
@@ -799,7 +799,11 @@ def skip_local_cache(workdir: Workdir) -> Optional[str]:
 
 
 def wheel_kernel(client: KaggleClient, workdir: Workdir, username: str) -> Optional[str]:
-    """Notebook mới nhất đã chạy xong của cùng tài khoản, để notebook mới lấy wheel đã build.
+    """Notebook mới nhất chạy xong (``complete``) của cùng tài khoản, để lấy wheel đã build.
+
+    Notebook có lần chạy cuối lỗi không dùng được: Kaggle âm thầm bỏ nó khỏi ``kernel_sources``
+    (đã thử với notebook thật, 27/11/2026). Notebook train kết thúc ``complete`` kể cả khi run lỗi
+    (``templates/run.ipynb``), nên chỉ notebook lỗi lúc cài môi trường mới bị bỏ qua.
 
     Notebook nào cũng lưu wheel của gsplat-geer, nvdiffrast, pytorch3d... vào ``wheels/`` trong
     output (``envs/install_main.sh``, biến ``D2S_WHEEL_CACHE``): wheel tự build hoặc wheel lấy lại
@@ -820,7 +824,7 @@ def wheel_kernel(client: KaggleClient, workdir: Workdir, username: str) -> Optio
             status = client.kernel_status(state.kernel)
         except KaggleError:
             continue
-        if status in ("complete", "error"):
+        if status == "complete":
             return state.kernel
     return None
 

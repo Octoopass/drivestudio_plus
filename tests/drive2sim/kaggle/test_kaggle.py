@@ -652,7 +652,11 @@ def test_status_commands_time_out_quickly(monkeypatch: pytest.MonkeyPatch) -> No
 def test_wheel_kernel_picks_newest_finished_notebook_of_same_account(
     setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Nguồn wheel: notebook mới nhất đã xong của cùng tài khoản; bỏ notebook chưa xong, đã xoá."""
+    """Nguồn wheel: notebook mới nhất chạy xong (``complete``) của cùng tài khoản.
+
+    Bỏ notebook chưa xong, đã xoá, và notebook lỗi: Kaggle âm thầm bỏ khỏi ``kernel_sources`` mọi
+    notebook có lần chạy cuối lỗi (đã thử với notebook thật, 27/11/2026).
+    """
     workdir, fake = setup
     for run_id, user, kernel, pushed in (
         ("20261112-000000-omnire-0001", "alice", "alice/old-1", "2026-11-12T00:00:00"),
@@ -673,6 +677,8 @@ def test_wheel_kernel_picks_newest_finished_notebook_of_same_account(
         return statuses[slug]
 
     monkeypatch.setattr(fake, "kernel_status", status)
+    assert executor.wheel_kernel(fake, workdir, "alice") == "alice/old-1"
+    statuses["alice/done-1"] = "complete"
     assert executor.wheel_kernel(fake, workdir, "alice") == "alice/done-1"
     assert executor.wheel_kernel(fake, workdir, "carol") is None
 
@@ -850,3 +856,16 @@ def test_pack_pattern_skips_local_cache_and_unpack_rejects_escape(tmp_path: Path
     with pytest.raises(ValueError, match="ra ngoài"):
         packing.unpack_output(tmp_path / "out")
     assert not (tmp_path / "evil").exists()
+
+
+def test_notebook_completes_when_the_run_fails() -> None:
+    """Run lỗi không làm notebook kết thúc ``error``.
+
+    Kaggle âm thầm bỏ khỏi ``kernel_sources`` notebook có lần chạy cuối lỗi, nên lần đẩy sau
+    không chạy tiếp được từ output đó (đã thử với notebook thật, 27/11/2026). Ô cuối chỉ in
+    cảnh báo.
+    """
+    notebook = json.loads(executor.build_notebook({RUN_ID: {}}, "c0ffee", "https://x/r.git", "b"))
+    last = "".join(notebook["cells"][-1]["source"])
+    assert "run_exit_code" in last and "D2S_RUN_LIGHT" in last
+    assert "SystemExit" not in last and "raise" not in last
