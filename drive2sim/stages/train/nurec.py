@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 from typing import ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from drive2sim.engine import machine
 from drive2sim.engine.registry import register_stage
@@ -48,6 +48,9 @@ FRAME_RATE_HZ = 10.0  # chỉ số khung KITTI-360 đếm ở 10 Hz (ROSA lấy 
 MAX_CHUNKS = 64  # clip KITTI-360 dài nhất (~8 phút ở 2 Hz) cần khoảng 55 đoạn
 STATS_FILE = "train_stats.json"
 RAW_DIR = "nurec"
+UNLIMITED = 0  # n_gaussians = 0: không giới hạn (bỏ voxel hoá)
+NO_VOXELIZE = "--no-voxelize"  # cờ của tools/nurec_predict.py
+MIN_GAUSSIANS = 100000
 
 
 class TrainNurecParams(BaseModel):
@@ -56,7 +59,8 @@ class TrainNurecParams(BaseModel):
     Attributes:
         model: Model phát hành dùng để dựng.
         n_gaussians: Số Gaussian sau khi ghép, cho mỗi lượt ``BATCH_CHUNKS`` đoạn (clip dài
-            dựng nhiều lượt nên tổng nhiều hơn).
+            dựng nhiều lượt nên tổng nhiều hơn). ``0`` là không giới hạn: vẫn ghép các đoạn nhưng
+            bỏ bước voxel hoá, giữ mọi Gaussian model dự đoán (PLY lớn hơn nhiều).
         max_chunks: Số đoạn thời gian ghép lại; ``0`` (mặc định) là tự tính để phủ hết clip:
             mỗi đoạn NuRec dài ``CHUNK_SECONDS`` giây, tối đa ``MAX_CHUNKS`` đoạn.
         include_dynamic: Dựng cả vật chuyển động (chỉ model ``pa-*``).
@@ -67,10 +71,20 @@ class TrainNurecParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     model: Literal["pa-multiview", "pa-front", "pq-front"] = "pa-multiview"
-    n_gaussians: int = Field(default=500000, ge=100000, le=8000000)
+    n_gaussians: int = Field(default=500000, ge=0, le=8000000)
     max_chunks: int = Field(default=0, ge=0, le=MAX_CHUNKS)
     include_dynamic: bool = False
     render_preview: bool = False
+
+    @field_validator("n_gaussians")
+    @classmethod
+    def _limit_or_unlimited(cls, value: int) -> int:
+        """``0`` (không giới hạn) hoặc từ ``MIN_GAUSSIANS`` trở lên."""
+        if value != UNLIMITED and value < MIN_GAUSSIANS:
+            raise ValueError(
+                f"n_gaussians phải là 0 (không giới hạn) hoặc ít nhất {MIN_GAUSSIANS}"
+            )
+        return value
 
 
 # Vai trò camera ngữ cảnh theo thứ tự chuẩn của NuRec (trước, chéo trái, chéo phải) → camera
@@ -138,9 +152,12 @@ def build_command(
     command = [
         str(nurec.nurec_python()), "-u", str(nurec.TOOLS_DIR / PREDICT_TOOL),
         "--model", params.model, "--ncore-path", str(clip), "--output-dir", str(output_dir),
-        "--merge", "--n-gaussians", str(params.n_gaussians),
-        "--max-chunks", str(params.max_chunks or 1),
+        "--merge", "--max-chunks", str(params.max_chunks or 1),
     ]  # fmt: skip
+    if params.n_gaussians == UNLIMITED:
+        command.append(NO_VOXELIZE)
+    else:
+        command += ["--n-gaussians", str(params.n_gaussians)]
     if params.include_dynamic:
         command.append("--include-dynamic")
     if params.render_preview:

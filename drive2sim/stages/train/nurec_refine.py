@@ -7,7 +7,9 @@ tương phản thấp hơn ảnh thật nhiều). Stage này lấy ``scene_nurec
    train của split trong clip (khung có trong phần test của split bị bỏ, để ``eval.ncore`` vẫn
    chấm trên khung chưa thấy).
 2. ``ncore_refine.py`` (môi trường chính, gsplat; camera mắt cá bằng 3DGUT): L1 + D-SSIM, giữ
-   nguyên số Gaussian (``strategy: mcmc`` thêm Gaussian, còn thử nghiệm).
+   nguyên số Gaussian (``strategy: mcmc`` thêm Gaussian, còn thử nghiệm). ``gpus`` > 1 (hoặc 0:
+   mọi GPU còn trống) chia clip theo quãng đường cho các GPU, mỗi GPU tối ưu một đoạn: PLY quá
+   lớn cho một GPU không phải tỉa, và xong nhanh gần ``gpus`` lần.
 
 Kết quả ``scene_nurec.ply`` cùng định dạng với PLY của ``train.nurec`` nên ``eval.ncore``,
 ``export.nurec_ply``, ``render.nurec_video``, ``render.carla`` đứng sau dùng luôn (đầu vào
@@ -48,6 +50,12 @@ class RefineParams(BaseModel):
         max_side: Ảnh có cạnh dài hơn bị thu nhỏ về cỡ này khi tối ưu.
         means_lr: Tốc độ học vị trí Gaussian (mét mỗi bước), giảm dần còn 1% ở bước cuối.
         ssim_weight: Trọng số D-SSIM trong hàm lỗi (phần còn lại là L1).
+        max_gaussians: PLY nhiều Gaussian hơn thì tỉa (giữ Gaussian đục nhất) trước khi tối ưu;
+            0 là tự tính theo VRAM trống (PLY "không giới hạn" của clip dài vượt 48 GB).
+        gpus: Số GPU tối ưu song song (chia clip theo quãng đường, mỗi GPU một đoạn); 0 là mọi
+            GPU còn trống. Chỉ dùng với ``strategy: none``.
+        overlap_m: Với nhiều GPU: Gaussian của đoạn khác trong chừng này mét quanh camera của một
+            đoạn được đưa vào làm ngữ cảnh khi tối ưu đoạn đó.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -58,6 +66,9 @@ class RefineParams(BaseModel):
     max_side: int = Field(default=1408, ge=256, le=4096)
     means_lr: float = Field(default=1e-3, gt=0, le=0.1)
     ssim_weight: float = Field(default=0.2, ge=0, le=1)
+    max_gaussians: int = Field(default=0, ge=0, le=500_000_000)
+    gpus: int = Field(default=1, ge=0, le=16)
+    overlap_m: float = Field(default=50.0, ge=0, le=1000)
 
 
 def train_indices(clip: dict, test_frames: list[int]) -> list[int]:
@@ -78,6 +89,8 @@ def refine_command(params: RefineParams, ply: Path, views: Path, out: Path) -> l
         "--out", str(out), "--iters", str(params.iters), "--strategy", params.strategy,
         "--cap-factor", str(params.cap_factor), "--max-side", str(params.max_side),
         "--means-lr", str(params.means_lr), "--ssim-weight", str(params.ssim_weight),
+        "--max-gaussians", str(params.max_gaussians), "--gpus", str(params.gpus),
+        "--overlap-m", str(params.overlap_m),
     ]  # fmt: skip
 
 
@@ -85,7 +98,7 @@ def refine_command(params: RefineParams, ply: Path, views: Path, out: Path) -> l
 class TrainNurecRefineStage(Stage):
     """Tối ưu tiếp PLY của Instant NuRec trên các khung train của clip NCore."""
 
-    version: ClassVar[str] = "0.1.0"
+    version: ClassVar[str] = "0.3.0"
     cacheable: ClassVar[bool] = False
     uses_lidar: ClassVar[bool] = False
     inputs: ClassVar[dict[str, str]] = {"model": "model", "clip": "ncore_clip", "split": "split"}

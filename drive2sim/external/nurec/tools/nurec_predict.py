@@ -10,6 +10,11 @@ clip trong một lượt thì bước ghép hết VRAM (29 đoạn: hơn 47 GB).
 mỗi lượt ngay khi lượt đó ghi xong thành ``<sequence>_partNN.*``; stage ``train.nurec`` ghép các
 phần lại thành một PLY cho cả clip.
 
+``--no-voxelize`` (của drive2sim, không chuyển cho NuRec): vẫn ghép các đoạn (``--merge``) nhưng
+bỏ bước voxel hoá lớp tĩnh, nên giữ mọi Gaussian model dự đoán thay vì gộp về ``--n-gaussians``.
+NuRec gắn voxel hoá với ``--merge`` (``PrimitiveMergeConfig.enable_voxelization = merge``), nên
+script thay ``KelvinPrimitiveMerge._maybe_voxelize_static_layer`` bằng hàm trả nguyên đầu vào.
+
 Chạy bằng Python của venv NuRec, thư mục làm việc là thư mục mã NuRec.
 """
 
@@ -19,6 +24,7 @@ import sys
 from pathlib import Path
 
 PART_TAG = "_part"
+NO_VOXELIZE = "--no-voxelize"
 
 
 def rename_outputs(ply_dir: Path, part: int) -> list[Path]:
@@ -54,7 +60,16 @@ def main() -> int:
         parts[0] += 1
 
     cls.on_predict_batch_end = on_predict_batch_end
-    return cli.main(sys.argv[1:])
+    args = sys.argv[1:]
+    if NO_VOXELIZE in args:
+        from instant_nurec.predict import primitive_merge
+
+        args = [a for a in args if a != NO_VOXELIZE]
+        primitive_merge.KelvinPrimitiveMerge._maybe_voxelize_static_layer = (
+            lambda self, primitive: primitive
+        )
+        print("Không giới hạn số Gaussian: bỏ bước voxel hoá khi ghép", flush=True)
+    return cli.main(args)
 
 
 if __name__ == "__main__":

@@ -419,3 +419,30 @@ def test_nurec_accepts_custom_gaussian_count() -> None:
     assert not spec.accepts(50000) and not spec.accepts(9000000)
     assert not spec.accepts(1500000.5) and not spec.accepts(True) and not spec.accepts("2000000")
     assert train_nurec.TrainNurecParams(n_gaussians=3500000).n_gaussians == 3500000
+    assert spec.accepts(0)  # Không giới hạn
+
+
+def test_unlimited_gaussians_skips_voxelization(nurec_home: Path, tmp_path: Path) -> None:
+    params = train_nurec.TrainNurecParams(n_gaussians=0)
+    command = train_nurec.build_command(params, tmp_path / "c.json", tmp_path / "out", ["cam"])
+    assert train_nurec.NO_VOXELIZE in command and "--n-gaussians" not in command
+    assert "--merge" in command
+    limited = train_nurec.build_command(
+        train_nurec.TrainNurecParams(n_gaussians=200000), tmp_path / "c.json", tmp_path, ["cam"]
+    )
+    assert limited[limited.index("--n-gaussians") + 1] == "200000"
+    assert train_nurec.NO_VOXELIZE not in limited
+    with pytest.raises(ValueError):
+        train_nurec.TrainNurecParams(n_gaussians=50000)
+
+
+def test_refine_command_passes_gpus(tmp_path: Path) -> None:
+    from drive2sim.stages.train import nurec_refine
+
+    params = nurec_refine.RefineParams(iters=1000, gpus=0, overlap_m=30)
+    command = nurec_refine.refine_command(
+        params, tmp_path / "a.ply", tmp_path / "v.npz", tmp_path / "o"
+    )
+    assert command[command.index("--gpus") + 1] == "0"
+    assert command[command.index("--overlap-m") + 1] == "30.0"
+    assert nurec_refine.RefineParams().gpus == 1  # mặc định một GPU như trước
