@@ -4,6 +4,8 @@ Ma trận chạy (11 run ưu tiên 1, khoảng 27 GPU-giờ trên RTX 4090 thuê
 
 Script chuẩn bị: `drive2sim/scripts/setup_benchmark_week04.py` (chỉ đọc và ghi file trong thư mục làm việc, không chạy GPU).
 
+**Cập nhật 27/11/2026 tối (mục 6):** đợt 3 chốt OmniRe 3DGEER + FastGS; W1 đổi sang một segment Waymo đi xa hơn (chọn trong 8 ứng viên High-speed của NOTR bằng `waymo-stats`, đặt `D2S_W1_INDEX`), dùng cả segment; #8 (MCGS-SLAM) chuyển sang W1; đợt 4 chạy lại mọi run W1; R3 tạm bỏ qua; `d2s benchmark` có nhóm chunked cho #11; #9 NuRec bỏ, #13, #14 làm nếu thừa thời gian. Các mục 1–5 dưới đây mô tả W1 cũ (chỉ số 23) và giữ làm ghi chép.
+
 ## 1. Cảnh và split
 
 Ba cảnh. **Pinhole xếp hạng trên Waymo (W1), không trên KITTI-360** (quyết định 26/11/2026): pinhole của KITTI-360 chỉ train một camera trước (`image_00`; `image_01` giữ để đo R2), không giống cách các method và dataset khác dùng nhiều camera quanh xe. W1 train cả 5 camera Waymo nhưng không có camera nào để giữ lại đo R2 (camera Waymo chồng nhau rất ít), nên R2 không áp dụng ở các nhóm W1 và phân xử hoà đi thẳng sang R3 rồi thời gian train. KITTI-360 giữ cho R2 (A1, chạy thử), fisheye (A2), cảnh có người (A3), quãng dài (B2) và track C. Đợt sau: Argoverse 2 (7 camera vòng và cặp stereo trước, có thể giữ một camera stereo để đo R2; cần thêm camera stereo vào preprocess và loader).
@@ -132,3 +134,42 @@ Kết quả đầy đủ ở `benchmark_week04_wave2_results.md`. Tóm tắt:
 - Run: #4 (`76e9`, 29,02 dB), #6 (`7a64`, 22,61 dB, `image_00` 25,37 dB hơn #5), #7 (`fa62`, 19,24 dB), #8 (`3902`, 10,25 dB, ATE 21,1 m).
 - Lỗi gặp và cách sửa: 3DGEER điểm chính lệch tâm (đạt trên GPU); MCGS 2 thư mục (đạt một phần); `lidar=false` PVG chia 0 (`single.py`, thời gian điểm ngẫu nhiên); MCGS `--buffer` nhỏ (`train.mcgs` 0.1.1); MCGS mốc thời gian camera trùng ở chuỗi dài hơn 500 khung (`install_mcgs.sh` sửa `500*i`); đường truyền về máy mình 300 KB/s (up thẳng lên Drive bằng `rclone`, `D2S_PULL_LIGHT=1` cho `vast.sh pull`, `envs/vast_autopull.sh`); `waymo-auth` không có tty (FIFO).
 - Chưa chạy đợt 3 (chờ K chốt `--alb-winner`, cần nạp thêm credit).
+
+## 6. Quyết định 27/11/2026 tối: đợt 3, đổi W1, đợt 4
+
+Các quyết định của K sau khi xem kết quả đợt 2:
+
+- **Đợt 3 chốt OmniRe 3DGEER + FastGS** (`omnire renderer=3dgeer fastgs=true`, `A_LB_CHOSEN` trong script). Thắng A-L là PVG (`A_L_CHOSEN`). Hai giá trị này giờ là mặc định của `--alb-winner`, `--al-winner`, và `commands` in sẵn lệnh của run thắng: `bash envs/vast.sh wave 3` chạy #10 và 6 chunk của #11 mà không cần thêm tham số.
+- **Đổi W1 sang segment Waymo đi xa hơn.** W1 cũ (chỉ số 23, khung 0–149) chỉ có quãng đường ngắn. Segment Waymo nào cũng dài khoảng 20 giây, nên "đi xa" nghĩa là xe chạy nhanh. Ứng viên là 8 segment nhóm High-speed của Diverse-56 trong NOTR (EmerNeRF): chỉ số 2, 41, 46, 62, 71, 73, 82, 83 của `waymo_train_list.txt` (`WAYMO_W1_CANDIDATES`). W1 mới dùng **cả segment** (khoảng 198 khung), không cắt 150 khung. Chọn W1:
+  1. `bash envs/week04_vast.sh data-waymo`: tải và ingest mọi ứng viên (đặt `W1_CANDIDATES="41 46"` để chỉ tải vài cái), xong thì in `waymo-stats`.
+  2. `python -m drive2sim.scripts.setup_benchmark_week04 waymo-stats`: bảng quãng đường, tốc độ, độ đổi hướng, số xe, người, vật chạy, quãng đường dài trước. Chọn segment đi xa mà vẫn có xe chạy và người (A-LB cần box có vật động).
+  3. `export D2S_W1_INDEX=<chỉ số>` ở **máy mình** (hoặc thêm vào `.vast.env`). `envs/vast.sh` chuyển biến này sang mọi lệnh trên máy thuê; `definition` ở máy mình cũng cần nó vì nhận run theo `scene_id`. Chưa đặt thì W1 là ứng viên đầu (chỉ số 2), **tạm thời**.
+- **#8 (MCGS-SLAM) chuyển sang W1**, ba camera trước (`--set prep.mcgs.cameras=FRONT,FRONT_LEFT,FRONT_RIGHT`; cùng độ phân giải 1920×1280, hai camera bên 1920×886). Nhóm `B` của file định nghĩa giờ là `W1 MCGS-SLAM`; split `every8_pinhole2` trên cảnh dài bỏ. Run `3902` (10,25 dB trên cảnh dài) giữ làm ghi chép, không vào bảng mới.
+- **Đợt 4: chạy lại mọi run W1 trên W1 mới**: #1, #2, #3, #4 (PVG `lidar=false`), #8; `--p2` thêm #13 (BezierGS). Run W1 cũ (`c40a`, `76e9`, …) nằm trên cảnh khác nên `definition` tự bỏ. Khoảng 15,8 GPU-giờ (17,5 với #13; ước lượng cũ nhân 1,3 vì khung nhiều hơn). Không phụ thuộc đợt 3 nên chạy cùng máy, mỗi GPU một hàng đợi được.
+- **R3 tạm bỏ qua** (benchmark có thể đổi lại): không điều tra gap pinhole, không kiểm PVG trong `TIME_VARYING_METHODS` ở đợt này.
+- **Tool còn thiếu:** nhóm chunked đã có trong `d2s benchmark` (dưới đây); SplatAD (#14) và BezierGS (#13) chỉ làm nếu thừa thời gian; Instant NuRec (#9) đã có người test nên bỏ khỏi benchmark này.
+
+### Nhóm chunked (#11)
+
+File định nghĩa `d2s-benchmark/0.3` có thêm danh sách `chunked`: mỗi mục là một lần dựng chia chunk (`label`, `scene_id`, `chunks: [{split_id, run_id}, …]`). `definition` tự ghi mục #11 từ run mới nhất của mỗi chunk `every8_stereo_c1` … `c6` với cấu hình thắng A-LB; dưới hai chunk xong thì bỏ, thiếu vài chunk thì ghi kèm ghi chú. `d2s benchmark` (`drive2sim/engine/chunked.py`) gộp `frames.jsonl` các chunk:
+
+- chỉ số khung đưa về chỉ số của cảnh (DriveStudio ghi chỉ số tính từ khung đầu của split), vị trí lấy từ `ego_pose/` của cảnh (vị trí camera của mỗi chunk tính trong hệ riêng của chunk đó);
+- trong đoạn chồng 10 khung, nửa đầu thuộc chunk trước, nửa sau thuộc chunk sau, nên mỗi ảnh test đếm một lần;
+- báo PSNR, SSIM, LPIPS, Avg gộp, R2 trên `image_01`, quãng đường, tổng thời gian train, s/100 m, MB `.ply`/100 m, đoạn hỏng trên trục gộp;
+- với mỗi chỗ nối: PSNR các khung test trong ±24 khung quanh giữa đoạn chồng, mức kém hơn trung vị cả lần dựng, và PSNR của hai chunk trên khung test chung của đoạn chồng.
+
+Mục chunked không xếp hạng cùng `groups`; so tay với run một khối trên cùng cảnh. Chưa chạy trên run chunk thật. Kiểu TypeScript của Studio (`src/api/generated/`) chưa sinh lại: chạy `npm run types`.
+
+### Lệnh
+
+```bash
+export D2S_W1_INDEX=<chỉ số đã chọn>
+bash envs/week04_vast.sh data-waymo                  # nếu máy mới: tải, ingest ứng viên, in waymo-stats
+bash envs/vast.sh exec 'python -m drive2sim.scripts.setup_benchmark_week04 splits'
+BENCH_GPUS=0 bash envs/vast.sh wave 3                # #10, 6 chunk #11 (OmniRe 3DGEER + FastGS)
+BENCH_GPUS=1 bash envs/vast.sh wave 4 --p2           # W1 mới: #1–#4, #8, #13
+bash envs/vast.sh pull
+python -m drive2sim.scripts.setup_benchmark_week04 definition && d2s benchmark benchmarks/week04.yaml
+```
+
+Chưa kiểm trên máy thật: `prep.mcgs` với ba camera Waymo và VRAM ở độ phân giải gốc; ingest các segment ứng viên; `approach check` trên W1 mới (bench_queue.sh kiểm đầu hàng đợi).
