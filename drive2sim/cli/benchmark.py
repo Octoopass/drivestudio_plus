@@ -10,6 +10,7 @@ from pathlib import Path
 
 from drive2sim.cli.output import UsageError, emit, format_table, info
 from drive2sim.core import files
+from drive2sim.core.schema import BenchmarkChunkedGroup
 from drive2sim.engine.benchmark import run_benchmark
 from drive2sim.engine.workdir import Workdir
 
@@ -35,6 +36,53 @@ def register(
 def _value(value: object, digits: int = 2) -> str:
     """Viết số với ``digits`` chữ số thập phân; ``None`` thành ``–`` (chưa đo)."""
     return "–" if value is None else f"{value:.{digits}f}"
+
+
+def _chunked_block(item: BenchmarkChunkedGroup) -> str:
+    """Khối chữ của một lần dựng chia chunk: số gộp, từng chunk và từng chỗ nối."""
+    lines = [
+        f"track {item.bench_track}, chia chunk: {item.label} ({item.scene_id}, "
+        f"{len(item.chunks)} chunk, {', '.join(item.approach_ids)})",
+        f"gộp: PSNR {_value(item.psnr)}, SSIM {_value(item.ssim, 3)}, LPIPS "
+        f"{_value(item.lpips, 3)}, Avg {_value(item.avg_error, 4)}, R2 cc "
+        f"{_value(item.shift_psnr_cc)}, quãng đường {_value(item.distance_m, 0)} m, train "
+        f"{_value(item.train_time_s / 60 if item.train_time_s is not None else None, 1)} phút "
+        f"({_value(item.train_s_per_100m, 0)} s/100 m), .ply {_value(item.ply_mb_per_100m, 1)} "
+        "MB/100 m",
+        format_table(
+            ["chunk", "run_id", "khung", "PSNR", "phút", "VRAM"],
+            [
+                [
+                    c.split_id,
+                    c.run_id,
+                    f"{c.frame_range[0]}–{c.frame_range[1]}",
+                    _value(c.psnr),
+                    _value(c.train_time_s / 60 if c.train_time_s is not None else None, 1),
+                    c.peak_vram_mb or "–",
+                ]
+                for c in item.chunks
+            ],
+        ),
+        format_table(
+            ["nối", "đoạn chồng", "m", "PSNR quanh", "kém trung vị", "chồng: trước / sau"],
+            [
+                [
+                    f"{s.index}|{s.index + 1}",
+                    f"{s.overlap[0]}–{s.overlap[1]}" if s.overlap else "hở",
+                    _value(s.at_m, 0),
+                    f"{_value(s.psnr_near)} ({s.num_frames} khung)",
+                    _value(s.drop_db),
+                    f"{_value(s.overlap_psnr_before)} / {_value(s.overlap_psnr_after)} "
+                    f"({s.overlap_frames})",
+                ]
+                for s in item.seams
+            ],
+        ),
+    ]
+    segments = sum(len(v) for v in item.bad_segments.values())
+    lines.append(f"đoạn xấu: {segments if item.frames_measured else '–'}")
+    lines.extend(f"cảnh báo: {w}" for w in item.warnings)
+    return "\n".join(lines)
 
 
 def benchmark(args: argparse.Namespace) -> int:
@@ -93,5 +141,6 @@ def benchmark(args: argparse.Namespace) -> int:
         )
         lines.extend(f"cảnh báo: {w}" for w in group.warnings)
         blocks.append("\n".join(lines))
+    blocks.extend(_chunked_block(item) for item in result.chunked)
     emit(args, result.model_dump(mode="json"), "\n\n".join(blocks))
     return 0
