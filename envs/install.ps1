@@ -58,7 +58,8 @@ Step "3 drive2sim + Studio"
 $D2sExe = Join-Path $Venv "Scripts\d2s.exe"
 $busy = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $D2sExe }
 if ($busy) { throw "Studio đang chạy từ venv này (pid $($busy.Id -join ', ')): tắt nó trước (npx github:thaianh20021/drive2sim stop, hoặc đóng cửa sổ Studio) rồi chạy lại" }
-Run uv pip install --python $Py -e "$Src[studio]"
+# [ingest]: nạp cảnh PHENIKAA trên máy không có môi trường GPU.
+Run uv pip install --python $Py -e "$Src[studio,ingest]"
 
 Step "4 Kaggle CLI, Colab CLI"
 if ($SkipTools) { Write-Host "bỏ qua (-SkipTools)" } else {

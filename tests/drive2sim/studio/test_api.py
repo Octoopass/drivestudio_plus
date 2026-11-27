@@ -761,3 +761,68 @@ def test_draft_discard_rejects_stale_revision(client: TestClient) -> None:
     result = client.delete(url, params={"revision": ego_mask_tool.revision(root, camera)})
     assert result.status_code == 200 and not draft.exists()
     assert result.json()["revision"] == ego_mask_tool.revision(root, camera)
+
+
+def test_ingest_passes_calib_and_cameras_to_the_converter(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Studio nhận các tuỳ chọn của scene ingest: calib để riêng, chọn camera (PHENIKAA)."""
+    from drive2sim.studio.api.routes import sources
+    from tests.drive2sim.ingest.test_phenikaa_inspect import make_tree
+
+    raw = make_tree(tmp_path / "raw", calib=False)
+    calib = make_tree(tmp_path / "elsewhere") / "calib"
+    report = client.post("/api/sources/inspect", json={"path": str(raw)}).json()
+    assert report["dataset"] == "phenikaa" and report["suggested_args"][0] == "--calib"
+    assert any("--calib" in error for error in report["errors"])
+    fixed = client.post("/api/sources/inspect", json={"path": str(raw), "calib": str(calib)})
+    assert fixed.json()["errors"] == []
+
+    seen: dict = {}
+
+    def fake_ingest(raw_dir: Path, workdir: object, target: object, **kwargs: object) -> Path:
+        seen.update(kwargs)
+        scene = tmp_path / "scene"
+        scene.mkdir(exist_ok=True)
+        return scene
+
+    monkeypatch.setattr(sources, "run_ingest", fake_ingest)
+    monkeypatch.setattr(sources, "scene_reports", lambda directory: None)
+    job = client.post(
+        "/api/sources/ingest",
+        json={"path": str(raw), "calib": str(calib), "cameras": ["CAM_P_F"]},
+    )
+    assert job.status_code == 202
+    client.app.state.studio.jobs.wait_idle()
+    assert seen["phenikaa_options"].calib_dir == calib
+    assert seen["phenikaa_options"].cameras == ("CAM_P_F",)
+    bad = client.post("/api/sources/ingest", json={"path": str(raw), "num_frames": 0})
+    assert bad.status_code == 400
+
+
+def test_ingest_passes_kitti360_frame_range_and_cameras(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from drive2sim.studio.api.routes import sources
+    from tests.drive2sim.ingest.test_kitti360 import make_raw
+
+    raw = make_raw(tmp_path / "raw")
+    seen: dict = {}
+
+    def fake_ingest(raw_dir: Path, workdir: object, target: object, **kwargs: object) -> Path:
+        seen.update(kwargs)
+        scene = tmp_path / "scene"
+        scene.mkdir()
+        return scene
+
+    monkeypatch.setattr(sources, "run_ingest", fake_ingest)
+    monkeypatch.setattr(sources, "scene_reports", lambda directory: None)
+    response = client.post(
+        "/api/sources/ingest",
+        json={"path": str(raw), "cameras": ["image_00"], "start_frame": 8, "num_frames": 3},
+    )
+    assert response.status_code == 202
+    client.app.state.studio.jobs.wait_idle()
+    options = seen["kitti360_options"]
+    assert options.cameras == ("image_00",)
+    assert options.start_frame == 8 and options.num_frames == 3

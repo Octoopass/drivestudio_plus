@@ -31,6 +31,11 @@ def register(
         "inspect", parents=[common], help="nhận ra dataset, báo có gì, gợi ý lệnh ingest"
     )
     inspect_parser.add_argument("path", type=Path)
+    inspect_parser.add_argument(
+        "--calib",
+        type=Path,
+        help="PHENIKAA: thư mục calib khi nó không nằm cạnh các chuỗi (như --calib của ingest)",
+    )
     inspect_parser.set_defaults(handler=inspect)
 
 
@@ -40,14 +45,25 @@ def _yes_no(value: object) -> str:
 
 
 def _suggestion(report: SourceReport) -> str:
-    """Dựng lệnh ingest gợi ý cho một nguồn đã nhận ra."""
+    """Dựng lệnh ingest gợi ý cho một nguồn đã nhận ra.
+
+    Kèm các tuỳ chọn bắt buộc mà ``inspect`` thấy thiếu (``report.suggested_args``, ví dụ
+    ``--calib``) và ``--calib`` người dùng đã truyền, để lệnh chép ra chạy được ngay.
+    """
     # Đặt trong ngoặc khi cần: tên chuỗi, đường dẫn có thể có dấu cách (PHENIKAA: COMPLEX CITY).
     command = f"d2s scene ingest {shlex.quote(str(report.path))} --source-type {report.dataset}"
     for version, sequences in report.versions.items():
         if sequences:
             if version:
                 command += f" --version {shlex.quote(version)}"
-            return command + f" --sequence {shlex.quote(sequences[0])}"
+            command += f" --sequence {shlex.quote(sequences[0])}"
+            break
+    if report.calib:
+        command += f" --calib {shlex.quote(str(report.calib))}"
+    elif report.suggested_args:
+        command += " " + " ".join(
+            arg if arg.startswith("<") else shlex.quote(arg) for arg in report.suggested_args
+        )
     return command
 
 
@@ -63,7 +79,7 @@ def inspect(args: argparse.Namespace) -> int:
     Raises:
         FileNotFoundError: Nếu thư mục không tồn tại; ``main`` đổi thành lỗi ``not_found``.
     """
-    report = inspect_source(args.path)
+    report = inspect_source(args.path, getattr(args, "calib", None))
     lines = [f"nhận ra:  {report.dataset or 'không nhận ra'}"]
     for version, sequences in report.versions.items():
         shown = ", ".join(sequences[:5]) + (", ..." if len(sequences) > 5 else "")
@@ -89,7 +105,9 @@ def inspect(args: argparse.Namespace) -> int:
             )
     lines += report.notes
     lines += [f"lỗi:      {error}" for error in report.errors]
-    if report.ingest_supported:
+    if report.ingest_supported and not report.errors:
         lines.append(f"lệnh tiếp theo:\n  {_suggestion(report)}")
+    elif report.ingest_supported:
+        lines.append("khắc phục các lỗi trên rồi chạy lại d2s source inspect trước khi ingest")
     emit(args, report.to_dict(), "\n".join(lines))
     return 0

@@ -35,11 +35,17 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
   const [filter, setFilter] = useState("");
   const [sceneId, setSceneId] = useState("");
   const [interpolate, setInterpolate] = useState(4);
+  // Lựa chọn riêng của converter (như --calib, --cameras, --start-frame, --num-frames của CLI).
+  const [calib, setCalib] = useState("");
+  const [cameras, setCameras] = useState<string[]>([]); // rỗng: mặc định của converter
+  const [startFrame, setStartFrame] = useState(0);
+  const [numFrames, setNumFrames] = useState("");
 
   const [picking, setPicking] = useState(false);
   const [inspected, setInspected] = useState("");
+  const [inspectedCalib, setInspectedCalib] = useState("");
 
-  const inspect = async (target: string = path) => {
+  const inspect = async (target: string = path, calibDir: string = calib) => {
     setBusy(true);
     setError(null);
     setReport(null);
@@ -49,9 +55,11 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
       // không lưu được đường dẫn: bỏ qua
     }
     try {
-      const result = await post<SourceReport>("/api/sources/inspect", { path: target });
+      const result = await post<SourceReport>("/api/sources/inspect", { path: target, calib: calibDir.trim() || null });
       setReport(result);
       setInspected(target);
+      setInspectedCalib(calibDir.trim());
+      setCameras((chosen) => chosen.filter((c) => result.cameras.includes(c)));
       const versions = Object.keys(result.versions);
       setVersion(versions[0] ?? "");
       setSequence(versions.length ? result.versions[versions[0]][0] ?? "" : "");
@@ -64,14 +72,19 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
 
   // Hộp thoại chọn thư mục của hệ điều hành, mở trên máy chạy Studio (trình duyệt không cho biết
   // đường dẫn thật). Chọn xong thì điền vào ô và xem thư mục luôn.
-  const pick = async () => {
+  const pick = async (forCalib = false) => {
     setPicking(true);
     setError(null);
     try {
-      const result = await post<{ path: string | null }>("/api/pick-folder", { start: path || null });
+      const result = await post<{ path: string | null }>("/api/pick-folder", { start: (forCalib ? calib : path) || null });
       if (result.path) {
-        setPath(result.path);
-        await inspect(result.path);
+        if (forCalib) {
+          setCalib(result.path);
+          await inspect(inspected || path, result.path);
+        } else {
+          setPath(result.path);
+          await inspect(result.path);
+        }
       }
     } catch (err) {
       setError(asApiError(err));
@@ -98,6 +111,10 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
         sequence,
         scene_id: effectiveId || null,
         interpolate_n: interpolate,
+        calib: calib.trim() || null,
+        cameras: cameras.length ? cameras : null,
+        start_frame: startFrame,
+        num_frames: numFrames ? Number(numFrames) : null,
       });
       toast({ kind: "ok", title: t("ingest.toast.queued"), detail: job.label });
       live.refreshJobs();
@@ -117,6 +134,11 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
   const inProgress = live.jobs.some((job) => job.kind === "ingest" && job.target === `scene:${effectiveId}` && (job.status === "queued" || job.status === "running"));
   const nameWarning = duplicate ? t("ingest.scene_exists", { name: effectiveId }) : inProgress ? t("ingest.scene_busy", { name: effectiveId }) : null;
   const versions = Object.keys(report?.versions ?? {});
+  const hasOptions = report?.dataset === "phenikaa" || report?.dataset === "kitti360";
+  // Lỗi inspect làm ingest hỏng (thiếu calib, thiếu LiDAR...): khoá nút cho tới khi sửa và xem lại.
+  // nuScenes thiếu sweeps/ vẫn nạp được khi tắt nội suy (interpolate = 0).
+  const blocked = (Boolean(report?.errors?.length) && !(report?.dataset === "nuscenes" && interpolate === 0))
+    || (report?.dataset === "phenikaa" && calib.trim() !== inspectedCalib);
 
   return (
     <Drawer
@@ -128,7 +150,7 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
           <button className="btn" onClick={onClose}>
             {t("common.action.cancel")}
           </button>
-          <button className="btn primary" onClick={ingest} disabled={!report?.ingest_supported || !sequence || busy || Boolean(nameWarning) || (interpolate > 0 && Boolean(report?.missing_sweeps?.length))}>
+          <button className="btn primary" onClick={ingest} disabled={!report?.ingest_supported || !sequence || busy || blocked || Boolean(nameWarning) || (interpolate > 0 && Boolean(report?.missing_sweeps?.length))}>
             {t("ingest.action.start")}
           </button>
         </>
@@ -148,7 +170,7 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
         <button
           className="btn icon"
           type="button"
-          onClick={() => void pick()}
+          onClick={() => void pick(false)}
           disabled={busy || picking}
           title={picking ? t("ingest.action.picking") : t("ingest.action.pick")}
           aria-label={t("ingest.action.pick")}
@@ -258,6 +280,24 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
                   <span className="small muted">{t("ingest.scene_name_preview", { name: effectiveId })}</span>
                   {nameWarning && <span id="ingest-scene-name-warning" className="small" role="status" style={{ color: "var(--warn)" }}>{nameWarning}</span>}
                 </label>
+                {report.dataset === "kitti360" && (
+                  <>
+                    <label className="field">
+                      <span>
+                        {t("ingest.field.start_frame")}
+                        <InfoTip>{t("ingest.field.start_frame_hint")}</InfoTip>
+                      </span>
+                      <input type="number" min={0} value={startFrame} onChange={(e) => setStartFrame(Math.max(0, Number(e.target.value)))} />
+                    </label>
+                    <label className="field">
+                      <span>
+                        {t("ingest.field.num_frames")}
+                        <InfoTip>{t("ingest.field.num_frames_hint")}</InfoTip>
+                      </span>
+                      <input type="number" min={1} value={numFrames} placeholder={t("ingest.field.num_frames_all")} onChange={(e) => setNumFrames(e.target.value)} />
+                    </label>
+                  </>
+                )}
                 {report.dataset === "nuscenes" && (
                   <label className="field">
                     <span>
@@ -268,8 +308,55 @@ export function IngestDrawer({ onClose }: { onClose: () => void }) {
                   </label>
                 )}
               </div>
+              {hasOptions && report.cameras.length > 0 && (
+                <fieldset className="field">
+                  <span>
+                    {t("ingest.field.cameras")}
+                    <InfoTip>{t(`ingest.field.cameras_hint.${report.dataset}`)}</InfoTip>
+                  </span>
+                  <div className="row wrap" style={{ gap: 10 }}>
+                    {report.cameras.map((camera) => (
+                      <label key={camera} className="row" style={{ gap: 5 }}>
+                        <input
+                          type="checkbox"
+                          checked={cameras.includes(camera)}
+                          onChange={(e) => setCameras((chosen) => (e.target.checked ? [...chosen, camera] : chosen.filter((c) => c !== camera)))}
+                        />
+                        <span className="mono small">{camera}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <span className="small muted">{cameras.length ? t("ingest.field.cameras_chosen", { count: cameras.length }) : t("ingest.field.cameras_default")}</span>
+                </fieldset>
+              )}
             </div>
           )}
+          {report.dataset === "phenikaa" && (
+            <form
+              className="row"
+              style={{ marginTop: 12 }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                void inspect(inspected || path);
+              }}
+            >
+              <label className="field grow">
+                <span>
+                  {t("ingest.field.calib")}
+                  <InfoTip>{t("ingest.field.calib_hint")}</InfoTip>
+                </span>
+                <input type="text" value={calib} onChange={(e) => setCalib(e.target.value)} placeholder={t("ingest.field.calib_placeholder")} spellCheck={false} />
+              </label>
+              <button className="btn icon" type="button" onClick={() => void pick(true)} disabled={busy || picking} aria-label={t("ingest.action.pick")} title={t("ingest.action.pick")} style={{ alignSelf: "flex-end" }}>
+                <FolderOpen size={19} />
+              </button>
+              <button className="btn" type="submit" disabled={busy} style={{ alignSelf: "flex-end" }}>
+                <FolderSearch size={19} />
+                {t("ingest.action.recheck")}
+              </button>
+            </form>
+          )}
+          {blocked && report.ingest_supported && <Note kind="warn">{t("ingest.blocked")}</Note>}
         </>
       )}
     </Drawer>

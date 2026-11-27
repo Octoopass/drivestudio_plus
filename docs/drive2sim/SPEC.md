@@ -63,6 +63,11 @@ Muốn thử lựa chọn khác thì quay lại bước 4, đổi mục cấu h�
 
 Trên giao diện có thể cho chọn approach sớm để người dùng biết trước, nhưng việc xử lý dữ liệu luôn đi theo thứ tự trên. Mọi bước đều làm được bằng CLI (`d2s <nhóm> <hành động>`, `CONTRACTS.md` mục 10.4), không bắt buộc qua Studio; Studio và CLI dùng chung một bước kiểm tra điều kiện và ràng buộc.
 
+Khi nhập PHENIKAA, bước xem nguồn phải báo camera thực có ảnh, camera bị bỏ vì thiếu ảnh,
+LiDAR và nhãn box trên đĩa. Nếu thiếu dữ liệu bắt buộc, CLI yêu cầu khắc phục rồi xem lại nguồn;
+Studio khoá nút Nạp. Studio cho chỉ định calib để riêng và camera cần nhập; sửa đường dẫn calib
+phải kiểm tra lại trước khi nạp. Với KITTI-360, Studio cho chọn thêm khung đầu và số khung.
+
 ## 6. Dữ liệu
 
 Hiện trạng loader (26/11/2026): KITTI-360 và PHENIKAA cùng dùng loader đọc manifest và khung dữ liệu KITTI. Config run đã lưu với tên loader cũ tiếp tục được hỗ trợ. Các dataset DriveStudio khác vẫn có loader riêng; định dạng chung cho mọi nguồn còn là thiết kế đích (ARCHITECTURE mục 2.4).

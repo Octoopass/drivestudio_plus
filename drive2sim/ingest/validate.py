@@ -33,11 +33,16 @@ thẳng, vẫn thấy LiDAR); hai lỗi này chỉ thấy khi xem ảnh chồng.
   khai quay sai.
 - ``projection.done`` (thông tin): đã chiếu LiDAR lên ảnh; lệch nhỏ vài pixel không đo tự động,
   xem ảnh chồng ở trang cảnh.
+- ``ingest.camera_skipped``: converter bỏ một camera của nguồn (``cameras_skipped`` dạng
+  ``{camera: lý do}`` trong ``reports/ingest.json``, hiện có ở PHENIKAA). Cảnh báo khi camera có
+  ảnh nhưng thiếu ở một số mốc (mất dữ liệu); thông tin khi nguồn không có ảnh của camera đó hoặc
+  người dùng không chọn nó.
 - ``converter.outdated`` (cảnh báo): cảnh được ingest bằng converter cũ (phiên bản đầu ra trong
   manifest khác phiên bản hiện tại, ``outdated_output_version``); cảnh vẫn dùng được.
 """
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -182,6 +187,7 @@ def validate_scene(scene_dir: Path, manifest: Manifest) -> ValidationReport:
                 details={"output_version": outdated[0], "current_output_version": outdated[1]},
             )
         )
+    checks.extend(ingest_checks(scene_dir))
     checks.extend(ego_mask_checks(scene_dir, manifest))
     checks.extend(projection_checks(scene_dir, manifest))
     return ValidationReport(
@@ -194,6 +200,43 @@ def validate_scene(scene_dir: Path, manifest: Manifest) -> ValidationReport:
         ),
         checks=checks,
     )
+
+
+def ingest_checks(scene_dir: Path) -> list[Check]:
+    """Tạo các mục kiểm tra giải thích camera bị bỏ trong lúc ingest.
+
+    Cảnh ingest trước khi converter ghi lý do (``cameras_skipped`` là danh sách) không có mục nào.
+
+    Args:
+        scene_dir: Thư mục cảnh có ``reports/ingest.json`` do converter ghi.
+
+    Returns:
+        Các mục cảnh báo khi mất một phần ảnh, hoặc thông tin khi không có ảnh hay không chọn
+        camera. Trả danh sách rỗng khi báo cáo không có hoặc không đọc được.
+    """
+    path = scene_dir / "reports" / "ingest.json"
+    try:
+        skipped = json.loads(path.read_text("utf-8")).get("cameras_skipped")
+    except (OSError, ValueError, AttributeError):
+        return []
+    if not isinstance(skipped, dict):
+        return []
+    checks = []
+    for camera, reason in skipped.items():
+        # "27/200 ảnh" (phenikaa.coverage_text): có ảnh nhưng thiếu, mất dữ liệu; lý do khác
+        # (không có thư mục ảnh, thư mục rỗng, không chọn) chỉ để biết.
+        lost = re.fullmatch(r"\d+/\d+ ảnh", str(reason)) is not None
+        checks.append(
+            Check(
+                check_id="ingest.camera_skipped",
+                severity="warning" if lost else "info",
+                message=f"bỏ camera {camera} khi ingest: {reason}"
+                + ("; chọn camera có đủ ảnh hoặc bổ sung ảnh còn thiếu" if lost else ""),
+                camera_id=None,
+                details={"camera": camera, "reason": reason},
+            )
+        )
+    return checks
 
 
 def ego_mask_checks(scene_dir: Path, manifest: Manifest) -> list[Check]:

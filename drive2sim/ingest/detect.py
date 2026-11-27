@@ -72,6 +72,10 @@ class SourceReport:
             nếu đủ hoặc không phải nuScenes.
         candidates: Khi không nhận ra dataset ở ``path``: các thư mục con hoặc cha có dataset,
             mỗi mục ``{"path", "dataset", "relation": "child" | "parent"}``.
+        calib: PHENIKAA: thư mục calib người dùng chỉ định (``--calib``), nếu có; dùng khi kiểm
+            calib thay cho ``calib/`` cạnh các chuỗi.
+        suggested_args: Tuỳ chọn phải thêm vào lệnh ingest gợi ý để nó chạy được, ví dụ
+            ``["--calib", "<thư mục calib>"]`` khi không thấy calib cạnh các chuỗi.
     """
 
     path: Path
@@ -85,6 +89,8 @@ class SourceReport:
     errors: list[str] = field(default_factory=list)
     missing_sweeps: list[str] = field(default_factory=list)
     candidates: list[dict[str, str]] = field(default_factory=list)
+    calib: Optional[Path] = None
+    suggested_args: list[str] = field(default_factory=list)
 
     @property
     def ingest_supported(self) -> bool:
@@ -106,6 +112,7 @@ class SourceReport:
             "errors": self.errors,
             "missing_sweeps": self.missing_sweeps,
             "candidates": self.candidates,
+            "suggested_args": self.suggested_args,
         }
 
 
@@ -276,10 +283,11 @@ def _detect_kitti360(root: Path, report: SourceReport) -> bool:
 
 
 def _detect_phenikaa(root: Path, report: SourceReport) -> bool:
-    """Nhận ra PHENIKAA: thư mục chuỗi có ``camera/CAM_*``, ``ego_pose/``, ``lidar/*.laz``.
+    """Nhận ra PHENIKAA: chuỗi có ``camera/CAM_*`` (không phân biệt hoa thường), ``ego_pose/``.
 
-    ``root`` là một chuỗi hoặc thư mục chứa các chuỗi (thường kèm ``calib/``). Chưa có ID theo dõi
-    cho box nên chưa có ``instances/``.
+    ``root`` là một chuỗi hoặc thư mục chứa các chuỗi (thường kèm ``calib/``). Camera, LiDAR và box
+    đọc từ dữ liệu trên đĩa, không từ danh sách cố định: bản export có thể thiếu camera, thiếu
+    ``lidar/`` hay ``label/``. Thiếu LiDAR vẫn nhận ra để báo lỗi rõ (converter cần LiDAR).
 
     Args:
         root: Thư mục nguồn.
@@ -288,25 +296,64 @@ def _detect_phenikaa(root: Path, report: SourceReport) -> bool:
     Returns:
         ``True`` nếu là PHENIKAA.
     """
-    sequences = phenikaa.find_sequences(root)
-    if not sequences or not any(
-        (path / "camera").glob("CAM_*") and any((path / "lidar").glob("*.laz"))
-        for path in sequences.values()
-    ):
+    sequences = {
+        name: path
+        for name, path in phenikaa.find_sequences(root).items()
+        if phenikaa.camera_dirs(path)
+    }
+    if not sequences:
         return False
     report.dataset = phenikaa.DATASET
     report.versions[""] = list(sequences)
-    report.cameras = list(phenikaa.CAMERAS)
-    report.has_lidar = True
-    report.has_cuboids = True
+    seen: set[str] = set()
+    without_lidar = []
+    for name, path in sequences.items():
+        stamps = [p.stem for p in (path / "ego_pose").glob("*.txt")]
+        coverage = phenikaa.camera_coverage(path, stamps)
+        seen.update(camera for camera, count in coverage.items() if count)
+        complete = [camera for camera, count in coverage.items() if count == len(stamps) > 0]
+        skipped = [
+            f"{camera} ({phenikaa.coverage_text(count, len(stamps))})"
+            for camera, count in coverage.items()
+            if camera not in complete
+        ]
+        line = (
+            f"{name}: {len(stamps)} mốc; camera có đủ ảnh: {', '.join(complete) or '(không có)'}"
+        )
+        if skipped:
+            line += f"; ingest mặc định bỏ: {', '.join(skipped)}"
+        report.notes.append(line)
+        if not any((path / "lidar").glob("*.laz")):
+            without_lidar.append(name)
+    report.cameras = [camera for camera in phenikaa.CAMERAS if camera in seen]
+    report.has_lidar = not without_lidar
+    report.has_cuboids = any(any((p / "label").glob("*.txt")) for p in sequences.values())
     report.notes.append(
         "box 3D của PHENIKAA không có ID theo dõi: converter tự nối box qua các khung "
         "(phenikaa_tracking); camera pinhole được khử méo khi ingest; mask thân xe kèm theo tool"
     )
+    if not report.has_cuboids:
+        report.notes.append(
+            "không có label/: cảnh ingest không có box 3D, nên approach cần box (OmniRe, Street "
+            "Gaussians, BezierGS) không chạy được"
+        )
+    missing = phenikaa.missing_modules()
+    if missing:
+        # Ghi chú, không phải lỗi: inspect có thể chạy ở nơi khác nơi ingest (Colab, Kaggle).
+        report.notes.append(
+            f"môi trường Python này thiếu {', '.join(missing)} nên ingest PHENIKAA trên máy này "
+            'sẽ lỗi; cài: pip install "drive2sim[ingest]" (envs/install.sh mới đã gồm phần này)'
+        )
+    if without_lidar:
+        report.errors.append(
+            f"không có LiDAR (lidar/<mốc>.laz) ở chuỗi {', '.join(without_lidar)}: converter "
+            "PHENIKAA cần LiDAR ở mọi mốc"
+        )
     try:
-        phenikaa.find_calib(next(iter(sequences.values())))
+        phenikaa.find_calib(next(iter(sequences.values())), report.calib)
     except phenikaa.IngestError as error:
         report.errors.append(str(error))
+        report.suggested_args = ["--calib", "<thư mục chứa Camera_Intrinsics.json>"]
     return True
 
 
@@ -520,7 +567,7 @@ def _inventory(root: Path) -> list[dict[str, object]]:
     return items
 
 
-def inspect_source(path: Path) -> SourceReport:
+def inspect_source(path: Path, calib: Optional[Path] = None) -> SourceReport:
     """Xem trước một thư mục dữ liệu gốc.
 
     Thử lần lượt từng loại nguồn theo dấu hiệu trong thư mục (``_DETECTORS``); PhysicalAI được thử
@@ -530,6 +577,7 @@ def inspect_source(path: Path) -> SourceReport:
 
     Args:
         path: Thư mục dữ liệu gốc.
+        calib: PHENIKAA: thư mục calib người dùng chỉ định (như ``--calib`` của ingest).
 
     Returns:
         ``SourceReport`` mô tả thư mục.
@@ -540,7 +588,7 @@ def inspect_source(path: Path) -> SourceReport:
     root = Path(path)
     if not root.is_dir():
         raise FileNotFoundError(f"không có thư mục {root}")
-    report = SourceReport(path=root)
+    report = SourceReport(path=root, calib=Path(calib).expanduser() if calib else None)
     unused = _unused_data(root)
     if any(detect(root, report) for detect in _DETECTORS):
         if unused:

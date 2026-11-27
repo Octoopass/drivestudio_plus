@@ -66,3 +66,13 @@ def test_schema_version_parse() -> None:
     assert identifiers.parse_schema_version("d2s-run/0.1") == ("run", 0, 1)
     with pytest.raises(ValueError):
         identifiers.parse_schema_version("run/0.1")
+
+
+def test_user_facing_messages_explain_the_rule() -> None:
+    """Tên cảnh, chiến lược split do người dùng gõ: lỗi nói rõ quy tắc bằng tiếng Việt."""
+    from drive2sim.core.schema import parse_strategy
+
+    with pytest.raises(ValueError, match="cần dạng <dataset>_<tên>"):
+        identifiers.check_scene_id("t3a")
+    with pytest.raises(ValueError, match="chiến lược split không hợp lệ: 'every10'"):
+        parse_strategy("every10")

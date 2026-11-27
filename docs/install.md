@@ -8,7 +8,7 @@ Linux, macOS, và script cho Windows. Cả ba tạo venv riêng trong `~/.drive2
 | Máy | Cài được gì | Chế độ |
 |---|---|---|
 | Linux có GPU NVIDIA | Đủ: Studio, CLI, môi trường train (PyTorch 2.4.1 + CUDA 12.1, gsplat-geer, nvdiffrast, pytorch3d), Instant NuRec, SDK dataset | `full` (mặc định khi có `nvidia-smi`) |
-| Linux không GPU, macOS | Studio + CLI: quản lý cảnh, chạy run trên GPU của Kaggle, Colab, xem kết quả, so sánh | `studio` |
+| Linux không GPU, macOS | Studio + CLI: quản lý cảnh, nạp cảnh PHENIKAA ngay trên máy (extra `ingest`: numpy, OpenCV, SciPy, laspy), chạy run trên GPU của Kaggle, Colab, xem kết quả, so sánh | `studio` |
 | Windows | Như macOS. Muốn train trên máy có GPU NVIDIA: cài WSL2 (Ubuntu) rồi dùng cách Linux bên trong WSL | `studio` |
 
 Chế độ `full` mất cỡ 1,5 giờ (build gsplat-geer, nvdiffrast, pytorch3d bằng `nvcc`; khi `nvcc`

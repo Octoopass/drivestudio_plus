@@ -100,7 +100,8 @@ fi
 PY="$VENV/bin/python"
 
 step "3 drive2sim + Studio"
-uv pip install --python "$PY" -e "$SRC[studio]"
+# [ingest]: nạp cảnh PHENIKAA ngay trên máy (numpy, OpenCV, SciPy, laspy), kể cả ở chế độ studio.
+uv pip install --python "$PY" -e "$SRC[studio,ingest]"
 
 step "4 Kaggle CLI, Colab CLI"
 if [ "$TOOLS" = 1 ]; then

@@ -37,6 +37,8 @@ File này chứa:
 - ``DATASET``, ``CAMERAS``, ``LIDAR_ID``: tên dataset, camera và LiDAR ghi vào manifest.
 - ``PhenikaaOptions``: lựa chọn khi ingest (camera).
 - ``find_sequences``, ``find_calib``: tìm chuỗi và calib trong thư mục nguồn.
+- ``camera_dirs``, ``camera_coverage``, ``coverage_text``: thư mục ảnh của từng camera (không phân
+  biệt hoa thường) và số mốc có ảnh, cho ingest và ``source inspect``.
 - ``read_calibration``: đọc và kiểm calib.
 - ``fisheye_max_angle``: góc lệch trục lớn nhất của ống kính mắt cá.
 - ``ingest_phenikaa``: hàm chính mà ``drive2sim/ingest/dispatch.py`` gọi.
@@ -46,6 +48,7 @@ import json
 import math
 import os
 import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
@@ -105,10 +108,92 @@ class PhenikaaOptions:
     calib_dir: Optional[Path] = None
 
 
+# Gói Python converter cần (tên import → tên gói khi cài), kiểm trước khi ghi gì.
+REQUIRED_MODULES = {
+    "numpy": "numpy",
+    "cv2": "opencv",
+    "scipy": "scipy",
+    "laspy": "laspy",
+    "lazrs": "lazrs",
+}
+
+
+def missing_modules() -> list[str]:
+    """Tìm thư viện còn thiếu trước khi nhận dạng hoặc ingest PHENIKAA.
+
+    Returns:
+        Danh sách tên gói chưa có module import; rỗng khi đủ thư viện của converter.
+    """
+    import importlib.util
+
+    return [
+        name for module, name in REQUIRED_MODULES.items() if not importlib.util.find_spec(module)
+    ]
+
+
 def _is_sequence(path: Path) -> bool:
-    return (
-        (path / "camera").is_dir() and (path / "ego_pose").is_dir() and (path / "lidar").is_dir()
-    )
+    # Không đòi lidar/: chuỗi thiếu LiDAR vẫn được nhận ra để báo đúng lỗi (ingest cần LiDAR).
+    return (path / "camera").is_dir() and (path / "ego_pose").is_dir()
+
+
+def camera_dirs(sequence_dir: Path) -> dict[str, Path]:
+    """Tìm thư mục ảnh theo tên camera PHENIKAA, không phân biệt hoa thường.
+
+    Bản export khác có thể đặt tên thư mục ``cam_f_b`` thay cho ``CAM_F_B``; thư mục không phải
+    camera PHENIKAA bị bỏ qua.
+
+    Args:
+        sequence_dir: Thư mục một chuỗi có thư mục con ``camera/``.
+
+    Returns:
+        Ánh xạ tên camera chuẩn sang đường dẫn trên đĩa; rỗng khi không có camera hợp lệ.
+    """
+    found: dict[str, Path] = {}
+    root = Path(sequence_dir) / "camera"
+    if root.is_dir():
+        for child in sorted(root.iterdir()):
+            name = child.name.upper()
+            if child.is_dir() and name in CAMERAS and name not in found:
+                found[name] = child
+    return found
+
+
+def camera_coverage(sequence_dir: Path, stamps: list[str]) -> dict[str, Optional[int]]:
+    """Đếm ảnh khớp các mốc pose để inspect và converter chọn camera giống nhau.
+
+    Args:
+        sequence_dir: Thư mục một chuỗi PHENIKAA.
+        stamps: Tên mốc của các file pose, không gồm đuôi ``.txt``.
+
+    Returns:
+        Tên camera chuẩn tới số mốc có ảnh; ``None`` khi không có thư mục của camera đó.
+    """
+    dirs = camera_dirs(sequence_dir)
+    return {
+        camera: (
+            sum((dirs[camera] / f"{stamp}.jpg").is_file() for stamp in stamps)
+            if camera in dirs
+            else None
+        )
+        for camera in CAMERAS
+    }
+
+
+def coverage_text(count: Optional[int], total: int) -> str:
+    """Mô tả số ảnh còn thiếu cho báo cáo inspect và ingest.
+
+    Args:
+        count: Số ảnh khớp mốc pose; ``None`` khi không có thư mục camera.
+        total: Tổng số mốc pose cần có ảnh.
+
+    Returns:
+        Lý do dễ đọc, như ``27/200 ảnh`` hoặc ``không có thư mục ảnh``.
+    """
+    if count is None:
+        return "không có thư mục ảnh"
+    if count == 0:
+        return "thư mục ảnh rỗng"
+    return f"{count}/{total} ảnh"
 
 
 def find_sequences(raw_dir: Path) -> dict[str, Path]:
@@ -377,19 +462,16 @@ def ingest_phenikaa(
             "scene_id khác"
         )
 
-    try:
-        import cv2
-        import numpy as np
-    except ImportError as error:
-        raise IngestError(f"ingest PHENIKAA cần numpy và OpenCV: {error}") from error
-    try:
-        import laspy  # noqa: F401
-        import lazrs  # noqa: F401
-    except ImportError as error:
+    missing = missing_modules()
+    if missing:
         raise IngestError(
-            'ingest PHENIKAA cần đọc LiDAR .laz: pip install "laspy[lazrs]" trong môi trường '
-            "drive2sim"
-        ) from error
+            f"ingest PHENIKAA cần {', '.join(missing)} mà môi trường Python này chưa có "
+            f'({sys.executable}). Cài: {sys.executable} -m pip install "drive2sim[ingest]" '
+            "(hoặc cài lại bằng envs/install.sh, đã gồm phần này); môi trường GPU (conda "
+            "drive2sim) có sẵn"
+        )
+    import cv2
+    import numpy as np
 
     options = options or PhenikaaOptions()
     sequences = find_sequences(raw_dir)
@@ -400,27 +482,51 @@ def ingest_phenikaa(
     stamps = _stamps(sequence_dir)
     if not stamps:
         raise IngestError(f"{sequence}: ego_pose/ không có file nào")
-    complete = [
-        camera
-        for camera in CAMERAS
-        if all((sequence_dir / "camera" / camera / f"{s}.jpg").is_file() for s in stamps)
-    ]
-    cameras = list(options.cameras) if options.cameras else complete
-    unknown = [camera for camera in cameras if camera not in CAMERAS]
-    if unknown or not cameras:
+    total = len(stamps)
+    coverage = camera_coverage(sequence_dir, stamps)
+    dirs = camera_dirs(sequence_dir)
+    complete = [camera for camera in CAMERAS if coverage[camera] == total]
+    summary = ", ".join(f"{c} {coverage_text(coverage[c], total)}" for c in CAMERAS)
+    requested = [camera.strip().upper() for camera in options.cameras or () if camera.strip()]
+    unknown = [camera for camera in requested if camera not in CAMERAS]
+    if unknown:
         raise IngestError(
-            f"camera không có trong PHENIKAA: {', '.join(unknown) or '(trống)'}; có: "
+            f"camera không có trong PHENIKAA: {', '.join(unknown)}; tên hợp lệ: "
             f"{', '.join(CAMERAS)}"
+        )
+    cameras = requested or complete
+    if not cameras:
+        raise IngestError(
+            f"{sequence}: không camera nào có ảnh ở đủ {total} mốc của ego_pose/ (cần "
+            f"camera/<CAM_...>/<mốc>.jpg); hiện có: {summary}"
         )
     partial = [camera for camera in cameras if camera not in complete]
     if partial:
+        shown = ", ".join(f"{c} ({coverage_text(coverage[c], total)})" for c in partial)
         raise IngestError(
-            f"{sequence}: camera thiếu ảnh ở một số mốc: {', '.join(partial)}; có đủ: "
-            f"{', '.join(complete)}"
+            f"{sequence}: camera thiếu ảnh ở một số mốc: {shown}; camera có đủ ảnh: "
+            f"{', '.join(complete) or '(không có)'}"
+        )
+    if not (sequence_dir / "lidar").is_dir():
+        raise IngestError(
+            f"{sequence}: không có thư mục lidar/; converter PHENIKAA cần LiDAR "
+            f"lidar/<mốc>.laz ở đủ {total} mốc của ego_pose/"
         )
     missing_lidar = [s for s in stamps if not (sequence_dir / "lidar" / f"{s}.laz").is_file()]
     if missing_lidar:
-        raise IngestError(f"{sequence}: thiếu LiDAR ở {len(missing_lidar)} mốc")
+        raise IngestError(
+            f"{sequence}: thiếu LiDAR ở {len(missing_lidar)}/{total} mốc (lidar/<mốc>.laz), ví "
+            f"dụ {missing_lidar[0]}"
+        )
+    skipped = {
+        camera: (
+            "không chọn (--cameras)"
+            if requested and coverage[camera] == total
+            else coverage_text(coverage[camera], total)
+        )
+        for camera in CAMERAS
+        if camera not in cameras
+    }
     calibration = read_calibration(calib_dir, cameras)
 
     temp_dir = workdir.data_dir / ".ingest" / scene_id
@@ -469,7 +575,7 @@ def ingest_phenikaa(
                 sequence_dir / "lidar" / f"{stamp}.laz", temp_dir / "lidar" / f"{t:03d}.bin"
             )
             for index, camera in enumerate(cameras):
-                source = sequence_dir / "camera" / camera / f"{stamp}.jpg"
+                source = dirs[camera] / f"{stamp}.jpg"
                 target = temp_dir / "images" / f"{t:03d}_{index}.jpg"
                 if camera in maps:
                     image = cv2.imread(str(source), cv2.IMREAD_COLOR)
@@ -494,7 +600,8 @@ def ingest_phenikaa(
                     "stamps": [stamps[0], stamps[-1]],
                     "lidar_points": points,
                     "cameras": notes,
-                    "cameras_skipped": [c for c in CAMERAS if c not in cameras],
+                    # Camera → lý do bỏ; validate_scene đọc để báo trong validation.json.
+                    "cameras_skipped": skipped,
                     "ego_masks": masks,
                     "tracking": tracking,
                 },

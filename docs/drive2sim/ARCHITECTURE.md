@@ -145,6 +145,14 @@ NCore vẫn dùng ở hai chỗ: là **một nguồn vào** (PhysicalAI, CARLA g
 
 **Nhược điểm.** Dữ liệu chuẩn giữ đủ mọi thứ nên tốn ổ đĩa hơn bản đã lọc cho một approach.
 
+**Bổ sung luồng nhập nguồn (27/11/2026).** CLI và Studio dùng chung `converter_options`
+trong `ingest/dispatch.py` để truyền calib, camera và khoảng khung cho converter hiện có.
+`ingest/detect.py` đọc độ phủ ảnh PHENIKAA từ đĩa; `ingest/validate.py` đưa lý do bỏ camera
+vào báo cáo kiểm tra. Bản cài Studio có extra `ingest` để nhập PHENIKAA không cần PyTorch.
+Ưu điểm: hai giao diện dùng cùng cách dựng tuỳ chọn và người dùng biết camera nào bị bỏ.
+Nhược điểm: cài thêm NumPy, OpenCV headless, SciPy và laspy; xem nguồn phải kiểm tra file ảnh
+theo từng mốc. Không thay loader, định dạng cảnh hay cách chọn camera mặc định của converter.
+
 ### 2.4 Giữ loader riêng của từng dataset; gộp khi có điều kiện
 
 **Khái niệm.** DriveStudio có 7 loader (`drive2sim/recon/data/loaders/<dataset>.py`, 460–720 dòng mỗi file, tổng 3678 dòng) với cùng bộ hàm (`load_calibrations`, `load_cameras`, `load_objects`, `load_lidar`). Đo bằng `diff` so với loader Argoverse: nuPlan khác 92 dòng, KITTI 119, PandaSet 168, nuScenes 248, Waymo 379 (có thêm rolling shutter của patch Bosch), PhysicalAI 671; hàm `load_objects` của 5 trên 6 loader chỉ khác 4 dòng. Phần lớn là mã chép lại.
@@ -853,6 +861,7 @@ KITTI-360 và PHENIKAA đã dùng chung `StandardPixelSource`; có ánh xạ tê
 
 | Việc | Trạng thái | Commit |
 |---|---|---|
+| Nhập nguồn PHENIKAA: calib riêng, camera thiếu ảnh, tên camera viết thường; Studio nhận calib, camera và khoảng khung KITTI-360; thư viện ingest trong bản cài Studio | Đã triển khai và có test hồi quy; nghiệm thu local bằng dataset giả lập từ 30 khung PHENIKAA, không train | |
 | XSIM | Môi trường riêng (`envs/install_xsim.sh`), đầu vào là gói quan sát chung (`prep.observations`), chấm bằng scorer chung; Kaggle và Colab cài thêm venv XSIM. Chưa nghiệm thu GPU. | |
 | Bàn giao `d2s pack`, ingest và môi trường thân thiện, SMPL theo split | Code và test local hoàn tất; chưa nghiệm thu train GPU cho thay đổi loader; gói 11 run thật đã ghi trên USB và kiểm đủ 15.708 mã băm sau giải nén; Studio đọc 11 run, đã render thử một frame bằng GPU có sẵn | |
 | Kaggle: gói output thành tar theo run và mục cache | Code và test local hoàn tất; có đường tải file rời cho notebook cũ và khi gói lỗi; chưa chạy bước gói trên Kaggle thật | |

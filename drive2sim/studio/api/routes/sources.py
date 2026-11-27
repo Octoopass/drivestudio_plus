@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from drive2sim.core import identifiers
 from drive2sim.ingest.detect import SourceReport, inspect_source
-from drive2sim.ingest.dispatch import plan_ingest, run_ingest
+from drive2sim.ingest.dispatch import converter_options, plan_ingest, run_ingest
 from drive2sim.ingest.drivestudio import default_scene_id
 from drive2sim.ingest.reports import scene_reports
 from drive2sim.studio.api import uploads
@@ -36,11 +36,13 @@ class InspectBody(BaseModel):
 
     Attributes:
         path: Thư mục dữ liệu gốc trên máy chạy Studio.
+        calib: PHENIKAA: thư mục calib khi nó không nằm cạnh các chuỗi (như ``--calib``).
     """
 
     model_config = ConfigDict(extra="forbid")
 
     path: str = Field(min_length=1)
+    calib: Optional[str] = None
 
 
 class IngestBody(InspectBody):
@@ -52,6 +54,9 @@ class IngestBody(InspectBody):
         sequence: Chuỗi; bỏ trống khi chỉ có một.
         scene_id: Định danh cảnh; bỏ trống thì đặt ``<dataset>_<chuỗi>``.
         interpolate_n: nuScenes: số khung nội suy giữa hai keyframe.
+        cameras: KITTI-360, PHENIKAA: camera cần ghi; bỏ trống là mặc định của converter.
+        start_frame: KITTI-360: số hiệu khung gốc nhỏ nhất được xét.
+        num_frames: KITTI-360: số khung tối đa; bỏ trống là cả đoạn liền nhau dài nhất.
     """
 
     source_type: Optional[str] = None
@@ -59,12 +64,15 @@ class IngestBody(InspectBody):
     sequence: Optional[str] = None
     scene_id: Optional[str] = None
     interpolate_n: int = Field(4, ge=0)
+    cameras: Optional[list[str]] = None
+    start_frame: int = Field(0, ge=0)
+    num_frames: Optional[int] = Field(None, ge=1)
 
 
-def _inspect(path: str) -> SourceReport:
+def _inspect(path: str, calib: Optional[str] = None) -> SourceReport:
     """Nhận dạng thư mục; thư mục không có thì trả ``404``."""
     try:
-        return inspect_source(Path(path).expanduser())
+        return inspect_source(Path(path).expanduser(), Path(calib).expanduser() if calib else None)
     except FileNotFoundError as error:
         raise HTTPException(404, str(error)) from None
 
@@ -77,7 +85,7 @@ def inspect(body: InspectBody) -> dict:
         Kết quả nhận dạng: ``dataset``, ``versions``, ``cameras``, ``ingest_supported``,
         ``notes``, ``inventory``...
     """
-    return _inspect(body.path).to_dict()
+    return _inspect(body.path, body.calib).to_dict()
 
 
 @router.post("/api/sources/ingest", status_code=202)
@@ -93,7 +101,7 @@ def ingest(body: IngestBody, request: Request) -> dict:
     state = state_of(request)
     raw_dir = Path(body.path).expanduser()
     target = plan_ingest(
-        _inspect(body.path),
+        _inspect(body.path, body.calib),
         body.source_type,
         body.version,
         body.sequence,
@@ -106,6 +114,14 @@ def ingest(body: IngestBody, request: Request) -> dict:
     if scene_dir.exists() or scene_dir.is_symlink():
         raise HTTPException(409, f"cảnh {scene_id} đã có; đặt tên cảnh khác để nạp")
 
+    kitti360_options, phenikaa_options = converter_options(
+        target.dataset,
+        body.cameras,
+        Path(body.calib).expanduser() if body.calib else None,
+        body.start_frame,
+        body.num_frames,
+    )
+
     def work() -> str:
         scene_dir = run_ingest(
             raw_dir,
@@ -113,6 +129,8 @@ def ingest(body: IngestBody, request: Request) -> dict:
             target,
             scene_id=scene_id,
             interpolate_n=body.interpolate_n,
+            kitti360_options=kitti360_options,
+            phenikaa_options=phenikaa_options,
         )
         # Sơ đồ camera, ảnh chồng LiDAR; lỗi không làm hỏng cảnh vừa ingest (trang cảnh có nút
         # tạo lại).
