@@ -54,7 +54,7 @@ d2s benchmark benchmarks/week04.yaml --out benchmarks/week04.json
 | A-L | `every8_5cams` (W1) | PVG, DeformableGS renderer 3DGS (có LiDAR) |
 | A-0 | `every8_5cams` (W1) | PVG, DeformableGS renderer 3DGS với `lidar=false` |
 | A-LB | `every8_stereo_fisheye2` | OmniRe 3DGUT + FastGS; OmniRe 3DGEER + FastGS |
-| A-L | `every8_stereo_fisheye2` | PVG, DeformableGS với renderer 3DGUT (#7) |
+| A-L | `every8_stereo_fisheye2` | PVG, DeformableGS với renderer 3DGEER (#7; renderer fisheye chốt 27/11) |
 | A-LB, A-L | `every8_stereo_a3` | OmniRe (mọi cấu hình); PVG, DeformableGS |
 | B | `every8_pinhole2` | MCGS-SLAM |
 | C | `every8_mixed3` | Instant NuRec |
@@ -70,7 +70,7 @@ Chạy trên **một máy vast.ai 2× RTX 4090** (lý do và cấu hình máy �
 |---|---|---|---|---|
 | 0. Chuẩn bị | cài env (main, MCGS, NuRec), ingest W1 và cảnh dài, split | — | ~0 (CPU, mạng) | ~2 giờ |
 | 1 | #1, #2, #3, #5, #6, #8 (+ #9 khi đã chọn cách chia đoạn NuRec; + #13 nếu đã port BezierGS) | đợt 0 | 13,6 (+2,5) | ~7,3 giờ |
-| 2 | #4, #7 (+ #12 ưu tiên 2) | thắng A-L giữa #2 và #3 | 4,9 (+1,7) | ~2,9 giờ (3,7 với #12) |
+| 2 | #4, #7, chạy lại #6, #8 (+ #12 ưu tiên 2) | thắng A-L giữa #2 và #3 (PVG, chốt 27/11) | ~4–5 (+1,7) | 1 GPU, xem `benchmark_week04_wave2.md` |
 | 3 | #10, 6 chunk của #11 | cấu hình thắng A-LB sau #1–#7 | 6,2 | ~3,3 giờ |
 
 Tổng khoảng 25 GPU-giờ cho ưu tiên 1 trừ #9 (27,2 nếu có #9), khoảng 14 giờ chạy và 17 giờ thuê máy kể cả chuẩn bị và hai lần chọn run thắng.
@@ -97,7 +97,7 @@ bash envs/week04_vast.sh smoke               # run --quick OmniRe trên W1 (~10 
 
 Cảnh KITTI-360 trên máy mình là cảnh ingest trên Kaggle (`d2s kaggle ingest`): ảnh, LiDAR nằm ở output notebook Kaggle, máy chỉ giữ file nhỏ, nên không chép được sang máy thuê và `d2s kaggle ingest` cũng không cho run chạy trên máy thuê. Vì vậy `data-kitti` tải raw rồi ingest lại bằng `d2s scene ingest` trên máy thuê, với cùng tham số (cảnh 200 khung: `--num-frames 200`), và dừng nếu `frame_ids.txt` khác cảnh đã dùng. Waymo cần TensorFlow 2.11 và `waymo-open-dataset`, không hợp với env chính, nên ingest bằng venv riêng `.venv-waymo`.
 
-Ba đợt:
+Ba đợt (đợt 2 theo `docs/experiments/benchmark_week04_wave2.md`: một GPU, `BENCH_GPUS=0`, chạy lại #6, #8):
 
 ```bash
 bash envs/vast.sh wave 1                       # thêm --nurec khi đã chọn cách chia đoạn, --p2 cho #13
@@ -119,7 +119,7 @@ Run lỗi được ghi vào `logs/queue-wave<N>/failed`; chạy lại: `bash env
 
 ## 4. Chưa làm được trong đợt này
 
-- **#7 (A-L với fisheye, A2)**: từ 26/11 PVG và DeformableGS có renderer 3DGUT, 3DGEER (tắt CamPose), nên #7 chạy được với `--set renderer=3dgut --set campose=false`; chưa chạy thật trên GPU. A2 A-L vì vậy so method thắng A-L ở cấu hình khác A1 (không CamPose).
+- **#7 (A-L với fisheye, A2)**: từ 26/11 PVG và DeformableGS có renderer 3DGUT, 3DGEER (tắt CamPose); từ 27/11 #7 chạy với `--set renderer=3dgeer --set campose=false` (renderer fisheye chốt là 3DGEER); chưa chạy thật trên GPU. A2 A-L vì vậy so method thắng A-L ở cấu hình khác A1 (không CamPose).
 - **R3 của PVG, DeformableGS**: `export_ply.py` ghi tham số gốc của node `Background` (`_means`, `_opacities`). Với PVG đó là tâm chưa cộng dao động và độ đục chưa nhân suy giảm theo thời gian, nên mọi Gaussian (cả vệt của xe chạy) hiện cùng lúc; với DeformableGS là tâm chưa qua mạng biến dạng. Từ 26/11 `d2s benchmark` đánh dấu các run này `export_static: false` (bảng ghi `†`) và bỏ bước R3 khi phân xử các ô A-L, A-0; R3 cũng đổi từ export gap sang `ply_psnr` (PSNR tuyệt đối của `.ply` trên vùng nền tĩnh), gap chỉ báo kèm (CONTRACTS mục 6.5). PVG đã có cách xuất nền tĩnh: chỉ giữ Gaussian sống từ 20 khung trở lên (tham số gốc của PVG là mỗi Gaussian ở đỉnh của nó, nên không cần chọn thời điểm). **Kiểm trên run #2 (PVG trên W1) trước khi bỏ `pvg` khỏi `TIME_VARYING_METHODS`:** xem `time_varying` trong `eval.ply/background/scene.json` (số giữ, số bỏ, phân vị độ dài đời), ảnh render `.ply` không còn vệt xe, và `ply_psnr` không kém `native_psnr` quá khoảng 2 dB; nếu vẫn kém thì giữ cờ và ghi R3 là không áp dụng cho PVG. DeformableGS còn lại: biến dạng ở một thời điểm, làm sau khi có checkpoint của #3.
 - **#11 trong bảng xếp hạng**: `d2s benchmark` chưa có nhóm "chunked" gộp `frames.jsonl` của các chunk (ARCHITECTURE mục 2.17), nên 6 run chunk chạy được nhưng chưa vào `week04.yaml`.
 - **#14 (SplatAD)**: chưa có approach trong tool, nên không có lệnh ở đây.

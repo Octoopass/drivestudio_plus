@@ -381,7 +381,7 @@ RUN_COMMANDS = (
         A_L_WINNER,
         SHORT_SCENE,
         "every8_stereo_fisheye2",
-        ("renderer=3dgut", "campose=false"),
+        ("renderer=3dgeer", "campose=false"),  # renderer fisheye chốt 27/11: 3DGEER
         note="A-L fisheye",
     ),
     RunCommand("8", "mcgs", LONG_SCENE, "every8_pinhole2", note="track B"),
@@ -442,7 +442,7 @@ EST_GPU_HOURS = {
     "3": 2.9,
     "4": 2.9,
     "5": 2.15,
-    "6": 2.15,
+    "6": 0.7,  # đo ở đợt 1 (393f): train 0,58 giờ + eval
     "7": 2.0,
     "8": 0.5,
     "9": 2.5,
@@ -455,11 +455,16 @@ EST_GPU_HOURS = {
 
 WAVE_RUNS = {
     "1": ("1", "2", "3", "5", "6", "8"),
-    "2": ("4", "7"),
+    "2": ("4", "6", "7", "8"),
     "3": ("10",),
 }
 """Run ưu tiên 1 của từng đợt. Đợt 1 không cần run thắng nào; đợt 2 cần run thắng A-L (#2/#3);
-đợt 3 cần cấu hình thắng A-LB (sau #1–#7) và thêm 6 chunk của #11."""
+đợt 3 cần cấu hình thắng A-LB (sau #1–#7) và thêm 6 chunk của #11.
+
+Đợt 2 chạy lại #6 (3DGEER cắt viền ảnh pinhole có điểm chính lệch tâm, sửa ở
+``recon/utils/geer_fov.py``) và #8 (MCGS-SLAM hỏng với rig 2 camera, sửa ở ``rig_layout``);
+``definition`` lấy run mới nhất của mỗi ô nên run #6 cũ (``393f``) tự bị thay."""
+A_L_PLACEHOLDERS = (A_L_WINNER,)  # chỉ các run này nhận --al-winner
 WAVE_P2_RUNS = {"1": ("13",), "2": ("12",), "3": ()}
 WAVE_NUREC = "1"
 A_L_APPROACHES = ("pvg", "deformablegs")
@@ -520,6 +525,8 @@ def build_queue(
             raise QueueError("đợt 2 cần --al-winner pvg hoặc deformablegs (thắng giữa #2 và #3)")
         commands = [
             RunCommand(c.number, al_winner, c.scene_id, c.split_id, c.sets, note=c.note)
+            if c.approach in A_L_PLACEHOLDERS
+            else c
             for c in commands
         ]
     if wave == "3":
@@ -612,7 +619,7 @@ class EntryPlan:
 
 OMNIRE_W1 = Slot("omnire", (("renderer", "3dgs"), ("fastgs", True)))
 PINHOLE = (("renderer", "3dgs"),)
-FISHEYE_UT = (("renderer", "3dgut"),)
+FISHEYE_GEER = (("renderer", "3dgeer"),)  # renderer fisheye của A-L chốt 27/11
 ENTRY_PLANS = (
     EntryPlan("A", "A-LB", WAYMO_SCENE, WAYMO_SPLIT, (OMNIRE_W1, Slot("beziergs")), "W1 A-LB"),
     EntryPlan(
@@ -647,7 +654,7 @@ ENTRY_PLANS = (
         "A-L",
         SHORT_SCENE,
         "every8_stereo_fisheye2",
-        (Slot("pvg", FISHEYE_UT), Slot("deformablegs", FISHEYE_UT)),
+        (Slot("pvg", FISHEYE_GEER), Slot("deformablegs", FISHEYE_GEER)),
         "A2 A-L",
     ),
     EntryPlan("A", "A-LB", LONG_SCENE, "every8_stereo_a3", (Slot("omnire"),), "A3 A-LB"),
