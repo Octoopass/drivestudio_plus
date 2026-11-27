@@ -989,5 +989,14 @@
   "datasets.action.resume_drive_help": "Tải tiếp phần còn thiếu với nguồn Drive đã nhớ; phiên Colab phải còn và đã kết nối Drive",
   "datasets.tag.drive": "từ Drive",
   "activity.jobs.go": "Mở nơi của việc này",
-  "datasets.files": "{count} file"
+  "datasets.files": "{count} file",
+  "artifacts.download": "Tải về",
+  "downloads.title": "Tải về",
+  "downloads.help": "Tải file về máy đang mở Studio (cả khi vào qua Tailscale). Để chạy cảnh trong CARLA cần scene.usdz (bản đồ OpenDRIVE, quỹ đạo, camera, xe và người) và PLY NuRec cho server render Gaussian. PLY Gaussian (3DGS chuẩn) mở được bằng viewer khác như SuperSplat.",
+  "downloads.kind.ply": "PLY Gaussian (3DGS chuẩn)",
+  "downloads.kind.nurec_ply": "PLY NuRec (server render CARLA)",
+  "downloads.kind.usdz": "scene.usdz cho CARLA",
+  "downloads.kind.checkpoint": "Checkpoint",
+  "downloads.kind.video": "Video",
+  "downloads.usdz_missing": "Chưa có scene.usdz cho CARLA: bấm \"Chạy trong CARLA\" hoặc mở trang Lái thử một lần để dựng."
 }

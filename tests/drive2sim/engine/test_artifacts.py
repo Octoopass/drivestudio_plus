@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 from drive2sim.core.schema import RunApproach, RunRecord, StageRecord
-from drive2sim.engine.artifacts import run_artifacts, train_curve
+from drive2sim.engine.artifacts import run_artifacts, run_downloads, train_curve
 from drive2sim.engine.workdir import Workdir
 
 
@@ -62,3 +62,32 @@ def test_train_curve_handles_resume(tmp_path: Path) -> None:
     assert [x for x, _ in curve["psnr"]] == [0, 500, 500, 1000]
     assert curve["loss"][0] == [0.0, 0.4] and curve["gaussians"] == [[0.0, 120.0]]
     assert train_curve(tmp_path / "missing") == {}
+
+
+def test_run_downloads_picks_carla_files(tmp_path: Path) -> None:
+    work = Workdir(tmp_path)
+    run_id = "20261127-033326-nurec-3a6e"
+    run_dir = work.run_dir("kitti360_d6", "nurec", run_id)
+    stages = run_dir / "d2s" / "stages"
+    for stage, name in [
+        ("train.nurec", "scene_nurec.ply"),
+        ("train.nurec_refine", "scene_nurec.ply"),
+        ("export.nurec_ply", "scene.ply"),
+        ("render.nurec_video", "flythrough.mp4"),
+    ]:
+        (stages / stage).mkdir(parents=True)
+        (stages / stage / name).write_bytes(b"0" * 5)
+    (run_dir / "d2s" / "drive").mkdir()
+    (run_dir / "d2s" / "drive" / "scene.usdz").write_bytes(b"0" * 3)
+    record = RunRecord(
+        schema_version="d2s-run/0.3", run_id=run_id, scene_id="kitti360_d6", split_id="every8",
+        approach=RunApproach(approach_id="nurec", version="0.1.0"), level="L1", executor="local",
+        status="succeeded",
+        stages=[StageRecord(stage_id=s, status="succeeded") for s in
+                ("train.nurec", "train.nurec_refine", "export.nurec_ply", "render.nurec_video")],
+    )  # fmt: skip
+    items = {item["kind"]: item for item in run_downloads(work, record, run_dir)}
+    assert set(items) == {"ply", "nurec_ply", "usdz", "video"}
+    assert items["nurec_ply"]["stage_id"] == "train.nurec_refine"  # PLY đã tối ưu thắng PLY gốc
+    assert items["usdz"]["stage_id"] is None and items["usdz"]["size_bytes"] == 3
+    assert items["ply"]["path"].endswith("export.nurec_ply/scene.ply")

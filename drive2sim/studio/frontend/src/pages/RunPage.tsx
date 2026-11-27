@@ -6,7 +6,7 @@ import { useRef, useEffect, useMemo, useState } from "react";
 import { asApiError, del, playableUrl, post, seg, useApi } from "../api/client";
 import type { ColabStatus, KaggleStatus, List, ReportRow, RunDetail, RunEvent, RunLog, Splats, Video } from "../api/types";
 import { LineChart, type Point } from "../components/charts";
-import { RunArtifacts } from "../components/RunArtifacts";
+import { RunArtifacts, RunDownloads } from "../components/RunArtifacts";
 import { MachineInfo, machineText } from "../components/RunInfo";
 import { RunConfig, RunProgress } from "../components/RunLive";
 import { StageRoad } from "../components/StageRoad";
@@ -353,6 +353,7 @@ export function RunPage({ runId }: { runId: string }) {
           {tab === "result" && (
             <div className="stack">
               {active && <RunProgress runId={runId} data={data} stages={stages} progress={live.progress} />}
+              {!active && <RunDownloads runId={runId} nurec={data.approach.approach_id === "nurec"} />}
             {!summary ? (
               active ? null : (
                 <Empty title={t("run.result.none")}>
@@ -513,6 +514,7 @@ export function RunPage({ runId }: { runId: string }) {
             </div>
           )}
 
+          {tab === "artifacts" && !active && <RunDownloads runId={runId} nurec={data.approach.approach_id === "nurec"} />}
           {tab === "artifacts" && <RunArtifacts
               runId={runId}
               onReexport={

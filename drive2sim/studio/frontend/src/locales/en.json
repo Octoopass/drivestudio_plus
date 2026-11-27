@@ -989,5 +989,14 @@
   "datasets.action.resume_drive_help": "Download the missing parts from the remembered Drive source; the Colab session must still be running with Drive connected",
   "datasets.tag.drive": "from Drive",
   "activity.jobs.go": "Open where this job works",
-  "datasets.files": "{count} files"
+  "datasets.files": "{count} files",
+  "artifacts.download": "Download",
+  "downloads.title": "Downloads",
+  "downloads.help": "Save files to the computer running the browser (also over Tailscale). Running the scene in CARLA needs scene.usdz (OpenDRIVE map, trajectory, cameras, vehicles and people) and the NuRec PLY for the Gaussian render server. The Gaussian PLY (standard 3DGS) opens in other viewers such as SuperSplat.",
+  "downloads.kind.ply": "Gaussian PLY (standard 3DGS)",
+  "downloads.kind.nurec_ply": "NuRec PLY (CARLA render server)",
+  "downloads.kind.usdz": "scene.usdz for CARLA",
+  "downloads.kind.checkpoint": "Checkpoint",
+  "downloads.kind.video": "Video",
+  "downloads.usdz_missing": "No scene.usdz for CARLA yet: use \"Run in CARLA\" or open the Drive page once to build it."
 }

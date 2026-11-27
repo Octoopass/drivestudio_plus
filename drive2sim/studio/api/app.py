@@ -429,15 +429,16 @@ def create_app(
         return {"workdir": str(workdir.root), "demo": workdir.is_demo}
 
     @app.get("/files/{path:path}")
-    def serve_file(path: str) -> FileResponse:
+    def serve_file(path: str, download: bool = False) -> FileResponse:
         """Phục vụ một file trong thư mục làm việc (video, ảnh, PLY), đường dẫn tương đối.
 
-        Chặn mọi đường dẫn đi ra ngoài thư mục làm việc (ví dụ ``../``).
+        Chặn mọi đường dẫn đi ra ngoài thư mục làm việc (ví dụ ``../``). ``?download=1``: trình
+        duyệt lưu file (``Content-Disposition: attachment``) thay vì mở.
         """
         target = (workdir.root / path).resolve()
         if workdir.root not in target.parents or not target.is_file():
             raise HTTPException(404, f"không có file {path}")
-        return FileResponse(target)
+        return FileResponse(target, filename=target.name) if download else FileResponse(target)
 
     @app.middleware("http")
     async def no_cache_index(request: Request, call_next):  # noqa: ANN001, ANN202
