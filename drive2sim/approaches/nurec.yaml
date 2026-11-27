@@ -12,6 +12,7 @@ name: "Instant NuRec"
 version: 0.1.0
 codebase: external:nurec
 level: L1
+dynamics: option
 kind: feed_forward
 requires:
   camera_models: [opencv_pinhole, opencv_fisheye, ftheta]

@@ -12,6 +12,7 @@ name: "MCGS-SLAM"
 version: 0.1.0
 codebase: external:mcgs
 level: L1
+dynamics: static
 kind: slam
 requires:
   camera_models: [opencv_pinhole, ideal_pinhole]

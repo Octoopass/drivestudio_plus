@@ -101,3 +101,17 @@ def test_only_unvalidated_approaches_are_marked_experimental() -> None:
         path.stem for path in APPROACH_FILES if files.load(path, Approach).experimental
     }
     assert experimental == {"xsim"}
+
+
+def test_every_approach_states_how_it_handles_moving_objects() -> None:
+    """Mọi approach có ``dynamics`` (nhãn trên Studio); approach bắt buộc box thì dựng theo box."""
+    approaches = {path.stem: files.load(path, Approach) for path in APPROACH_FILES}
+    assert all(a.dynamics is not None for a in approaches.values())
+    for name, approach in approaches.items():
+        if approach.requires.cuboids == "required":
+            assert approach.dynamics == "boxes", name
+    assert approaches["mcgs"].dynamics == "static"
+    assert (
+        approaches["nurec"].dynamics == "option"
+        and "include_dynamic" in approaches["nurec"].options
+    )

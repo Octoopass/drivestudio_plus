@@ -11,6 +11,7 @@ name: "BezierGS"
 version: 0.1.0
 codebase: drivestudio
 level: L1
+dynamics: boxes
 kind: per_scene
 requires:
   camera_models: [opencv_pinhole]

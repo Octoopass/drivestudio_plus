@@ -57,6 +57,9 @@ Level = Literal["L1", "L2", "L3", "L4"]
 # ``feed_forward`` suy ra cảnh bằng một lần chạy model đã học sẵn, ``slam`` vừa ước lượng pose
 # camera vừa dựng bản đồ.
 ApproachKind = Literal["per_scene", "feed_forward", "slam"]
+# Cách approach dựng vật chuyển động (xe, người): theo box 3D, theo thời gian, tuỳ mục cấu hình,
+# hoặc không dựng (bản đồ tĩnh). CONTRACTS mục 4.1.
+Dynamics = Literal["boxes", "time", "option", "static"]
 Dataset = Literal[
     "waymo",
     "nuscenes",
@@ -868,6 +871,10 @@ class Approach(VersionedFile):
             train, eval đầy đủ trên GPU); Studio và ``d2s approach list`` gắn nhãn "thử nghiệm".
             Chỉ để hiển thị, engine không đọc. Thêm sau ``d2s-approach/0.3`` mà không tăng phiên
             bản (không bắt buộc, mặc định ``False``).
+        dynamics: Cách dựng vật chuyển động (``Dynamics``): ``boxes`` (node riêng theo box 3D),
+            ``time`` (Gaussian đổi theo thời gian, không cần box), ``option`` (tuỳ mục cấu hình,
+            mặc định tắt), ``static`` (bản đồ tĩnh). Studio hiện thành nhãn trên thẻ approach. Chỉ
+            để hiển thị. Thêm sau ``d2s-approach/0.3`` mà không tăng phiên bản (không bắt buộc).
         requires: Điều kiện dữ liệu. Track (pinhole, fisheye) của approach và của từng preset suy
             ra từ mô hình camera nhận được (``CAMERA_TRACK``), không ghi riêng; file ``0.1``,
             ``0.2`` có trường ``track`` thì trường đó được bỏ qua.
@@ -891,6 +898,7 @@ class Approach(VersionedFile):
     level: Level
     kind: ApproachKind = "per_scene"
     experimental: bool = False
+    dynamics: Optional[Dynamics] = None
     requires: Requires
     options: dict[str, OptionSpec] = {}
     constraints: list[Constraint] = []
