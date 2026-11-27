@@ -7,7 +7,8 @@ File này chứa:
   R2, R3 và thời gian train (cùng GPU).
 - ``build_row``: dựng một dòng kết quả (``BenchmarkRunRow``) từ ``summary.json``, ``frames.jsonl``
   và các file kết quả khác của run.
-- ``run_benchmark``: đọc file định nghĩa benchmark và trả ``BenchmarkResult`` cho mọi nhóm.
+- ``run_benchmark``: đọc file định nghĩa benchmark và trả ``BenchmarkResult`` cho mọi nhóm, kèm
+  kết quả gộp của các lần dựng chia chunk (``engine/chunked.py``).
 
 ``drive2sim/cli/benchmark.py`` (``d2s benchmark``) gọi ``run_benchmark``. Chỉ đọc file kết quả đã
 có của các run, không chạy GPU; run chưa có metric nào thì ghi "chưa đo" bằng trường trống. Xem
@@ -35,6 +36,7 @@ from drive2sim.core.schema import (
     RunRecord,
     Summary,
 )
+from drive2sim.engine.chunked import run_chunked
 from drive2sim.engine.report import ReportRow, report_rows
 from drive2sim.engine.run import D2S_DIR, RUN_FILE, load_summary, summary_path
 from drive2sim.engine.workdir import Workdir
@@ -696,7 +698,8 @@ def _calibrate(
 def run_benchmark(workdir: Workdir, definition: Path) -> BenchmarkResult:
     """Đọc file định nghĩa benchmark và xếp hạng mọi nhóm.
 
-    Ngưỡng hoà tính một lần từ khối ``calibration`` (nếu có) rồi dùng cho mọi nhóm.
+    Ngưỡng hoà tính một lần từ khối ``calibration`` (nếu có) rồi dùng cho mọi nhóm. Các mục
+    ``chunked`` được gộp (``run_chunked``), không xếp hạng.
 
     Args:
         workdir: Thư mục làm việc.
@@ -717,4 +720,5 @@ def run_benchmark(workdir: Workdir, definition: Path) -> BenchmarkResult:
         tie_threshold_source=source,
         warnings=warnings,
         groups=[run_group(workdir, entry, threshold) for entry in parsed.entries],
+        chunked=[run_chunked(workdir, entry) for entry in parsed.chunked],
     )
