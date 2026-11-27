@@ -9,7 +9,8 @@ file trong thư mục làm việc (``D2S_WORKDIR``, mặc định gốc repo), k
     python -m drive2sim.scripts.setup_benchmark_week04 queue --wave 1 [--out <file.tsv>]
     python -m drive2sim.scripts.setup_benchmark_week04 waymo-stats
 
-- ``splits``: tạo các split của W1, A2, A3, B2 (và 6 chunk của B2) bằng ``engine.scenes``.
+- ``splits``: tạo các split của W1, A2, A3, B2 (cả cảnh dài) và run thử chunk bằng
+  ``engine.scenes``.
   A3 cho theo số hiệu khung gốc của KITTI-360 nên được đổi sang chỉ số khung của cảnh qua
   ``frame_ids.txt``; in thêm độ đổi hướng xe trong A3 để kiểm có rẽ. Cảnh chưa ingest thì bỏ qua
   và in lệnh ingest.
@@ -19,9 +20,9 @@ file trong thư mục làm việc (``D2S_WORKDIR``, mặc định gốc repo), k
   ``benchmarks/week04.yaml`` (CONTRACTS mục 6.5) cho ``d2s benchmark``. Run chạy thử (``--quick``)
   bị bỏ; một ô có nhiều run khớp thì lấy run mới nhất và báo.
 - ``queue``: ghi hàng đợi run của một đợt cho ``envs/bench_queue.sh`` (mỗi GPU một worker),
-  mỗi dòng ``<số run><tab><tham số của d2s run start>``, run dài trước. Đợt 1 gồm các run không
-  cần biết run thắng; đợt 2 cần ``--al-winner``, đợt 3 cần ``--alb-winner`` (chọn sau khi xem
-  ``d2s benchmark``). Kế hoạch chạy: ``docs/experiments/benchmark_week04.md``.
+  mỗi dòng ``<số run><tab><tham số của d2s run start>``, run dài trước. Run thắng A-L, A-LB lấy
+  theo ``--al-winner``, ``--alb-winner`` (mặc định là run thắng đã chốt 27/11). Kế hoạch chạy:
+  ``docs/experiments/benchmark_week04.md``.
 - ``waymo-stats``: quãng đường, tốc độ, độ đổi hướng và số vật thể (xe, người, vật chạy) của các
   cảnh Waymo ứng viên cho W1 đã ingest, xếp quãng đường dài trước, để chọn ``D2S_W1_INDEX``.
 """
@@ -66,8 +67,17 @@ STRATEGY = "every_nth_frame:8"
 A3_SOURCE_RANGE = (560, 779)
 """A3 theo khung gốc: chứa người đi bộ duy nhất của chuỗi (khung 629–662) và xe chạy."""
 
-CHUNK_COUNT = 6
-CHUNK_OVERLAP = 10
+LONG_SPLIT = "every8_stereo_long"
+"""B2: cả cảnh dài, train ``image_00``, ``image_01`` chỉ test (R2). #11 là một run thường trên
+split này (27/11/2026: thay cách chia 6 chunk)."""
+TRIAL_BLOCK_RANGE = (0, 319)
+TRIAL_BLOCK_SPLIT = "every8_stereo_t320"
+TRIAL_CHUNKS = ((0, 175), (144, 319))
+"""Run thử chia chunk (#16) trên 320 khung đầu của cảnh dài, so với một khối (#15) cùng đoạn.
+Mỗi chunk 176 khung, chồng 32 khung (~48 m, cách lõi cộng đệm của Hierarchical 3DGS); khung đầu
+mỗi chunk là bội của 8 nên khung test (``khung đầu + 8k``) thẳng hàng giữa các chunk và với #15,
+đoạn chồng có 3 khung test chung để so hai chunk."""
+TRIAL_CHUNK_SPLITS = tuple(f"{TRIAL_BLOCK_SPLIT}_c{i}" for i in range(1, len(TRIAL_CHUNKS) + 1))
 TURN_DEG = 30.0
 """Độ đổi hướng tối thiểu để coi đoạn A3 là có rẽ."""
 
@@ -171,61 +181,29 @@ FIXED_SPLITS = (
         source_range=A3_SOURCE_RANGE,
         purpose="A3",
     ),
-)
-"""Split ``every8_pinhole2`` (B2, MCGS-SLAM trên cảnh dài) bỏ từ 27/11/2026: #8 chuyển sang W1."""
-
-
-def chunk_ranges(
-    num_frames: int, count: int = CHUNK_COUNT, overlap: int = CHUNK_OVERLAP
-) -> list[tuple[int, int]]:
-    """Chia ``num_frames`` khung thành ``count`` đoạn, hai đoạn kề chồng ``overlap`` khung.
-
-    Args:
-        num_frames: Số khung của cảnh.
-        count: Số đoạn.
-        overlap: Số khung chung giữa hai đoạn kề nhau.
-
-    Returns:
-        Danh sách ``(khung đầu, khung cuối)``, tính cả hai đầu; đoạn cuối kết thúc ở khung cuối.
-
-    Raises:
-        ValueError: Nếu cảnh quá ngắn để chia.
-    """
-    if count < 1:
-        raise ValueError(f"số đoạn phải dương, nhận {count}")
-    length = math.ceil((num_frames + (count - 1) * overlap) / count)
-    if length <= overlap:
-        raise ValueError(f"cảnh {num_frames} khung quá ngắn để chia {count} đoạn chồng {overlap}")
-    step = length - overlap
-    ranges = []
-    for index in range(count):
-        start = index * step
-        end = min(start + length - 1, num_frames - 1)
-        ranges.append((start, end))
-    ranges[-1] = (ranges[-1][0], num_frames - 1)
-    return ranges
-
-
-def chunk_splits(num_frames: int) -> list[SplitPlan]:
-    """Split của 6 chunk trên B2 (run drivestudio chia chunk rồi gộp).
-
-    Args:
-        num_frames: Số khung của cảnh B2.
-
-    Returns:
-        Các split ``every8_stereo_c1`` … ``every8_stereo_c6``.
-    """
-    return [
+    SplitPlan(LONG_SCENE, LONG_SPLIT, STEREO, ("image_01",), purpose="B2, #11 một run cả cảnh"),
+    SplitPlan(
+        LONG_SCENE,
+        TRIAL_BLOCK_SPLIT,
+        STEREO,
+        ("image_01",),
+        index_range=TRIAL_BLOCK_RANGE,
+        purpose="#15 thử: một khối 320 khung",
+    ),
+    *(
         SplitPlan(
             LONG_SCENE,
-            f"every8_stereo_c{index}",
+            split_id,
             STEREO,
             ("image_01",),
             index_range=frames,
-            purpose=f"B2 chunk {index}",
+            purpose=f"#16 thử: chunk {index}",
         )
-        for index, frames in enumerate(chunk_ranges(num_frames), start=1)
-    ]
+        for index, (split_id, frames) in enumerate(zip(TRIAL_CHUNK_SPLITS, TRIAL_CHUNKS), 1)
+    ),
+)
+"""Bỏ từ 27/11/2026: ``every8_pinhole2`` (#8 MCGS-SLAM chuyển sang W1) và 6 chunk
+``every8_stereo_c1`` … ``c6`` (#11 thành một run trên ``LONG_SPLIT``)."""
 
 
 def read_frame_ids(scene_dir: Path) -> list[int]:
@@ -300,11 +278,8 @@ def create_splits(workdir: Workdir, dry_run: bool = False) -> int:
     """
     status = 0
     plans = list(FIXED_SPLITS)
-    try:
-        long_scene = workdir.load_scene(LONG_SCENE)
-        plans += chunk_splits(long_scene.manifest.timeline.num_frames)
-    except WorkdirError:
-        print(f"chưa có cảnh {LONG_SCENE} (A3, B2); ingest bằng:\n  {LONG_SCENE_INGEST}")
+    if not (workdir.scene_dir(LONG_SCENE) / "manifest.yaml").is_file():
+        print(f"chưa có cảnh {LONG_SCENE} (A3, B2, run thử); ingest bằng:\n  {LONG_SCENE_INGEST}")
     if not (workdir.scene_dir(WAYMO_SCENE) / "manifest.yaml").is_file():
         print(f"chưa có cảnh {WAYMO_SCENE} (W1); ingest bằng:\n  {WAYMO_INGEST}")
     for plan in plans:
@@ -438,6 +413,9 @@ RUN_COMMANDS = (
     ),
     RunCommand("10", A_LB_WINNER, LONG_SCENE, "every8_stereo_a3", note="A3"),
     RunCommand(
+        "11", A_LB_WINNER, LONG_SCENE, LONG_SPLIT, note="track B, một run trên cả cảnh dài"
+    ),
+    RunCommand(
         "12",
         A_L_WINNER,
         LONG_SCENE,
@@ -445,41 +423,25 @@ RUN_COMMANDS = (
         note="A3, A-L (ưu tiên 2)",
     ),
     RunCommand("13", "beziergs", WAYMO_SCENE, WAYMO_SPLIT, note="W1, A-LB (ưu tiên 2)"),
+    RunCommand("15", A_LB_WINNER, LONG_SCENE, TRIAL_BLOCK_SPLIT, note="thử: một khối 320 khung"),
+    *(
+        RunCommand(
+            "16", A_LB_WINNER, LONG_SCENE, split_id, note=f"thử: chunk {index} của 320 khung"
+        )
+        for index, split_id in enumerate(TRIAL_CHUNK_SPLITS, 1)
+    ),
 )
-CHUNK_RUN_NUMBER = 11  # #11: drivestudio chia chunk trên B2, một run cho mỗi chunk
+"""Một số run có nhiều lệnh (#16: một lệnh mỗi chunk)."""
 SKIPPED_COMMANDS = (
     "#14 (SplatAD, ưu tiên 2, làm nếu thừa thời gian): chưa có approach, cần port vào trainer",
 )
 
 
 def print_commands(workdir: Workdir) -> int:
-    """In lệnh chạy từng run của ma trận, kể cả 6 chunk của B2 (#11)."""
-
-    def show(commands: Sequence[RunCommand]) -> None:
-        for command in commands:
-            command = fill_winners(command)
-            print(f"# {command.number} {command.note}\n{command.render()}")
-
-    show([c for c in RUN_COMMANDS if int(c.number) < CHUNK_RUN_NUMBER])
-    num_frames = None
-    try:
-        num_frames = workdir.load_scene(LONG_SCENE).manifest.timeline.num_frames
-    except WorkdirError:
-        pass
-    count = len(chunk_splits(num_frames)) if num_frames else CHUNK_COUNT
-    print(
-        f"# {CHUNK_RUN_NUMBER} track B, drivestudio chia chunk: mỗi chunk một run, "
-        "cùng cấu hình thắng A-LB"
-    )
-    for index in range(1, count + 1):
-        print(
-            fill_winners(
-                RunCommand(
-                    str(CHUNK_RUN_NUMBER), A_LB_WINNER, LONG_SCENE, f"every8_stereo_c{index}"
-                )
-            ).render()
-        )
-    show([c for c in RUN_COMMANDS if int(c.number) > CHUNK_RUN_NUMBER])
+    """In lệnh chạy từng run của ma trận, đã điền run thắng đã chốt."""
+    for command in RUN_COMMANDS:
+        command = fill_winners(command)
+        print(f"# {command.number} {command.note}\n{command.render()}")
     for line in SKIPPED_COMMANDS:
         print(f"# không có lệnh: {line}")
     return 0
@@ -496,32 +458,33 @@ EST_GPU_HOURS = {
     "8": 0.6,  # đo ở đợt 2 (3902, cảnh dài): 1539 s; W1 ngắn hơn nhưng ba camera 1920×1280
     "9": 2.5,
     "10": 0.7,  # như #6 (OmniRe 3DGEER + FastGS, ~220 khung)
-    "11": 0.6,  # một chunk ~153 khung, như #6
+    "11": 1.3,  # một khối 864 khung: 30.000 bước như #6, eval 216 ảnh, nhiều Gaussian hơn
     "12": 1.0,
     "13": 2.0,  # BezierGS chưa đo
+    "15": 0.8,  # một khối 320 khung
+    "16": 0.65,  # một chunk 176 khung, như #6
 }
 """GPU-giờ ước lượng của một run trên RTX 4090, chạy một mình (sửa 27/11/2026 theo số đo đợt 1, 2;
 số cũ của Sheet gồm cả thời gian bị dừng khi hai run chạy song song). Số bước train cố định
-30.000 nên số khung của cảnh chủ yếu làm đổi thời gian eval, không đổi thời gian train. #11 tính
+30.000 nên số khung của cảnh chủ yếu làm đổi thời gian eval, không đổi thời gian train. #16 tính
 cho một chunk."""
 
 WAVE_RUNS = {
     "1": ("1", "2", "3", "5", "6", "8"),
     "2": ("4", "6", "7", "8"),
-    "3": ("10",),
-    "4": ("1", "2", "3", "4", "8"),
+    "3": ("1", "2", "3", "4", "8", "10", "11", "15", "16"),
 }
 """Run ưu tiên 1 của từng đợt. Đợt 1 không cần run thắng nào; đợt 2 cần run thắng A-L (#2/#3);
-đợt 3 cần cấu hình thắng A-LB (sau #1–#7) và thêm 6 chunk của #11.
+đợt 3 cần cả hai.
 
 Đợt 2 chạy lại #6 (3DGEER cắt viền ảnh pinhole có điểm chính lệch tâm, sửa ở
 ``recon/utils/geer_fov.py``) và #8 (MCGS-SLAM hỏng với rig 2 camera, sửa ở ``rig_layout``);
 ``definition`` lấy run mới nhất của mỗi ô nên run #6 cũ (``393f``) tự bị thay.
 
-Đợt 4 (thêm 27/11/2026) chạy lại mọi run W1 trên W1 mới (``D2S_W1_INDEX``): #1–#4 và #8
-(MCGS-SLAM chuyển từ cảnh dài sang W1); không phụ thuộc đợt 3 nên chạy cùng lúc được."""
-A_L_PLACEHOLDERS = (A_L_WINNER,)  # chỉ các run này nhận --al-winner
-WAVE_P2_RUNS = {"1": ("13",), "2": ("12",), "3": (), "4": ("13",)}
+Đợt 3 (gộp 27/11/2026, thay đợt 3 và 4 cũ): mọi run W1 trên W1 mới (``D2S_W1_INDEX``: #1–#4 và
+#8, MCGS-SLAM chuyển sang W1), A3 (#10), một run trên cả cảnh dài (#11, thay 6 chunk) và run thử
+một khối (#15) so với 2 chunk (#16) trên 320 khung đầu của cảnh dài."""
+WAVE_P2_RUNS = {"1": ("13",), "2": ("12",), "3": ("12", "13")}
 WAVE_NUREC = "1"
 A_L_APPROACHES = ("pvg", "deformablegs")
 
@@ -584,22 +547,19 @@ def build_queue(
     alb_winner: Optional[str] = A_LB_CHOSEN,
     p2: bool = False,
     nurec: bool = False,
-    num_chunks: int = CHUNK_COUNT,
 ) -> list[RunCommand]:
     """Các run của một đợt, đã thay run thắng, xếp run dài trước (worker nhận run theo thứ tự).
 
     Args:
-        wave: ``"1"``, ``"2"``, ``"3"`` hoặc ``"4"``.
-        al_winner: Approach thắng A-L (``pvg`` hoặc ``deformablegs``); cần cho đợt 2, 4; mặc
-            định ``A_L_CHOSEN``.
-        alb_winner: Cấu hình thắng A-LB, ví dụ ``"omnire fastgs=true"``; cần cho đợt 3; mặc
-            định ``A_LB_CHOSEN``.
-        p2: Thêm run ưu tiên 2 của đợt (#13 ở đợt 1, 4; #12 ở đợt 2).
+        wave: ``"1"``, ``"2"`` hoặc ``"3"``.
+        al_winner: Approach thắng A-L (``pvg`` hoặc ``deformablegs``); mặc định ``A_L_CHOSEN``.
+        alb_winner: Cấu hình thắng A-LB, ví dụ ``"omnire fastgs=true"``; mặc định
+            ``A_LB_CHOSEN``.
+        p2: Thêm run ưu tiên 2 của đợt (#13 ở đợt 1; #12 ở đợt 2; #12, #13 ở đợt 3).
         nurec: Thêm #9 (Instant NuRec) vào đợt 1, khi đã chọn cách chia đoạn.
-        num_chunks: Số chunk của #11.
 
     Raises:
-        QueueError: Nếu đợt không có hoặc thiếu, sai run thắng.
+        QueueError: Nếu đợt không có, hoặc thiếu, sai run thắng mà đợt cần.
     """
     if wave not in WAVE_RUNS:
         raise QueueError(f"không có đợt {wave}; chọn {', '.join(sorted(WAVE_RUNS))}")
@@ -608,38 +568,14 @@ def build_queue(
         numbers += WAVE_P2_RUNS[wave]
     if nurec and wave == WAVE_NUREC:
         numbers.append("9")
-    by_number = {command.number: command for command in RUN_COMMANDS}
-    commands = [by_number[number] for number in numbers]
-    if wave in ("2", "4"):
-        if al_winner not in A_L_APPROACHES:
-            raise QueueError(
-                f"đợt {wave} cần --al-winner pvg hoặc deformablegs (thắng giữa #2 và #3)"
-            )
-        commands = [
-            RunCommand(c.number, al_winner, c.scene_id, c.split_id, c.sets, note=c.note)
-            if c.approach in A_L_PLACEHOLDERS
-            else c
-            for c in commands
-        ]
-    if wave == "3":
-        if not alb_winner:
-            raise QueueError("đợt 3 cần --alb-winner, ví dụ 'omnire fastgs=true'")
-        approach, sets = parse_alb_winner(alb_winner)
-        commands = [
-            RunCommand(c.number, approach, c.scene_id, c.split_id, sets, note=c.note)
-            for c in commands
-        ]
-        commands += [
-            RunCommand(
-                str(CHUNK_RUN_NUMBER),
-                approach,
-                LONG_SCENE,
-                f"every8_stereo_c{index}",
-                sets,
-                note=f"track B, chunk {index}",
-            )
-            for index in range(1, num_chunks + 1)
-        ]
+    commands = [c for number in numbers for c in RUN_COMMANDS if c.number == number]
+    if any(c.approach == A_L_WINNER for c in commands) and al_winner not in A_L_APPROACHES:
+        raise QueueError(f"đợt {wave} cần --al-winner pvg hoặc deformablegs (thắng giữa #2 và #3)")
+    if any(c.approach == A_LB_WINNER for c in commands) and not alb_winner:
+        raise QueueError(f"đợt {wave} cần --alb-winner, ví dụ 'omnire fastgs=true'")
+    commands = [
+        fill_winners(c, al_winner or A_L_CHOSEN, alb_winner or A_LB_CHOSEN) for c in commands
+    ]
     return sorted(commands, key=lambda c: -EST_GPU_HOURS[c.number])
 
 
@@ -653,13 +589,8 @@ def write_queue(
     nurec: bool,
 ) -> int:
     """In (và ghi nếu có ``out``) hàng đợi của một đợt; trả mã thoát."""
-    num_chunks = CHUNK_COUNT
     try:
-        num_chunks = len(chunk_splits(workdir.load_scene(LONG_SCENE).manifest.timeline.num_frames))
-    except WorkdirError:
-        pass
-    try:
-        commands = build_queue(wave, al_winner, alb_winner, p2, nurec, num_chunks)
+        commands = build_queue(wave, al_winner, alb_winner, p2, nurec)
     except QueueError as error:
         print(f"lỗi: {error}", file=sys.stderr)
         return 2
@@ -709,6 +640,8 @@ class EntryPlan:
     label: str = ""
 
 
+A_LB_SLOT = Slot("omnire", (("renderer", "3dgeer"), ("fastgs", True)))
+"""Thắng A-LB chốt 27/11/2026 (``A_LB_CHOSEN``): cấu hình của #11, #15, #16."""
 OMNIRE_W1 = Slot("omnire", (("renderer", "3dgs"), ("fastgs", True)))
 PINHOLE = (("renderer", "3dgs"),)
 FISHEYE_GEER = (("renderer", "3dgeer"),)  # renderer fisheye của A-L chốt 27/11
@@ -759,10 +692,10 @@ ENTRY_PLANS = (
         "A3 A-L",
     ),
     EntryPlan("B", None, WAYMO_SCENE, WAYMO_SPLIT, (Slot("mcgs"),), "W1 MCGS-SLAM"),
+    EntryPlan("B", None, LONG_SCENE, LONG_SPLIT, (A_LB_SLOT,), "B2 OmniRe một run cả cảnh"),
+    EntryPlan("B", None, LONG_SCENE, TRIAL_BLOCK_SPLIT, (A_LB_SLOT,), "thử: một khối 320 khung"),
     EntryPlan("C", None, LONG_SCENE, "every8_mixed3", (Slot("nurec"),), "C Instant NuRec"),
 )
-CHUNK_SLOT = Slot("omnire", (("renderer", "3dgeer"), ("fastgs", True)))
-"""Cấu hình của #11: thắng A-LB chốt 27/11/2026 (``A_LB_CHOSEN``)."""
 CALIBRATION_SLOTS = tuple(
     Slot(OMNIRE_W1.approach_id, OMNIRE_W1.options, seed) for seed in (0, 1, 2)
 )
@@ -814,10 +747,9 @@ def pick(
 
 
 def build_chunked(runs: Sequence[RunRecord], notes: list[str]) -> list[BenchmarkChunkedEntry]:
-    """Mục ``chunked`` của #11: run mới nhất của mỗi chunk B2 với cấu hình ``CHUNK_SLOT``.
+    """Mục ``chunked`` của run thử #16: run mới nhất của mỗi chunk với cấu hình ``A_LB_SLOT``.
 
-    Có dưới hai chunk đã xong thì bỏ mục; thiếu một vài chunk thì vẫn ghi các chunk đã có và báo
-    (số gộp khi đó chỉ phủ một phần cảnh, chỗ hở có cảnh báo trong ``d2s benchmark``).
+    Thiếu một chunk thì bỏ mục (số gộp của một chunk không nói gì về chỗ nối) và báo.
 
     Args:
         runs: Mọi run, mới nhất trước.
@@ -828,22 +760,19 @@ def build_chunked(runs: Sequence[RunRecord], notes: list[str]) -> list[Benchmark
     """
     chunks = []
     missing = []
-    for index in range(1, CHUNK_COUNT + 1):
-        split_id = f"every8_stereo_c{index}"
-        run = pick(runs, LONG_SCENE, split_id, CHUNK_SLOT, notes)
+    for split_id in TRIAL_CHUNK_SPLITS:
+        run = pick(runs, LONG_SCENE, split_id, A_LB_SLOT, notes)
         if run is None:
             missing.append(split_id)
         else:
             chunks.append(BenchmarkChunk(split_id=split_id, run_id=run.run_id))
-    if len(chunks) < 2:
-        notes.append(f"#11: có {len(chunks)} chunk đã xong (cần ít nhất 2), bỏ mục chunked")
-        return []
     if missing:
-        notes.append(f"#11: thiếu chunk {', '.join(missing)}, số gộp chỉ phủ một phần cảnh")
+        notes.append(f"#16: chưa có chunk {', '.join(missing)}, bỏ mục chunked")
+        return []
     return [
         BenchmarkChunkedEntry(
             bench_track="B",
-            label=f"#11 OmniRe 3DGEER + FastGS, {len(chunks)} chunk",
+            label=f"#16 thử: {len(chunks)} chunk trên 320 khung (so với #15 một khối)",
             scene_id=LONG_SCENE,
             chunks=chunks,
         )

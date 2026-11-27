@@ -1,12 +1,13 @@
-"""Kiểm tra ``drive2sim/scripts/setup_benchmark_week04.py``: chia chunk, đổi khung gốc, xếp run.
+"""Kiểm tra ``drive2sim/scripts/setup_benchmark_week04.py``: split, đổi khung gốc, xếp run.
 
-- ``chunk_ranges``: 6 đoạn phủ cả cảnh, hai đoạn kề chồng đúng 10 khung.
+- Run thử chunk: hai chunk chồng 32 khung, khung đầu là bội của 8 nên khung test thẳng hàng với
+  một khối cùng đoạn.
 - ``source_to_index_range``: đổi số hiệu khung gốc (có chỗ thiếu khung) sang chỉ số của cảnh.
 - ``heading_change_deg``: đường thẳng gần 0 độ, rẽ vuông góc khoảng 90 độ.
 - ``build_definition``: run được xếp đúng nhóm (pinhole và MCGS-SLAM trên W1, fisheye và track C
   trên A1); bỏ run chạy thử, run lỗi; nhiều run khớp thì lấy run mới nhất; nhóm hiệu chỉnh cần ít
-  nhất hai seed; các chunk của #11 thành một mục ``chunked``.
-- ``build_queue``: run thắng đã chốt 27/11 là mặc định; đợt 4 chạy lại các run W1.
+  nhất hai seed; #11 là một run trên cả cảnh dài; hai chunk của #16 thành một mục ``chunked``.
+- ``build_queue``: run thắng đã chốt 27/11 là mặc định; đợt 3 gộp mọi run còn lại.
 - ``scene_stats``: quãng đường, tốc độ và số vật thể chạy của cảnh ứng viên W1.
 """
 
@@ -55,18 +56,21 @@ def make_run(
     )
 
 
-def test_chunks_cover_the_scene_with_overlap() -> None:
-    ranges = week04.chunk_ranges(864)
-    assert len(ranges) == 6
-    assert ranges[0][0] == 0 and ranges[-1][1] == 863
-    for (_, end), (start, _) in zip(ranges, ranges[1:]):
-        assert end - start + 1 == week04.CHUNK_OVERLAP
-    assert max(end - start + 1 for start, end in ranges) <= 153
+def test_trial_chunks_overlap_and_align_test_frames_with_the_block() -> None:
+    from drive2sim.core.split import every_nth_frame_pairs
 
+    (first, end), (second, last) = week04.TRIAL_CHUNKS
+    assert (first, last) == week04.TRIAL_BLOCK_RANGE
+    assert end - second + 1 == 32
+    assert all(start % 8 == 0 for start, _ in week04.TRIAL_CHUNKS)
 
-def test_chunks_reject_a_scene_too_short() -> None:
-    with pytest.raises(ValueError):
-        week04.chunk_ranges(5, count=6, overlap=10)
+    def tests(frame_range: tuple[int, int]) -> set[int]:
+        _, test = every_nth_frame_pairs(frame_range, ["image_00"], 8, [])
+        return {frame for frame, _ in test}
+
+    chunk_tests = [tests(r) for r in week04.TRIAL_CHUNKS]
+    assert set().union(*chunk_tests) == tests(week04.TRIAL_BLOCK_RANGE)
+    assert len(chunk_tests[0] & chunk_tests[1]) == 3  # khung test chung trong đoạn chồng
 
 
 def test_source_range_maps_to_scene_indices() -> None:
@@ -204,15 +208,30 @@ def test_wave_two_fills_the_a_l_winner_and_reruns_six_and_eight() -> None:
     assert by_number["7"].sets == ("renderer=3dgeer", "campose=false")
 
 
-def test_wave_three_adds_one_run_per_chunk() -> None:
+def test_wave_three_merges_w1_a3_long_scene_and_the_chunk_trial() -> None:
     with pytest.raises(week04.QueueError):
         week04.build_queue("3", alb_winner="pvg fastgs=true")
     with pytest.raises(week04.QueueError):
         week04.build_queue("3", alb_winner="omnire fastgs")
-    queue = week04.build_queue("3", alb_winner="omnire renderer=3dgs fastgs=true", num_chunks=6)
-    assert [c.number for c in queue] == ["10"] + ["11"] * 6
-    assert queue[-1].split_id == "every8_stereo_c6"
-    assert all(c.sets == ("renderer=3dgs", "fastgs=true") for c in queue)
+    queue = week04.build_queue("3", p2=True)
+    numbers = sorted((c.number for c in queue), key=int)
+    assert numbers == ["1", "2", "3", "4", "8", "10", "11", "12", "13", "15", "16", "16"]
+    by_split = {(c.number, c.split_id): c for c in queue}
+    long_run = by_split[("11", week04.LONG_SPLIT)]
+    assert long_run.scene_id == week04.LONG_SCENE
+    assert long_run.approach == "omnire" and long_run.sets == ("renderer=3dgeer", "fastgs=true")
+    trial = [c for c in queue if c.number in ("15", "16")]
+    assert {c.split_id for c in trial} == {
+        week04.TRIAL_BLOCK_SPLIT,
+        *week04.TRIAL_CHUNK_SPLITS,
+    }
+    assert all(c.sets == ("renderer=3dgeer", "fastgs=true") for c in trial)
+    assert by_split[("4", week04.WAYMO_SPLIT)].approach == "pvg"
+    assert by_split[("12", "every8_stereo_a3")].approach == "pvg"
+    w1 = [c for c in queue if c.number in ("1", "2", "3", "4", "8", "13")]
+    assert all(c.scene_id == week04.WAYMO_SCENE for c in w1)
+    hours = [week04.EST_GPU_HOURS[c.number] for c in queue]
+    assert hours == sorted(hours, reverse=True)
 
 
 def test_queue_file_lines_round_trip(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -232,30 +251,19 @@ def test_queue_file_lines_round_trip(tmp_path: Path, capsys: pytest.CaptureFixtu
     )
     assert status == 0
     lines = out.read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 1 + week04.CHUNK_COUNT
-    number, args = lines[0].split("\t")
-    assert number == "10"
-    assert args.split()[:1] == ["omnire"]
+    assert len(lines) == len(week04.WAVE_RUNS["3"]) + len(week04.TRIAL_CHUNKS) - 1
+    by_number = dict(line.split("\t") for line in lines)
+    assert by_number["10"].split()[:1] == ["omnire"]
+    assert "fastgs=true" in by_number["10"] and "renderer=3dgeer" not in by_number["10"]
     # run thắng đã chốt là mặc định nên đợt 2 không cần --al-winner nữa
     assert week04.main(["--workdir", str(tmp_path), "queue", "--wave", "2"]) == 0
 
 
-def test_wave_three_defaults_to_the_chosen_a_lb_winner() -> None:
-    queue = week04.build_queue("3", num_chunks=6)
-    assert {c.approach for c in queue} == {"omnire"}
-    assert all(c.sets == ("renderer=3dgeer", "fastgs=true") for c in queue)
-
-
-def test_wave_four_reruns_every_w1_run_with_mcgs_on_w1() -> None:
-    queue = week04.build_queue("4", p2=True)
-    by_number = {c.number: c for c in queue}
-    assert sorted(by_number, key=int) == ["1", "2", "3", "4", "8", "13"]
-    assert all(c.scene_id == week04.WAYMO_SCENE for c in queue)
-    assert by_number["4"].approach == "pvg"
-    assert by_number["4"].sets == ("train.drivestudio.lidar=false",)
-    assert by_number["8"].approach == "mcgs"
-    assert by_number["8"].sets == ("prep.mcgs.cameras=FRONT,FRONT_LEFT,FRONT_RIGHT",)
-    _, stage_params = parse_set(list(by_number["8"].sets))
+def test_mcgs_runs_on_w1_with_the_three_front_cameras() -> None:
+    (mcgs,) = [c for c in week04.build_queue("3") if c.number == "8"]
+    assert (mcgs.approach, mcgs.scene_id) == ("mcgs", week04.WAYMO_SCENE)
+    assert mcgs.sets == ("prep.mcgs.cameras=FRONT,FRONT_LEFT,FRONT_RIGHT",)
+    _, stage_params = parse_set(list(mcgs.sets))
     assert stage_params == {"prep.mcgs": {"cameras": ["FRONT", "FRONT_LEFT", "FRONT_RIGHT"]}}
 
 
@@ -305,48 +313,53 @@ def test_scene_stats_measures_distance_speed_and_moving_objects(tmp_path: Path) 
     assert (stats.vehicles, stats.pedestrians, stats.moving) == (1, 1, 1)
 
 
-def test_definition_puts_mcgs_on_w1_and_chunks_into_one_chunked_item() -> None:
-    chunk = {"renderer": "3dgeer", "fastgs": True}
+def test_definition_puts_mcgs_on_w1_long_run_and_trial_into_track_b() -> None:
+    winner = {"renderer": "3dgeer", "fastgs": True}
+
+    def long_run(run_id: str, split_id: str, options: dict = winner) -> RunRecord:
+        return make_run(
+            run_id,
+            "omnire",
+            split_id=split_id,
+            scene_id=week04.LONG_SCENE,
+            options=options,
+            train={},
+        )
+
+    c1, c2 = week04.TRIAL_CHUNK_SPLITS
     runs = [
         make_run("20261128-000000-mcgs-a0a0", "mcgs"),
-        *[
-            make_run(
-                f"20261128-0{index}0000-omnire-c{index}c{index}",
-                "omnire",
-                split_id=f"every8_stereo_c{index}",
-                scene_id=week04.LONG_SCENE,
-                options=chunk,
-                train={},
-            )
-            for index in range(1, 5)
-        ],
-        make_run(  # cấu hình khác thắng A-LB: không vào #11
-            "20261128-050000-omnire-c5c5",
-            "omnire",
-            split_id="every8_stereo_c5",
-            scene_id=week04.LONG_SCENE,
-            options={"renderer": "3dgut", "fastgs": True},
-            train={},
-        ),
+        long_run("20261128-010000-omnire-b1b1", week04.LONG_SPLIT),
+        long_run("20261128-020000-omnire-b2b2", week04.TRIAL_BLOCK_SPLIT),
+        long_run("20261128-030000-omnire-c1c1", c1),
+        long_run("20261128-040000-omnire-c2c2", c2),
+        # cấu hình khác thắng A-LB: không vào nhóm nào
+        long_run("20261128-050000-omnire-d1d1", c1, {"renderer": "3dgut", "fastgs": True}),
     ]
     result = week04.build_definition(runs)
     assert result.benchmark is not None
-    track_b = [e for e in result.benchmark.entries if e.bench_track == "B"]
-    assert [(e.scene_id, e.split_id, e.runs) for e in track_b] == [
-        (W1, W1_SPLIT, ["20261128-000000-mcgs-a0a0"])
+    track_b = [
+        (e.scene_id, e.split_id, e.runs) for e in result.benchmark.entries if e.bench_track == "B"
+    ]
+    assert track_b == [
+        (W1, W1_SPLIT, ["20261128-000000-mcgs-a0a0"]),
+        (week04.LONG_SCENE, week04.LONG_SPLIT, ["20261128-010000-omnire-b1b1"]),
+        (week04.LONG_SCENE, week04.TRIAL_BLOCK_SPLIT, ["20261128-020000-omnire-b2b2"]),
     ]
     (item,) = result.benchmark.chunked
     assert item.scene_id == week04.LONG_SCENE
-    assert [c.split_id for c in item.chunks] == [f"every8_stereo_c{i}" for i in range(1, 5)]
-    assert any("thiếu chunk every8_stereo_c5, every8_stereo_c6" in n for n in result.notes)
+    assert [(c.split_id, c.run_id) for c in item.chunks] == [
+        (c1, "20261128-030000-omnire-c1c1"),
+        (c2, "20261128-040000-omnire-c2c2"),
+    ]
 
 
-def test_definition_skips_chunked_with_fewer_than_two_chunks() -> None:
+def test_definition_skips_chunked_until_both_trial_chunks_finish() -> None:
     runs = [
         make_run(
             "20261128-010000-omnire-c1c1",
             "omnire",
-            split_id="every8_stereo_c1",
+            split_id=week04.TRIAL_CHUNK_SPLITS[0],
             scene_id=week04.LONG_SCENE,
             options={"renderer": "3dgeer", "fastgs": True},
             train={},
