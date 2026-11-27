@@ -91,6 +91,19 @@ hình. Không có Node.js: `bash envs/install.sh` (Linux, macOS) hoặc
 Colab. Chi tiết: [docs/install.md](docs/install.md); gói cài cho từng hệ điều hành ở trang
 [Releases](https://github.com/thaianh20021/drive2sim/releases). Các bước cài tay bên dưới vẫn dùng được.
 
+**Gói cài (v0.4.0).** Tải gói cho hệ điều hành của bạn ở trang
+[Releases](https://github.com/thaianh20021/drive2sim/releases/tag/v0.4.0), giải nén rồi chạy bộ
+cài bên trong. Không cần git.
+
+| Hệ điều hành | Gói | Cài |
+|---|---|---|
+| Linux | [drive2sim-v0.4.0-linux.tar.gz](https://github.com/thaianh20021/drive2sim/releases/download/v0.4.0/drive2sim-v0.4.0-linux.tar.gz) (57 MB, kèm submodule) | `tar -xzf drive2sim-v0.4.0-linux.tar.gz && bash drive2sim-v0.4.0/envs/install.sh` |
+| macOS | [drive2sim-v0.4.0-macos.tar.gz](https://github.com/thaianh20021/drive2sim/releases/download/v0.4.0/drive2sim-v0.4.0-macos.tar.gz) (4,4 MB) | `tar -xzf drive2sim-v0.4.0-macos.tar.gz && bash drive2sim-v0.4.0/envs/install.sh` |
+| Windows | [drive2sim-v0.4.0-windows.zip](https://github.com/thaianh20021/drive2sim/releases/download/v0.4.0/drive2sim-v0.4.0-windows.zip) (5 MB) | Giải nén, rồi trong PowerShell: `powershell -ExecutionPolicy Bypass -File drive2sim-v0.4.0\envs\install.ps1` |
+
+Mã kiểm tra: [SHA256SUMS.txt](https://github.com/thaianh20021/drive2sim/releases/download/v0.4.0/SHA256SUMS.txt). Cài xong bật Studio bằng `drive2sim-studio`
+rồi mở <http://127.0.0.1:8765>.
+
 Tải mã nguồn trước. Các lệnh bên dưới được chạy từ thư mục `drive2sim` vừa tải:
 
 ```bash
