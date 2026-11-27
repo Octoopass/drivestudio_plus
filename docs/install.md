@@ -29,7 +29,11 @@ Tuỳ chọn hay dùng: `--studio-only`, `--full`, `--no-nurec`, `--workdir <th�
 `--port <cổng>`, `--start` (bật Studio ngay sau khi cài), `--ref main` (bản mới nhất thay vì bản
 phát hành), `--src <thư mục>` (dùng mã nguồn có sẵn, không tải). Xem đủ: `--help`.
 
-Studio chỉ nghe ở `127.0.0.1`. Trên máy chủ, `start` in sẵn lệnh SSH để mở từ máy của bạn:
+Mặc định Studio chỉ nghe ở `127.0.0.1`. Cả nhóm cùng vào qua mạng riêng (Tailscale): `start --host
+<IP Tailscale>`, hoặc `start --allow-host <IP Tailscale>` khi tailscaled chạy
+`--tun=userspace-networking` (máy không có sudo). Studio không có đăng nhập: không dùng IP công khai.
+Lệnh `drive2sim-studio` nhận cùng các cờ này. Không dùng `--host` thì `start` in sẵn lệnh SSH để mở
+từ máy của bạn:
 
 ```bash
 ssh -N -L 8765:127.0.0.1:8765 <người dùng>@<máy chủ>
@@ -84,6 +88,7 @@ ghim các gói đã có, nên chỉ thêm gói mới, không nâng, hạ gói c�
 |---|---|---|
 | `envs/install.ps1` chế độ studio, lệnh `drive2sim-studio`, lệnh Node `install --start`, `status`, `stop` | Windows 10, Python 3.11 qua uv | Chạy hết; Studio trả lời, tắt được |
 | `envs/install.sh --studio-only`, lệnh Node `start`, `status`, `stop` | Ubuntu (máy lab), Node 20 | Chạy hết; Studio trả lời, tắt được |
+| v0.3.0: `envs/install.sh --studio-only`, lệnh Node `start --allow-host`, `status`, `stop` | Ubuntu (máy lab), Node 20 | Chạy hết; Studio nhận tên máy thêm, Host lạ bị chặn (403), tắt được |
 | Cài tất cả (nút Studio) | Máy lab, môi trường chính đã có | 4 mục cài thêm, 9 mục đã có, Argoverse 2 bỏ qua (thiếu Rust); numpy, torch, matplotlib, OpenCV giữ nguyên |
 | `envs/install.sh --full` từ đầu | | **Chưa chạy trọn** (build CUDA cỡ 1,5 giờ); các phần nó gọi đã chạy thật riêng: nút cài môi trường chính (8 bước) và Cài tất cả |
 | macOS | | **Chưa kiểm tra** (không có máy Mac) |
