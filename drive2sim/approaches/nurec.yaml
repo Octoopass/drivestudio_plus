@@ -49,15 +49,17 @@ options:
       - "Resample về camera F-theta 120° của NVIDIA, cùng pose: loại camera model multiview đã học."
       - "Giữ cả vòng mắt cá dưới dạng F-theta (model chưa học loại này)."
   n_gaussians:
-    choices: [200000, 500000, 1000000, 2000000]
+    choices: [200000, 500000, 1000000, 2000000, 0]
     default: 500000
     group: detail
     label: "Số Gaussian"
     help: >-
       Số Gaussian sau khi ghép, cho mỗi lượt 8 đoạn (khoảng 108 giây) của clip; clip dài dựng nhiều
       lượt nên tổng nhiều hơn. Nhập số khác ở ô Tuỳ chỉnh (100 nghìn tới 8 triệu). Nhiều Gaussian
-      thì PLY lớn và VRAM lúc ghép cao hơn.
-    labels: ["200 nghìn", "500 nghìn", "1 triệu", "2 triệu"]
+      thì PLY lớn và VRAM lúc ghép cao hơn. "Không giới hạn" bỏ bước gộp Gaussian khi ghép, giữ
+      mọi Gaussian model dự đoán: chi tiết nhất nhưng PLY lớn hơn nhiều, render và tối ưu tiếp
+      chậm hơn.
+    labels: ["200 nghìn", "500 nghìn", "1 triệu", "2 triệu", "Không giới hạn"]
     custom: {min: 100000, max: 8000000, integer: true}
   refine_iters:
     choices: [0, 10000, 30000]
@@ -70,6 +72,17 @@ options:
       nhưng lâu hơn (30 nghìn bước cỡ 7 phút trên 1 GPU với clip 780 khung, 4 camera).
     labels: ["Tắt", "10 nghìn bước", "30 nghìn bước"]
     custom: {min: 1000, max: 200000, integer: true}
+  refine_gpus:
+    choices: [1, 0]
+    default: 1
+    group: detail
+    label: "GPU tối ưu tiếp"
+    help: >-
+      "Mọi GPU trống": chia clip theo quãng đường đi cho các GPU còn trống, mỗi GPU tối ưu một
+      đoạn (cộng Gaussian trong 50 m quanh camera của đoạn làm ngữ cảnh), rồi ghép lại. Dùng cho
+      PLY quá lớn cho một GPU (Không giới hạn số Gaussian với clip dài): không phải tỉa, và xong
+      nhanh gần bằng số GPU lần. Một GPU thì PLY quá lớn bị tỉa bớt Gaussian gần trong suốt.
+    labels: ["1 GPU", "Mọi GPU trống"]
   include_dynamic:
     choices: [false, true]
     default: false
@@ -103,6 +116,7 @@ stages:
   - stage: train.nurec_refine
     params:
       iters: "${options.refine_iters}"
+      gpus: "${options.refine_gpus}"
   - {stage: eval.ncore}
   - {stage: export.nurec_ply}
   - {stage: render.nurec_video}

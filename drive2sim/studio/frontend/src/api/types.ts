@@ -208,7 +208,7 @@ export interface RunEvent {
 /** Việc nền của Studio: ingest, đẩy và tải Kaggle, Colab, Drive (GET /api/jobs). */
 export interface Job {
   job_id: string;
-  kind: "ingest" | "kaggle_push" | "kaggle_pull" | "colab_push" | "colab_pull" | "colab_update" | "colab_session" | "drive_pull";
+  kind: "ingest" | "kaggle_push" | "kaggle_pull" | "colab_push" | "colab_pull" | "colab_update" | "colab_session" | "drive_pull" | "drive_push";
   label: string;
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
   result: string | null;

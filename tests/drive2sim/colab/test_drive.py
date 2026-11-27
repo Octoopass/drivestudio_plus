@@ -319,3 +319,63 @@ def test_inspect_route(my_drive: Path, tmp_path: Path, monkeypatch: pytest.Monke
         app.state.studio.jobs.wait_idle()
         done = client.get(f"/api/jobs/{job.json()['job_id']}").json()
         assert done["status"] == "succeeded" and done["progress"]["total"] == 70
+
+
+class FakePushClient:
+    """VM giả: ``upload`` chép vào thư mục tạm, ``exec_python`` chạy code trên đó."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.uploads = 0
+
+    def _map(self, text: str) -> str:
+        return text.replace("/content", str(self.root / "content"))
+
+    def upload(self, session: str, local: Path, remote: str) -> None:  # noqa: D102
+        self.uploads += 1
+        target = Path(self._map(remote))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(local.read_bytes())
+
+    def exec_python(  # noqa: D102
+        self, session: str, code: str, timeout_s: float = 60, attempts: int = 3
+    ) -> str:
+        import contextlib
+        import io
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            exec(self._map(code), {})  # noqa: S102
+        return out.getvalue()
+
+
+def test_push_files_chunks_and_skips(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(drive, "CHUNK_BYTES", 10)
+    (tmp_path / "content" / "drive" / "MyDrive").mkdir(parents=True)
+    local = tmp_path / "scene.ply"
+    local.write_bytes(bytes(range(25)))
+    usdz = tmp_path / "scene.usdz"
+    usdz.write_bytes(b"usdz")
+    client = FakePushClient(tmp_path / "vm")
+    (tmp_path / "vm" / "content" / "drive" / "MyDrive").mkdir(parents=True)
+    seen = []
+    files = [(local, "8e5a_scene.ply"), (usdz, "8e5a_scene.usdz")]
+    result = drive.push_files(
+        client, "s", files, "drive2sim/run", progress=lambda d, t, n: seen.append((d, t))
+    )
+    target = tmp_path / "vm" / "content" / "drive" / "MyDrive" / "drive2sim" / "run"
+    assert (target / "8e5a_scene.ply").read_bytes() == bytes(range(25))
+    assert (target / "8e5a_scene.usdz").read_bytes() == b"usdz"
+    assert client.uploads == 4 and seen[-1] == (29, 29) and result["skipped"] == 0
+    again = drive.push_files(client, "s", [(local, "8e5a_scene.ply")], "drive2sim/run")
+    assert again["skipped"] == 1 and client.uploads == 4  # đã đủ trên Drive: không đẩy lại
+
+
+def test_push_files_needs_mount(tmp_path: Path) -> None:
+    client = FakePushClient(tmp_path / "vm")
+    local = tmp_path / "a.ply"
+    local.write_bytes(b"x")
+    with pytest.raises(ValueError, match="chưa mount"):
+        drive.push_files(client, "s", [(local, "a.ply")], "x")
+    with pytest.raises(ValueError):
+        drive.push_files(client, "s", [(local, "a/b.ply")], "x")

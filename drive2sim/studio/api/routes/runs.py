@@ -20,6 +20,7 @@ File này chứa:
 - ``GET /api/runs/{run_id}/video_sets``: video đánh giá gom theo bộ (test, full) và kênh (gốc,
   render, sai khác, độ sâu, lớp), kèm khung từng camera nếu có (``engine/videos.py``).
 - ``GET /api/runs/{run_id}/artifacts``: nơi lưu kết quả của từng stage và các file trong đó.
+- ``GET /api/runs/{run_id}/downloads``: file nên tải về máy (PLY, ``scene.usdz`` cho CARLA...).
 - ``GET /api/runs/{run_id}/curve``: đường cong train (PSNR, loss, số Gaussian theo bước).
 - ``GET /api/runs/{run_id}/splats``: file Gaussian xem được trong trình duyệt (gói xem trước,
   ``scene.ply``), kèm đường dẫn.
@@ -39,7 +40,7 @@ from drive2sim.core import files
 from drive2sim.core.schema import Preview, RunRecord
 from drive2sim.engine import housekeeping, remote
 from drive2sim.engine.approaches import load_approach
-from drive2sim.engine.artifacts import run_artifacts, train_curve
+from drive2sim.engine.artifacts import run_artifacts, run_downloads, train_curve
 from drive2sim.engine.densify_info import load_densify_info
 from drive2sim.engine.environment import require_local_environment
 from drive2sim.engine.machine import gpu_usage
@@ -74,6 +75,7 @@ from drive2sim.studio.api.state import state_of
 router = APIRouter(tags=["runs"])
 LOG_TAIL_LINES = 200
 FINISHED = ("succeeded", "failed", "cancelled")
+NUREC_TRAIN = "train.nurec"  # run có stage này không có checkpoint cho export.preview
 EXPORT_STAGES = {
     "ply": "export.ply_world",
     "preview": "export.preview",
@@ -308,8 +310,15 @@ def export_run(run_id: str, body: ExportBody, request: Request) -> dict:
     state = state_of(request)
     run_dir, current = _load(request, run_id)
     stage_id = EXPORT_STAGES[body.kind]
+    stage_ids = [s.stage_id for s in current.stages]
     if body.kind == "ply":  # run Instant NuRec: export.nurec_ply, không phải export.ply_world
-        stage_id = ply_export_stage([s.stage_id for s in current.stages])
+        stage_id = ply_export_stage(stage_ids)
+    if body.kind == "preview" and NUREC_TRAIN in stage_ids:
+        raise HTTPException(
+            400,
+            f"run {run_id} là Instant NuRec (không có checkpoint_final.pth): gói xem trước chỉ "
+            "dành cho run drivestudio; xem 3D bằng PLY (export.nurec_ply)",
+        )
     if stage_id not in state.registry:
         raise HTTPException(400, f"stage {stage_id} chưa có")
     _claim(request, run_dir, run_id)
@@ -438,6 +447,17 @@ def artifacts(run_id: str, request: Request) -> dict:
     """
     run_dir, record = _load(request, run_id)
     return run_artifacts(state_of(request).workdir, record, run_dir)
+
+
+@router.get("/api/runs/{run_id}/downloads")
+def downloads(run_id: str, request: Request) -> dict:
+    """File của run nên tải về máy: PLY, ``scene.usdz`` cho CARLA, checkpoint, video.
+
+    Returns:
+        ``{"items": [...]}`` theo ``run_downloads``; tải bằng ``/files/<path>?download=1``.
+    """
+    run_dir, record = _load(request, run_id)
+    return {"items": run_downloads(state_of(request).workdir, record, run_dir)}
 
 
 @router.get("/api/runs/{run_id}/curve")

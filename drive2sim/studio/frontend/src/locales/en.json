@@ -1158,5 +1158,21 @@
   "benchmark.hint.segments": "R7: runs of 5 or more consecutive test frames, each more than 2 dB below the median; computed per camera group, test-only cameras left out. Diagnostic, not ranked.",
   "benchmark.hint.per_100m": "R6: divided by distance / 100 m; track B only.",
   "benchmark.hint.ate": "ATE as reported by the method itself (metres); not recomputed.",
-  "benchmark.hint.train": "Actual train time. Only comparable between runs on the same GPU."
+  "benchmark.hint.train": "Actual train time. Only comparable between runs on the same GPU.",
+  "artifacts.download": "Download",
+  "downloads.title": "Downloads",
+  "downloads.help": "Save files to the computer running the browser (also over Tailscale). Running the scene in CARLA needs scene.usdz (OpenDRIVE map, trajectory, cameras, vehicles and people) and the NuRec PLY for the Gaussian render server. The Gaussian PLY (standard 3DGS) opens in other viewers such as SuperSplat.",
+  "downloads.kind.ply": "Gaussian PLY (standard 3DGS)",
+  "downloads.kind.nurec_ply": "NuRec PLY (CARLA render server)",
+  "downloads.kind.usdz": "scene.usdz for CARLA",
+  "downloads.kind.checkpoint": "Checkpoint",
+  "downloads.kind.video": "Video",
+  "downloads.usdz_missing": "No scene.usdz for CARLA yet: use \"Run in CARLA\" or open the Drive page once to build it.",
+  "drive_push.button": "Push to Drive",
+  "drive_push.help": "Push files to Google Drive through a Colab CPU session with Drive mounted (same as pulling data from Drive): connect Drive, pick files and a MyDrive folder, then Push. Files go in 32 MiB parts with MD5 checks; cancel and retry in Activity to continue, files already on Drive are skipped. File names get the last 4 characters of the run ID. Stop the session afterwards so Drive finishes syncing and no compute units are spent.",
+  "drive_push.folder": "Folder in MyDrive",
+  "drive_push.start": "Push {count} files ({size})",
+  "drive_push.done": "Pushed to {path}. Stop the session so Drive finishes syncing and the VM is released.",
+  "drive_push.mounted": "Drive is connected to this session.",
+  "drive_push.stop_help": "Flush Drive buffers on the VM, unmount Drive, then stop the Colab session"
 }

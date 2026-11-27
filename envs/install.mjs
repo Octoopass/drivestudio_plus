@@ -44,10 +44,14 @@ Tuỳ chọn:
   --ref REF           tag hoặc nhánh của mã nguồn (mặc định v${VERSION}; main là bản mới nhất)
   --src DIR           dùng mã nguồn có sẵn ở DIR, không tải (mặc định tải vào ~/.drive2sim/src)
   --start             bật Studio ở nền sau khi cài
+  --host ADDR         Studio nghe trên ADDR thay cho 127.0.0.1 (IP mạng riêng như Tailscale;
+                      Studio không có đăng nhập, không dùng IP công khai)
+  --allow-host NAME   nhận thêm tên máy NAME trong Host/Origin (lặp được), ví dụ IP Tailscale khi
+                      tailscaled chạy userspace-networking
 `;
 
 function parse(argv) {
-  const opts = { command: "install", port: "8765", ref: `v${VERSION}`, src: join(HOME, "src") };
+  const opts = { command: "install", port: "8765", ref: `v${VERSION}`, src: join(HOME, "src"), allowHosts: [] };
   const rest = [...argv];
   if (rest[0] && !rest[0].startsWith("-")) opts.command = rest.shift();
   while (rest.length) {
@@ -63,6 +67,8 @@ function parse(argv) {
     else if (flag === "--workdir") opts.workdir = value();
     else if (flag === "--port") opts.port = value();
     else if (flag === "--ref") opts.ref = value();
+    else if (flag === "--host") opts.host = value();
+    else if (flag === "--allow-host") opts.allowHosts.push(value());
     else if (flag === "--src") {
       opts.src = value();
       opts.srcGiven = true;
@@ -183,24 +189,33 @@ async function start(opts) {
   }
   const env = { ...process.env, D2S_PORT: opts.port };
   if (opts.workdir) env.D2S_WORKDIR = opts.workdir;
+  // tham số thêm của launcher đi thẳng vào d2s studio
+  const extra = [...(opts.host ? ["--host", opts.host] : []), ...opts.allowHosts.flatMap((name) => ["--allow-host", name])];
   const log = createWriteStream(LOG_FILE, { flags: "a" });
   await new Promise((resolve) => log.on("open", resolve));
   const child = WINDOWS
-    ? spawn("cmd.exe", ["/c", launcher()], { detached: true, stdio: ["ignore", log, log], env, windowsHide: true })
-    : spawn(launcher(), [], { detached: true, stdio: ["ignore", log, log], env });
+    ? spawn("cmd.exe", ["/c", launcher(), ...extra], { detached: true, stdio: ["ignore", log, log], env, windowsHide: true })
+    : spawn(launcher(), extra, { detached: true, stdio: ["ignore", log, log], env });
   child.unref();
   writeFileSync(PID_FILE, String(child.pid));
-  const url = `http://127.0.0.1:${opts.port}`;
+  const url = studioUrl(opts);
   for (let i = 0; i < 30; i++) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     if (await alive(url)) break;
   }
   const ok = await alive(url);
   console.log(ok ? `Studio chạy ở ${url} (pid ${child.pid}); log ${LOG_FILE}` : `Studio chưa trả lời ở ${url}: xem log ${LOG_FILE}`);
-  console.log(`Máy chủ không màn hình: từ máy của bạn chạy
+  if (opts.host) console.log(`Máy trong cùng mạng riêng mở thẳng ${url}`);
+  else
+    console.log(`Máy chủ không màn hình: từ máy của bạn chạy
   ssh -N -L ${opts.port}:127.0.0.1:${opts.port} ${userInfo().username}@${hostname()}
 rồi mở ${url}`);
   if (!ok) process.exit(1);
+}
+
+function studioUrl(opts) {
+  const host = !opts.host || opts.host === "0.0.0.0" ? "127.0.0.1" : opts.host;
+  return `http://${host.includes(":") ? `[${host}]` : host}:${opts.port}`;
 }
 
 async function alive(url) {
@@ -230,7 +245,7 @@ function stop() {
 
 async function status(opts) {
   const pid = running();
-  const url = `http://127.0.0.1:${opts.port}`;
+  const url = studioUrl(opts);
   const ok = await alive(url);
   console.log(pid ? `Studio: pid ${pid}, ${ok ? `trả lời ở ${url}` : `chưa trả lời ở ${url}`}` : "Studio không chạy (theo start)");
   console.log(`log: ${LOG_FILE}`);

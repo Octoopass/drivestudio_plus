@@ -2,10 +2,11 @@
 // giữa các run) và các file ở đó, lấy từ GET /api/runs/{id}/artifacts. Nút thư mục mở đúng chỗ đó
 // trong trình quản lý file của máy chạy Studio (POST /api/reveal); nút chép đưa đường dẫn đầy đủ vào
 // clipboard, dùng khi Studio chạy trên máy khác (SSH) hoặc máy không có giao diện.
-import { Copy, ExternalLink, File, Folder, FolderOpen, RefreshCw } from "lucide-react";
-import type { ReactNode } from "react";
+import { CloudUpload, Copy, Download, ExternalLink, File, Folder, FolderOpen, RefreshCw } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { asApiError, post, seg, useApi } from "../api/client";
 import { useI18n } from "../i18n";
+import { DrivePush } from "./DrivePush";
 import { bytes, Empty, ErrorBox, InfoTip, Loading, Status, useToast } from "./ui";
 
 interface Entry {
@@ -37,6 +38,61 @@ const VIEWABLE = /\.(mp4|png|jpe?g|json|txt|yaml|log)$/i;
 
 // Stage export → loại xuất của POST /api/runs/{id}/export.
 const REEXPORT: Record<string, "ply" | "preview"> = { "export.ply_world": "ply", "export.preview": "preview" };
+
+type DownloadItem = { kind: string; stage_id: string | null; name: string; path: string; size_bytes: number };
+
+// Link tải một file của thư mục làm việc (Studio trả kèm Content-Disposition: attachment).
+export function downloadUrl(path: string): string {
+  return `/files/${path.split("/").map(encodeURIComponent).join("/")}?download=1`;
+}
+
+// Mục "Tải về": PLY, scene.usdz cho CARLA, checkpoint, video của run (GET /api/runs/{id}/downloads).
+export function RunDownloads({ runId, nurec }: { runId: string; nurec: boolean }) {
+  const { t } = useI18n();
+  const data = useApi<{ items: DownloadItem[] }>(`/api/runs/${seg(runId)}/downloads`);
+  const [pushing, setPushing] = useState(false);
+  const items = data.data?.items ?? [];
+  if (!data.data || (!items.length && !nurec)) return null;
+  const tag = runId.slice(-4);
+  return (
+    <section className="artifact-stage">
+      <header className="row wrap" style={{ gap: 8 }}>
+        <Download size={18} />
+        <b>{t("downloads.title")}</b>
+        <InfoTip>{t("downloads.help")}</InfoTip>
+        <span className="grow" />
+        {items.length > 0 && (
+          <button className={`btn sm${pushing ? " primary" : ""}`} type="button" onClick={() => setPushing((now) => !now)} aria-expanded={pushing}>
+            <CloudUpload size={15} />
+            {t("drive_push.button")}
+          </button>
+        )}
+      </header>
+      {pushing && <DrivePush runId={runId} items={items} />}
+      {items.length > 0 && (
+        <div className="artifact-files">
+          <ul>
+            {items.map((item) => (
+              <li key={item.path}>
+                <File size={16} className="muted" />
+                <span className="grow ellipsis" title={item.path}>
+                  <b>{t(`downloads.kind.${item.kind}`)}</b>{" "}
+                  <span className="small muted">{item.stage_id ?? "drive"}/{item.name}</span>
+                </span>
+                <span className="small muted nowrap">{bytes(item.size_bytes)}</span>
+                <a className="btn sm" href={downloadUrl(item.path)} download={`${tag}_${item.name}`}>
+                  <Download size={15} />
+                  {t("artifacts.download")}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {nurec && !items.some((item) => item.kind === "usdz") && <p className="small muted">{t("downloads.usdz_missing")}</p>}
+    </section>
+  );
+}
 
 export function RunArtifacts({ runId, onReexport }: { runId: string; onReexport?: (kind: "ply" | "preview") => void }) {
   const { t } = useI18n();
@@ -150,6 +206,13 @@ function FileList({
               </a>
             ) : (
               <span className="btn sm ghost icon" aria-hidden="true" style={{ visibility: "hidden" }} />
+            )}
+            {file.is_dir ? (
+              <span className="btn sm ghost icon" aria-hidden="true" style={{ visibility: "hidden" }} />
+            ) : (
+              <a className="btn sm ghost icon" href={downloadUrl(file.path)} download={file.name} title={t("artifacts.download")} aria-label={`${t("artifacts.download")} ${file.name}`}>
+                <Download size={16} />
+              </a>
             )}
             {actions(file.path, base + file.path, file.name)}
           </li>

@@ -13,7 +13,7 @@ import { useI18n } from "../i18n";
 import { JobActions, JobProgress } from "./JobProgress";
 import { ErrorBox, InfoTip, Note } from "./ui";
 
-interface Mount {
+export interface Mount {
   state: "idle" | "needs_consent" | "running" | "succeeded" | "failed";
   session: string | null;
   url: string | null;
@@ -52,7 +52,7 @@ function folderName(path: string): string {
   return last.replace(/[^A-Za-z0-9_.-]/g, "_").replace(/^[^A-Za-z0-9]+/, "").slice(0, 80) || "drive";
 }
 
-async function waitJob(job: Job, onUpdate: (job: Job) => void): Promise<Job> {
+export async function waitJob(job: Job, onUpdate: (job: Job) => void): Promise<Job> {
   onUpdate(job);
   while (job.status === "queued" || job.status === "running") {
     await new Promise((resolve) => setTimeout(resolve, 2000));

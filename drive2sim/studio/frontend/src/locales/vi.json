@@ -1158,5 +1158,21 @@
   "benchmark.hint.segments": "R7: số đoạn từ 5 khung test liền nhau, mỗi khung thấp hơn trung vị quá 2 dB; tính riêng từng nhóm camera, bỏ camera chỉ test. Chẩn đoán, không xếp hạng.",
   "benchmark.hint.per_100m": "R6: chia cho quãng đường / 100 m; chỉ ở track B.",
   "benchmark.hint.ate": "ATE do method tự báo (mét); không tính lại.",
-  "benchmark.hint.train": "Thời gian train thực. Chỉ so được giữa run cùng GPU."
+  "benchmark.hint.train": "Thời gian train thực. Chỉ so được giữa run cùng GPU.",
+  "artifacts.download": "Tải về",
+  "downloads.title": "Tải về",
+  "downloads.help": "Tải file về máy đang mở Studio (cả khi vào qua Tailscale). Để chạy cảnh trong CARLA cần scene.usdz (bản đồ OpenDRIVE, quỹ đạo, camera, xe và người) và PLY NuRec cho server render Gaussian. PLY Gaussian (3DGS chuẩn) mở được bằng viewer khác như SuperSplat.",
+  "downloads.kind.ply": "PLY Gaussian (3DGS chuẩn)",
+  "downloads.kind.nurec_ply": "PLY NuRec (server render CARLA)",
+  "downloads.kind.usdz": "scene.usdz cho CARLA",
+  "downloads.kind.checkpoint": "Checkpoint",
+  "downloads.kind.video": "Video",
+  "downloads.usdz_missing": "Chưa có scene.usdz cho CARLA: bấm \"Chạy trong CARLA\" hoặc mở trang Lái thử một lần để dựng.",
+  "drive_push.button": "Đẩy lên Drive",
+  "drive_push.help": "Đẩy file lên Google Drive qua một phiên Colab CPU đã kết nối Drive (cùng cách với ô lấy dữ liệu từ Drive): kết nối Drive, chọn file và thư mục trong MyDrive rồi bấm Đẩy. File đi từng phần 32 MiB, có kiểm MD5; huỷ rồi chạy lại ở Hoạt động thì đẩy tiếp phần còn thiếu, file trên Drive đã đủ thì bỏ qua. Tên file có thêm 4 ký tự cuối của run ID. Xong bấm Tắt phiên để Drive đồng bộ nốt và không tốn compute unit.",
+  "drive_push.folder": "Thư mục trong MyDrive",
+  "drive_push.start": "Đẩy {count} file ({size})",
+  "drive_push.done": "Đã đẩy lên {path}. Bấm Tắt phiên để Drive đồng bộ nốt rồi trả VM.",
+  "drive_push.mounted": "Drive đã kết nối với phiên này.",
+  "drive_push.stop_help": "Đồng bộ nốt phần Drive còn đệm trên VM, gỡ Drive rồi tắt phiên Colab"
 }
