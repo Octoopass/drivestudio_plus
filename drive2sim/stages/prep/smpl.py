@@ -191,9 +191,8 @@ class PrepSmplStage(Stage):
             )
             ctx.progress(1.0, "cảnh không có camera pinhole, bỏ qua SMPL")
             return {"smpl": ctx.output_dir}
-        # Cảnh nằm ở <thư mục làm việc>/data/<cảnh>/ (trên Kaggle: dưới /kaggle/input, khi đó
-        # find_smpl_model tìm trong các dataset đã gắn).
-        model = find_smpl_model(ctx.scene.root.parent.parent)
+        # Trên Kaggle cảnh nằm dưới /kaggle/input; find_smpl_model tìm cả trong các dataset đã gắn.
+        model = find_smpl_model(ctx.workdir)
         if model is None:
             raise RuntimeError(
                 "prep.smpl cần SMPL_NEUTRAL.pkl: đặt ở <thư mục làm việc>/smpl_models/ hoặc trỏ "

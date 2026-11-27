@@ -406,6 +406,7 @@ class _StageContext:
         stage_id: Stage đang chạy.
         sink: Hàm nhận sự kiện.
         cancel_file: File ``d2s/cancel`` của run; có file này là người dùng đã yêu cầu huỷ.
+        workdir: Thư mục làm việc (``Workdir.root``).
         peak_vram_mb: VRAM cao nhất stage tự báo (``report_peak_vram``), megabyte.
     """
 
@@ -416,6 +417,7 @@ class _StageContext:
     stage_id: str
     sink: EventSink
     cancel_file: Path
+    workdir: Path
     peak_vram_mb: int = 0
 
     def should_stop(self) -> bool:
@@ -629,6 +631,7 @@ class _Runner:
             stage_record.stage_id,
             self.sink,
             self.run_dir / D2S_DIR / CANCEL_FILE,
+            self.workdir.root,
         )
         started = time.monotonic()
         output_paths = cls().run(ctx, inputs, params)

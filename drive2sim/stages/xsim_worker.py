@@ -95,8 +95,9 @@ def run_xsim_worker(
     Raises:
         ValueError: Nếu worker không trả đúng kết quả của job này.
     """
-    # Cảnh ở <workdir>/data/<cảnh>: mọi đường dẫn của job tính từ workdir.
-    root = ctx.scene.root.parent.parent.absolute()
+    # Mọi đường dẫn của job tính từ workdir. Không suy ra từ ctx.scene.root: run có bản chụp mask
+    # đọc cảnh qua thư mục ảo <workdir>/.runtime/<run_id>/scene_view/000.
+    root = ctx.workdir.absolute()
     out = ctx.output_dir.absolute()
     relative = out.relative_to(root).as_posix()
     job = JobSpec(

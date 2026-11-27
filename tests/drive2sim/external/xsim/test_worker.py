@@ -17,7 +17,9 @@ from drive2sim.stages.train import xsim
 def test_stage_validates_current_worker_result(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    scene = tmp_path / "data" / "scene"
+    # Run có bản chụp mask đọc cảnh qua thư mục ảo, không nằm ở <workdir>/data/<cảnh>: gốc của
+    # job vẫn phải là workdir (lỗi đã gặp trên Kaggle: relative_to sai gốc).
+    scene = tmp_path / ".runtime" / "smoke" / "scene_view" / "000"
     observations = tmp_path / "cache" / "prep.observations-x"
     out = tmp_path / "runs" / "train.xsim"
     out.mkdir(parents=True)
@@ -26,6 +28,7 @@ def test_stage_validates_current_worker_result(
     peaks, progress = [], []
     ctx = SimpleNamespace(
         scene=SimpleNamespace(root=scene),
+        workdir=tmp_path,
         output_dir=out,
         run_id="smoke",
         should_stop=lambda: False,

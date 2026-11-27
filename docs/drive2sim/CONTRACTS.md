@@ -322,6 +322,7 @@ class StageContext(Protocol):
     output_dir: Path
     scene: Scene                       # thư mục dữ liệu chuẩn + manifest
     split: Split
+    workdir: Path                      # thư mục làm việc (data/, cache/, runs/)
     def progress(self, fraction: float, message: str = "") -> None: ...
     def log_metric(self, name: str, value: float, step: int) -> None: ...
     def report_peak_vram(self, megabytes: int) -> None: ...  # stage chạy GPU ở tiến trình con báo VRAM đỉnh; engine ghi giá trị lớn hơn vào run.json
@@ -329,6 +330,7 @@ class StageContext(Protocol):
 
 Stage đăng ký bằng `@register_stage("<stage_id>")`. Engine lo cache, file `done`, thư mục `.partial` và `artifact.json`; stage chỉ ghi file vào `output_dir`.
 
+- `scene.root` có thể là thư mục cảnh ảo của run (`<workdir>/.runtime/<run_id>/scene_view/000`, khi run có bản chụp mask), nên stage cần thư mục làm việc thì đọc `ctx.workdir`, không suy ra từ `scene.root`.
 - `inputs` của `run` chỉ chứa artifact: tên đầu vào → thư mục của artifact. Cảnh và split đọc từ `ctx`. Khai báo `"scene"` hoặc `"split"` trong `inputs` của lớp nghĩa là kết quả phụ thuộc cảnh hoặc split, nên `scene_id` hoặc `split_id` vào khoá cache.
 - Decorator kiểm tra khai báo ngay lúc import và từ chối: tên lớp sai mẫu `<Nhóm><Tên>Stage`; `version` sai dạng `MAJOR.MINOR.PATCH`; `cacheable` khác quy tắc của nhóm (`true` với `prep`, `init`; `false` với nhóm khác, mục 5.2); loại artifact không có trong bảng mục 5.4; không có **đúng một** đầu ra (thư mục kết quả của stage là một artifact, `artifact.json` có một `artifact_type`); `Params` không phải lớp Pydantic; `stage_id` đã được lớp khác đăng ký.
 - Cài trong `drive2sim/engine/stage.py` (interface) và `drive2sim/engine/registry.py` (đăng ký, nạp mọi stage trong `drive2sim/stages/`).

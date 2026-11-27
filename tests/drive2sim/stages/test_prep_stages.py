@@ -51,6 +51,7 @@ class Context:
         self.output_dir = output_dir
         self.scene = Scene(scene_dir.name, scene_dir, Manifest.model_validate(MANIFEST))
         self.split = Split.model_validate(SPLIT)
+        self.workdir = scene_dir.parent.parent  # make_scene đặt cảnh ở <workdir>/data/<cảnh>
 
     def progress(self, fraction: float, message: str = "") -> None:
         """Bỏ qua tiến độ."""

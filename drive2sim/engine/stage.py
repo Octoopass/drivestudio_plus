@@ -61,14 +61,18 @@ class StageContext(Protocol):
 
     Attributes:
         output_dir: Thư mục stage được ghi kết quả vào; engine đã tạo sẵn và đang trống.
-        scene: Cảnh của run.
+        scene: Cảnh của run. ``scene.root`` có thể là thư mục cảnh ảo của run (bản chụp mask,
+            ``<workdir>/.runtime/<run_id>/scene_view/000``), không nhất thiết nằm ở
+            ``<workdir>/data/<cảnh>``: đừng suy ra thư mục làm việc từ nó.
         split: Split train/test của run.
+        workdir: Thư mục làm việc chứa ``data/``, ``cache/``, ``runs/``.
     """
 
     run_id: str
     output_dir: Path
     scene: Scene
     split: Split
+    workdir: Path
 
     def progress(self, fraction: float, message: str = "") -> None:
         """Báo tiến độ của stage.
