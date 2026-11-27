@@ -63,6 +63,15 @@ if [ "$FROM" -le 1 ]; then
   git -C "$DIR" submodule update --init --recursive
 fi
 
+# Sửa mã MCGS-SLAM (idempotent, chạy cả khi --from bỏ qua bước 1). Với nhiều camera, mã gốc đặt
+# mốc thời gian của camera i là tstamp + 500*i (mcgs_slam/mcgs.py), nên chuỗi dài hơn 500 khung có
+# mốc của hai camera trùng nhau (camera 0 khung 600 = camera 1 khung 100). Bước tinh chỉnh toàn
+# cục khớp gaussian với khung bằng mốc này, nên chết ở process_global_track_data (lietorch
+# AssertionError, run #8 đợt 2 tuần 04, 864 khung); đặt bước nhảy 100000 thì mốc không trùng.
+if [ -f "$DIR/mcgs_slam/mcgs.py" ]; then
+  sed -i 's/ + 500 \* i/ + 100000 * i/' "$DIR/mcgs_slam/mcgs.py"
+fi
+
 if [ "$FROM" -le 2 ]; then
   step "2/4 env micromamba (Python 3.10, CUDA 11.8, gcc 11)"
   if [ ! -x "$MM" ]; then
