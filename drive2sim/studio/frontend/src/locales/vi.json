@@ -998,5 +998,12 @@
   "downloads.kind.usdz": "scene.usdz cho CARLA",
   "downloads.kind.checkpoint": "Checkpoint",
   "downloads.kind.video": "Video",
-  "downloads.usdz_missing": "Chưa có scene.usdz cho CARLA: bấm \"Chạy trong CARLA\" hoặc mở trang Lái thử một lần để dựng."
+  "downloads.usdz_missing": "Chưa có scene.usdz cho CARLA: bấm \"Chạy trong CARLA\" hoặc mở trang Lái thử một lần để dựng.",
+  "drive_push.button": "Đẩy lên Drive",
+  "drive_push.help": "Đẩy file lên Google Drive qua một phiên Colab CPU đã kết nối Drive (cùng cách với ô lấy dữ liệu từ Drive): kết nối Drive, chọn file và thư mục trong MyDrive rồi bấm Đẩy. File đi từng phần 32 MiB, có kiểm MD5; huỷ rồi chạy lại ở Hoạt động thì đẩy tiếp phần còn thiếu, file trên Drive đã đủ thì bỏ qua. Tên file có thêm 4 ký tự cuối của run ID. Xong bấm Tắt phiên để Drive đồng bộ nốt và không tốn compute unit.",
+  "drive_push.folder": "Thư mục trong MyDrive",
+  "drive_push.start": "Đẩy {count} file ({size})",
+  "drive_push.done": "Đã đẩy lên {path}. Bấm Tắt phiên để Drive đồng bộ nốt rồi trả VM.",
+  "drive_push.mounted": "Drive đã kết nối với phiên này.",
+  "drive_push.stop_help": "Đồng bộ nốt phần Drive còn đệm trên VM, gỡ Drive rồi tắt phiên Colab"
 }

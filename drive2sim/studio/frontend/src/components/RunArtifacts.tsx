@@ -2,10 +2,11 @@
 // giữa các run) và các file ở đó, lấy từ GET /api/runs/{id}/artifacts. Nút thư mục mở đúng chỗ đó
 // trong trình quản lý file của máy chạy Studio (POST /api/reveal); nút chép đưa đường dẫn đầy đủ vào
 // clipboard, dùng khi Studio chạy trên máy khác (SSH) hoặc máy không có giao diện.
-import { Copy, Download, ExternalLink, File, Folder, FolderOpen, RefreshCw } from "lucide-react";
-import type { ReactNode } from "react";
+import { CloudUpload, Copy, Download, ExternalLink, File, Folder, FolderOpen, RefreshCw } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { asApiError, post, seg, useApi } from "../api/client";
 import { useI18n } from "../i18n";
+import { DrivePush } from "./DrivePush";
 import { bytes, Empty, ErrorBox, InfoTip, Loading, Status, useToast } from "./ui";
 
 interface Entry {
@@ -49,6 +50,7 @@ export function downloadUrl(path: string): string {
 export function RunDownloads({ runId, nurec }: { runId: string; nurec: boolean }) {
   const { t } = useI18n();
   const data = useApi<{ items: DownloadItem[] }>(`/api/runs/${seg(runId)}/downloads`);
+  const [pushing, setPushing] = useState(false);
   const items = data.data?.items ?? [];
   if (!data.data || (!items.length && !nurec)) return null;
   const tag = runId.slice(-4);
@@ -58,7 +60,15 @@ export function RunDownloads({ runId, nurec }: { runId: string; nurec: boolean }
         <Download size={18} />
         <b>{t("downloads.title")}</b>
         <InfoTip>{t("downloads.help")}</InfoTip>
+        <span className="grow" />
+        {items.length > 0 && (
+          <button className={`btn sm${pushing ? " primary" : ""}`} type="button" onClick={() => setPushing((now) => !now)} aria-expanded={pushing}>
+            <CloudUpload size={15} />
+            {t("drive_push.button")}
+          </button>
+        )}
       </header>
+      {pushing && <DrivePush runId={runId} items={items} />}
       {items.length > 0 && (
         <div className="artifact-files">
           <ul>

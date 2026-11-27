@@ -156,7 +156,7 @@ class RunQueue:
 
 
 # Loại việc huỷ và chạy lại được: dừng giữa chừng không để lại gì sai (tải tiếp từ phần đã có).
-CANCELLABLE = frozenset({"drive_pull"})
+CANCELLABLE = frozenset({"drive_pull", "drive_push"})
 ACTIVE = ("queued", "running")
 
 
@@ -197,7 +197,8 @@ class BackgroundJobs:
 
         Args:
             kind: Loại việc: ``ingest``, ``kaggle_push``, ``kaggle_pull``, ``colab_push``,
-                ``colab_pull``, ``colab_update``, ``colab_session``, ``drive_pull``.
+                ``colab_pull``, ``colab_update``, ``colab_session``, ``drive_pull``,
+                ``drive_push``.
             label: Mô tả ngắn hiện trên giao diện, ví dụ ``nuscenes scene-0061``.
             work: Hàm làm việc, trả về ``scene_id`` hoặc ``run_id`` liên quan (để giao diện mở;
                 ``drive_pull`` trả thư mục đã tải); lỗi gì thì việc thành ``failed`` kèm thông báo
