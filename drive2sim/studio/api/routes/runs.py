@@ -71,6 +71,7 @@ from drive2sim.studio.api.state import state_of
 router = APIRouter(tags=["runs"])
 LOG_TAIL_LINES = 200
 FINISHED = ("succeeded", "failed", "cancelled")
+NUREC_TRAIN = "train.nurec"  # run có stage này không có checkpoint cho export.preview
 EXPORT_STAGES = {
     "ply": "export.ply_world",
     "preview": "export.preview",
@@ -305,8 +306,15 @@ def export_run(run_id: str, body: ExportBody, request: Request) -> dict:
     state = state_of(request)
     run_dir, current = _load(request, run_id)
     stage_id = EXPORT_STAGES[body.kind]
+    stage_ids = [s.stage_id for s in current.stages]
     if body.kind == "ply":  # run Instant NuRec: export.nurec_ply, không phải export.ply_world
-        stage_id = ply_export_stage([s.stage_id for s in current.stages])
+        stage_id = ply_export_stage(stage_ids)
+    if body.kind == "preview" and NUREC_TRAIN in stage_ids:
+        raise HTTPException(
+            400,
+            f"run {run_id} là Instant NuRec (không có checkpoint_final.pth): gói xem trước chỉ "
+            "dành cho run drivestudio; xem 3D bằng PLY (export.nurec_ply)",
+        )
     if stage_id not in state.registry:
         raise HTTPException(400, f"stage {stage_id} chưa có")
     _claim(request, run_dir, run_id)

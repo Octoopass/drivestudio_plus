@@ -253,7 +253,8 @@ export function RunPage({ runId }: { runId: string }) {
                     {t("run.action.export_ply")}
                   </button>
                 )}
-                {!splats.data?.preview && (
+                {/* run NuRec không có checkpoint drivestudio: không xuất gói xem trước được */}
+                {!splats.data?.preview && data.approach.approach_id !== "nurec" && (
                   <button className="btn" onClick={() => action(t("run.toast.export", { kind: "preview" }), `${base}/export`, { kind: "preview" })}>
                     <Download size={19} />
                     {t("run.action.export_preview")}
