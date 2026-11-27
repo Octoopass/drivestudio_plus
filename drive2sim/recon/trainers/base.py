@@ -484,6 +484,10 @@ class BasicTrainer(nn.Module):
                 from gsplat.geer.camera import get_camera_tanfov
             except ImportError:
                 return
+            # drive2sim: cận góc nhìn pinhole của GEER phải phủ điểm chính lệch tâm (KITTI-360)
+            from drive2sim.recon.utils import geer_fov
+
+            geer_fov.install()
             self._geer_supports_ftheta = (
                 'ftheta_coeffs' in inspect.signature(get_camera_tanfov).parameters
             )

@@ -29,6 +29,8 @@ export type AbsRel = number;
 export type Rmse = number;
 export type Delta125 = number;
 export type ExportGapDb = number | null;
+export type PlyPsnr = number | null;
+export type ExportStatic = boolean;
 export type ExportApplicable = boolean;
 export type PlyGaussians = number | null;
 export type PlySizeMb = number | null;
@@ -116,7 +118,12 @@ export interface BenchmarkGroup {
  *     shift_lpips_cc: LPIPS sau chỉnh màu trên camera chỉ test (R2).
  *     shift_cameras: ``camera_id`` của các camera chỉ test; rỗng nếu split không có.
  *     depth: Độ sâu render so với LiDAR (R4), nếu đã đo.
- *     export_gap_db: Chênh PSNR giữa render gốc và render ``.ply`` (R3), nếu đã đo.
+ *     export_gap_db: Chênh PSNR giữa render gốc và render ``.ply`` (R3), nếu đã đo; báo kèm.
+ *     ply_psnr: PSNR của render ``.ply`` nền tĩnh trên vùng nền tĩnh (R3), số phân xử hoà thứ hai
+ *         (thêm từ ``d2s-benchresult/0.4``).
+ *     export_static: ``False`` khi ``.ply`` xuất ra chưa phải nền tĩnh của cảnh đã train (PVG,
+ *         DeformableGS: tham số gốc, chưa tính theo thời gian), nên R3 không dùng để phân xử
+ *         (thêm từ ``d2s-benchresult/0.4``).
  *     export_applicable: ``False`` khi approach không xuất được ``.ply`` nền tĩnh (R3 không áp
  *         dụng, khác với chưa đo); ``True`` khi có xuất hoặc không biết.
  *     ply_gaussians: Số Gaussian trong ``scene.ply``.
@@ -155,6 +162,8 @@ export interface BenchmarkRunRow {
   shift_cameras?: ShiftCameras;
   depth?: DepthMetrics | null;
   export_gap_db?: ExportGapDb;
+  ply_psnr?: PlyPsnr;
+  export_static?: ExportStatic;
   export_applicable?: ExportApplicable;
   ply_gaussians?: PlyGaussians;
   ply_size_mb?: PlySizeMb;

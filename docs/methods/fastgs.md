@@ -14,7 +14,7 @@ Before each refinement that densifies or prunes, the trainer renders `num_views`
 - Densification: a Gaussian is split or cloned only if it passes DriveStudio's gradient test and its error score is at least `score_thresh` (1.0).
 - Pruning: from step `prune_from` (15 000), at the last refinement before each opacity reset, FastGS removes Gaussians with opacity below `prune_min_opacity` (0.1) or normalised error score above `prune_score_thresh` (0.9), besides DriveStudio's culling.
 
-It covers background, vehicle and deformable nodes, not SMPL humans.
+It covers background, vehicle and deformable nodes, not SMPL humans. Outside OmniRe and Street GS it covers DeformableGS, whose `DeformableGaussians` keeps the refinement of `VanillaGaussians` (configs `deformablegs*_fastgs*.yaml`, untested on GPU), but not PVG: `PeriodicVibrationGaussians.refinement_after` has its own densify rule (gradient in space or in time) and does not apply the FastGS masks (`fastgs_supported = False`), so PVG has no FastGS config.
 
 ## Why this method
 

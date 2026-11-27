@@ -659,6 +659,26 @@ def test_lidar_off_is_only_for_methods_without_boxes() -> None:
     assert TrainDrivestudioParams(method="omnire").lidar  # mặc định vẫn dùng LiDAR
 
 
+def test_single_trainer_methods_take_fisheye_renderers_without_screen_densify() -> None:
+    """Config 3DGUT, 3DGEER của PVG, DeformableGS, và giới hạn FastGS, ``ut_densify``.
+
+    3DGUT, 3DGEER tắt CamPose; FastGS chỉ cho DeformableGS; ``ut_densify=screen`` (trainer là
+    MultiTrainer) chỉ cho OmniRe, Street GS.
+    """
+    for method in ("pvg", "deformablegs"):
+        for renderer, mode in (("3dgut", "ut"), ("3dgeer", "geer")):
+            params = TrainDrivestudioParams(method=method, renderer=renderer, fastergs=True)
+            config = load_config(params.config_file)
+            assert config["trainer"]["render"]["render_mode"] == mode
+            assert "CamPose" not in config["model"]
+        with pytest.raises(ValidationError, match="ut_densify=screen"):
+            TrainDrivestudioParams(method=method, renderer="3dgut", ut_densify="screen")
+    assert TrainDrivestudioParams(method="deformablegs", renderer="3dgut", fastgs=True)
+    with pytest.raises(ValidationError, match="chưa có config"):
+        TrainDrivestudioParams(method="pvg", fastgs=True)
+    assert TrainDrivestudioParams(method="omnire", renderer="3dgut", ut_densify="screen")
+
+
 def test_lidar_off_drops_lidar_init_and_depth_loss(tmp_path: Path) -> None:
     for method in ("pvg", "deformablegs"):
         on = load_config(TrainDrivestudioParams(method=method, campose=True).config_file)

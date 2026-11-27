@@ -1,0 +1,8 @@
+# PVG rendered with 3DGUT (gsplat-geer fork, render_mode: ut), e.g. for fisheye cameras. CamPose removed,
+# as for OmniRe ut. Densification values are the 3DGS defaults of pvg.yaml, not calibrated for UT (UT densifies
+# on the 3D mean gradient). Untested.
+# Kế thừa pvg_nocampose.yaml bằng extends (CONTRACTS mục 10.5).
+extends: pvg_nocampose.yaml
+trainer:
+  render:
+    render_mode: ut # one of default | ut | geer (key added by the Bosch 3DGEER patch)

@@ -7,7 +7,10 @@ ghép thư mục và đọc calib suy ra từ mã nguồn @147eb3a (``streams.py
   mỗi cái có một hàng ``T_cami_cam0`` (hàng 0 là đơn vị).
 - Bảy số của một phép biến đổi theo lietorch ``SE3``: ``tx ty tz qx qy qz qw``, biến điểm từ hệ
   camera tham chiếu (thư mục 0) sang hệ camera đó.
-- Khi có từ ba camera, mẫu Waymo của MCGS-SLAM lặp camera đối tác stereo ở cuối danh sách.
+- Mẫu Waymo của MCGS-SLAM lặp camera đối tác stereo ở cuối danh sách. Rig hai camera cũng lặp
+  (``[ref, partner, partner]``): ``options.py`` chỉ bật chế độ nhiều camera khi có hơn hai thư mục,
+  và nhánh không nhiều camera của ``droid_frontend.py`` gọi ``FactorGraph.update(use_scaling=...)``
+  mà ``factor_graph.py`` không nhận (``TypeError`` ngay lúc khởi tạo, run #8 tuần 04).
 
 File này chứa:
 - ``se3_vector``: ma trận 4×4 → bảy số SE3.
@@ -104,9 +107,10 @@ def rig_layout(
 ) -> list[str]:
     """Xếp thứ tự thư mục ảnh đưa vào MCGS-SLAM.
 
-    Hai camera: ``[reference, partner]``. Từ ba camera: ``[reference, partner, <các camera còn
-    lại theo thứ tự cameras>..., partner]``, như mẫu Waymo của MCGS-SLAM (``calib/100613.yml``):
-    thư mục thứ hai là camera đối tác stereo và nó lặp lại ở cuối, không phải lỗi gõ.
+    ``[reference, partner, <các camera còn lại theo thứ tự cameras>..., partner]``, như mẫu Waymo
+    của MCGS-SLAM (``calib/100613.yml``): thư mục thứ hai là camera đối tác stereo và nó lặp lại ở
+    cuối, không phải lỗi gõ. Hai camera cũng theo mẫu này (``[reference, partner, partner]``) vì
+    MCGS-SLAM @147eb3a chỉ chạy được nhánh nhiều camera (hơn hai thư mục).
 
     Args:
         cameras: ``camera_id`` của các camera dùng cho SLAM, theo thứ tự ưu tiên.
@@ -137,10 +141,8 @@ def rig_layout(
             f"({', '.join(others)})"
         )
     extra = [camera for camera in others if camera != partner]
-    layout = [reference, partner]
-    if extra:
-        layout += [*extra, partner]
-    return layout
+    # luôn lặp partner ở cuối: với đúng hai thư mục MCGS-SLAM đi nhánh không nhiều camera, bị lỗi
+    return [reference, partner, *extra, partner]
 
 
 def _intrinsic_row(values: Sequence[float]) -> list[float]:

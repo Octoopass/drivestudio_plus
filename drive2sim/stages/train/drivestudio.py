@@ -82,7 +82,29 @@ CONFIG_FILES: dict[tuple[str, str, bool, bool, bool], str] = {
     ("streetgs", "3dgs", False, True, True): "streetgs_fastgs_fastergs.yaml",
     ("streetgs", "3dgeer", False, True, True): "streetgs_geer_fastgs_fastergs.yaml",
     ("pvg", "3dgs", True, False, False): "pvg.yaml",
+    ("pvg", "3dgs", False, False, False): "pvg_nocampose.yaml",
+    ("pvg", "3dgut", False, False, False): "pvg_ut.yaml",
+    ("pvg", "3dgeer", False, False, False): "pvg_geer.yaml",
+    ("pvg", "3dgs", True, False, True): "pvg_fastergs.yaml",
+    ("pvg", "3dgs", False, False, True): "pvg_fastergs_nocampose.yaml",
+    ("pvg", "3dgut", False, False, True): "pvg_ut_fastergs.yaml",
+    ("pvg", "3dgeer", False, False, True): "pvg_geer_fastergs.yaml",
+    # PVG không có FastGS: PeriodicVibrationGaussians.refinement_after không áp mask của FastGS
+    # (fastgs_supported = False), nên bật FastGS chỉ tốn lượt chấm điểm mà không đổi gì.
     ("deformablegs", "3dgs", True, False, False): "deformablegs.yaml",
+    ("deformablegs", "3dgs", False, False, False): "deformablegs_nocampose.yaml",
+    ("deformablegs", "3dgut", False, False, False): "deformablegs_ut.yaml",
+    ("deformablegs", "3dgeer", False, False, False): "deformablegs_geer.yaml",
+    ("deformablegs", "3dgs", True, False, True): "deformablegs_fastergs.yaml",
+    ("deformablegs", "3dgs", False, False, True): "deformablegs_fastergs_nocampose.yaml",
+    ("deformablegs", "3dgut", False, False, True): "deformablegs_ut_fastergs.yaml",
+    ("deformablegs", "3dgeer", False, False, True): "deformablegs_geer_fastergs.yaml",
+    ("deformablegs", "3dgs", False, True, False): "deformablegs_fastgs.yaml",
+    ("deformablegs", "3dgut", False, True, False): "deformablegs_ut_fastgs.yaml",
+    ("deformablegs", "3dgeer", False, True, False): "deformablegs_geer_fastgs.yaml",
+    ("deformablegs", "3dgs", False, True, True): "deformablegs_fastgs_fastergs.yaml",
+    ("deformablegs", "3dgut", False, True, True): "deformablegs_ut_fastgs_fastergs.yaml",
+    ("deformablegs", "3dgeer", False, True, True): "deformablegs_geer_fastgs_fastergs.yaml",
     ("beziergs", "3dgs", False, False, False): "beziergs.yaml",
     ("beziergs", "3dgs", False, True, False): "beziergs_fastgs.yaml",
 }
@@ -110,6 +132,9 @@ METHOD_CONFIG = "method_config.yaml"
 RENDERER_MAX_ANGLE = 1.536
 # Method khởi tạo được khi không dùng LiDAR để train (không node nào lấy điểm từ box).
 LIDAR_FREE_METHODS = ("pvg", "deformablegs")
+# Method chạy MultiTrainer (scene graph): trainer ScreenGradMultiTrainer của ut_densify=screen là
+# lớp con của MultiTrainer, nên không thay được SingleTrainer của PVG, DeformableGS.
+SCREEN_GRAD_METHODS = ("omnire", "streetgs")
 # Renderer vẽ được camera mắt cá (3DGS chỉ vẽ pinhole).
 FISHEYE_RENDERERS = ("3dgut", "3dgeer")
 
@@ -139,7 +164,7 @@ class TrainDrivestudioParams(BaseModel):
             (gradient theo tâm 3D, ngưỡng của 3DGS không hợp); ``screen`` đổi gradient đó sang
             gradient tương đương pixel qua Jacobian của phép chiếu
             (``drive2sim/recon/trainers/screen_grad.py``) để dùng lại ngưỡng của 3DGS. Renderer
-            khác bỏ qua.
+            khác bỏ qua. ``screen`` chỉ có cho OmniRe, Street GS (MultiTrainer).
         refine_interval: Densify, prune mỗi bao nhiêu bước
             (``trainer.gaussian_ctrl_general_cfg.refine_interval``); bỏ trống thì theo config
             (3DGS, 3DGUT 100; 3DGEER 50, Bosch để 300). Dùng để so renderer với cùng nhịp densify.
@@ -221,6 +246,11 @@ class TrainDrivestudioParams(BaseModel):
             raise ValueError(
                 f"lidar=False chỉ có cho {', '.join(LIDAR_FREE_METHODS)}: method {self.method} "
                 "khởi tạo xe và người từ điểm LiDAR trong box"
+            )
+        if self.ut_densify == "screen" and self.method not in SCREEN_GRAD_METHODS:
+            raise ValueError(
+                f"ut_densify=screen chỉ có cho {', '.join(SCREEN_GRAD_METHODS)}: "
+                f"method {self.method} dùng SingleTrainer"
             )
         if self.extended_cam and self.config_key != EXTENDED_CAM_KEY:
             raise ValueError(

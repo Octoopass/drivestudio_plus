@@ -6,9 +6,12 @@ utils/misc.export_gaussians_to_ply). Optionally also bakes RigidNodes (vehicles)
     python export_ply.py --ckpt <log_dir>/checkpoint_final.pth --out <dir> [--rigid_frame 0]
 """
 import argparse, json, os
+from pathlib import Path
 import numpy as np
 import torch
 from plyfile import PlyData, PlyElement
+
+from drive2sim.recon.tools import time_varying_export as tv
 
 
 def quat_to_mat(q):  # wxyz -> 3x3
@@ -86,6 +89,8 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--rigid_frame", type=int, default=-1, help="bake RigidNodes at this frame (-1 = skip)")
     ap.add_argument("--min_opacity", type=float, default=0.005)
+    # drive2sim: PVG background keeps only long-lived gaussians (static scene); 0 keeps all
+    ap.add_argument("--static_min_life_frames", type=float, default=tv.DEFAULT_MIN_LIFE_FRAMES)
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     # own DriveStudio checkpoint (numpy scalars inside; PyTorch >= 2.6 needs weights_only=False)
@@ -95,6 +100,20 @@ def main():
 
     parts, stats = [], {}
     bg = gaussians_from_state(models["Background"])
+    time_varying = None
+    if tv.is_pvg_state(models["Background"]):
+        # drive2sim: raw PVG state is every gaussian at its own life peak, car trails included;
+        # keep the long-lived (static) ones (recon/tools/time_varying_export.py)
+        interval = tv.pvg_time_interval(Path(os.path.dirname(a.ckpt)) / "config.yaml")
+        if interval is None:
+            interval = tv.DEFAULT_TIME_INTERVAL
+            print(f"config.yaml không có time_interval của PVG, dùng {interval}")
+        mask, time_varying = tv.static_mask(
+            models["Background"]["_betas"].float().cpu().numpy(), interval, a.static_min_life_frames
+        )
+        mask = torch.from_numpy(mask)
+        bg = {k: v[mask] for k, v in bg.items()}
+        print("PVG static background:", json.dumps(time_varying))
     parts.append(bg); stats["Background"] = len(bg["means"])
 
     if a.rigid_frame >= 0 and "RigidNodes" in models:
@@ -127,6 +146,7 @@ def main():
         "layout": "INRIA 3DGS: xyz, f_dc(SH0), f_rest(SH1-3, channel-major), opacity(logit), scale(log), rot(wxyz)",
         "dynamic_actors": "excluded" if a.rigid_frame < 0 else f"RigidNodes baked at frame {a.rigid_frame}",
         "num_gaussians_per_node": stats,
+        "time_varying": time_varying,  # drive2sim: PVG static selection, null for other models
         "num_gaussians_written": int(keep.sum()),
         "file_size_mb": round(os.path.getsize(ply_path) / 2**20, 1),
         "asset_health": {

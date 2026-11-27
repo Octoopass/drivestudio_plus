@@ -1,0 +1,6 @@
+# PVG without camera-pose refinement: pvg.yaml with the CamPose node removed.
+# Needed by the 3DGUT / 3DGEER / FastGS variants, which cannot use CamPose. Untested.
+# Kế thừa pvg.yaml bằng extends (CONTRACTS mục 10.5); null là xoá khoá.
+extends: pvg.yaml
+model:
+  CamPose: null

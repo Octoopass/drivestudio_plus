@@ -13,8 +13,8 @@ Stage chạy hai lệnh trong tiến trình con:
 
 PSNR của render gốc lấy từ ``psnr_static`` trong ``frames.jsonl`` của ``eval.standard`` (protocol
 0.5), nên stage cần đầu vào ``report``; ``frames.jsonl`` do protocol cũ ghi không có khoá này và bị
-từ chối trước khi dùng GPU. ``d2s benchmark`` đọc ``export_gap_db`` trong ``ply_gap.json``
-(CONTRACTS mục 6.5).
+từ chối trước khi dùng GPU. ``d2s benchmark`` đọc ``ply_psnr`` (phân xử hoà) và ``export_gap_db``
+(báo kèm) trong ``ply_gap.json`` (CONTRACTS mục 6.5).
 
 File này chứa:
 - ``check_frames``: kiểm ``frames.jsonl`` đã có ``psnr_static``.

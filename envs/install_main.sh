@@ -181,8 +181,18 @@ if want 4; then
   # Repo clone kèm --recurse-submodules (notebook Kaggle) thì dùng luôn; không có thì clone bản Bosch.
   SUB_DIR="$REPO/third_party/gsplat-geer"
   if [ -f "$SUB_DIR/setup.py" ]; then
-    step "4/8 gsplat-geer $GSPLAT_VERSION (fork, submodule $(git -C "$SUB_DIR" rev-parse --short HEAD))"
-    git -C "$REPO" submodule update --init --recursive third_party/gsplat-geer
+    step "4/8 gsplat-geer $GSPLAT_VERSION (fork, submodule $(git -C "$SUB_DIR" rev-parse --short HEAD 2>/dev/null || echo "không có git"))"
+    if [ -e "$REPO/.git" ]; then
+      git -C "$REPO" submodule update --init --recursive third_party/gsplat-geer
+    else
+      # Repo chép bằng rsync (envs/vast.sh bỏ .git, nặng hàng trăm MB) không chạy được `git submodule`,
+      # và thư mục submodule glm rỗng; lấy glm 1.0.1 như nhánh clone Bosch bên dưới.
+      SUB_GLM="$SUB_DIR/gsplat/cuda/csrc/third_party/glm"
+      if [ ! -f "$SUB_GLM/glm/gtc/type_ptr.hpp" ]; then
+        rm -rf "$SUB_GLM"
+        git clone --quiet --depth 1 --branch 1.0.1 https://github.com/g-truc/glm.git "$SUB_GLM"
+      fi
+    fi
     build "$SUB_DIR" --no-build-isolation
   else
   step "4/8 gsplat-geer $GSPLAT_VERSION (commit $GSPLAT_COMMIT)"
@@ -226,7 +236,14 @@ fi
 
 if want 8; then
   step "8/8 4D-Humans, PHALP (prep.smpl)"
-  git -C "$REPO" submodule update --init --depth 1 third_party/Humans4D
+  if [ -e "$REPO/.git" ]; then
+    git -C "$REPO" submodule update --init --depth 1 third_party/Humans4D
+  elif [ ! -f "$REPO/third_party/Humans4D/setup.py" ]; then
+    # Repo chép bằng rsync không có .git (xem bước 4): clone đúng commit mà submodule ghi.
+    rm -rf "$REPO/third_party/Humans4D"
+    git clone --quiet https://github.com/shubham-goel/4D-Humans.git "$REPO/third_party/Humans4D"
+    git -C "$REPO/third_party/Humans4D" checkout --quiet efe18deff163b29dff87ddbd575fa29b716a356c
+  fi
   build "$DETECTRON2" --no-build-isolation
   build "$NMR" --no-build-isolation
   # Ghi rõ numpy để pip không nâng numpy khi giải phụ thuộc (requirements.txt chốt 1.23.5).

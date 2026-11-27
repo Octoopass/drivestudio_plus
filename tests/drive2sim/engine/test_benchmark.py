@@ -156,16 +156,35 @@ def test_r2_decides_before_cost() -> None:
 def test_r2_within_threshold_falls_through_to_r3() -> None:
     rows = [make_row("A", 25.0, train_time_s=900), make_row("B", 24.9, train_time_s=100)]
     inputs = tie_inputs(
-        A={"shift_psnr_cc": 22.2, "export_gap_db": 0.1},
-        B={"shift_psnr_cc": 22.0, "export_gap_db": 0.9},
+        A={"shift_psnr_cc": 22.2, "ply_psnr": 23.9},
+        B={"shift_psnr_cc": 22.0, "ply_psnr": 23.1},
     )
     order = order_group(rows, inputs)
     assert order.winner == "A" and order.decided_by == "r3"
 
 
-def test_r3_gap_within_equal_threshold_falls_through_to_cost() -> None:
+def test_r3_uses_ply_psnr() -> None:
+    # A render gốc tốt hơn nên gap lớn hơn, nhưng .ply của A vẫn tốt hơn: R3 chọn A theo ply_psnr
     rows = [make_row("A", 25.0, train_time_s=900), make_row("B", 24.9, train_time_s=100)]
-    inputs = tie_inputs(A={"export_gap_db": 0.5}, B={"export_gap_db": 0.7})
+    inputs = tie_inputs(A={"ply_psnr": 24.0}, B={"ply_psnr": 23.5})
+    order = order_group(rows, inputs)
+    assert order.winner == "A" and order.decided_by == "r3"
+
+
+def test_r3_skipped_when_ply_is_not_static_background() -> None:
+    # PVG, DeformableGS: .ply là tham số gốc, chưa tính theo thời gian; R3 không phân xử
+    rows = [make_row("A", 25.0, train_time_s=900), make_row("B", 24.9, train_time_s=100)]
+    inputs = tie_inputs(
+        A={"ply_psnr": 24.0, "export_static": False}, B={"ply_psnr": 22.0, "export_static": False}
+    )
+    order = order_group(rows, inputs)
+    assert order.winner == "B" and order.decided_by == "train_time"
+    assert any("R3" in warning for warning in order.warnings)
+
+
+def test_r3_ply_psnr_within_equal_threshold_falls_through_to_cost() -> None:
+    rows = [make_row("A", 25.0, train_time_s=900), make_row("B", 24.9, train_time_s=100)]
+    inputs = tie_inputs(A={"ply_psnr": 23.5}, B={"ply_psnr": 23.3})
     order = order_group(rows, inputs)
     assert order.winner == "B" and order.decided_by == "train_time"
 
@@ -179,9 +198,7 @@ def test_step_skipped_when_a_tied_run_lacks_value() -> None:
 
 def test_r3_not_applicable_is_skipped() -> None:
     rows = [make_row("A", 25.0, train_time_s=900), make_row("B", 24.9, train_time_s=100)]
-    inputs = tie_inputs(
-        A={"export_gap_db": 0.1}, B={"export_gap_db": 0.9, "export_applicable": False}
-    )
+    inputs = tie_inputs(A={"ply_psnr": 24.0}, B={"ply_psnr": 22.0, "export_applicable": False})
     order = order_group(rows, inputs)
     assert order.winner == "B" and order.decided_by == "train_time"
 
@@ -217,7 +234,7 @@ def test_drivestudio_protocols_0_4_and_0_5_rank_together() -> None:
     # 0.4 và 0.5 cùng cách đo R1 (CONTRACTS 6.3): xếp hạng được; run 0.4 chưa có R2 nên bỏ bước đó
     rows = [make_row("A", 25.0, train_time_s=900), make_row("B", 24.9, train_time_s=100)]
     inputs = tie_inputs(
-        A={"protocol": "0.4"}, B={"protocol": "0.5", "shift_psnr_cc": 23.0, "export_gap_db": 0.2}
+        A={"protocol": "0.4"}, B={"protocol": "0.5", "shift_psnr_cc": 23.0, "ply_psnr": 23.2}
     )
     order = order_group(rows, inputs)
     assert order.winner == "B" and order.decided_by == "train_time"
@@ -431,6 +448,32 @@ def test_export_applicable_depends_on_stage_list(tmp_path: Path) -> None:
     files.dump(run, tmp_path / "d2s" / "run.json")
     assert benchmark.run_stage_ids(tmp_path) == ["train.mcgs"]
     assert benchmark.run_stage_ids(tmp_path / "missing") is None
+
+
+@pytest.mark.parametrize(
+    ("method", "static"), [("pvg", False), ("deformablegs", False), ("omnire", True)]
+)
+def test_export_static_depends_on_trained_method(
+    tmp_path: Path, method: str, static: bool
+) -> None:
+    run = RunRecord(
+        schema_version="d2s-run/0.3",
+        run_id=f"20261112-081000-{method}-a1b2",
+        scene_id="nuscenes_scene-0061",
+        split_id="every8_allcams",
+        approach=RunApproach(approach_id=method, version="0.1.0"),
+        level="L1",
+        executor="local",
+        status="succeeded",
+        stages=[
+            StageRecord(
+                stage_id="train.drivestudio", status="succeeded", params={"method": method}
+            )
+        ],
+    )
+    files.dump(run, tmp_path / "d2s" / "run.json")
+    assert benchmark.run_export_static(tmp_path) is static
+    assert benchmark.run_export_static(tmp_path / "missing")
 
 
 def test_row_marks_export_not_applicable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

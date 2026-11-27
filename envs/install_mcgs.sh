@@ -63,6 +63,15 @@ if [ "$FROM" -le 1 ]; then
   git -C "$DIR" submodule update --init --recursive
 fi
 
+# Sửa mã MCGS-SLAM (idempotent, chạy cả khi --from bỏ qua bước 1). Với nhiều camera, mã gốc đặt
+# mốc thời gian của camera i là tstamp + 500*i (mcgs_slam/mcgs.py), nên chuỗi dài hơn 500 khung có
+# mốc của hai camera trùng nhau (camera 0 khung 600 = camera 1 khung 100). Bước tinh chỉnh toàn
+# cục khớp gaussian với khung bằng mốc này, nên chết ở process_global_track_data (lietorch
+# AssertionError, run #8 đợt 2 tuần 04, 864 khung); đặt bước nhảy 100000 thì mốc không trùng.
+if [ -f "$DIR/mcgs_slam/mcgs.py" ]; then
+  sed -i 's/ + 500 \* i/ + 100000 * i/' "$DIR/mcgs_slam/mcgs.py"
+fi
+
 if [ "$FROM" -le 2 ]; then
   step "2/4 env micromamba (Python 3.10, CUDA 11.8, gcc 11)"
   if [ ! -x "$MM" ]; then
@@ -123,6 +132,29 @@ if [ "$FROM" -le 4 ]; then
       "$PY" -m pip wheel -v --no-deps --no-build-isolation -w "$WHEELS" "$DIR/thirdparty/lietorch"
     fi
   fi
+  # `bdist_wheel -k` giữ build/bdist.* qua lần setup() thứ hai nên wheel lietorch mang cả
+  # droid_backends-*.dist-info, pip từ chối cài ("multiple .dist-info directories found"). Đóng gói lại
+  # wheel lietorch chỉ với dist-info của chính nó (.so của droid_backends vẫn nằm trong wheel).
+  "$PY" - "$WHEELS"/lietorch-*.whl <<'PYEOF'
+import sys
+import zipfile
+
+path = sys.argv[1]
+with zipfile.ZipFile(path) as src:
+    infos = {name.split("/")[0] for name in src.namelist() if name.split("/")[0].endswith(".dist-info")}
+    drop = tuple(sorted(info + "/" for info in infos if not info.startswith("lietorch-")))
+    if drop:
+        entries = [(item, src.read(item.filename)) for item in src.infolist()]
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as out:
+            for item, data in entries:
+                if item.filename.startswith(drop):
+                    continue
+                if item.filename.endswith(".dist-info/RECORD"):
+                    lines = data.decode().splitlines(keepends=True)
+                    data = "".join(line for line in lines if not line.startswith(drop)).encode()
+                out.writestr(item, data)
+        print("đã bỏ", ", ".join(drop), "khỏi", path)
+PYEOF
   git rev-parse HEAD > "$WHEELS/mcgs_commit.txt"
   "$PY" -m pip install -q --no-deps --force-reinstall "$WHEELS"/*.whl
 fi
