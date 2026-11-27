@@ -8,8 +8,13 @@ Hai công cụ kiểm tra dữ liệu của Fisheye Fusion Lab, chuyển sang c�
   camera chồng nhau trộn theo khoảng cách tới mép ảnh. Chỉ dùng phép xoay (bỏ khoảng cách giữa
   các camera), nên vật gần có thể lệch ở đường nối, như bản Fisheye Fusion Lab.
 - **LiDAR chồng ảnh**: điểm ``lidar/<khung>.bin`` (``float32`` x, y, z, cường độ, hệ xe; dạng
-  KITTI, KITTI-360) chiếu lên ảnh một camera, tô màu theo độ sâu. Calib đúng thì điểm nằm khít
-  mép cột, xe, nhà.
+  KITTI, KITTI-360) chiếu lên ảnh một camera, tô màu theo độ sâu (cùng thang với video độ sâu và
+  ảnh chồng ở tab Kiểm tra, ``depth_colors``); điểm rơi lên thân xe tô xám (loader bỏ chúng). Calib
+  đúng thì điểm nằm khít mép cột, xe, nhà. Nhanh (không cần PyTorch) nên xem được từng khung;
+  ``tests/drive2sim/studio/test_frame_tools.py`` kiểm phép chiếu này trùng phép chiếu của loader
+  (``recon/data/loaders/standard.py``), và trên cảnh KITTI-360 thật mọi pixel loader chiếu ra đều
+  trùng. Dataset khác (calib theo khung như nuScenes): route trả ảnh chồng do loader tạo sẵn
+  (``reports/lidar_overlay/``, ``recon/tools/lidar_overlay.py``) cho các khung có.
 
 Cần extrinsics cố định theo camera (KITTI, KITTI-360, Waymo, Argoverse 2, nuPlan); dataset ghi
 extrinsics theo khung hoặc LiDAR dạng khác bị từ chối kèm lý do. Cần numpy và OpenCV (môi
@@ -163,14 +168,16 @@ def lidar_overlay(
     Raises:
         FrameToolError: Dataset không có LiDAR dạng KITTI, camera lạ, thiếu file.
     """
-    import cv2
-    import numpy as np
-
     if manifest.source.dataset not in LIDAR_DATASETS:
         raise FrameToolError(
             f"LiDAR của {manifest.source.dataset} ghi dạng khác; hiện chỉ đọc dạng KITTI "
             "(lidar/<khung>.bin, hệ xe) của KITTI, KITTI-360"
         )
+    try:
+        import cv2
+        import numpy as np
+    except ImportError as error:  # môi trường nhẹ: route dùng ảnh chồng do loader tạo
+        raise FrameToolError(f"môi trường thiếu {error.name}") from None
     ids = [camera.camera_id for camera in manifest.cameras]
     if camera_id not in ids:
         raise FrameToolError(f"cảnh không có camera {camera_id}")
@@ -184,13 +191,55 @@ def lidar_overlay(
     in_camera = (points - camera["T"][:3, 3]) @ camera["T"][:3, :3]  # xe → camera
     uv, valid = _project(in_camera, camera)
     depth = np.linalg.norm(in_camera, axis=1)[valid]
-    hue = np.clip(depth / 40.0, 0, 1) * 120  # 0 đỏ (gần) → 120 xanh (40 m trở ra)
-    colors = cv2.cvtColor(
-        np.stack([hue, np.full_like(hue, 255), np.full_like(hue, 255)], 1)
-        .astype(np.uint8)
-        .reshape(-1, 1, 3),
-        cv2.COLOR_HSV2BGR,
-    ).reshape(-1, 3)
-    for (x, y), color in zip(uv[valid].astype(int), colors):
+    colors = depth_colors(depth)
+    # Điểm rơi lên thân xe (mask ego của dataset) vẽ xám: loader bỏ chúng, model không học.
+    pixels = uv[valid].astype(int)
+    ego = _ego_mask(scene_root, manifest, index, image.shape[1], image.shape[0])
+    if ego is not None:
+        colors[ego[pixels[:, 1], pixels[:, 0]]] = EGO_GREY
+    for (x, y), color in zip(pixels, colors):
         cv2.circle(image, (int(x), int(y)), 2, tuple(int(c) for c in color), -1)
     return _png(image), int(valid.sum())
+
+
+# Thang màu độ sâu chung với video độ sâu và ảnh chồng của tab Kiểm tra (``depth_visualizer`` của
+# ``recon/utils/visualization.py``): turbo theo log, gần (DEPTH_NEAR_M) đỏ, xa (DEPTH_FAR_M) tím.
+DEPTH_NEAR_M = 4.0
+DEPTH_FAR_M = 120.0
+EGO_GREY = (128, 128, 128)
+
+
+def depth_colors(depth: "np.ndarray") -> "np.ndarray":
+    """Màu BGR ``uint8`` ``[N, 3]`` của độ sâu (mét), cùng thang với ``depth_visualizer``."""
+    import cv2
+    import numpy as np
+
+    near, far = np.log(DEPTH_NEAR_M), np.log(DEPTH_FAR_M)
+    t = 1.0 - (np.log(np.maximum(depth, 1e-6)) - near) / (far - near)
+    levels = (np.clip(t, 0, 1) * 255).round().astype(np.uint8).reshape(-1, 1)
+    return cv2.applyColorMap(levels, cv2.COLORMAP_TURBO).reshape(-1, 3).copy()
+
+
+def _ego_mask(
+    scene_root: Path, manifest: Manifest, index: int, width: int, height: int
+) -> "np.ndarray | None":
+    """Mask thân xe (``True`` là thân xe) cỡ ``width`` x ``height``; ``None`` nếu không có.
+
+    Tìm như loader: mask đi kèm cảnh (``ego_masks/<camera_id>.png``), rồi asset của tool theo
+    ``camera_id`` (KITTI-360) và theo chỉ số camera (các dataset khác).
+    """
+    import cv2
+
+    from drive2sim.paths import EGO_MASKS_DIR
+
+    camera_id = manifest.cameras[index].camera_id
+    folder = EGO_MASKS_DIR / manifest.source.dataset
+    candidates = [scene_root / "ego_masks" / f"{camera_id}.png"]
+    candidates += [folder / f"{name}.png" for name in (camera_id, str(index))]
+    for path in candidates:
+        if path.is_file():
+            mask = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+            if mask is not None:
+                mask = cv2.resize(mask, (width, height), interpolation=cv2.INTER_NEAREST)
+                return mask > 0
+    return None

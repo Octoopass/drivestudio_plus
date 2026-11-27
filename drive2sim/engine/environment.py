@@ -35,12 +35,13 @@ from drive2sim.paths import SMPL_MODEL_NAME, find_smpl_model
 EXPECTED = {"main": {"pytorch": "2.4.1", "cuda": "12.1", "gsplat": "1.5.3"}}
 # Codebase của approach → môi trường cần; codebase không có ở đây (ví dụ approach mẫu) thì không
 # cần môi trường GPU nào.
-CODEBASE_ENV = {"drivestudio": "main", "external:nurec": "nurec"}
+CODEBASE_ENV = {"drivestudio": "main", "external:nurec": "nurec", "external:xsim": "xsim"}
 # Lệnh dựng môi trường chính và cách chạy từ xa, dùng trong câu báo thiếu môi trường.
 INSTALL_STEPS = {
     "main": "conda env create -f envs/main.yml && conda activate drive2sim && "
     "bash envs/install_main.sh",
     "nurec": "bash envs/install_nurec.sh",
+    "xsim": "bash envs/install_xsim.sh",
 }
 REMOTE_HINT = "hoặc chạy trên GPU của Kaggle, Colab: --executor kaggle hoặc --executor colab"
 _CHECK_LABELS = {
@@ -50,7 +51,10 @@ _CHECK_LABELS = {
     "nurec_source": "mã nguồn Instant NuRec",
     "nurec_env": "môi trường Python của Instant NuRec",
     "nurec_checkpoint": "checkpoint Instant NuRec",
+    "xsim_source": "mã nguồn XSIM",
+    "xsim_env": "môi trường Python của XSIM",
 }
+_MAIN_PACKAGES = ("pytorch", "cuda", "gsplat")
 # Hỏi PyTorch tốn vài giây (tiến trình con), nên giữ kết quả một lúc.
 _CUDA_CACHE_S = 120
 _cuda_cache: dict[str, Any] = {}
@@ -106,6 +110,11 @@ def environment_check(
         }
     if env == "nurec":
         return _nurec_check()
+    if env == "xsim":
+        # Chuẩn bị dữ liệu và chấm điểm của run XSIM chạy ở môi trường chính: kiểm cả hai.
+        return _xsim_check(
+            environment_check("drivestudio", needs_smpl, workdir_root, smpl_optional)
+        )
     expected = EXPECTED[env]
     versions = package_versions()
     gpus = _gpus()
@@ -196,6 +205,41 @@ def _nurec_check() -> dict[str, Any]:
     return result
 
 
+def _xsim_check(main: dict[str, Any]) -> dict[str, Any]:
+    """Bảng kiểm tra môi trường XSIM (``drive2sim/external/xsim``) cùng môi trường chính.
+
+    Gồm các mục của môi trường chính (``main``, gồm cả file SMPL khi cần) và mã nguồn, venv của
+    XSIM. GPU dưới mức README của XSIM khuyến nghị (24 GB) chỉ cảnh báo: chưa đo mức tối thiểu.
+    """
+    from drive2sim.external import xsim
+
+    gpus = _gpus()
+    memory = max((gpu[1] or 0 for gpu in gpus), default=0)
+    checks = [
+        {
+            "id": "gpu",
+            "level": (
+                "missing" if not gpus else "ok" if memory >= xsim.RECOMMENDED_VRAM_MB else "warn"
+            ),
+            "found": f"{gpus[0][0]} ({memory} MB)" if gpus else None,
+            "expected": f">= {xsim.RECOMMENDED_VRAM_MB // 1024} GB",
+        },
+        *(check for check in main["checks"] if check["id"] != "gpu"),
+        *xsim.environment_checks(),
+    ]
+    levels = {check["level"] for check in checks}
+    level = "missing" if "missing" in levels else "warn" if "warn" in levels else "ok"
+    result: dict[str, Any] = {
+        "env": "xsim",
+        "file": str(xsim.xsim_dir()),
+        "install": INSTALL_STEPS["xsim"],
+        "level": level,
+        "checks": checks,
+    }
+    result["message"] = missing_environment_message(result)
+    return result
+
+
 def missing_environment_message(env: dict[str, Any]) -> Optional[str]:
     """Viết câu báo thiếu môi trường từ kết quả ``environment_check``.
 
@@ -223,7 +267,11 @@ def missing_environment_message(env: dict[str, Any]) -> Optional[str]:
         if c["id"] != "smpl_model"
     ]
     fixes = []
-    if packages:
+    # Run XSIM cần cả môi trường chính: gợi ý đúng script cho phần đang thiếu.
+    main_missing = env["env"] == "xsim" and any(c["id"] in _MAIN_PACKAGES for c in packages)
+    if main_missing:
+        fixes.append(f"cài môi trường chính: {INSTALL_STEPS['main']}")
+    if any(not (main_missing and c["id"] in _MAIN_PACKAGES) for c in packages):
         fixes.append(
             f"cài: {INSTALL_STEPS.get(env['env'], env['install'])}, rồi chạy lại lệnh trong "
             "môi trường đó"

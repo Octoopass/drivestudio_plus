@@ -1,0 +1,379 @@
+<!doctype html><html lang=vi><head><meta charset=utf-8><base href="file:///home/lqaq/PROJECT/drivestudio_plus/docs/weekly-report/"><title>Báo cáo tiến độ tuần 01 · 07/11/2026</title><style>/* Kiểu chung của báo cáo tuần khi xuất PDF (template/build.py). */
+@page { size: A4; margin: 16mm 15mm 16mm 15mm; }
+:root {
+  --ink: #1d232b; --muted: #5b6573; --line: #d6dbe1; --head: #f1f3f6;
+  --xong: #d3f0d8; --xong-ink: #17602a;
+  --dang-lam: #fff1bf; --dang-lam-ink: #7a5a00;
+  --dung: #fbd5d2; --dung-ink: #9b1c13;
+  --ke-hoach: #e7e9ec; --ke-hoach-ink: #4b5360;
+}
+body { font-family: "Be Vietnam Pro", "Noto Sans", "Segoe UI", Arial, sans-serif; color: var(--ink);
+       background: #fff; font-size: 10.5pt; line-height: 1.45; }
+h1 { font-size: 18pt; margin: 0 0 2pt; }
+h1 + p { color: var(--muted); margin-top: 0; }
+h2 { font-size: 13pt; margin: 16pt 0 6pt; padding-bottom: 3pt; border-bottom: 1.5px solid var(--ink); }
+h3 { font-size: 11pt; margin: 12pt 0 4pt; }
+h2, h3 { break-after: avoid; }
+table { border-collapse: collapse; width: 100%; margin: 6pt 0 8pt; font-size: 9pt; }
+th, td { border: 1px solid var(--line); padding: 3pt 5pt; vertical-align: top; text-align: left; }
+th { background: var(--head); }
+tr { break-inside: avoid; }
+code { font-family: "IBM Plex Mono", "DejaVu Sans Mono", monospace; font-size: 8.5pt; }
+ul, ol { margin: 3pt 0 6pt; padding-left: 18pt; }
+li { margin: 1pt 0; }
+.st-xong { background: var(--xong); color: var(--xong-ink); }
+.st-dang-lam { background: var(--dang-lam); color: var(--dang-lam-ink); }
+.st-dung { background: var(--dung); color: var(--dung-ink); }
+.st-ke-hoach { background: var(--ke-hoach); color: var(--ke-hoach-ink); }
+tr[class^="st-"] td { color: var(--ink); }
+tr[class^="st-"] td:first-child { border-left: 5px solid; }
+tr.st-xong td:first-child { border-left-color: #2e9e4c; }
+tr.st-dang-lam td:first-child { border-left-color: #e0a800; }
+tr.st-dung td:first-child { border-left-color: #d0362a; }
+tr.st-ke-hoach td:first-child { border-left-color: #9aa1ab; }
+table tr.group td, table tr.group td:last-child { background: #2b323c; color: #fff; font-weight: 600; }
+.chip { display: inline-block; padding: 1pt 6pt; border-radius: 8pt; font-size: 8.5pt; font-weight: 600; }
+.progress .chip { font-size: 9.5pt; padding: 2pt 8pt; margin-right: 3pt; }
+.roadmap td:not(:first-child), .roadmap th:not(:first-child) { text-align: center; width: 11%; font-size: 8pt; }
+.tracker tr:not(.group) td:last-child { width: 34%; color: var(--muted); }
+ul.changes { list-style: none; padding-left: 4pt; }
+.warn { color: var(--dung-ink); }
+.legend { margin: 4pt 0; }
+.caption, p > em:only-child { display: block; color: var(--muted); font-size: 9pt; font-style: italic; margin: 2pt 0 3pt; }
+img { display: block; max-width: 100%; max-height: 120mm; margin: 6pt auto 2pt; break-inside: avoid; }
+.gallery { display: flex; gap: 5pt; margin: 6pt 0 2pt; }
+.gallery img { width: 19%; max-height: none; margin: 0; border: 1px solid var(--line); }
+p > em:only-child { text-align: center; }
+figure { margin: 6pt 0 8pt; break-inside: avoid; }
+figure p { margin: 0; }
+table.changes td:nth-last-child(2) { width: 13%; white-space: nowrap; }
+table.changes tr:not(.group) td:last-child { color: var(--muted); }
+table:has(th:nth-child(9)) { font-size: 7.6pt; }
+table:has(th:nth-child(9)) th, table:has(th:nth-child(9)) td { padding: 2pt 3pt; }
+</style></head><body><h1>Báo cáo tiến độ tuần 01 · 07/11/2026</h1>
+<p>Reconstructing Real-World Driving Scenes (Real2Sim) · Tuần 01: 01/11/2026 – 07/11/2026 · Lâm Quang Anh Quân, Lương Sỹ Khánh, Đặng Thái Anh, Phạm Minh Hiếu</p>
+<h2>Quy ước thuật ngữ</h2>
+<p class="caption">Ghi chú: cách dùng các thuật ngữ trong báo cáo này; mọi báo cáo tuần dùng chung một bảng.</p><table>
+<thead>
+<tr>
+<th>Thuật ngữ</th>
+<th>Nghĩa trong báo cáo</th>
+<th>Ví dụ</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Method (approach)</td>
+<td>Một cách dựng cảnh có code riêng. Trong tool drive2sim, mỗi method là một approach.</td>
+<td>OmniRe, Street GS, PVG, DeformableGS, Instant NuRec, MCGS-SLAM</td>
+</tr>
+<tr>
+<td>Cấu hình</td>
+<td>Một method cộng các lựa chọn bên trong nó: renderer, luật densify, kỹ thuật tăng tốc. Mỗi run chạy đúng một cấu hình.</td>
+<td>OmniRe + 3DGUT + FastGS + Faster-GS</td>
+</tr>
+<tr>
+<td>Renderer</td>
+<td>Cách vẽ Gaussian ra ảnh. 3DGS chỉ vẽ được camera pinhole; 3DGUT và 3DGEER vẽ được cả camera fisheye.</td>
+<td>3DGS, 3DGUT, 3DGEER</td>
+</tr>
+<tr>
+<td>Luật densify</td>
+<td>Cách thêm và bớt Gaussian trong lúc train.</td>
+<td>gốc, MCMC, FastGS</td>
+</tr>
+<tr>
+<td>Dựng từng cảnh (per-scene optimization)</td>
+<td>Tối ưu một mô hình riêng cho mỗi cảnh, thường mất vài giờ GPU.</td>
+<td>OmniRe, Street GS</td>
+</tr>
+<tr>
+<td>Dựng tức thì (feed-forward)</td>
+<td>Mạng đã train sẵn dựng cảnh mới trong vài giây, không tối ưu lại cho từng cảnh.</td>
+<td>Instant NuRec</td>
+</tr>
+<tr>
+<td>Track benchmark A, B, C</td>
+<td>Ba bảng xếp hạng riêng của benchmark. A: dựng từng cảnh trên đoạn ngắn (khoảng 200 khung). B: quãng đường dài từ 1 km. C: dựng tức thì (feed-forward).</td>
+<td>Track A có ba ô A-LB, A-L, A-0</td>
+</tr>
+<tr>
+<td>Ô A-LB, A-L, A-0</td>
+<td>Ba ô của track A, chia theo đầu vào: có LiDAR và box 3D (A-LB), chỉ có LiDAR (A-L), không có cả hai (A-0).</td>
+<td></td>
+</tr>
+<tr>
+<td>Vùng che fisheye 88°</td>
+<td>Khi train và đánh giá, che các pixel có tia sáng lệch khỏi trục quang của camera quá 88°. Góc nhìn còn lại là 2 × 88° = 176°, không phải FOV 88°.</td>
+<td>KITTI-360: ống kính nhìn tới 96,1° và 92,5° lệch trục</td>
+</tr>
+<tr>
+<td>Pinhole, fisheye</td>
+<td>Loại camera: pinhole là camera thường, fisheye là camera góc rất rộng (khoảng 180°). Báo cáo không gọi loại camera là "track".</td>
+<td>KITTI-360: 2 pinhole, 2 fisheye</td>
+</tr>
+<tr>
+<td>ID theo dõi (track ID)</td>
+<td>Mã gắn cho cùng một vật thể qua các khung, để biết box ở hai khung là cùng một xe.</td>
+<td></td>
+</tr>
+<tr>
+<td>Mốc M0–M5</td>
+<td>Các mốc của kế hoạch tổng thể dự án (mục 2).</td>
+<td>M2: benchmark nhiều method</td>
+</tr>
+</tbody>
+</table>
+<h2>1. Tóm tắt</h2>
+<p class="progress"><span class="chip st-xong">Xong 3/6 (+3 tuần này)</span> <span class="chip st-dang-lam">Đang làm 3</span> <span class="chip st-dung">Dừng 0</span> <span class="chip st-ke-hoach">Kế hoạch tuần sau 4</span></p>
+<p>Tuần đầu tiên, nhóm tập trung xác định bài toán và thiết kế trước khi chạy thử bất kỳ phương pháp nào. Các việc chính gồm:</p>
+<ul>
+<li><strong>Report chung:</strong> nhóm dựng khung một report kỹ thuật chung cho cả nhóm, gồm 3 part và 17 chương. Ch 1 và Ch 3 đã có bản nháp, Ch 2 viết xong tới mục 2.5.</li>
+<li><strong>Yêu cầu và phạm vi:</strong> nhóm đặc tả 8 nhóm yêu cầu và 6 sản phẩm bàn giao. Trong 6 tuần, nhóm cam kết hoàn thành M0–M2; các mốc M3–M5 làm theo mức khả thi.</li>
+<li><strong>Kiến trúc:</strong> nhóm vẽ kiến trúc tham chiếu của một hệ thống Real2Sim, gồm 5 subsystem chạy theo 2 giai đoạn (offline và online).</li>
+<li><strong>Tool thử nghiệm:</strong> để so sánh được nhiều method, tool sẽ chuẩn hoá cách nối các method với nhau (dataset, calibration, contract, metric) chứ không chuẩn hoá thuật toán bên trong.</li>
+<li><strong>CARLA:</strong> riêng cảnh 3DGS thì chưa đủ để chạy trong CARLA. Hệ thống còn phải sinh thêm bản đồ đường <code>map.xodr</code>, quỹ đạo của từng vật thể (xe, người), quỹ đạo xe ego, calibration và phép biến đổi toạ độ.</li>
+<li><strong>Tuần sau:</strong> bắt đầu dựng tool và chạy thử các method, đồng thời chờ mentor xác nhận phạm vi.</li>
+</ul>
+<h2>2. Vị trí trên lộ trình</h2>
+<p>Dự án đang ở mốc M0, tức là thiết kế kiến trúc, interface và contract giữa các khối.</p>
+<p class="caption">Ghi chú: mốc M0–M5 và ba track benchmark A/B/C, mỗi cột là một tuần, ô tô màu theo trạng thái. Cam kết M0–M2 trong 6 tuần, M3–M5 làm theo mức khả thi nhất có thể. Trạng thái từng việc ở mục 9 (Bảng tổng hợp công việc).</p><table class="roadmap"><thead><tr><th>Mốc / track benchmark</th><th>T01</th></tr></thead><tbody><tr class="group"><td colspan="2">Mốc của dự án (kế hoạch tổng thể)</td></tr><tr><td><b>M0</b> Kiến trúc, interface, contract</td><td class="st-dang-lam">Đang làm</td></tr><tr><td><b>M1</b> Chạy được dựng cảnh đến đánh giá</td><td class="st-ke-hoach">Kế hoạch</td></tr><tr><td><b>M2</b> Benchmark nhiều phương pháp</td><td class="st-ke-hoach">Kế hoạch</td></tr><tr><td><b>M3</b> Thế giới sẵn sàng cho mô phỏng</td><td class="st-ke-hoach">Kế hoạch</td></tr><tr><td><b>M4</b> Closed-loop simulation</td><td class="st-ke-hoach">Kế hoạch</td></tr><tr><td><b>M5</b> Nền tảng mở rộng được</td><td class="st-ke-hoach">Kế hoạch</td></tr><tr class="group"><td colspan="2">Track benchmark (ba bảng xếp hạng riêng)</td></tr><tr><td><b>A</b> Dựng từng cảnh (per-scene optimization)</td><td class="st-ke-hoach">Kế hoạch</td></tr><tr><td><b>B</b> Quãng đường dài ≥ 1 km (long-drive)</td><td class="st-ke-hoach">Kế hoạch</td></tr><tr><td><b>C</b> Dựng tức thì (feed-forward)</td><td class="st-ke-hoach">Kế hoạch</td></tr></tbody></table>
+<h2>3. Đối chiếu với kế hoạch tuần trước</h2>
+<p>Đây là tuần đầu tiên nên chưa có kế hoạch từ tuần trước để đối chiếu. Bảng dưới liệt kê các việc nhóm đặt ra và làm trong tuần.</p>
+<p class="caption">Ghi chú: đối chiếu với bảng Kế hoạch tuần sau ở mục 7 của báo cáo tuần trước: việc đã đặt ra, trạng thái cuối tuần này và kết quả thực tế; cuối bảng là việc tiếp tục và việc thêm mới. Chi tiết ở mục 4 (Chi tiết công việc đã làm) và mục 5 (Kết quả thực nghiệm).</p><table class="changes"><thead><tr><th>Công việc</th><th>Trạng thái</th><th>Kết quả thực tế</th></tr></thead><tbody><tr class="group"><td colspan="3">Tuần đầu tiên: chưa có kế hoạch từ tuần trước</td></tr><tr class="st-dang-lam"><td>Dựng report kỹ thuật chung (khung 3 part, 17 chương)</td><td><span class="chip st-dang-lam">Đang làm</span></td><td>Ch 1, Ch 3 có bản nháp; Ch 2 xong tới 2.5</td></tr><tr class="st-xong"><td>Đặc tả yêu cầu, deliverables, phạm vi M0–M5</td><td><span class="chip st-xong">Xong</span></td><td>8 nhóm yêu cầu, 6 deliverable; chờ mentor xác nhận</td></tr><tr class="st-xong"><td>Kiến trúc tham chiếu 5 subsystem và luồng dữ liệu</td><td><span class="chip st-xong">Xong</span></td><td>5 subsystem, 2 giai đoạn offline và online</td></tr><tr class="st-xong"><td>Thiết kế tool thử nghiệm: chuẩn hoá cách nối các method</td><td><span class="chip st-xong">Xong</span></td><td>Chuẩn hoá dữ liệu, contract, metric; không chuẩn hoá thuật toán</td></tr><tr class="st-dang-lam"><td>Khảo sát và chọn method</td><td><span class="chip st-dang-lam">Đang làm</span></td><td>Đã xem 6 framework, chưa chốt 4 method</td></tr><tr class="st-dang-lam"><td>Khảo sát tích hợp CARLA (map.xodr, cách NuRec nối CARLA)</td><td><span class="chip st-dang-lam">Đang làm</span></td><td>Mới phân tích trên giấy: cần map.xodr, quỹ đạo vật thể, phép đổi toạ độ</td></tr></tbody></table>
+<h2>4. Chi tiết công việc đã làm</h2>
+<p>Tuần này nhóm làm bốn việc nối tiếp nhau: dựng một report chung để cả nhóm cùng ghi kiến thức vào, xác định yêu cầu và phạm vi của dự án, thiết kế kiến trúc hệ thống cùng tool thử nghiệm, và tìm hiểu cách đưa cảnh tái dựng vào CARLA.</p>
+<h3>4.1 Report kỹ thuật chung</h3>
+<p>Nhóm dựng một report kỹ thuật chung để gom kiến thức của mọi thành viên vào một file. Nhờ vậy các thành viên không làm trùng việc của nhau, và ai cũng theo dõi được tình hình chung của dự án. Mỗi thành viên viết chương của mình theo cùng một mẫu. Report chia làm 3 part, tương ứng với 3 phase làm việc:</p>
+<table>
+<thead>
+<tr>
+<th>Part</th>
+<th>Phase</th>
+<th>Chương</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>I. Shared Foundation</td>
+<td>1: cả nhóm đọc và thống nhất</td>
+<td>Ch 1 Bài toán và yêu cầu · Ch 2 Kiến trúc tham khảo · Ch 3 Tool thử nghiệm · Ch 4 Quy trình đánh giá · Ch 5 Khảo sát method · Ch 6 Kế hoạch nghiên cứu</td>
+</tr>
+<tr>
+<td>II. Approach Studies</td>
+<td>2: mỗi thành viên một chương</td>
+<td>Ch 7–10 Approach A–D · Ch 11 Road logic và CARLA</td>
+</tr>
+<tr>
+<td>III. Synthesis</td>
+<td>3: cả nhóm tổng hợp</td>
+<td>Ch 12 So sánh · Ch 13 Pipeline cuối · Ch 14 Kiểm chứng tool · Ch 15 Tích hợp CARLA · Ch 16 Kết luận</td>
+</tr>
+</tbody>
+</table>
+<p>Ngoài ba part trên, Ch 17 tổng hợp các khái niệm dùng chung trong report như ADAS, resimulation, open-loop và closed-loop.</p>
+<figure><div class="gallery"><img src="figures/tuan-01/report-page-1.jpg"><img src="figures/tuan-01/report-page-2.jpg"><img src="figures/tuan-01/report-page-3.jpg"><img src="figures/tuan-01/report-page-4.jpg"><img src="figures/tuan-01/report-page-5.jpg"></div><p><em>Hình 1. Report chung: trang bìa và mục lục Ch 1–17.</em></p></figure>
+<p>Tính đến cuối tuần, phần lớn các chương mới có bản nháp hoặc khung. Các chương phụ thuộc vào dataset và phân công (Ch 4, Ch 6) phải chờ hai việc đó được chốt:</p>
+<table>
+<thead>
+<tr>
+<th>Phần</th>
+<th>Trạng thái</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ch 1, Ch 3</td>
+<td>Đã có bản nháp</td>
+</tr>
+<tr>
+<td>Ch 2</td>
+<td>Đang sửa: xong tới 2.5, tiếp theo 2.6–2.8</td>
+</tr>
+<tr>
+<td>Ch 4, Ch 6</td>
+<td>Bản nháp, chờ chốt dataset và phân công</td>
+</tr>
+<tr>
+<td>Ch 5</td>
+<td>Đã khảo sát 6 framework, chưa chốt 4 method</td>
+</tr>
+<tr>
+<td>Part II</td>
+<td>Có mẫu chương; Ch 11 đã có phân tích NuRec + CARLA</td>
+</tr>
+<tr>
+<td>Part III</td>
+<td>Mới có khung</td>
+</tr>
+</tbody>
+</table>
+<h3>4.2 Mục tiêu, đặc tả và phạm vi</h3>
+<p>Trước khi chọn công nghệ, nhóm xác định thế nào là một kết quả tốt cho dự án. Kết quả tốt không nhất thiết là cảnh đẹp nhất. Điều cần chứng minh là phương pháp nào tái dựng được dữ liệu camera pinhole/fisheye kèm LiDAR, với chất lượng, chi phí và khả năng đưa vào mô phỏng đều đo được.</p>
+<p>Từ mục tiêu đó, nhóm đặc tả yêu cầu theo thứ tự công việc:</p>
+<ol>
+<li>Dữ liệu đầu vào: camera pinhole/fisheye và LiDAR; mức tối thiểu là chỉ có video hoặc ảnh.</li>
+<li>Khảo sát và đánh giá các method triển vọng.</li>
+<li>Tool thử nghiệm: chạy được nhiều method, đổi được thuật toán trong từng module và thứ tự các module.</li>
+<li>Kết quả tái dựng: reconstruction pipeline và scene demo.</li>
+<li>Đưa vào CARLA: đánh giá tính khả thi, road logic, traffic, closed-loop trên một khu vực thật.</li>
+<li>Tiêu chí chất lượng: chi phí thấp, mở rộng được (scalability) và kết quả lặp lại được (determinism).</li>
+<li>Báo cáo: phần đánh giá và technical report.</li>
+<li>Nên có nếu kịp: mô hình cảm biến và mô hình xe.</li>
+</ol>
+<p>Mỗi yêu cầu ứng với một sản phẩm bàn giao. Bảng dưới là các sản phẩm và điều kiện nghiệm thu nhóm đề xuất, để mentor xác nhận:</p>
+<table>
+<thead>
+<tr>
+<th>Deliverable</th>
+<th>Định dạng</th>
+<th>Điều kiện nghiệm thu đề xuất</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Tool thử nghiệm pipeline</td>
+<td>Mã nguồn, hướng dẫn chạy</td>
+<td>Đổi được method và thứ tự module, chạy lại được</td>
+</tr>
+<tr>
+<td>Reconstruction pipeline</td>
+<td>Mã nguồn và config</td>
+<td>Chạy được từ dữ liệu đến ảnh render</td>
+</tr>
+<tr>
+<td>Scene demo</td>
+<td>Video và file scene</td>
+<td>Render được đoạn đường đã chọn</td>
+</tr>
+<tr>
+<td>Bảng benchmark</td>
+<td>Bảng số liệu và log</td>
+<td>Cùng dataset, cùng protocol</td>
+</tr>
+<tr>
+<td>CARLA feasibility study</td>
+<td>Một chương trong báo cáo</td>
+<td>Có bảng khả thi, nêu rõ hạn chế</td>
+</tr>
+<tr>
+<td>Technical report</td>
+<td>PDF</td>
+<td>Đủ các chương, được mentor đánh giá</td>
+</tr>
+</tbody>
+</table>
+<h3>4.3 Kiến trúc tham chiếu</h3>
+<p>Để biết một hệ thống Real2Sim cần những khối nào, nhóm xem cách các hệ thống hiện có được tổ chức. Các hệ thống này đi theo cùng một luồng chung, nhưng mỗi hệ thống chỉ làm tốt một phần: NuRec mạnh về dựng cảnh và render nhưng tự nó không chạy mô phỏng; HUGSIM có simulator closed-loop riêng nhưng không chạy trên CARLA; Cam2Sim chạy trên CARLA nhưng mới đặt được xe đỗ, chưa có giao thông động.</p>
+<figure><p><img alt="Hình 2. Luồng chung của các hệ thống Real2Sim; đánh giá diễn ra ở nhiều khâu." src="figures/tuan-01/fig-2-2-flow.svg" /></p><p><em>Hình 2. Luồng chung của các hệ thống Real2Sim; đánh giá diễn ra ở nhiều khâu.</em></p></figure>
+<p>Dựa trên luồng chung đó, nhóm đề xuất một kiến trúc tham chiếu gồm 5 subsystem: Data, World Construction, Simulation Runtime, AD Stack và Evaluation. Các khối này chạy theo hai giai đoạn: giai đoạn offline dựng thế giới một lần, còn giai đoạn online lặp lại ở mỗi bước mô phỏng.</p>
+<figure><p><img alt="Hình 3. Kiến trúc tham chiếu: 5 subsystem, 2 giai đoạn." src="figures/tuan-01/fig-2-3-architecture.svg" /></p><p><em>Hình 3. Kiến trúc tham chiếu: 5 subsystem, 2 giai đoạn.</em></p></figure>
+<p>Khối Data là điểm bắt đầu của mọi pipeline nên được thiết kế chi tiết hơn. Dữ liệu có thể vào theo hai đường nhưng cuối cùng đều thành một dataset chuẩn. Đường thứ nhất là dataset có sẵn, dùng luôn calibration, pose và nhãn đi kèm. Đường thứ hai là log thô chỉ có video hoặc ảnh, khi đó hệ thống phải tự tạo phần còn thiếu. Pipeline vẫn chạy được khi chỉ có camera; LiDAR giúp cảnh có tỉ lệ thật và hình học chính xác hơn.</p>
+<figure><p><img alt="Hình 4. Luồng xử lý của subsystem Data." src="figures/tuan-01/fig-2-4-data-flow.svg" /></p><p><em>Hình 4. Luồng xử lý của subsystem Data.</em></p></figure>
+<figure><p><img alt="Hình 5. Các loại dữ liệu và những gì tạo ra được từ chúng." src="figures/tuan-01/fig-2-5-data-types.svg" /></p><p><em>Hình 5. Các loại dữ liệu và những gì tạo ra được từ chúng.</em></p></figure>
+<h3>4.4 Thiết kế tool thử nghiệm</h3>
+<p>Dự án yêu cầu khảo sát nhiều method rồi chọn hướng tốt nhất. Muốn chọn đúng thì phải chạy thật từng method và so sánh chúng với nhau, vì vậy nhóm cần một tool để chạy, thay đổi và đánh giá các pipeline. Tool này là công cụ nghiên cứu, khác với hệ thống Real2Sim cuối cùng.</p>
+<figure><p><img alt="Hình 6. Cấu trúc tool; các pipeline chỉ là ví dụ ứng viên." src="figures/tuan-01/fig-3-1-tool.svg" /></p><p><em>Hình 6. Cấu trúc tool; các pipeline chỉ là ví dụ ứng viên.</em></p></figure>
+<p>Khó khăn chính là các method được viết độc lập, nên không thể ghép thẳng chúng vào một tool chung. Bảng dưới liệt kê các khác biệt nhóm gặp và hậu quả của từng khác biệt:</p>
+<table>
+<thead>
+<tr>
+<th>Vấn đề</th>
+<th>Hậu quả</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Mỗi method có format dữ liệu riêng</td>
+<td>Phải viết lại phần đọc dữ liệu cho từng method</td>
+</tr>
+<tr>
+<td>Thứ tự bước khác nhau, có method gộp nhiều bước</td>
+<td>Không ép được vào một pipeline cứng</td>
+</tr>
+<tr>
+<td>Output khác nhau: 3DGS, NeRF, mesh</td>
+<td>Các phần phía sau không đọc chung được</td>
+</tr>
+<tr>
+<td>Khả năng khác nhau: pinhole, fisheye, LiDAR</td>
+<td>Không phải method nào cũng làm được mọi việc</td>
+</tr>
+<tr>
+<td>Mỗi người đo một cách</td>
+<td>Kết quả không so sánh được</td>
+</tr>
+<tr>
+<td>Repository có sẵn không tự cắm vào được</td>
+<td>Cần code nối riêng cho từng method</td>
+</tr>
+</tbody>
+</table>
+<p>Để giải quyết các khác biệt này, tool giữ cố định những gì cần giống nhau để kết quả so sánh được: format dataset, thời gian, hệ toạ độ, calibration, cấu hình thí nghiệm, metric và log. Những phần thật sự khác nhau giữa các method thì được phép thay đổi: pose, reconstruction, renderer, trích xuất geometry, road logic và adapter nối với simulator.</p>
+<p>Vì kiến trúc lúc này mới là dự đoán, nhóm làm theo vòng lặp: thiết kế trước, chạy thử thật, rồi sửa kiến trúc nếu kết quả thử không khớp.</p>
+<figure><p><img alt="Hình 7. Các bước thiết kế: thiết kế trước, thử thật, rồi sửa kiến trúc theo kết quả." src="figures/tuan-01/fig-2-1-design.svg" /></p><p><em>Hình 7. Các bước thiết kế: thiết kế trước, thử thật, rồi sửa kiến trúc theo kết quả.</em></p></figure>
+<h3>4.5 Tích hợp CARLA</h3>
+<p>Mục tiêu cuối của dự án là chạy mô phỏng trong CARLA, nên nhóm tìm hiểu xem một cảnh 3DGS cần thêm gì để vào được CARLA. Cảnh 3DGS chỉ dùng để render ảnh: CARLA không biết đâu là làn đường, giao lộ hay vật cản trong cảnh, và kết nối gRPC chỉ truyền ảnh chứ không truyền thông tin va chạm. Vì vậy, ngoài cảnh 3DGS, hệ thống còn phải sinh thêm:</p>
+<ul>
+<li>bản đồ <code>map.xodr</code> theo chuẩn OpenDRIVE, mô tả đường và làn;</li>
+<li>quỹ đạo của từng vật thể (xe, người), để tạo lại chúng trong CARLA;</li>
+<li>quỹ đạo và calibration, để đặt xe và camera đúng chỗ;</li>
+<li>phép biến đổi toạ độ, để khớp hệ toạ độ của CARLA với cảnh.</li>
+</ul>
+<p>Bản đồ <code>map.xodr</code> có thể tạo theo hai cách. Khi có GPS, nhóm tải bản đồ OpenStreetMap rồi chuyển đổi bằng <code>carla.Osm2Odr</code>. Khi không có GPS, nhóm tạo bản đồ từ quỹ đạo xe, rồi bổ sung số làn và bề rộng làn đo trên ảnh nhìn từ trên xuống (BEV).</p>
+<p>Để có một ví dụ thực tế, nhóm xem cách NVIDIA nối hệ thống NuRec với CARLA. Một script Python gọi cả hai bên: CARLA chạy ở chế độ đồng bộ với bước 1/60 giây, và ở mỗi bước script lấy vị trí camera từ CARLA, đổi sang hệ toạ độ của cảnh, rồi gọi <code>render_rgb</code> để lấy ảnh. Nhóm có thể làm lại cách nối này cho các method khác.</p>
+<figure><p><img alt="Hình 8. Pipeline của NVIDIA NuRec (ảnh: NVIDIA Developer)." src="figures/tuan-01/nurec-workflow.jpg" /></p><p><em>Hình 8. Pipeline của NVIDIA NuRec (ảnh: NVIDIA Developer).</em></p></figure>
+<figure><p><img alt="Hình 9. NuRec và CARLA: ba thành phần chạy riêng biệt." src="figures/tuan-01/fig-11-3-nurec-carla.svg" /></p><p><em>Hình 9. NuRec và CARLA: ba thành phần chạy riêng biệt.</em></p></figure>
+<figure><p><img alt="Hình 10. Một vòng closed-loop giữa CARLA và renderer." src="figures/tuan-01/fig-11-4-loop.svg" /></p><p><em>Hình 10. Một vòng closed-loop giữa CARLA và renderer.</em></p></figure>
+<h2>5. Kết quả thực nghiệm</h2>
+<p>Tuần này chưa có thực nghiệm, vì nhóm dành thời gian cho thiết kế ở mục 4. Các lần chạy thử đầu tiên nằm trong kế hoạch tuần sau (mục 7).</p>
+<h2>6. Phát hiện và quyết định</h2>
+<p>Từ các việc ở mục 4, nhóm chốt bốn quyết định định hướng cho các tuần sau.</p>
+<p><em>Ghi chú: các quyết định chốt trong tuần, mỗi quyết định kèm lý do và nguồn (mục trong báo cáo, paper hoặc tài liệu).</em></p>
+<table>
+<thead>
+<tr>
+<th>Quyết định</th>
+<th>Lý do / bằng chứng</th>
+<th>Nguồn</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Một report chung cho cả nhóm</td>
+<td>Tránh làm trùng việc, dễ theo dõi tình hình</td>
+<td>Mục 4.1 (Report kỹ thuật chung)</td>
+</tr>
+<tr>
+<td>Cam kết M0–M2 trong 6 tuần, M3–M5 theo mức khả thi</td>
+<td>Thiết kế đầy đủ cho cả hệ thống, nhưng triển khai tăng dần</td>
+<td>Mục 4.2 (Mục tiêu, đặc tả và phạm vi)</td>
+</tr>
+<tr>
+<td>Tool chuẩn hoá cách nối, không chuẩn hoá thuật toán</td>
+<td>Mỗi method có format, thứ tự bước và output khác nhau</td>
+<td>Mục 4.4 (Thiết kế tool thử nghiệm)</td>
+</tr>
+<tr>
+<td>Hệ thống phải sinh thêm <code>map.xodr</code> và quỹ đạo vật thể ngoài cảnh 3DGS</td>
+<td>CARLA không đọc được làn và vật cản từ 3DGS</td>
+<td>Mục 4.5 (Tích hợp CARLA); tài liệu CARLA, NVIDIA NuRec</td>
+</tr>
+</tbody>
+</table>
+<h2>7. Kế hoạch tuần sau</h2>
+<p>Sau khi có thiết kế, việc tiếp theo là dựng tool và chạy thử thật để kiểm tra thiết kế đó có đứng vững không.</p>
+<p class="caption">Ghi chú: việc dự kiến làm trong tuần sau và kết quả cần có để tính là xong. Báo cáo tuần sau báo lại trạng thái của từng việc này ở mục 3 (Đối chiếu với kế hoạch tuần trước).</p><p><b>Tuần 02 · 08/11/2026 – 14/11/2026</b></p><table class="plan"><thead><tr><th>Công việc</th></tr></thead><tbody><tr><td>Dựng tool thử nghiệm và chạy thử các method</td></tr><tr><td>Khảo sát và chọn method</td></tr><tr><td>Report kỹ thuật chung</td></tr><tr><td>Khảo sát tích hợp CARLA</td></tr></tbody></table>
+<h2>8. Hạn chế, rủi ro và câu hỏi còn mở</h2>
+<p>Phạm vi của dự án chưa được mentor xác nhận, nên nhóm cần câu trả lời cho các câu hỏi sau trước khi đi sâu vào triển khai:</p>
+<ol>
+<li>Cách làm một report chung như vậy có đúng không? Cả nhóm nộp một bản report được không?</li>
+<li>Đặc tả yêu cầu và deliverables đã đúng và đủ chưa?</li>
+<li>Closed-loop là bắt buộc trong 6 tuần, hay chỉ cần đánh giá khả năng tích hợp?</li>
+<li>Tool thử nghiệm có phải là deliverable chính thức không?</li>
+<li>Cam kết M0–M2 trong 6 tuần có đạt yêu cầu không?</li>
+<li>Dữ liệu chính là dataset công khai hay log do mentor cung cấp?</li>
+<li>Road logic có cần giao lộ đầy đủ không?</li>
+</ol>
+<h2>9. Bảng tổng hợp công việc</h2>
+<p class="caption">Ghi chú: cộng dồn từ tuần 01, mỗi khối là một tuần; việc kéo dài nhiều tuần lặp lại ở từng tuần để thấy màu đổi dần. Khối cuối (xám) là kế hoạch tuần sau, chi tiết ở mục 7 (Kế hoạch tuần sau).</p><p class="legend"><span class="chip st-xong">Xong</span> <span class="chip st-dang-lam">Đang làm</span> <span class="chip st-dung">Dừng</span> <span class="chip st-ke-hoach">Kế hoạch</span> </p><table class="tracker"><thead><tr><th>Công việc</th><th>Ghi chú</th></tr></thead><tbody><tr class="group"><td colspan="2">Tuần 01 · 01/11/2026 – 07/11/2026</td></tr><tr class="st-dang-lam"><td>Dựng report kỹ thuật chung (khung 3 part, 17 chương)</td><td>Ch 1, Ch 3 có bản nháp; Ch 2 xong tới 2.5</td></tr><tr class="st-xong"><td>Đặc tả yêu cầu, deliverables, phạm vi M0–M5</td><td>8 nhóm yêu cầu, 6 deliverable; chờ mentor xác nhận</td></tr><tr class="st-xong"><td>Kiến trúc tham chiếu 5 subsystem và luồng dữ liệu</td><td>5 subsystem, 2 giai đoạn offline và online</td></tr><tr class="st-xong"><td>Thiết kế tool thử nghiệm: chuẩn hoá cách nối các method</td><td>Chuẩn hoá dữ liệu, contract, metric; không chuẩn hoá thuật toán</td></tr><tr class="st-dang-lam"><td>Khảo sát và chọn method</td><td>Đã xem 6 framework, chưa chốt 4 method</td></tr><tr class="st-dang-lam"><td>Khảo sát tích hợp CARLA (map.xodr, cách NuRec nối CARLA)</td><td>Mới phân tích trên giấy: cần map.xodr, quỹ đạo vật thể, phép đổi toạ độ</td></tr><tr class="group"><td colspan="2">Tuần 02 · 08/11/2026 – 14/11/2026 (kế hoạch)</td></tr><tr class="st-ke-hoach"><td>Dựng tool thử nghiệm và chạy thử các method</td><td></td></tr><tr class="st-ke-hoach"><td>Khảo sát và chọn method</td><td></td></tr><tr class="st-ke-hoach"><td>Report kỹ thuật chung</td><td></td></tr><tr class="st-ke-hoach"><td>Khảo sát tích hợp CARLA</td><td></td></tr></tbody></table></body></html>

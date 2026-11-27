@@ -1,0 +1,5 @@
+{
+  // LaTeX Workshop: PDF và file phụ (.aux, .log, .toc...) vào build/ cạnh file .tex, như
+  // `latexmk` trong terminal (docs/final-report/latexmkrc). Mặc định extension đổ cạnh file nguồn.
+  "latex-workshop.latex.outDir": "%DIR%/build"
+}

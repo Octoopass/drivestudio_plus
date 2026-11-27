@@ -39,10 +39,14 @@ from drive2sim.engine.machine import _gpus
 from drive2sim.paths import PACKAGE_DIR
 
 REPO_DIR = PACKAGE_DIR.parent
-SCRIPTS = {"main": "envs/install_main.sh", "nurec": "envs/install_nurec.sh"}
+SCRIPTS = {
+    "main": "envs/install_main.sh",
+    "nurec": "envs/install_nurec.sh",
+    "xsim": "envs/install_xsim.sh",
+}
 # Python mà Studio phải chạy bằng: môi trường chính cài vào chính Python đó (envs/main.yml);
 # NuRec dựng venv riêng bằng uv, nên Python của Studio chỉ chạy script cài.
-PYTHON: dict[str, Optional[tuple]] = {"main": (3, 10), "nurec": None}
+PYTHON: dict[str, Optional[tuple]] = {"main": (3, 10), "nurec": None, "xsim": None}
 STEP = re.compile(r"^=== \d\d:\d\d:\d\d (\d+)/(\d+) (.*)$")
 LOG_TAIL = 6000
 
@@ -143,7 +147,7 @@ class InstallFlow:
         """Bắt đầu cài (đang cài thì giữ nguyên lần đang chạy).
 
         Args:
-            env: Môi trường, hiện chỉ có ``main``.
+            env: Môi trường: một khoá của ``SCRIPTS``.
             from_step: Cài tiếp từ bước này (``--from``); 1 là cài từ đầu.
 
         Raises:
@@ -317,9 +321,10 @@ class InstallFlow:
             self._state.update(state=state, finished_at=time.time())
         # PyTorch, NuRec vừa đổi: bảng kiểm tra môi trường phải hỏi lại, không dùng kết quả đã nhớ
         environment._cuda_cache.clear()
-        from drive2sim.external import nurec
+        from drive2sim.external import nurec, xsim
 
         nurec.clear_cache()
+        xsim.clear_cache()
 
     def cancel(self) -> dict:
         """Dừng lần cài đang chạy (cả nhóm tiến trình: pip, nvcc...)."""

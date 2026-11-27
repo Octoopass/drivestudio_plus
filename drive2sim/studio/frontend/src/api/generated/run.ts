@@ -3,6 +3,7 @@
 export type SchemaVersion = string;
 export type RunId = string;
 export type SceneId = string;
+export type SceneMaskDigest = string | null;
 export type SplitId = string;
 export type ApproachId = string;
 export type Version = string;
@@ -34,6 +35,7 @@ export type Stages = StageRecord[];
  * Attributes:
  *     run_id: Định danh run, ``YYYYMMDD-HHMMSS-<approach_id>-<4 hex>``.
  *     scene_id: Cảnh của run.
+ *     scene_mask_digest: SHA-256 của snapshot mask chính thức, None với run cũ.
  *     split_id: Split của run.
  *     approach: Approach và lựa chọn đã quyết định.
  *     level: Mức năng lực của approach.
@@ -47,6 +49,7 @@ export interface RunRecord {
   schema_version: SchemaVersion;
   run_id: RunId;
   scene_id: SceneId;
+  scene_mask_digest?: SceneMaskDigest;
   split_id: SplitId;
   approach: RunApproach;
   level: Level;

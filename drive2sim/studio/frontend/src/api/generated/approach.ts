@@ -6,6 +6,9 @@ export type Name = string;
 export type Version = string;
 export type Codebase = string;
 export type Level = "L1" | "L2" | "L3" | "L4";
+export type Kind = "per_scene" | "feed_forward" | "slam";
+export type Experimental = boolean;
+export type Dynamics = ("boxes" | "time" | "option" | "static") | null;
 /**
  * @minItems 1
  */
@@ -55,6 +58,17 @@ export type Stage = string;
  *     version: Phiên bản của file approach.
  *     codebase: ``drivestudio`` (trainer DriveStudio, môi trường chính) hoặc ``external:<tên>``.
  *     level: Mức năng lực cao nhất đạt được, ``L1``–``L4``.
+ *     kind: Loại phương pháp (``ApproachKind``); Studio chia danh sách approach theo nhóm
+ *         này. Thêm sau ``d2s-approach/0.3`` mà không tăng phiên bản (không bắt buộc, mặc
+ *         định ``per_scene``).
+ *     experimental: ``True`` khi approach đã nối vào tool nhưng chưa nghiệm thu (chưa có run
+ *         train, eval đầy đủ trên GPU); Studio và ``d2s approach list`` gắn nhãn "thử nghiệm".
+ *         Chỉ để hiển thị, engine không đọc. Thêm sau ``d2s-approach/0.3`` mà không tăng phiên
+ *         bản (không bắt buộc, mặc định ``False``).
+ *     dynamics: Cách dựng vật chuyển động (``Dynamics``): ``boxes`` (node riêng theo box 3D),
+ *         ``time`` (Gaussian đổi theo thời gian, không cần box), ``option`` (tuỳ mục cấu hình,
+ *         mặc định tắt), ``static`` (bản đồ tĩnh). Studio hiện thành nhãn trên thẻ approach. Chỉ
+ *         để hiển thị. Thêm sau ``d2s-approach/0.3`` mà không tăng phiên bản (không bắt buộc).
  *     requires: Điều kiện dữ liệu. Track (pinhole, fisheye) của approach và của từng preset suy
  *         ra từ mô hình camera nhận được (``CAMERA_TRACK``), không ghi riêng; file ``0.1``,
  *         ``0.2`` có trường ``track`` thì trường đó được bỏ qua.
@@ -76,6 +90,9 @@ export interface Approach {
   version: Version;
   codebase: Codebase;
   level: Level;
+  kind?: Kind;
+  experimental?: Experimental;
+  dynamics?: Dynamics;
   requires: Requires;
   options?: Options;
   constraints?: Constraints;

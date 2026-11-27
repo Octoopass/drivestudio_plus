@@ -1,0 +1,99 @@
+# Bảng công việc dùng chung cho mọi báo cáo tuần (bản gốc duy nhất).
+#
+# Cách cập nhật mỗi tuần (xem template/README.md):
+#   1. Trong tuần NN: chép mọi việc của `ke_hoach` vào `cong_viec`, cộng các việc tuần NN-1 còn
+#      `dang-lam`, rồi đặt trạng thái thật cuối tuần. Việc phát sinh thêm thì thêm dòng.
+#   2. Thêm tuần NN+1 với `ke_hoach` là việc dự kiến (chưa có `cong_viec`).
+#   3. Không xoá dòng của tuần cũ. Việc bỏ thì để `dung` ở tuần bỏ.
+#
+# trang_thai: xong (xanh lá) | dang-lam (vàng) | dung (đỏ: bị chặn hoặc bỏ) | ke-hoach (xám)
+# id: khoá nội bộ để nối cùng một việc qua các tuần; KHÔNG hiện trong báo cáo (báo cáo chỉ hiện `viec`).
+# viec: ghi tổng quát; chi tiết để ở mục kết quả của báo cáo tuần.
+
+lo_trinh:
+  - nhom: Mốc của dự án (kế hoạch tổng thể)
+    muc:
+      - {id: M0, ten: "Kiến trúc, interface, contract"}
+      - {id: M1, ten: "Chạy được dựng cảnh đến đánh giá"}
+      - {id: M2, ten: "Benchmark nhiều phương pháp"}
+      - {id: M3, ten: "Thế giới sẵn sàng cho mô phỏng"}
+      - {id: M4, ten: "Closed-loop simulation"}
+      - {id: M5, ten: "Nền tảng mở rộng được"}
+  - nhom: Track benchmark (ba bảng xếp hạng riêng)
+    muc:
+      - {id: A, ten: "Dựng từng cảnh (per-scene optimization)"}
+      - {id: B, ten: "Quãng đường dài ≥ 1 km (long-drive)"}
+      - {id: C, ten: "Dựng tức thì (feed-forward)"}
+
+tuan:
+  - so: 1
+    bat_dau: 2026-11-01
+    ket_thuc: 2026-11-07
+    lo_trinh: {M0: dang-lam}
+    cong_viec:
+      - {id: REPORT-CHUNG, viec: "Dựng report kỹ thuật chung (khung 3 part, 17 chương)", ghi_chu: "Ch 1, Ch 3 có bản nháp; Ch 2 xong tới 2.5", trang_thai: dang-lam}
+      - {id: YEU-CAU-PHAM-VI, viec: "Đặc tả yêu cầu, deliverables, phạm vi M0–M5", ghi_chu: "8 nhóm yêu cầu, 6 deliverable; chờ mentor xác nhận", trang_thai: xong}
+      - {id: KIEN-TRUC, viec: "Kiến trúc tham chiếu 5 subsystem và luồng dữ liệu", ghi_chu: "5 subsystem, 2 giai đoạn offline và online", trang_thai: xong}
+      - {id: THIET-KE-TOOL, viec: "Thiết kế tool thử nghiệm: chuẩn hoá cách nối các method", ghi_chu: "Chuẩn hoá dữ liệu, contract, metric; không chuẩn hoá thuật toán", trang_thai: xong}
+      - {id: KHAO-SAT-METHOD, viec: "Khảo sát và chọn method", ghi_chu: "Đã xem 6 framework, chưa chốt 4 method", trang_thai: dang-lam}
+      - {id: CARLA-KHA-THI, viec: "Khảo sát tích hợp CARLA (map.xodr, cách NuRec nối CARLA)", ghi_chu: "Mới phân tích trên giấy: cần map.xodr, quỹ đạo vật thể, phép đổi toạ độ", trang_thai: dang-lam}
+
+  - so: 2
+    bat_dau: 2026-11-08
+    ket_thuc: 2026-11-14
+    lo_trinh: {M0: xong, M1: dang-lam}
+    ke_hoach:
+      - {id: TOOL-KHUNG, viec: "Dựng tool thử nghiệm và chạy thử các method"}
+      - {id: KHAO-SAT-METHOD, viec: "Khảo sát và chọn method"}
+      - {id: REPORT-CHUNG, viec: "Report kỹ thuật chung"}
+      - {id: CARLA-KHA-THI, viec: "Khảo sát tích hợp CARLA"}
+    cong_viec:
+      - {id: REPORT-CHUNG, viec: "Dựng report kỹ thuật chung (khung 3 part, 17 chương)", ghi_chu: "", trang_thai: dang-lam}
+      - {id: KHAO-SAT-METHOD, viec: "Khảo sát và chọn method", ghi_chu: "Giữ nền drivestudio; loại NeRF và DGGT", trang_thai: xong}
+      - {id: CARLA-KHA-THI, viec: "Khảo sát tích hợp CARLA (map.xodr, cách NuRec nối CARLA)", ghi_chu: "Tuần này không có tiến triển mới", trang_thai: dang-lam}
+      - {id: TOOL-KHUNG, viec: "Dựng khung tool drive2sim: nạp cảnh, split, chạy, đo, so sánh", ghi_chu: "Bản đầu: 6 bước, 7 dataset, 10 cấu hình", trang_thai: xong}
+      - {id: PORT-GSPLAT, viec: "Port drivestudio lên gsplat-geer 1.5.3 (3DGS, 3DGUT, 3DGEER)", ghi_chu: "Ba renderer chạy trong một môi trường", trang_thai: xong}
+      - {id: EXP-PINHOLE, viec: "Thực nghiệm pinhole trên nuScenes", ghi_chu: "Tốt nhất 27,64 dB; chưa chạy qua drive2sim", trang_thai: dang-lam}
+      - {id: EXP-FISHEYE, viec: "Thực nghiệm fisheye trên KITTI-360 (3DGUT, 3DGEER)", ghi_chu: "Hai hướng khác dữ liệu, chưa so trực tiếp", trang_thai: dang-lam}
+      - {id: EXP-CAMERA-LIDAR, viec: "Thực nghiệm camera + LiDAR: SimULi trên NCore", ghi_chu: "Val PSNR 31,19 dB, scene static", trang_thai: dang-lam}
+      - {id: KHAO-SAT-FEEDFORWARD, viec: "Khảo sát method feed-forward, chọn Instant NuRec", ghi_chu: "Chỉ Instant NuRec ra một .ply cho cả cảnh", trang_thai: xong}
+      - {id: INSTANT-NUREC, viec: "Chạy Instant NuRec", ghi_chu: "Chưa chạy được", trang_thai: dang-lam}
+      - {id: SPLATAD, viec: "Chạy SplatAD (neurad-studio)", ghi_chu: "Phụ thuộc gsplat fork 1.0, không tương thích 1.5.3 và 1.6", trang_thai: dung}
+      - {id: DATASET, viec: "Tìm dataset có fisheye, LiDAR, pose, box", ghi_chu: "Ứng viên A2D2", trang_thai: dang-lam}
+
+  - so: 3
+    bat_dau: 2026-11-15
+    ket_thuc: 2026-11-21
+    lo_trinh: {M0: xong, M1: xong, M2: dang-lam, M3: dang-lam, A: dang-lam, B: dang-lam, C: dang-lam}
+    ke_hoach:
+      - {id: LONG-DRIVE, viec: "Nghiên cứu và chạy thử method quãng đường dài (SLAM, Hierarchical 3DGS, DA3, VGGT-Long)"}
+      - {id: DANH-GIA-HOLDOUT, viec: "Đánh giá trên đoạn đường giữ lại liền mạch"}
+      - {id: XE-DONG-BAU-TROI, viec: "Xử lý xe động và bầu trời"}
+      - {id: INSTANT-NUREC, viec: "Sinh kết quả Instant NuRec"}
+      - {id: SPLATAD, viec: "Thử nghiệm SplatAD nếu có thời gian"}
+    cong_viec:
+      - {id: REPORT-CHUNG, viec: "Dựng report kỹ thuật chung (khung 3 part, 17 chương)", ghi_chu: "", trang_thai: dang-lam}
+      - {id: CARLA-KHA-THI, viec: "Khảo sát tích hợp CARLA (map.xodr, cách NuRec nối CARLA)", ghi_chu: "Bản thử đầu: cảnh NuRec chạy trong CARLA cùng 4 xe NPC (mục 5.5)", trang_thai: dang-lam}
+      - {id: TOOL-NANG-CAP, viec: "Nâng cấp drive2sim: thêm method, fisheye theo camera, chuẩn đánh giá, Studio, Kaggle/Colab", ghi_chu: "Thêm PVG, DeformableGS, Instant NuRec; protocol 0.3; vùng che 88°", trang_thai: xong}
+      - {id: EXP-PINHOLE, viec: "Thực nghiệm pinhole trên nuScenes", ghi_chu: "11 cấu hình, tốt nhất 25,20 dB", trang_thai: xong}
+      - {id: EXP-FISHEYE, viec: "Thực nghiệm fisheye trên KITTI-360 (3DGUT, 3DGEER)", ghi_chu: "Run che 88° (82bc) xong, 22,84 dB; còn đợt chỉ pinhole", trang_thai: dang-lam}
+      - {id: EXP-CAMERA-LIDAR, viec: "Thực nghiệm camera + LiDAR: SimULi trên NCore", ghi_chu: "Loss LiDAR NaN do lỗi gsplat 1.6", trang_thai: dung}
+      - {id: LONG-DRIVE, viec: "Chạy thử method quãng đường dài (KiloGS-SLAM, MCGS-SLAM)", ghi_chu: "Chọn MCGS-SLAM cho track B (quãng đường dài)", trang_thai: xong}
+      - {id: DANH-GIA-HOLDOUT, viec: "Đánh giá trên đoạn đường giữ lại liền mạch", ghi_chu: "Đã đưa vào thiết kế benchmark, chưa chạy", trang_thai: dang-lam}
+      - {id: XE-DONG-BAU-TROI, viec: "Xử lý xe động và bầu trời", ghi_chu: "Giải quyết bằng cách chuyển sang OmniRe: xe theo box, trời bằng mô hình riêng và mask trời", trang_thai: xong}
+      - {id: EXP-BEZIERGS, viec: "Tái hiện BezierGS trên Waymo", ghi_chu: "29,91 dB test (paper 31,51)", trang_thai: xong}
+      - {id: INSTANT-NUREC, viec: "Chạy Instant NuRec", ghi_chu: "Chạy ngoài tool trên KITTI-360 40 và 150 khung, khoảng 16 dB; chưa qua bộ đo chung", trang_thai: dang-lam}
+      - {id: SPLATAD, viec: "Chạy SplatAD, IDsplat trên PandaSet", ghi_chu: "Đang dựng khung chạy", trang_thai: dang-lam}
+      - {id: DATASET, viec: "Tìm dataset có fisheye, LiDAR, pose, box (A2D2 loại, PHENIKAA)", ghi_chu: "Loại A2D2; PHENIKAA: 2/3 chuỗi mini đủ 10 camera", trang_thai: xong}
+      - {id: THIET-KE-BENCHMARK, viec: "Thiết kế benchmark: 8 yêu cầu, 3 track benchmark, protocol, ma trận 13 run", ghi_chu: "13 run, ~23 GPU-giờ", trang_thai: xong}
+
+  - so: 4
+    bat_dau: 2026-11-22
+    ket_thuc: 2026-11-28
+    ke_hoach:
+      - {id: BENCHMARK-TOOL, viec: "Dựng tool benchmark (đo lệch làn, export gap, ghost_ratio, đoạn xấu; config không LiDAR; chia chunk)", ket_qua: "Tool chạy được từ output của một run tới bảng kết quả"}
+      - {id: BENCHMARK-CHAY, viec: "Chạy benchmark theo ma trận (13 run, ~23 GPU-giờ)", ket_qua: "Bảng kết quả của track A (dựng từng cảnh, 3 ô), track B (quãng đường dài), track C (feed-forward); danh sách đoạn xấu"}
+      - {id: EXP-FISHEYE, viec: "Thực nghiệm fisheye: đợt chỉ train pinhole, và đo 82bc theo dải góc", ket_qua: "Biết 3DGEER kém trên pinhole do phép chiếu hay do gộp camera; biết vùng che 88° làm phần giữa ảnh tốt lên hay kém đi"}
+      - {id: DATA-PHENIKAA, viec: "Đánh giá dataset PHENIKAA cho track A (dựng từng cảnh), trên COMPLEX CITY và COMPLEX URBAN", ket_qua: "Kết luận PHENIKAA có thay được KITTI-360 cho track A (pinhole + 4 fisheye) không"}
+      - {id: INSTANT-NUREC, viec: "Chạy Instant NuRec qua bộ đo chung (track C, feed-forward)", ket_qua: "Kết quả track C so được với method khác; trả lời 4 câu hỏi về NuRec ở mục 8 tuần 03"}
+      - {id: SPLATAD, viec: "Đưa BezierGS, SplatAD vào tool nếu còn thời gian"}

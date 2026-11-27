@@ -204,3 +204,23 @@ local_scripts/
 
 # Sổ tay kỹ thuật LaTeX chỉ lưu local theo yêu cầu người dùng
 /docs/sổ tay kỹ thuật/
+
+# Báo cáo kỹ thuật chung (docs/final-report/): đưa nguồn LaTeX và PDF đã biên dịch (build/*.pdf) lên git;
+# file tạm của latexmk thì không
+/docs/final-report/**/*.aux
+/docs/final-report/**/*.bbl
+/docs/final-report/**/*.blg
+/docs/final-report/**/*.fdb_latexmk
+/docs/final-report/**/*.fls
+/docs/final-report/**/*.out
+/docs/final-report/**/*.toc
+/docs/final-report/**/*.synctex.gz
+/docs/final-report/notes.pdf
+/docs/final-report/build/*
+!/docs/final-report/build/*.pdf
+/docs/slides/*/index.bundle.html
+models/
+# máy vast.ai đang thuê (envs/week04_vast.sh rent)
+/.vast.env
+/.venv-waymo/
+.vast_pulled*

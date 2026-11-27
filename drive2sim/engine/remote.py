@@ -37,25 +37,34 @@ EXECUTOR_STATE_FILES = ("kaggle.json", "colab.json")
 Git = Callable[..., str]
 
 
-def require_main_codebase(approach_id: str, where: str) -> None:
-    """Từ chối đẩy approach chạy bằng codebase ngoài lên Kaggle, Colab.
+# Codebase notebook Kaggle và job Colab dựng được môi trường: môi trường chính luôn cài; XSIM cài
+# thêm bằng envs/install_xsim.sh khi run cần (stage chuẩn bị, chấm điểm chạy ở môi trường chính).
+REMOTE_CODEBASES = ("drivestudio", "external:xsim")
 
-    Notebook trên Kaggle, Colab chỉ cài môi trường chính (``envs/install_main.sh``); approach như
-    Instant NuRec cần môi trường riêng và dữ liệu gốc, nên chạy trên máy (hoặc notebook riêng
-    của NuRec tải ở Studio).
+
+def require_remote_codebase(approach_id: str, where: str) -> bool:
+    """Từ chối đẩy approach mà Kaggle, Colab chưa dựng được môi trường.
+
+    Notebook trên Kaggle, Colab cài môi trường chính (``envs/install_main.sh``) và, với XSIM, thêm
+    venv XSIM (``envs/install_xsim.sh``); Instant NuRec cần môi trường riêng và dữ liệu gốc, nên
+    chạy trên máy (hoặc notebook riêng của NuRec tải ở Studio).
+
+    Returns:
+        ``True`` nếu job phải cài thêm môi trường XSIM.
 
     Raises:
-        ValueError: Nếu approach không chạy bằng ``drivestudio``.
+        ValueError: Nếu approach chạy bằng codebase khác ``REMOTE_CODEBASES``.
     """
     from drive2sim.engine.approaches import load_approach
 
     codebase = load_approach(approach_id).codebase
-    if codebase != "drivestudio":
+    if codebase not in REMOTE_CODEBASES:
         raise ValueError(
-            f"approach {approach_id} chạy bằng codebase ngoài ({codebase}), {where} chỉ cài môi "
-            "trường chính: chạy trên máy này, hoặc với Instant NuRec tải notebook NuRec ở trang "
-            "Chạy mới"
+            f"approach {approach_id} chạy bằng codebase ngoài ({codebase}), {where} chưa dựng "
+            "được môi trường đó: chạy trên máy này, hoặc với Instant NuRec tải notebook NuRec ở "
+            "trang Chạy mới"
         )
+    return codebase == "external:xsim"
 
 
 class RemoteError(RuntimeError):

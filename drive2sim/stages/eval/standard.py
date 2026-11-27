@@ -34,7 +34,9 @@ Giới hạn hiện tại: tách đánh giá khỏi ``train.py`` là việc sau 
 
 import json
 import os
+import shutil
 import sys
+from collections.abc import Sequence
 from importlib import metadata
 from pathlib import Path
 from typing import ClassVar, Optional
@@ -43,7 +45,15 @@ import yaml
 from pydantic import BaseModel
 
 from drive2sim.core import files
-from drive2sim.core.schema import SCHEMA_VERSIONS, EvalProtocol, LpipsSetting, Metrics, Summary
+from drive2sim.core.schema import (
+    SCHEMA_VERSIONS,
+    DepthMetrics,
+    EvalProtocol,
+    LpipsSetting,
+    Metrics,
+    ShiftedMetrics,
+    Summary,
+)
 from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import NoParams, Stage, StageContext
 from drive2sim.paths import SMPL_MODEL_ENV
@@ -58,17 +68,25 @@ from drive2sim.stages.train.drivestudio import (
     view_extras,
 )
 
+# 0.5: ``frames.jsonl`` có thêm ``psnr_cc``, ``lpips_cc`` (sau chỉnh màu affine), ``psnr_static``;
+# split có camera chỉ test (R2) thì ``overall`` chỉ tính trên ảnh test của camera đã train, còn
+# camera chỉ test tính riêng vào ``shifted``. Split không có camera chỉ test cho số y như 0.4.
+# 0.4: ghi thêm metric từng ảnh test (``frames_test_*.jsonl``) và độ sâu render so với LiDAR
+# (``depth``); cách đo PSNR, SSIM, LPIPS không đổi so với 0.3, nên số cũ so được.
 # 0.3: khi loader đánh dấu điểm ảnh không hợp lệ (``valid_masks``: camera mắt cá ngoài vùng nhìn
 # dùng được, thân xe), SSIM và LPIPS cũng chỉ tính trên điểm ảnh hợp lệ như PSNR; ảnh không có điểm
 # hợp lệ nào bị bỏ qua thay vì làm trung bình thành NaN; thêm metric theo camera.
 # 0.2: ảnh render được làm tròn về 8 bit trước khi đo, như ảnh gốc (SPEC mục 9); 0.1 đo ảnh render
 # ở dạng số thực.
-PROTOCOL_VERSION = "0.3"
+PROTOCOL_VERSION = "0.6"
 METRIC_PREFIX = "image_metrics/test/"
 SUMMARY_FILE = "summary.json"
 TRAIN_STATS_FILE = "train_stats.json"
 REPORT_FILE = "drivestudio_metrics.json"
 PER_CAMERA_PREFIX = "per_camera"
+DEPTH_PREFIX = "depth"
+FRAMES_PATTERN = "frames_test_*.jsonl"
+FRAMES_FILE = "frames.jsonl"
 REEVAL_DIR = "reeval"
 
 
@@ -105,6 +123,89 @@ def read_drivestudio_metrics(model_dir: Path, folder: str = "metrics") -> dict[s
 def has_per_camera(metrics: dict[str, float]) -> bool:
     """File metric có khoá theo camera không (ghi bằng code đo từ protocol 0.3)."""
     return any(key.startswith(PER_CAMERA_PREFIX + "/") for key in metrics)
+
+
+def latest_frames_file(model_dir: Path, folder: str = "metrics") -> Optional[Path]:
+    """File metric từng ảnh test mới nhất (``frames_test_*.jsonl``), nếu có.
+
+    Code đo từ protocol 0.4 ghi file này cạnh ``images_test_*.json``; run cũ không có.
+
+    Args:
+        model_dir: Thư mục kết quả của ``train.drivestudio``.
+        folder: Thư mục con chứa file metric; ``metrics_eval`` với kết quả đo lại.
+
+    Returns:
+        Đường dẫn file; ``None`` nếu chưa có.
+    """
+    candidates = sorted((model_dir / folder).glob(FRAMES_PATTERN))
+    return candidates[-1] if candidates else None
+
+
+def frames_have_color_match(path: Path) -> bool:
+    """File metric từng ảnh có khoá ``psnr_cc`` không (do code đo từ protocol 0.5 ghi).
+
+    Chỉ đọc dòng đầu: mọi dòng của một file cùng do một phiên bản code ghi.
+
+    Args:
+        path: File ``frames_test_*.jsonl`` hoặc ``frames.jsonl``.
+
+    Returns:
+        ``True`` nếu dòng đầu có ``psnr_cc``; ``False`` nếu thiếu khoá hoặc file rỗng.
+    """
+    with path.open(encoding="utf-8") as handle:
+        first = handle.readline().strip()
+    return bool(first) and "psnr_cc" in json.loads(first)
+
+
+def read_frames(path: Path) -> list[dict]:
+    """Đọc file metric từng ảnh test, mỗi dòng một bản ghi JSON.
+
+    Args:
+        path: File ``frames.jsonl``.
+
+    Returns:
+        Danh sách bản ghi, theo thứ tự trong file.
+    """
+    lines = path.read_text(encoding="utf-8").splitlines()
+    return [json.loads(line) for line in lines if line.strip()]
+
+
+def split_frames_by_role(
+    frames: list[dict], test_only_indices: set[int]
+) -> tuple[list[dict], list[dict]]:
+    """Chia bản ghi từng ảnh test thành ảnh của camera đã train và của camera chỉ test.
+
+    Args:
+        frames: Bản ghi của ``frames.jsonl``.
+        test_only_indices: Vị trí trong ``manifest.yaml`` của các camera chỉ test; khớp với
+            ``camera_index`` của bản ghi.
+
+    Returns:
+        Bộ ``(đã train, chỉ test)``, giữ thứ tự gốc.
+    """
+    trained = [item for item in frames if item["camera_index"] not in test_only_indices]
+    shifted = [item for item in frames if item["camera_index"] in test_only_indices]
+    return trained, shifted
+
+
+def aggregate_frames(frames: list[dict]) -> dict[str, Optional[float]]:
+    """Lấy trung bình theo ảnh các metric trong bản ghi từng ảnh test.
+
+    ``psnr``, ``ssim``, ``lpips`` luôn có; ``psnr_cc``, ``lpips_cc`` có thể ``None`` (khớp màu
+    suy biến) hoặc không có khoá (file do code đo cũ ghi): giá trị đó bị bỏ qua, và cả cột không
+    có giá trị nào thì kết quả ``None``.
+
+    Args:
+        frames: Bản ghi của ``frames.jsonl``.
+
+    Returns:
+        Khoá ``psnr``, ``ssim``, ``lpips``, ``psnr_cc``, ``lpips_cc`` → trung bình hoặc ``None``.
+    """
+    result: dict[str, Optional[float]] = {}
+    for name in ("psnr", "ssim", "lpips", "psnr_cc", "lpips_cc"):
+        values = [item[name] for item in frames if item.get(name) is not None]
+        result[name] = sum(values) / len(values) if values else None
+    return result
 
 
 def reeval_command(checkpoint: Path, view_root: Path, log_dir: Path) -> list[str]:
@@ -196,11 +297,19 @@ def make_summary(
     model_dir: Path,
     train_stats: Optional[dict[str, object]] = None,
     camera_ids: Optional[list[str]] = None,
+    frames: Optional[list[dict]] = None,
+    test_only_cameras: Sequence[str] = (),
 ) -> Summary:
     """Dựng ``summary.json`` từ metric của DriveStudio và ``train_stats.json``.
 
     Metric theo vùng (người, xe, vật động) chỉ có khi cảnh có box; giá trị âm hoặc thiếu nghĩa là
     DriveStudio không tính được, được ghi ``null`` (CONTRACTS mục 10.3).
+
+    Split có camera chỉ test (R2): metric của DriveStudio trung bình cả camera đã train lẫn camera
+    chỉ test, nên ``overall.psnr``, ``ssim``, ``lpips`` được tính lại từ ``frames`` chỉ trên ảnh
+    của camera đã train (R1 vẫn là "khung giữ lại của camera đã train"), còn camera chỉ test vào
+    ``shifted``. Metric vùng (người, xe, vật động, không phải trời) giữ số của DriveStudio, gồm
+    mọi camera. Không có camera chỉ test thì ``frames`` không dùng tới và ``overall`` y như 0.4.
 
     Args:
         metrics: Kết quả ``read_drivestudio_metrics``.
@@ -209,12 +318,16 @@ def make_summary(
         train_stats: Kết quả ``read_train_stats``; thiếu trường nào thì trường đó để trống.
         camera_ids: ``camera_id`` theo thứ tự trong ``manifest.yaml``, để đổi khoá chỉ số camera
             (``per_camera/0/psnr``) sang ``camera_id``. ``None`` thì giữ nguyên khoá.
+        frames: Bản ghi từng ảnh test (``read_frames``); bắt buộc khi có camera chỉ test.
+        test_only_cameras: ``camera_id`` của camera chỉ test (``Split.test_only_cameras``).
 
     Returns:
         Đối tượng ``Summary``.
 
     Raises:
         KeyError: Nếu thiếu ``psnr``, ``ssim`` hoặc ``lpips``.
+        ValueError: Nếu có camera chỉ test mà không có ``frames``, không biết vị trí camera
+            trong manifest, hoặc không có ảnh test nào của camera đã train hoặc camera chỉ test.
     """
 
     def optional(name: str) -> Optional[float]:
@@ -232,11 +345,50 @@ def make_summary(
         parts = key.split("/")
         if len(parts) == 3 and parts[0] == PER_CAMERA_PREFIX:
             per_camera.setdefault(_camera_name(parts[1], camera_ids), {})[parts[2]] = value
+    depth = {
+        key[len(DEPTH_PREFIX) + 1 :]: value
+        for key, value in metrics.items()
+        if key.startswith(DEPTH_PREFIX + "/")
+    }
     train_time = (train_stats or {}).get("train_time_s")
     eval_time = (train_stats or {}).get("eval_time_s")
     speedups = (train_stats or {}).get("speedups")
     if not (isinstance(speedups, list) and all(isinstance(x, str) for x in speedups)):
         speedups = []
+
+    overall_values = {name: metrics[name] for name in ("psnr", "ssim", "lpips")}
+    shifted = None
+    if test_only_cameras:
+        if frames is None:
+            raise ValueError("split có camera chỉ test nhưng run không có frames.jsonl")
+        if camera_ids is None:
+            raise ValueError(
+                "split có camera chỉ test nhưng không biết thứ tự camera của manifest"
+            )
+        test_only_indices = {camera_ids.index(camera) for camera in test_only_cameras}
+        trained, shifted_frames = split_frames_by_role(frames, test_only_indices)
+        if not trained:
+            raise ValueError("frames.jsonl không có ảnh test nào của camera đã train")
+        if not shifted_frames:
+            raise ValueError(
+                f"frames.jsonl không có ảnh test nào của camera chỉ test {list(test_only_cameras)}"
+            )
+        # R1 chỉ tính trên camera đã train; camera chỉ test tính riêng ở R2.
+        overall_values = {
+            name: value
+            for name, value in aggregate_frames(trained).items()
+            if name in overall_values and value is not None
+        }
+        shifted_values = aggregate_frames(shifted_frames)
+        shifted = ShiftedMetrics(
+            cameras=list(test_only_cameras),
+            num_images=len(shifted_frames),
+            psnr=shifted_values["psnr"],
+            ssim=shifted_values["ssim"],
+            lpips=shifted_values["lpips"],
+            psnr_cc=shifted_values["psnr_cc"],
+            lpips_cc=shifted_values["lpips_cc"],
+        )
 
     return Summary(
         schema_version=SCHEMA_VERSIONS["summary"],
@@ -254,9 +406,9 @@ def make_summary(
         ),
         split_id=split_id,
         overall=Metrics(
-            psnr=metrics["psnr"],
-            ssim=metrics["ssim"],
-            lpips=metrics["lpips"],
+            psnr=overall_values["psnr"],
+            ssim=overall_values["ssim"],
+            lpips=overall_values["lpips"],
             human_psnr=optional("human_psnr"),
             vehicle_psnr=optional("vehicle_psnr"),
             dynamic_psnr=optional("masked_psnr"),
@@ -275,6 +427,8 @@ def make_summary(
         render_resolution=f"{int(width)}x{int(height)}" if width and height else None,
         eval_time_s=float(eval_time) if isinstance(eval_time, (int, float)) else None,
         speedups=speedups,
+        depth=DepthMetrics(**depth) if depth else None,
+        shifted=shifted,
     )
 
 
@@ -282,7 +436,7 @@ def make_summary(
 class EvalStandardStage(Stage):
     """Đổi metric DriveStudio ghi khi train sang ``summary.json`` theo protocol chung."""
 
-    version: ClassVar[str] = "0.3.0"
+    version: ClassVar[str] = "0.6.0"
     cacheable: ClassVar[bool] = False
     uses_lidar: ClassVar[bool] = False
     inputs: ClassVar[dict[str, str]] = {
@@ -309,10 +463,19 @@ class EvalStandardStage(Stage):
             ``{"report": <thư mục stage>}``, chứa ``summary.json`` và ``drivestudio_metrics.json``.
         """
         metrics = read_drivestudio_metrics(inputs["model"])
+        frames = latest_frames_file(inputs["model"])
         checkpoint = inputs["model"] / FINAL_CHECKPOINT
-        if not has_per_camera(metrics) and checkpoint.is_file():
-            metrics = self.reevaluate(ctx, inputs, checkpoint)
+        # Metric thiếu khoá theo camera (protocol < 0.3), thiếu file từng ảnh (protocol < 0.4) hoặc
+        # file từng ảnh thiếu metric sau chỉnh màu (protocol < 0.5) được đo lại từ checkpoint bằng
+        # code đo hiện tại.
+        stale = (
+            not has_per_camera(metrics) or frames is None or not frames_have_color_match(frames)
+        )
+        if stale and checkpoint.is_file():
+            metrics, frames = self.reevaluate(ctx, inputs, checkpoint)
         (ctx.output_dir / REPORT_FILE).write_text(json.dumps(metrics, indent=2) + "\n")
+        if frames is not None:
+            shutil.copyfile(frames, ctx.output_dir / FRAMES_FILE)
         files.dump(
             make_summary(
                 metrics,
@@ -320,6 +483,8 @@ class EvalStandardStage(Stage):
                 inputs["model"],
                 read_train_stats(inputs["model"]),
                 camera_ids=[camera.camera_id for camera in ctx.scene.manifest.cameras],
+                frames=read_frames(frames) if frames is not None else None,
+                test_only_cameras=ctx.split.test_only_cameras,
             ),
             ctx.output_dir / SUMMARY_FILE,
         )
@@ -327,8 +492,12 @@ class EvalStandardStage(Stage):
 
     def reevaluate(
         self, ctx: StageContext, inputs: dict[str, Path], checkpoint: Path
-    ) -> dict[str, float]:
-        """Render lại tập test từ checkpoint bằng code đo hiện tại; trả metric mới."""
+    ) -> tuple[dict[str, float], Optional[Path]]:
+        """Render lại tập test từ checkpoint bằng code đo hiện tại.
+
+        Returns:
+            ``(metric mới, file metric từng ảnh test)``; file là ``None`` nếu code đo không ghi.
+        """
         extra = view_extras(inputs)
         view_root = ctx.output_dir / VIEW_DIR
         build_view(ctx.scene.root, view_root, exclude=(*MASK_ENTRIES, SMPL_ENTRY), extra=extra)
@@ -349,4 +518,7 @@ class EvalStandardStage(Stage):
             should_stop=ctx.should_stop,
             env=env,
         )
-        return read_drivestudio_metrics(log_dir, "metrics_eval")
+        return (
+            read_drivestudio_metrics(log_dir, "metrics_eval"),
+            latest_frames_file(log_dir, "metrics_eval"),
+        )

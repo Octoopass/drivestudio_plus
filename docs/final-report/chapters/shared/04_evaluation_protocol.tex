@@ -1,0 +1,126 @@
+\chapter{Research Methodology \& Evaluation Protocol (Phương pháp và quy trình đánh giá)}
+
+Chương này cần được thống nhất trước khi benchmark.
+Nếu mỗi người tự chọn dataset, metric và cách đo, Part III sẽ không so sánh được.
+
+\section{Dataset}
+
+Dataset được chọn phải có camera đúng track, LiDAR, calibration, pose và thời gian ghi đủ tin cậy.
+
+\begin{table}[H]
+  \centering
+  \caption{Dataset theo track}
+  \begin{tabularx}{\linewidth}{l X X}
+    \toprule
+    \textbf{Track} & \textbf{Dataset} & \textbf{Sequence} \\
+    \midrule
+    A: Pinhole + LiDAR & TBD & TBD \\
+    B: Fisheye + LiDAR & TBD & TBD \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Mọi approach trong cùng track chạy trên cùng dataset và cùng sequence.
+
+\section{Camera calibration}
+
+Mọi module đọc thông số camera từ một format chung, gồm loại camera, intrinsics, distortion và vị trí so với xe.
+Mỗi sequence phải qua một phép kiểm tra trước khi dùng: chiếu LiDAR lên ảnh và xác nhận hai nguồn khớp nhau.
+Mô hình fisheye cụ thể được chốt sau khi chọn dataset: \todo{chốt mô hình fisheye}.
+
+\section{Pose conventions}
+
+Các quy ước dưới đây áp dụng cho dữ liệu trao đổi giữa các module. Method có quy ước riêng thì adapter phải tự chuyển đổi.
+
+\begin{table}[H]
+  \centering
+  \caption{Quy ước dữ liệu}
+  \begin{tabularx}{\linewidth}{l X}
+    \toprule
+    \textbf{Nội dung} & \textbf{Quy ước} \\
+    \midrule
+    Đơn vị khoảng cách & Mét (đề xuất) \\
+    Mốc thời gian & TBD \\
+    Hệ tọa độ thế giới & TBD \\
+    Hệ tọa độ camera & TBD \\
+    Biểu diễn pose & TBD \\
+    Nguồn pose & TBD, ưu tiên pose có sẵn nếu kiểm tra thấy đáng tin \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Experiment conditions}
+
+Để so sánh công bằng, các điều kiện sau phải giống nhau giữa các approach trong cùng track:
+\begin{itemize}
+  \item Cùng sequence và cùng danh sách ảnh train, ảnh giữ lại để test.
+  \item Cùng độ phân giải đánh giá.
+  \item Cùng baseline đối chứng: TBD.
+  \item Mọi thay đổi cấu hình so với mặc định của repository đều được ghi lại.
+\end{itemize}
+
+\subsection{Vertical slice}
+
+Cần có sớm một luồng chạy tối thiểu xuyên qua nhiều thành phần.
+Ví dụ: dữ liệu KITTI-360 $\to$ calibration/poses $\to$ một reconstruction method $\to$ render held-out view $\to$ tính PSNR và ghi runtime.
+
+Song song, có thể chạy CARLA với bản đồ có sẵn để kiểm tra simulation interface độc lập. Hai phần này chưa cần nối ngay.
+
+\section{Metrics}
+
+\begin{table}[H]
+  \centering
+  \caption{Các chỉ số đánh giá}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.2cm} l X}
+    \toprule
+    \textbf{Nhóm} & \textbf{Chỉ số} & \textbf{Ý nghĩa} \\
+    \midrule
+    Chất lượng ảnh & PSNR & Sai khác theo từng pixel, càng cao càng tốt \\
+     & SSIM & Giống nhau về cấu trúc ảnh, càng cao càng tốt \\
+     & LPIPS & Khác biệt theo cảm nhận thị giác, càng thấp càng tốt \\
+    \addlinespace
+    Hình học & TBD & Sai lệch so với LiDAR \\
+    \addlinespace
+    Chi phí & Runtime, VRAM & Thời gian chạy và bộ nhớ GPU lớn nhất \\
+     & Thao tác thủ công & Số việc phải làm tay cho mỗi scene \\
+    \addlinespace
+    Determinism & $\Delta p(t)$ & Lệch vị trí xe giữa 2 lần chạy tại cùng thời điểm \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Với hai lần chạy cùng kịch bản, độ lệch vị trí được tính như sau:
+\begin{equation}
+  \Delta p(t) = \lVert p_{\text{lần 1}}(t) - p_{\text{lần 2}}(t) \rVert
+\end{equation}
+
+\section{Hardware measurement}
+
+Mỗi kết quả ghi kèm GPU, RAM, phiên bản driver và thời điểm chạy.
+Các số đo so sánh với nhau nên được chạy trên cùng loại máy.
+Nếu buộc phải dùng máy khác, cần ghi rõ để không so sánh trực tiếp thời gian chạy.
+Cấu hình máy của nhóm: \todo{bổ sung GPU, VRAM, dung lượng lưu trữ}.
+
+\section{Quy tắc ghi kết quả}
+
+\begin{itemize}
+  \item Mỗi kết quả gắn với experiment ID, config và code version để chạy lại được. Experiment ID có dạng \texttt{approach-track-sequence-số}, ví dụ \texttt{a-pinhole-seq01-001}.
+  \item Thực nghiệm chưa chạy ghi \texttt{Not Evaluated}, không điền số liệu mẫu vào bảng chính.
+  \item Chức năng approach không có ghi \texttt{Not Supported}.
+\end{itemize}
+
+\section{Phiên bản protocol}
+
+Protocol có thể cập nhật khi Phase 2 phát hiện vấn đề, nhưng mọi thay đổi phải được ghi lại.
+
+\begin{table}[H]
+  \centering
+  \caption{Lịch sử thay đổi protocol}
+  \begin{tabularx}{\linewidth}{l l X}
+    \toprule
+    \textbf{Phiên bản} & \textbf{Ngày} & \textbf{Thay đổi} \\
+    \midrule
+     &  &  \\
+    \bottomrule
+  \end{tabularx}
+\end{table}

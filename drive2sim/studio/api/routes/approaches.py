@@ -28,6 +28,7 @@ from drive2sim.engine.resolve import (
 )
 from drive2sim.engine.run import preview_reuse
 from drive2sim.engine.stage import Scene
+from drive2sim.ingest import ego_masks
 from drive2sim.studio.api.state import StudioState, state_of
 
 router = APIRouter(prefix="/api/approaches", tags=["approaches"])
@@ -146,7 +147,8 @@ def check(approach_id: str, body: PlanBody, request: Request) -> dict:
 
     Returns:
         ``{"approach_id", "preset", "quick", "options", "lidar_usage", "stages": [{"stage_id",
-        "params", "cache_hit"}], "blocked_choices": {mục: [{"choice", "message"}]}}``. Khi bị
+        "params", "cache_hit"}], "blocked_choices": {mục: [{"choice", "message"}]},
+        "data_warnings": [câu cảnh báo không khoá, ví dụ camera chưa xử lý mask thân xe]}``. Khi bị
         khoá thì trả lỗi ``422`` với các lý do (CONTRACTS mục 11.3).
     """
     state = state_of(request)
@@ -169,6 +171,9 @@ def check(approach_id: str, body: PlanBody, request: Request) -> dict:
             option: [{"choice": r.choice, "message": r.message} for r in reasons]
             for option, reasons in blocked.items()
         },
+        "data_warnings": [
+            w for w in (ego_masks.pending_warning(scene.root, scene.manifest, split.cameras),) if w
+        ],
     }
 
 

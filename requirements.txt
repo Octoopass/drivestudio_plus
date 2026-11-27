@@ -20,7 +20,7 @@ viser==1.0.30
 imageio
 imageio-ffmpeg
 scikit-image==0.20.0
-opencv-python
+opencv-python==4.11.0.86  # 4.12 trở lên (cả OpenCV 5) đòi numpy >= 2; numpy chốt 1.23.5 bên dưới
 
 open3d==0.17.0          # 0.16.0 không có bản cho Python 3.11 (Kaggle)
 pyquaternion==0.9.9
@@ -41,3 +41,6 @@ transformers==4.40.2   # drive2sim/recon/preprocess/masks/segformer_hf.py (Huggi
 
 # NCore (dữ liệu chuẩn, ARCHITECTURE.md mục 2.2); cùng phiên bản với submodule third_party/ncore
 nvidia-ncore==19.9.0
+
+# Đọc LiDAR .laz của PHENIKAA khi ingest (drive2sim/ingest/phenikaa.py)
+laspy[lazrs]==2.7.0

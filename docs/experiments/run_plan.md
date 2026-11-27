@@ -155,6 +155,9 @@ của `f8a6` ra PSNR 25,0063, khớp `summary.json` gốc. Cột "cuối" lấy 
     khoảng 0,2 dB thì dùng 15.000 bước cho các đợt 3DGUT, 3DGEER sau, kể cả KITTI-360.
 - Sau khi đo, các `checkpoint_15000.pth` trên máy đã xoá (17/11/2026) để giải phóng ổ đĩa;
   output notebook Kaggle của các run vẫn còn.
+- Từ 21/11/2026 không cần giữ checkpoint để đo kiểu này nữa: `train.py` đo test ngay tại nửa
+  số bước (tham số `eval_at` chọn bước khác) và ghi `metrics_steps/test_<bước>.json`; checkpoint
+  theo bước bị xoá khi train xong. Đã thử trên máy (`211c`) và Kaggle (`e554`).
 
 ### Vì sao PSNR dừng ở khoảng 25 dù train đủ 30.000 bước
 
@@ -194,6 +197,26 @@ Cách kiểm tra:
   thuyết 1 đúng.
 - Xem ảnh sai khác (`render.vis_error`, `rgb_error_maps`) để biết lỗi tập trung ở bầu trời,
   mép vật hay rải đều.
+
+### 3DGEER với FastGS, Faster-GS, SMPL (run `3c08`, 20/11/2026)
+
+Chạy lại `639c` (3DGEER + Faster-GS + SMPL, hết bộ nhớ trên Kaggle T4 ở bước 1550–1900 với
+4,6–7,4 triệu Gaussian) với FastGS bật thêm, để vừa T4. Cấu hình này chỉ khác `28e5` (3DGUT) ở
+renderer: nuScenes `scene-0061`, `front3`, 30.000 bước, Kaggle T4.
+
+| | `28e5` 3DGUT | `3c08` 3DGEER |
+|---|---|---|
+| PSNR / SSIM / LPIPS | **24,62** / **0,765** / **0,295** | 21,71 / 0,752 / 0,301 |
+| PSNR người / xe / vật động | 24,15 / 24,73 / 24,64 | 23,90 / 24,39 / 24,25 |
+| PSNR vùng không phải trời | 24,57 | 21,80 |
+| PSNR theo camera (FRONT, FRONT_LEFT, FRONT_RIGHT) | 24,54 / 24,23 / 25,09 | 21,47 / 21,03 / 22,62 |
+| Gaussian cuối, VRAM đỉnh, train | 0,41 triệu, 3,5 GB, 150 phút | 0,54 triệu, 4,3 GB, 160 phút |
+
+- 3DGEER kém 2,9 dB, gần hết ở nền tĩnh: vùng người, xe, vật động chỉ kém 0,25–0,4 dB. Khớp
+  `6b85` (3DGEER, 21,66). Densify của nhánh 3DGEER khác hẳn (`densify_grad_thresh` 0,01 so
+  với 0,0005 của 3DGUT; `refine_interval` 50); nghi đây là chỗ nền học thiếu, **chưa kiểm
+  chứng** và không làm tiếp (21/11/2026).
+- FastGS giữ 3DGEER vừa T4 (4,3 GB).
 
 ## Fisheye (pinhole + mắt cá)
 
@@ -305,6 +328,43 @@ Nhận xét:
 - 3DGUT train nhanh hơn và tốn ít VRAM hơn ở cả hai split.
 - SSIM, LPIPS ở đây không so được với số protocol 0.2 cũ của `0b27`, `e627`
   (0,823/0,183 và 0,829/0,198); PSNR không đổi giữa hai protocol.
+
+### Benchmark tuần 04, đợt 2 (27/11/2026, vast.ai RTX 4090, 30.000 bước)
+
+Chi tiết và so sánh ở `benchmark_week04_wave2_results.md`. Chạy một run mỗi lúc nên thời gian
+train là thời gian thật.
+
+| Run | Ô | Approach, cấu hình | Cảnh, split | PSNR | SSIM | LPIPS | Train | VRAM đỉnh |
+|---|---|---|---|---:|---:|---:|---:|---:|
+| `20261127-075005-pvg-76e9` | W1 A-0 | PVG 3DGS, `lidar=false` | Waymo W1, `every8_5cams` | 29,02 | 0,909 | 0,131 | 19 phút 32 | 2,4 GB |
+| `20261127-045255-omnire-7a64` | A2 A-LB | OmniRe 3DGEER, FastGS | KITTI-360 0003 (200 khung), `every8_stereo_fisheye2` | 22,61 | 0,793 | 0,165 | 27 phút 19 | 3,3 GB |
+| `20261127-033252-pvg-fa62` | A2 A-L | PVG 3DGEER, `campose=false` | KITTI-360 0003 (200 khung), `every8_stereo_fisheye2` | 19,24 | 0,703 | 0,303 | 1 giờ 10 phút 50 | 6,9 GB |
+| `20261127-072153-mcgs-3902` | B2 | MCGS-SLAM `full`, `--buffer` 865 | KITTI-360 0003 dài (864 khung), `every8_pinhole2` | 10,25 | 0,388 | 0,638 | 25 phút 39 | không đo |
+
+### Giới hạn 90 độ của renderer và run 3DGEER 1000 bước (19–21/11/2026)
+
+- **Cả 3DGUT và 3DGEER không vẽ gì từ 90 độ lệch trục trở ra:** gsplat bỏ mọi Gaussian có tâm
+  sau mặt phẳng camera (`z <= near_plane`; `ProjectionUT3DGSFused.cu`, `IntersectGEERTile.cu`).
+  Checkpoint `3586` (3DGEER che tới giới hạn ống kính 96,1 / 92,5 độ) có opacity 0 ở mọi pixel
+  ngoài 90 độ, nên run đó train dải 90–96 độ mà không vẽ được, **không dùng để so**. Từ
+  20/11/2026 cả hai renderer che từ 88 độ (`RENDERER_MAX_ANGLE`, `docs/datasets/kitti360.md`
+  mục 5.1).
+- Run thử cùng điều kiện, `kitti360_0003_local` (40 khung), `every5_allcams` (2 camera mắt cá),
+  1000 bước, cùng che từ 88 độ:
+
+| | `fe92` 3DGUT | `d9ee` 3DGEER |
+|---|---|---|
+| PSNR `image_02` / `image_03` | **19,27** / **18,18** | 18,79 / 17,47 |
+| LPIPS `image_02` / `image_03` | 0,362 / 0,345 | 0,361 / 0,343 |
+| PSNR `image_02` theo dải góc 0–60 / 60–88 / 88–96 độ | 19,00 / 17,2–20,9 / 13,2–16,1 | 19,11 / 15,5–19,4 / 10,6–15,0 |
+| Gaussian cuối | 1,05 triệu | 1,34 triệu |
+
+  Đo theo dải góc bằng `drive2sim/scripts/fisheye_angle_bands.py` trên 8 khung test. 3DGEER kém
+  0,5–0,7 dB, nhiều nhất ở 60–88 độ; ngoài 88 độ tụt mạnh hơn vì không vẽ gì (chỉ màu trời).
+- **Mức tin cậy:** run này chỉ 1000 bước, một lần chạy mỗi cấu hình, cảnh 40 khung; còn đợt 1, 2
+  (30.000 bước, che từ 83 độ) cho thấy hai renderer ngang nhau trên camera mắt cá. Chưa đủ để
+  kết luận 3DGEER kém trên mắt cá ở run đầy đủ. Kết luận chung đến 21/11/2026: 3DGUT là mặc định
+  (hơn rõ trên pinhole, ngang hoặc hơn trên mắt cá).
 
 ### Kết quả chạy thử cũ
 

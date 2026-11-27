@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from omegaconf import OmegaConf
 import os
 import time
@@ -31,6 +31,7 @@ class GSModelType(IntEnum):
     RigidNodes = 1
     SMPLNodes = 2
     DeformableNodes = 3
+    BezierNodes = 4
 
 def lr_scheduler_fn(
     cfg: OmegaConf,
@@ -483,6 +484,10 @@ class BasicTrainer(nn.Module):
                 from gsplat.geer.camera import get_camera_tanfov
             except ImportError:
                 return
+            # drive2sim: cận góc nhìn pinhole của GEER phải phủ điểm chính lệch tâm (KITTI-360)
+            from drive2sim.recon.utils import geer_fov
+
+            geer_fov.install()
             self._geer_supports_ftheta = (
                 'ftheta_coeffs' in inspect.signature(get_camera_tanfov).parameters
             )
@@ -647,6 +652,58 @@ class BasicTrainer(nn.Module):
                 self.info["means3d"].retain_grad()
         
         return results, render_fn
+
+    def rasterize_features(
+        self,
+        gs: dataclass_gs,
+        cam: dataclass_camera,
+        features: torch.Tensor,
+        opacity_mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Vẽ một đặc trưng tuỳ ý của từng Gaussian thay cho màu (có gradient).
+
+        Dùng cho các loss phụ cần một lần vẽ thêm, ví dụ bản đồ vận tốc và ảnh chỉ vật động của
+        BezierGS (``trainers/bezier.py``). Dùng chung kwargs của camera, ``near_plane``,
+        ``far_plane``, ``radius_clip`` với ``render_gaussians`` nhưng không đụng ``self.info`` và
+        ``self._last_render_inputs`` nên thống kê densify của lần vẽ chính không bị ảnh hưởng.
+        Chưa chạy thật trên GPU.
+
+        Args:
+            gs: Gaussian đã gom của bước hiện tại (``collect_gaussians``).
+            cam: Camera đang vẽ.
+            features: Đặc trưng của từng Gaussian, shape ``[N, C]``; vẽ như kênh màu.
+            opacity_mask: Mask ``[N]`` nhân vào opacity (ví dụ chỉ giữ Gaussian của vật động);
+                ``None`` giữ nguyên opacity.
+
+        Returns:
+            ``(image [H, W, C], alpha [H, W, 1])``; ``image`` là tổng có trọng số alpha, chưa chia
+            cho alpha.
+        """
+        render_mode = cam.render_mode or self.render_cfg.get("render_mode", "default")
+        opacities = gs.opacities.squeeze(-1)
+        if opacity_mask is not None:
+            opacities = opacities * opacity_mask
+        renders, alphas, _ = rasterization(
+            means=gs.means,
+            quats=gs.quats,
+            scales=gs.scales,
+            opacities=opacities,
+            colors=features,
+            viewmats=torch.linalg.inv(cam.camtoworlds)[None],
+            Ks=cam.Ks[None],
+            width=cam.W,
+            height=cam.H,
+            packed=self.render_cfg.packed,
+            absgrad=False,
+            sparse_grad=self.render_cfg.sparse_grad,
+            rasterize_mode="antialiased" if self.render_cfg.antialiased else "classic",
+            near_plane=self.render_cfg.near_plane,
+            far_plane=self.render_cfg.far_plane,
+            radius_clip=self.render_cfg.get("radius_clip", 0.0),
+            render_mode="RGB",
+            **self.camera_rasterization_kwargs(cam, render_mode),
+        )
+        return renders[0], alphas[0]
 
     def affine_transformation(
         self,
@@ -910,7 +967,9 @@ class BasicTrainer(nn.Module):
         Load model from checkpoint.
         """
         logger.info(f"Loading checkpoint from {ckpt_path}")
-        state_dict = torch.load(ckpt_path)
+        # drive2sim: DriveStudio checkpoints hold numpy scalars; PyTorch >= 2.6 refuses them with the
+        # default weights_only=True. Only the project's own checkpoints are loaded here.
+        state_dict = torch.load(ckpt_path, weights_only=False)
         if not load_only_model and "optimizer" not in state_dict:
             logger.warning(f"{ckpt_path} holds only the model; training resumes with a fresh optimizer")
             load_only_model = True

@@ -1,17 +1,26 @@
 import time
-from typing import Literal, Dict, List, Optional, Callable
+from typing import Dict, List, Optional, Callable
 from tqdm import tqdm, trange
 import numpy as np
 import os
 import logging
 import imageio
+import json
+
+import matplotlib
 
 import torch
 from torch import Tensor
-from torch.nn import functional as F
 from skimage.metrics import structural_similarity as ssim
 
+from drive2sim.recon.rendering.image_metrics import compute_image_metrics, compute_psnr, get_numpy
 from drive2sim.recon.data.base import SplitWrapper
+from drive2sim.recon.rendering.color_match import (
+    apply_color_affine,
+    fit_color_affine,
+    static_region_mask,
+)
+from drive2sim.recon.rendering.depth_metrics import compute_depth_metrics, mean_depth_metrics
 from drive2sim.recon.trainers.base import BasicTrainer
 from drive2sim.recon.utils.visualization import (
     to8b,
@@ -20,48 +29,112 @@ from drive2sim.recon.utils.visualization import (
 
 logger = logging.getLogger()
 
-def get_numpy(x: Tensor) -> np.ndarray:
-    return x.squeeze().cpu().numpy()
+# drive2sim: error maps (rgb_error_maps) and their legend. Error is the mean absolute difference
+# over RGB of the 8-bit render and ground truth; ERROR_MAP_MAX and above take the top colour of
+# ERROR_MAP_CMAP. The scale is the same for every frame, camera and run so maps can be compared;
+# pixels left out of the metrics (valid_masks: fisheye rim, ego car) are drawn in
+# INVALID_PIXEL_GREY so they do not read as "no error".
+ERROR_MAP_MAX = 0.25
+ERROR_MAP_CMAP = "inferno"
+INVALID_PIXEL_GREY = 0.35
+# Range and curve of depth_visualizer (utils/visualization.py), written next to the videos for the
+# legend.
+DEPTH_RANGE_M = (4.0, 120.0)
+VIDEO_LAYOUT_SUFFIX = "_layout.json"
+
+
+def error_map_image(rgb: np.ndarray, gt: np.ndarray, valid: Optional[np.ndarray]) -> np.ndarray:
+    """drive2sim: colour error map (H, W, 3) in [0, 1] of one rendered image.
+
+    Args:
+        rgb: Rendered image (H, W, 3) in [0, 1].
+        gt: Ground truth (H, W, 3) in [0, 1].
+        valid: Boolean (H, W) of pixels used by the metrics, or None for all.
+    """
+    error = np.abs(rgb.astype(np.float32) - gt.astype(np.float32)).mean(-1)
+    colours = matplotlib.colormaps[ERROR_MAP_CMAP](np.clip(error / ERROR_MAP_MAX, 0, 1))[..., :3]
+    colours = colours.astype(np.float32)
+    if valid is not None:
+        colours[~valid] = INVALID_PIXEL_GREY
+    return colours
+
+
+def tile_boxes(layout: Callable, shapes: List[tuple], cam_names: List[str]) -> List[dict]:
+    """drive2sim: where each camera lands in the tiled frame that ``layout`` builds.
+
+    Lays out one probe image per camera (ones for that camera, zeros elsewhere) and takes the
+    bounding box of the lit pixels, so any dataset layout works, including ones that resize tiles.
+
+    Args:
+        layout: Dataset layout function (``utils/visualization.get_layout``).
+        shapes: ``(height, width)`` of each camera's image, in ``cam_names`` order.
+        cam_names: Camera names in the order passed to ``layout``.
+
+    Returns:
+        ``[{"name", "x", "y", "width", "height"}]`` in pixels of the tiled frame, for cameras
+        that appear in it.
+    """
+    boxes = []
+    for index, name in enumerate(cam_names):
+        probes = [
+            np.full((h, w, 3), 1.0 if j == index else 0.0, dtype=np.float32)
+            for j, (h, w) in enumerate(shapes)
+        ]
+        lit = layout(probes, cam_names)[..., 0] > 0.5
+        if not lit.any():
+            continue
+        rows, cols = np.nonzero(lit.any(1))[0], np.nonzero(lit.any(0))[0]
+        boxes.append(
+            {
+                "name": str(name),
+                "x": int(cols[0]),
+                "y": int(rows[0]),
+                "width": int(cols[-1] - cols[0] + 1),
+                "height": int(rows[-1] - rows[0] + 1),
+            }
+        )
+    return boxes
+
+
+def write_video_layout(
+    save_pth: str, layout: Callable, frames: List[np.ndarray], cam_names: List[str], fps: int
+) -> None:
+    """drive2sim: write ``<video>_layout.json`` next to the separate videos of one render set.
+
+    Studio reads it to crop one camera out of the tiled videos and to draw the legends; it holds
+    the tiled frame size, each camera's box, fps and the error and depth scales.
+    """
+    tiled = layout(frames, cam_names)
+    data = {
+        "width": int(tiled.shape[1]),
+        "height": int(tiled.shape[0]),
+        "fps": fps,
+        "cameras": tile_boxes(layout, [frame.shape[:2] for frame in frames], cam_names),
+        "error_map": {"max": ERROR_MAP_MAX, "cmap": ERROR_MAP_CMAP, "invalid_grey": INVALID_PIXEL_GREY},
+        "depth": {"min_m": DEPTH_RANGE_M[0], "max_m": DEPTH_RANGE_M[1], "curve": "log", "cmap": "turbo"},
+    }
+    path = os.path.splitext(save_pth)[0] + VIDEO_LAYOUT_SUFFIX
+    with open(path, "w") as f:
+        json.dump(data, f)
+
 
 def non_zero_mean(x: Tensor) -> float:
     return sum(x) / len(x) if len(x) > 0 else -1
 
-def compute_psnr(prediction: Tensor, target: Tensor) -> float:
-    """
-    Computes the Peak Signal-to-Noise Ratio (PSNR) between the prediction and target tensors.
 
-    Args:
-        prediction (torch.Tensor): The predicted tensor.
-        target (torch.Tensor): The target tensor.
-
-    Returns:
-        float: The PSNR value between the prediction and target tensors.
-    """
-    if not isinstance(prediction, Tensor):
-        prediction = Tensor(prediction)
-    if not isinstance(target, Tensor):
-        target = Tensor(target).to(prediction.device)
-    return (-10 * torch.log10(F.mse_loss(prediction, target))).item()
-
-
-def compute_image_metrics(
+def color_matched_metrics(
     rgb: Tensor,
     gt: Tensor,
     valid: Optional[Tensor],
     lpips_fn: Callable[[Tensor, Tensor], Tensor],
-) -> Optional[tuple]:
-    """drive2sim: PSNR, SSIM and LPIPS of one rendered image, restricted to valid pixels.
+) -> tuple:
+    """drive2sim: PSNR and LPIPS of one image after fitting an affine colour map to the ground truth.
 
-    When the loader marks invalid pixels (``valid_masks``: fisheye outside the usable field of
-    view, ego-car body), all three metrics use only valid pixels, so a fisheye camera is measured
-    on the same footing as a pinhole one: PSNR uses the valid pixels and SSIM averages its
-    per-pixel map over them. LPIPS has no per-pixel map in torchmetrics, so it is measured on the
-    bounding box of the valid pixels with the ground truth pasted into the invalid ones (zero
-    difference there); invalid pixels inside that box (fisheye corners, ego-car body) still dilute
-    it a little. Without a mask the whole image is used, as in DriveStudio.
-
-    Before this, render_images zeroed invalid pixels in both images and measured SSIM and LPIPS on
-    the full frame, so the black region counted as a perfect match and inflated both scores.
+    A camera that never trained (R2 stereo check) has no learned colour correction, so its raw
+    PSNR mixes exposure differences between the two cameras into the geometry error. Fitting one
+    3x4 affine map per image on the valid pixels removes that part; PSNR and LPIPS are then
+    measured with ``compute_image_metrics`` on the matched render. The matched image is not
+    re-quantised to 8 bit: the input render already is, and the map is part of the metric.
 
     Args:
         rgb: Rendered image, (H, W, 3) in [0, 1].
@@ -70,31 +143,54 @@ def compute_image_metrics(
         lpips_fn: LPIPS module taking two (1, 3, H, W) tensors.
 
     Returns:
-        (psnr, ssim, lpips) as floats, or None when the mask has no valid pixel (the image is
-        then left out of the averages instead of turning them into NaN).
+        (psnr_cc, lpips_cc) as floats, or (None, None) when the colour fit is degenerate (flat
+        image, too few valid pixels) so the image is left out of the colour-matched averages.
     """
-    if valid is None:
-        psnr = compute_psnr(rgb, gt)
-        ssim_score = ssim(get_numpy(rgb), get_numpy(gt), data_range=1.0, channel_axis=-1)
-        rgb_for_lpips = rgb
-    else:
-        valid = valid.bool()
-        if not valid.any():
-            return None
-        psnr = compute_psnr(rgb[valid], gt[valid])
-        ssim_map = ssim(
-            get_numpy(rgb), get_numpy(gt), data_range=1.0, channel_axis=-1, full=True
-        )[1]
-        ssim_score = ssim_map[get_numpy(valid).astype(bool)].mean()
-        rows = torch.nonzero(valid.any(dim=1)).flatten()
-        cols = torch.nonzero(valid.any(dim=0)).flatten()
-        box = (slice(int(rows[0]), int(rows[-1]) + 1), slice(int(cols[0]), int(cols[-1]) + 1))
-        rgb_for_lpips = torch.where(valid[..., None], rgb, gt)[box]
-        gt = gt[box]
-    lpips = lpips_fn(
-        rgb_for_lpips[None, ...].permute(0, 3, 1, 2), gt[None, ...].permute(0, 3, 1, 2)
-    ).item()
-    return float(psnr), float(ssim_score), float(lpips)
+    valid_numpy = None if valid is None else get_numpy(valid).astype(bool)
+    affine = fit_color_affine(get_numpy(rgb), get_numpy(gt), valid_numpy)
+    if affine is None:
+        return None, None
+    matched = torch.from_numpy(apply_color_affine(get_numpy(rgb), affine))
+    matched = matched.to(device=rgb.device, dtype=rgb.dtype)
+    values = compute_image_metrics(matched, gt, valid, lpips_fn)
+    if values is None:
+        return None, None
+    return values[0], values[2]
+
+
+def static_psnr(
+    rgb: Tensor,
+    gt: Tensor,
+    valid: Optional[Tensor],
+    sky: Optional[Tensor],
+    dynamic: Optional[Tensor],
+) -> Optional[float]:
+    """drive2sim: PSNR over the static background (valid, not sky, outside dynamic objects).
+
+    Same mask as the export-gap check (R3) uses for the original and the ``.ply`` render, so the
+    two PSNRs are comparable pixel for pixel. A missing mask excludes nothing (a scene without
+    boxes has no dynamic mask).
+
+    Args:
+        rgb: Rendered image, (H, W, 3) in [0, 1].
+        gt: Ground-truth image, (H, W, 3) in [0, 1].
+        valid: Valid-pixel mask (H, W), or None.
+        sky: Sky mask (H, W), or None.
+        dynamic: Dynamic-object mask (H, W), or None.
+
+    Returns:
+        PSNR in dB, or None when no static pixel is left.
+    """
+    mask = static_region_mask(
+        tuple(rgb.shape[:2]),
+        None if valid is None else get_numpy(valid),
+        None if sky is None else get_numpy(sky),
+        None if dynamic is None else get_numpy(dynamic),
+    )
+    if not mask.any():
+        return None
+    mask_tensor = torch.from_numpy(mask).to(rgb.device)
+    return float(compute_psnr(rgb[mask_tensor], gt[mask_tensor]))
 
 
 def render_images(
@@ -198,6 +294,10 @@ def render(
         human_psnrs, human_ssims = [], []
         vehicle_psnrs, vehicle_ssims = [], []
         occupied_psnrs, occupied_ssims = [], []
+        # drive2sim: one record per measured test image (position, metrics, depth vs LiDAR), for
+        # the benchmark's per-distance analysis; eval.py writes them to frames_test_*.jsonl.
+        frame_records: List[Dict] = []
+        depth_frames: List[Dict[str, float]] = []
 
     with torch.no_grad():
         indices = vis_indices if vis_indices is not None else range(len(dataset))
@@ -275,13 +375,17 @@ def render(
                 ] + green_background * (1 - results["Dynamic_opacity"])
                 Dynamic_rgbs.append(get_numpy(Dynamic_rgb))
             if compute_error_map:
-                # cal mean squared error
-                error_map = (rgb - image_infos["pixels"]) ** 2
-                error_map = error_map.mean(dim=-1, keepdim=True)
-                # scale
-                error_map = (error_map - error_map.min()) / (error_map.max() - error_map.min())
-                error_map = error_map.repeat_interleave(3, dim=-1)
-                error_maps.append(get_numpy(error_map))
+                # drive2sim: fixed colour scale for every frame and run, invalid pixels in grey
+                # (error_map_image); DriveStudio rescaled each frame to its own min and max.
+                error_maps.append(
+                    error_map_image(
+                        get_numpy(rgb),
+                        get_numpy(image_infos["pixels"]),
+                        get_numpy(image_infos["valid_masks"]).astype(bool)
+                        if "valid_masks" in image_infos
+                        else None,
+                    )
+                )
             if "rgb_sky_blend" in results:
                 rgb_sky_blend.append(get_numpy(results["rgb_sky_blend"]))
             if "rgb_sky" in results:
@@ -339,6 +443,44 @@ def render(
                     camera_metrics["psnr"].append(psnr)
                     camera_metrics["ssim"].append(float(ssim_score))
                     camera_metrics["lpips"].append(lpips)
+                    depth_values = None
+                    if "depth" in results and "lidar_depth_map" in image_infos:
+                        depth_valid = image_infos.get("valid_masks")
+                        depth_values = compute_depth_metrics(
+                            get_numpy(results["depth"]),
+                            get_numpy(image_infos["lidar_depth_map"]),
+                            None if depth_valid is None else get_numpy(depth_valid).astype(bool),
+                        )
+                    if depth_values is not None:
+                        depth_frames.append(depth_values)
+                    # drive2sim: metrics read by eval.standard protocol 0.5 (R2) and eval.ply (R3);
+                    # None when the colour fit is degenerate or no static pixel is left.
+                    psnr_cc, lpips_cc = color_matched_metrics(
+                        rgb, image_infos["pixels"], image_infos.get("valid_masks"), trainer.lpips
+                    )
+                    psnr_static = static_psnr(
+                        rgb,
+                        image_infos["pixels"],
+                        image_infos.get("valid_masks"),
+                        image_infos.get("sky_masks"),
+                        image_infos.get("dynamic_masks"),
+                    )
+                    frame_records.append({
+                        "frame_index": int(image_infos["frame_idx"].flatten()[0]),
+                        "camera_index": int(cam_infos["cam_id"].flatten()[0]),
+                        "time": (
+                            float(image_infos["normed_time"].flatten()[0])
+                            if "normed_time" in image_infos else None
+                        ),
+                        "position": cam_infos["camera_to_world"][:3, 3].cpu().tolist(),
+                        "psnr": psnr,
+                        "ssim": float(ssim_score),
+                        "lpips": lpips,
+                        "psnr_cc": psnr_cc,
+                        "lpips_cc": lpips_cc,
+                        "psnr_static": psnr_static,
+                        "depth": depth_values,
+                    })
                 
                 if "sky_masks" in image_infos:
                     occupied_mask = ~get_numpy(image_infos["sky_masks"]).astype(bool)
@@ -462,7 +604,8 @@ def render(
 
     if save_video_kwargs is not None:
         for writer in stream_writers.values():
-            writer.close()
+            if hasattr(writer, "close"):
+                writer.close()
         if save_video_kwargs.get("verbose", True):
             logger.info(f"saved video to {save_video_kwargs['save_pth']}")
 
@@ -479,6 +622,9 @@ def render(
             camera: {name: non_zero_mean(values) for name, values in lists.items()}
             for camera, lists in sorted(per_camera_metrics.items())
         }
+    if compute_metrics:
+        results_dict["frames"] = frame_records
+        results_dict["depth"] = mean_depth_metrics(depth_frames)
     results_dict["occupied_psnr"] = non_zero_mean(occupied_psnrs) if compute_metrics else -1
     results_dict["occupied_ssim"] = non_zero_mean(occupied_ssims) if compute_metrics else -1
     results_dict["masked_psnr"] = non_zero_mean(masked_psnrs) if compute_metrics else -1
@@ -577,6 +723,10 @@ def save_videos(
                     for frame, opacity in zip(frames, render_results[opacity_key])
                 ]
             frame = to8b(layout(frames, render_results["cam_names"]))
+            if save_seperate_video and frame_idx == 0 and "layout_written" not in writers:
+                # drive2sim: camera boxes in the tiled frame, for Studio's video player
+                writers["layout_written"] = True
+                write_video_layout(save_pth, layout, frames, render_results["cam_names"], fps)
             if save_seperate_video:
                 output_key = key
                 output_path = save_pth.replace(".mp4", f"_{key}.mp4")

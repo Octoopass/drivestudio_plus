@@ -192,6 +192,7 @@ class BackgroundJobs:
         label: str,
         work: Callable[[], Optional[str]],
         target: Optional[str] = None,
+        exclusive: bool = False,
     ) -> dict:
         """Xếp một việc vào hàng đợi.
 
@@ -204,10 +205,15 @@ class BackgroundJobs:
                 ``drive_pull`` trả thư mục đã tải); lỗi gì thì việc thành ``failed`` kèm thông báo
                 lỗi. Trong ``work`` gọi ``report`` để báo tiến độ.
             target: Thư mục ``uploads/<tên>/`` việc ghi vào (``drive_pull``), để trang Lưu trữ
-                nối việc với bộ dữ liệu; việc khác để ``None``.
+                nối việc với bộ dữ liệu; ingest dùng ``scene:<scene_id>``.
+            exclusive: Từ chối nếu đã có việc cùng loại và đích đang chờ hoặc chạy.
+                Kiểm tra cùng khoá với lúc thêm việc, tránh hai yêu cầu giữ cùng tên.
 
         Returns:
             Trạng thái ban đầu của việc (``queued``); ``cancellable`` cho biết huỷ, chạy lại được.
+
+        Raises:
+            ValueError: Nếu ``exclusive`` bật và đích đã có việc cùng loại đang hoạt động.
         """
         job_id = uuid.uuid4().hex[:12]
         job = {
@@ -225,6 +231,11 @@ class BackgroundJobs:
             "cancellable": kind in CANCELLABLE,
         }
         with self._lock:
+            if exclusive and any(
+                item["kind"] == kind and item["target"] == target and item["status"] in ACTIVE
+                for item in self._jobs.values()
+            ):
+                raise ValueError(f"đang có việc {kind} cho {target}; chọn tên khác hoặc chờ xong")
             self._jobs[job_id] = job
             self._works[job_id] = work
             self._cancels[job_id] = threading.Event()

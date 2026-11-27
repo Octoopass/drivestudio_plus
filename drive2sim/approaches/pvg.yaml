@@ -1,18 +1,88 @@
 # Approach PVG: dựng cảnh bằng trainer DriveStudio với method PVG (Periodic Vibration Gaussian: mỗi Gaussian dao động theo thời gian, nền và vật động chung một tập). Không dùng
 # box 3D, nên chạy được trên cảnh không có box. Định dạng file: CONTRACTS mục 4.1.
 #
-# DriveStudio chỉ có một config cho method này (drive2sim/configs/methods/pvg.yaml): renderer 3DGS,
-# bật CamPose (bảng CONFIG_FILES trong drive2sim/stages/train/drivestudio.py).
+# Mỗi tổ hợp mục cấu hình được phép ứng với một file config trong drive2sim/configs/methods/ (bảng
+# CONFIG_FILES trong drive2sim/stages/train/drivestudio.py): pvg.yaml là config gốc của DriveStudio
+# (3DGS, bật CamPose, mặc định nên run cũ không đổi); các biến thể _nocampose, _ut, _geer,
+# _fastergs kế thừa nó. PVG không có FastGS: cách refine riêng của PVG không áp mask
+# của FastGS (PeriodicVibrationGaussians.fastgs_supported = False).
 schema_version: d2s-approach/0.3
 approach_id: pvg
 name: "PVG"
 version: 0.1.0
 codebase: drivestudio
 level: L1
+dynamics: time
+kind: per_scene
 requires:
-  camera_models: [opencv_pinhole]
+  camera_models: [opencv_pinhole, opencv_fisheye, ftheta]   # với ít nhất một renderer
   cuboids: none
   split_strategies: [every_nth_frame]
+
+groups:                           # nhóm mục cấu hình trên Studio, theo thứ tự hiện
+  core:
+    label: "Cách dựng"
+    help: "Cách vẽ Gaussian thành ảnh, và có tự chỉnh pose camera trong lúc train không."
+  speedup:
+    label: "Thuật toán phụ trợ"
+    help: "Thuật toán gắn thêm vào quá trình train. Tổ hợp nào chưa có file config thì bị khoá."
+
+options:
+  renderer:
+    choices: [3dgs, 3dgut, 3dgeer]
+    default: 3dgs
+    group: core
+    label: "Renderer"
+    help: "Cách vẽ các Gaussian thành ảnh camera. 3DGUT, 3DGEER vẽ được camera mắt cá."
+    camera_models:                # loại camera từng renderer vẽ được (recon/trainers/base.py)
+      - [opencv_pinhole]
+      - [opencv_pinhole, opencv_fisheye, ftheta]
+      - [opencv_pinhole, opencv_fisheye, ftheta]
+    labels: ["3DGS (gốc)", "3DGUT", "3DGEER"]
+    descriptions:
+      - "Cách vẽ gốc của 3D Gaussian Splatting, cho camera pinhole."
+      - "Renderer của NVIDIA (3D Gaussian Unscented Transform), cho camera méo lớn. Không dùng cùng CamPose. Ngưỡng densify là của 3DGS, chưa chỉnh cho 3DGUT. Chưa chạy thật với PVG."
+      - "Renderer của Bosch Research (docs/methods/3dgeer.md), cho camera góc rộng và mắt cá. Không dùng cùng CamPose. Ngưỡng densify như omnire_geer.yaml. Chưa chạy thật với PVG."
+  campose:
+    choices: [true, false]
+    default: true
+    group: core
+    label: "CamPose"
+    help: "Tự chỉnh pose camera trong lúc train, để bù sai số calib và pose của dataset."
+    labels: ["Bật", "Tắt"]
+    descriptions:
+      - "Cấu hình gốc của DriveStudio (pvg.yaml): học thêm độ lệch nhỏ cho pose của từng ảnh."
+      - "Dùng nguyên pose camera của dataset."
+  fastergs:
+    choices: [false, true]
+    default: false
+    group: speedup
+    label: "Faster-GS"
+    help: "Các kỹ thuật tăng tốc của Faster-GS không đổi kết quả train (docs/methods/fastergs.md): Adam fused, SSIM fused, bớt lần chờ GPU. Chỉ đụng optimizer, loss và kernel nên dùng được với mọi renderer. Chưa chạy thật với PVG."
+    labels: ["Tắt", "Bật"]
+    descriptions:
+      - "Train như DriveStudio gốc."
+      - "Mỗi bước train chạy nhanh hơn; ảnh và gradient chỉ lệch ở mức làm tròn số thực."
+
+constraints:
+  - when: {renderer: 3dgeer}
+    forbid: {campose: true}
+    reason: "3DGEER không tối ưu được pose camera"
+  - when: {renderer: 3dgut}
+    forbid: {campose: true}
+    reason: "3DGUT không tối ưu được pose camera"
+
+presets:
+  paper: {renderer: 3dgs, campose: true}   # pvg.yaml gốc của DriveStudio
+  ut: {renderer: 3dgut, campose: false}
+  geer: {renderer: 3dgeer, campose: false}
+  fastergs: {fastergs: true}
+
+preset_help:
+  paper: "Cấu hình gốc của DriveStudio: 3DGS, bật CamPose."
+  ut: "Renderer 3DGUT, tắt CamPose."
+  geer: "Renderer 3DGEER, tắt CamPose."
+  fastergs: "Bật tăng tốc Faster-GS (phần Python) trên cấu hình mặc định."
 
 stages:
   # dynamic: false: mask vật động tinh cần box 3D (dynamic_masks/), hai method này dành cho cảnh không có box
@@ -20,8 +90,10 @@ stages:
   - stage: train.drivestudio
     params:
       method: pvg
-      renderer: 3dgs
-      campose: true
+      renderer: "${options.renderer}"
+      campose: "${options.campose}"
+      fastergs: "${options.fastergs}"
   - {stage: eval.standard}
   - {stage: export.ply_world}
   - {stage: export.preview}
+  - {stage: eval.ply}

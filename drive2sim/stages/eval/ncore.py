@@ -17,12 +17,14 @@ vùng không phải bầu trời, vật động, người, xe như DriveStudio. 
 alpha > 0.9 (chỗ PLY đã phủ), cho điểm cao hơn thực tế ở chỗ PLY bỏ trống; con số đó vẫn ghi trong
 ``metrics.json`` (``psnr_covered``) cùng tỉ lệ phủ (``coverage``).
 
-Khác còn lại so với ``eval.standard``: NuRec là mô hình feed-forward, dựng từ mọi khung của clip
-(cả khung test), nên điểm test không phải ảnh "chưa thấy" như với approach train theo cảnh. Điều
-này ghi trong ``nurec_eval.json``.
+Khác còn lại so với ``eval.standard``: NuRec là mô hình feed-forward, dựng từ các camera context,
+kể cả khung test theo thời gian. Camera chỉ test không vào context hoặc refinement. Điểm test
+theo thời gian vẫn không phải ảnh "chưa thấy" như approach train theo cảnh; điều này ghi trong
+``nurec_eval.json``.
 
 File này chứa:
 - ``clip_test_indices``: chỉ số khung test trong clip NCore.
+- ``mean_coverage``: tỉ lệ điểm ảnh được chấm, trung bình trên mọi view.
 - ``clip_test_views``: cặp (khung, camera) test của split → khung trong clip và tên file mask.
 - ``fisheye_max_angles``: góc lệch trục dùng được của từng camera mắt cá.
 - ``make_summary``: ``metrics.json`` của bước 2 → ``Summary``.
@@ -30,6 +32,7 @@ File này chứa:
 """
 
 import json
+import math
 import sys
 from importlib import metadata
 from pathlib import Path
@@ -44,6 +47,7 @@ from drive2sim.core.schema import (
     LpipsSetting,
     Manifest,
     Metrics,
+    ShiftedMetrics,
     Summary,
 )
 from drive2sim.engine.registry import register_stage
@@ -59,6 +63,9 @@ VIEWS_FILE = "views.npz"
 PLAN_FILE = "views.json"
 METRICS_FILE = "metrics.json"
 NOTE_FILE = "nurec_eval.json"
+# Phiên bản protocol riêng của stage này: SSIM và vùng hợp lệ (ngoài mask thân xe, alpha > 0,9)
+# khác ``eval.standard``, nên số đo không được coi là cùng bộ đo với protocol của stage đó.
+NCORE_PROTOCOL_VERSION = "ncore-0.3"
 REGION_FIELDS = ("occupied_psnr", "dynamic_psnr", "human_psnr", "vehicle_psnr")
 
 
@@ -130,10 +137,41 @@ def _package_version(name: str) -> str:
         return "unknown"
 
 
+def mean_coverage(per_view: list[dict]) -> Optional[float]:
+    """Trung bình tỉ lệ điểm ảnh được chấm (``coverage``) trên mọi view.
+
+    ``ncore_eval_render.py`` chỉ chấm điểm ảnh ngoài mask thân xe và có alpha > 0,9; tỉ lệ này cho
+    người đọc biết PSNR đo trên bao nhiêu phần ảnh (SPEC/CONTRACTS mục 6.3).
+
+    Args:
+        per_view: Nội dung ``per_view.json``: mỗi phần tử có ``coverage`` trong [0, 1].
+
+    Returns:
+        Trung bình các ``coverage``; ``None`` khi không có view nào ghi ``coverage``.
+    """
+    values = [view["coverage"] for view in per_view if view.get("coverage") is not None]
+    return sum(values) / len(values) if values else None
+
+
+def _is_finite_metrics(item: dict) -> bool:
+    """``True`` khi ba metric trung bình của camera đều hữu hạn (không ``null``, ``NaN``)."""
+    values = (item.get("psnr_mean"), item.get("ssim_mean"), item.get("lpips_mean"))
+    return all(isinstance(v, (int, float)) and math.isfinite(v) for v in values)
+
+
 def make_summary(
-    metrics: dict, split_id: str, sensors: dict[str, str], stats: Optional[dict] = None
+    metrics: dict,
+    split_id: str,
+    sensors: dict[str, str],
+    stats: Optional[dict] = None,
+    coverage: Optional[float] = None,
+    test_only_cameras: tuple[str, ...] = (),
+    per_view: Optional[list[dict]] = None,
 ) -> Summary:
     """Dựng ``Summary`` từ ``metrics.json`` của ``ncore_eval_render.py``.
+
+    Camera mà mọi view đều không có điểm hợp lệ (metric ``null`` hoặc ``NaN``) bị bỏ khỏi
+    ``per_camera``: không có số đo thì không ghi số.
 
     Args:
         metrics: ``{<sensor>: {"psnr_mean", "ssim_mean", "lpips_mean", "views"},
@@ -141,11 +179,19 @@ def make_summary(
         split_id: Split của run.
         sensors: ``camera_id`` → tên sensor NCore.
         stats: ``train_stats.json`` của ``train.nurec``.
+        coverage: Tỉ lệ điểm ảnh được chấm, trung bình trên mọi view (``mean_coverage``).
+        test_only_cameras: Camera dành riêng cho đánh giá, tách khỏi metric tổng.
+        per_view: Metric từng ảnh để gộp vùng ảnh và metric chỉnh màu đúng tập camera.
 
     Raises:
         KeyError: Nếu thiếu ``_summary`` hoặc metric tổng.
+        ValueError: Nếu metric tổng không phải số hữu hạn (không view nào có điểm hợp lệ).
     """
     overall = metrics["_summary"]
+    if not _is_finite_metrics(overall):
+        raise ValueError(
+            "metric tổng không hữu hạn: không view nào có điểm ảnh hợp lệ, hoặc thiếu LPIPS"
+        )
     camera_of = {sensor: camera for camera, sensor in sensors.items()}
 
     def as_metrics(item: dict) -> Metrics:
@@ -154,13 +200,70 @@ def make_summary(
     per_camera = {
         camera_of.get(sensor, sensor): as_metrics(item)
         for sensor, item in metrics.items()
-        if not sensor.startswith("_")
+        if not sensor.startswith("_") and _is_finite_metrics(item)
     }
+    shifted = None
+    if test_only_cameras:
+        trained = [
+            item
+            for sensor, item in metrics.items()
+            if not sensor.startswith("_")
+            and camera_of.get(sensor, sensor) not in test_only_cameras
+            and _is_finite_metrics(item)
+        ]
+        held_out = {
+            sensor: item
+            for sensor, item in metrics.items()
+            if camera_of.get(sensor, sensor) in test_only_cameras and _is_finite_metrics(item)
+        }
+        if not trained:
+            raise ValueError("không có metric của camera context NuRec")
+        overall = dict(overall)
+        for name in ("psnr_mean", "ssim_mean", "lpips_mean"):
+            total = sum(item.get("views", 1) for item in trained)
+            overall[name] = sum(item[name] * item.get("views", 1) for item in trained) / total
+        if held_out:
+            total = sum(item.get("views", 1) for item in held_out.values())
+            shifted = ShiftedMetrics(
+                cameras=sorted(camera_of.get(c, c) for c in held_out),
+                num_images=total,
+                **{
+                    field: sum(
+                        item[f"{field}_mean"] * item.get("views", 1) for item in held_out.values()
+                    )
+                    / total
+                    for field in ("psnr", "ssim", "lpips")
+                },
+            )
+    if test_only_cameras and per_view is not None:
+        trained_views = [
+            v for v in per_view if camera_of.get(v["camera"], v["camera"]) not in test_only_cameras
+        ]
+        held_views = [
+            v for v in per_view if camera_of.get(v["camera"], v["camera"]) in test_only_cameras
+        ]
+        for name in REGION_FIELDS:
+            values = [
+                v[name]
+                for v in trained_views
+                if v.get(name) is not None and math.isfinite(v[name])
+            ]
+            overall.pop(name, None)
+            if values:
+                overall[name] = sum(values) / len(values)
+        if shifted is not None:
+            for name in ("psnr_cc", "lpips_cc"):
+                values = [
+                    v[name]
+                    for v in held_views
+                    if v.get(name) is not None and math.isfinite(v[name])
+                ]
+                setattr(shifted, name, sum(values) / len(values) if values else None)
     stats = stats or {}
     return Summary(
         schema_version=SCHEMA_VERSIONS["summary"],
         protocol=EvalProtocol(
-            version=PROTOCOL_VERSION,
+            version=overall.get("protocol_version", NCORE_PROTOCOL_VERSION),
             image_dtype="uint8",
             resolution=str(overall.get("render_resolution", "unknown")),
             lpips=LpipsSetting(
@@ -177,12 +280,14 @@ def make_summary(
             **{name: overall[name] for name in REGION_FIELDS if name in overall},
         ),
         per_camera=per_camera,
+        shifted=shifted,
         train_time_s=stats.get("train_time_s"),
         peak_vram_mb=int(overall["peak_vram_gib"] * 1024) if "peak_vram_gib" in overall else None,
         num_gaussians=overall.get("gaussians") or stats.get("num_gaussians"),
         num_iters=0,
         render_fps=overall.get("render_fps"),
         render_resolution=overall.get("render_resolution"),
+        coverage=overall.get("coverage", coverage),
     )
 
 
@@ -190,7 +295,7 @@ def make_summary(
 class EvalNcoreStage(Stage):
     """Chấm PLY của Instant NuRec trên khung test của split, ghi ``summary.json``."""
 
-    version: ClassVar[str] = "0.2.0"
+    version: ClassVar[str] = "0.3.0"
     cacheable: ClassVar[bool] = False
     uses_lidar: ClassVar[bool] = False
     inputs: ClassVar[dict[str, str]] = {
@@ -227,7 +332,9 @@ class EvalNcoreStage(Stage):
         if not indices:
             raise RuntimeError("không có khung test nào của split nằm trong clip NCore")
         plan = {
+            "protocol_version": PROTOCOL_VERSION,
             "views": views_of,
+            "shifted_sensors": [sensors[c] for c in ctx.split.test_only_cameras if c in sensors],
             "masks_dir": str(inputs["masks"]) if "masks" in inputs else None,
             "max_angle": fisheye_max_angles(manifest, sensors),
         }
@@ -259,8 +366,17 @@ class EvalNcoreStage(Stage):
         metrics = json.loads((ctx.output_dir / METRICS_FILE).read_text(encoding="utf-8"))
         stats_path = inputs["model"] / STATS_FILE
         stats = json.loads(stats_path.read_text(encoding="utf-8")) if stats_path.is_file() else {}
+        per_view = json.loads((ctx.output_dir / "per_view.json").read_text(encoding="utf-8"))
         files.dump(
-            make_summary(metrics, ctx.split.split_id, sensors, stats),
+            make_summary(
+                metrics,
+                ctx.split.split_id,
+                sensors,
+                stats,
+                coverage=mean_coverage(per_view),
+                test_only_cameras=tuple(ctx.split.test_only_cameras),
+                per_view=per_view,
+            ),
             ctx.output_dir / SUMMARY_FILE,
         )
         (ctx.output_dir / NOTE_FILE).write_text(
@@ -270,7 +386,10 @@ class EvalNcoreStage(Stage):
                     "masks": "masks" in inputs,
                     "coverage": metrics["_summary"].get("coverage"),
                     "psnr_covered": metrics["_summary"].get("psnr_covered"),
-                    "note": "Instant NuRec dựng từ mọi khung của clip NCore, kể cả khung test. "
+                    "context_cameras": stats.get("context_cameras", []),
+                    "test_only_cameras": ctx.split.test_only_cameras,
+                    "note": "Instant NuRec dựng từ các camera context, "
+                    "kể cả khung test theo thời gian. "
                     "Chấm như eval.standard trên mọi pixel hợp lệ (ngoài thân xe, mắt cá trong "
                     "góc dùng được), kể cả chỗ PLY bỏ trống; psnr_covered chỉ tính chỗ "
                     "alpha > 0.9, coverage là tỉ lệ pixel hợp lệ có alpha > 0.9",

@@ -56,6 +56,17 @@ def ssim_masked(rgb: np.ndarray, gt: np.ndarray, valid: np.ndarray) -> float:
     return float(smap.mean(axis=-1)[valid].mean())
 
 
+def finite_or_none(x: float):
+    """drive2sim: JSON has no NaN; a view without valid pixels is written as null."""
+    return float(x) if np.isfinite(x) else None
+
+
+def finite_mean(values) -> "float | None":
+    """drive2sim: mean over the finite values only; None when there are none."""
+    finite = [v for v in values if np.isfinite(v)]
+    return float(np.mean(finite)) if finite else None
+
+
 REGIONS = {  # metric name -> mask file under the masks dir; "occupied" is the complement of sky
     "occupied_psnr": "sky_masks",
     "dynamic_psnr": "fine_dynamic_masks/all",
@@ -83,7 +94,7 @@ def main():
     a = p.parse_args()
     plan = json.loads(Path(a.views_json).read_text()) if a.views_json else None
     if plan is not None:
-        from drive2sim.recon.rendering.videos import compute_image_metrics, compute_psnr
+        from drive2sim.recon.rendering.videos import color_matched_metrics, compute_image_metrics, compute_psnr
         from drive2sim.recon.utils.geometry import camera_model_rays
         masks_dir = Path(plan["masks_dir"]) if plan.get("masks_dir") else None
         fov_cache: dict = {}
@@ -100,6 +111,7 @@ def main():
     per_cam: dict[str, list[float]] = {}
     per_cam_ssim: dict[str, list[float]] = {}
     per_cam_lpips: dict[str, list[float]] = {}
+    per_cov: dict[str, list[float]] = {}  # drive2sim: share of pixels that were scored, per view
     try:  # LPIPS like drive2sim eval.standard: torchmetrics, AlexNet backbone
         from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
         lpips_fn = LearnedPerceptualImagePatchSimilarity(net_type="alex", normalize=True).to(dev)
@@ -109,6 +121,7 @@ def main():
     if plan is not None and lpips_fn is None:
         raise SystemExit("LPIPS (torchmetrics) is required with --views-json")
     vid_frames: list[np.ndarray] = []
+    per_view: list[dict] = []  # drive2sim: kết quả từng view, theo thứ tự trong views.npz
     t0 = time.perf_counter()
     for i in range(len(v["camera"])):
         cam = str(v["camera"][i])
@@ -117,6 +130,8 @@ def main():
             stem = plan["views"].get(cam, {}).get(str(int(v["frame"][i])))
             if stem is None:  # not a test pair of the split (e.g. other camera of a mixed split)
                 continue
+        region_values = {}
+        psnr_cc, lpips_cc = None, None
         img = v["image"][i]
         h, w = img.shape[:2]
         s = min(1.0, a.max_side / max(h, w))
@@ -157,6 +172,8 @@ def main():
                 continue
             rgb_t, gt_t = torch.from_numpy(rgb).to(dev), torch.from_numpy(gt).to(dev)
             psnr, ssim_val, lp = compute_image_metrics(rgb_t, gt_t, torch.from_numpy(valid).to(dev), lpips_fn)
+            if cam in plan.get("shifted_sensors", []):
+                psnr_cc, lpips_cc = color_matched_metrics(rgb_t, gt_t, torch.from_numpy(valid).to(dev), lpips_fn)
             covered &= valid
             coverage.append(float(covered.sum() / valid.sum()))
             if covered.any():
@@ -167,13 +184,16 @@ def main():
                     continue
                 region = (~region if name == "occupied_psnr" else region) & valid
                 if region.any():
-                    regions[name].append(float(compute_psnr(rgb_t[torch.from_numpy(region).to(dev)],
-                                                            gt_t[torch.from_numpy(region).to(dev)])))
+                    value = float(compute_psnr(rgb_t[torch.from_numpy(region).to(dev)],
+                                               gt_t[torch.from_numpy(region).to(dev)]))
+                    regions[name].append(value)
+                    region_values[name] = value
+
         else:
             mse = float(((rgb - gt) ** 2)[valid].mean()) if valid.any() else float("nan")
             psnr = -10 * np.log10(mse) if valid.any() else float("nan")
             ssim_val = ssim_masked(rgb, gt, valid)
-        if plan is None and lpips_fn is not None:
+        if plan is None and lpips_fn is not None and valid.any():
             # pixels outside the valid area take the ground truth, so only the reconstructed area counts
             filled = np.where(valid[..., None], rgb, gt)
             to_t = lambda x: torch.from_numpy(np.ascontiguousarray(x)).permute(2, 0, 1)[None].float().to(dev)
@@ -184,6 +204,14 @@ def main():
         per_cam.setdefault(cam, []).append(psnr)
         per_cam_ssim.setdefault(cam, []).append(ssim_val)
         per_cam_lpips.setdefault(cam, []).append(lp)
+        view_coverage = float(covered.sum() / valid.sum()) if plan is not None else float(valid.mean())
+        per_cov.setdefault(cam, []).append(view_coverage)
+        per_view.append({
+            "camera": cam, "psnr": finite_or_none(psnr), "ssim": finite_or_none(ssim_val),
+            "lpips": finite_or_none(lp), "coverage": view_coverage,
+            "psnr_cc": finite_or_none(psnr_cc) if psnr_cc is not None else None,
+            "lpips_cc": finite_or_none(lpips_cc) if lpips_cc is not None else None, **region_values,
+        })
         vis = (np.concatenate([gt, rgb], 1) * 255).astype(np.uint8)
         if cam == str(v["camera"][0]):
             vid_frames.append(cv2.cvtColor(vis, cv2.COLOR_RGB2BGR))
@@ -210,16 +238,19 @@ def main():
                 tmp.replace(vp)
         except ImportError:
             pass
+    # drive2sim: a camera whose views all lack valid pixels has no number to report, so it is left out
     metrics = {
-        c: {"psnr_mean": float(np.nanmean(x)), "ssim_mean": float(np.nanmean(per_cam_ssim[c])),
-            "lpips_mean": float(np.nanmean(per_cam_lpips[c])), "views": len(x)}
-        for c, x in per_cam.items()
+        c: {"psnr_mean": finite_mean(x), "ssim_mean": finite_mean(per_cam_ssim[c]),
+            "lpips_mean": finite_mean(per_cam_lpips[c]), "views": len(x),
+            "coverage_mean": finite_mean(per_cov[c])}
+        for c, x in per_cam.items() if finite_mean(x) is not None
     }
     metrics["_summary"] = {
         "gaussians": int(len(means)),
-        "psnr_mean": float(np.nanmean([y for x in per_cam.values() for y in x])),
-        "ssim_mean": float(np.nanmean([y for x in per_cam_ssim.values() for y in x])),
-        "lpips_mean": float(np.nanmean([y for x in per_cam_lpips.values() for y in x])),
+        "psnr_mean": finite_mean([y for x in per_cam.values() for y in x]),
+        "ssim_mean": finite_mean([y for x in per_cam_ssim.values() for y in x]),
+        "lpips_mean": finite_mean([y for x in per_cam_lpips.values() for y in x]),
+        "coverage_mean": finite_mean([y for x in per_cov.values() for y in x]),
         "render_resolution": f"{w}x{h}",
         "render_fps": float(sum(len(x) for x in per_cam.values()) / elapsed),
         "peak_vram_gib": float(torch.cuda.max_memory_allocated() / 2**30),
@@ -230,7 +261,9 @@ def main():
         if covered_psnr:
             metrics["_summary"]["psnr_covered"] = float(np.mean(covered_psnr))
         metrics["_summary"]["coverage"] = float(np.mean(coverage))
+        metrics["_summary"]["protocol_version"] = plan["protocol_version"]
     (out / "metrics.json").write_text(json.dumps(metrics, indent=2))
+    (out / "per_view.json").write_text(json.dumps(per_view))
     print(json.dumps(metrics, indent=2))
 
 

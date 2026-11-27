@@ -61,13 +61,18 @@ class StageContext(Protocol):
 
     Attributes:
         output_dir: Thư mục stage được ghi kết quả vào; engine đã tạo sẵn và đang trống.
-        scene: Cảnh của run.
+        scene: Cảnh của run. ``scene.root`` có thể là thư mục cảnh ảo của run (bản chụp mask,
+            ``<workdir>/.runtime/<run_id>/scene_view/000``), không nhất thiết nằm ở
+            ``<workdir>/data/<cảnh>``: đừng suy ra thư mục làm việc từ nó.
         split: Split train/test của run.
+        workdir: Thư mục làm việc chứa ``data/``, ``cache/``, ``runs/``.
     """
 
+    run_id: str
     output_dir: Path
     scene: Scene
     split: Split
+    workdir: Path
 
     def progress(self, fraction: float, message: str = "") -> None:
         """Báo tiến độ của stage.
@@ -161,6 +166,7 @@ class Stage(ABC):
         Params: Lớp Pydantic mô tả tham số; nên đặt ``extra="forbid"`` như ``NoParams``.
     """
 
+    split_content_key: ClassVar[bool] = False
     stage_id: ClassVar[str] = ""
     version: ClassVar[str] = ""
     cacheable: ClassVar[bool] = False
@@ -169,6 +175,23 @@ class Stage(ABC):
     optional_inputs: ClassVar[frozenset[str]] = frozenset()
     outputs: ClassVar[dict[str, str]] = {}
     Params: ClassVar[type[BaseModel]] = NoParams
+
+    @classmethod
+    def lidar_used(cls, params: dict[str, object]) -> bool:
+        """Run này có dùng LiDAR ở stage này không, với tham số đã gộp ``params``.
+
+        Mặc định bằng ``uses_lidar``. Stage đổi được việc dùng LiDAR bằng tham số (ví dụ
+        ``train.drivestudio`` với ``lidar=False``) ghi đè hàm này; engine ghi kết quả vào
+        ``lidar_usage`` của ``run.json``. Điều kiện khoá approach khi cảnh không có LiDAR vẫn
+        theo ``uses_lidar``.
+
+        Args:
+            params: Tham số của stage sau khi gộp và kiểm tra.
+
+        Returns:
+            ``True`` nếu stage dùng LiDAR trong run này.
+        """
+        return cls.uses_lidar
 
     @classmethod
     def unavailable_reason(

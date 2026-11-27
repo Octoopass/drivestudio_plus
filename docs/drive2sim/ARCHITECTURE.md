@@ -73,6 +73,7 @@ Mỗi quyết định gồm: giải thích công cụ hoặc khái niệm, lý d
 **Khái niệm.** `drivestudio_plus` ([Octoopass/drivestudio_plus](https://github.com/Octoopass/drivestudio_plus)) là fork DriveStudio của một thành viên trong nhóm. Repo gồm:
 - DriveStudio ở commit `e59bda4` (MIT): OmniRe, Street Gaussians, PVG, Deformable-GS, loader của 6 dataset, script tiền xử lý, `tools/eval.py`.
 - Patch 3DGEER/3DGUT của Bosch (AGPL-3.0), áp nguyên vẹn từ nhánh `gsplat-geer`, commit `f15cee2`. Patch này thêm: renderer chọn bằng `trainer.render.render_mode: default | ut | geer`, camera fisheye/F-theta gốc, rolling shutter, loader PhysicalAI (đọc NCore V4) và `tools/viewer.py` (viser 1.0.30 + nerfview 0.1.2).
+- Sửa lúc chạy cho 3DGEER (`recon/utils/geer_fov.py`, `trainers/base.py` gọi trong `_init_renderer`): `get_camera_tanfov` của gsplat-geer trả cận đối xứng `W/(2fx), H/(2fy)` cho pinhole không méo, nên `computePBF` bỏ phía xa điểm chính khi điểm chính lệch tâm (KITTI-360 mất ~50 hàng trên, ~40 cột phải ở độ phân giải gốc; run #6 tuần 04). drive2sim thay hàm mà `gsplat.geer._preprocess` gọi bằng cận tới mép xa nhất `max(cx, W−cx)/fx`, `max(cy, H−cy)/fy`; không sửa submodule (repo fork không ghi được), không phải build lại.
 - Phần teammate thêm: densify và prune kiểu FastGS (`docs/methods/fastgs.md`), `tools/export_ply.py`, `datasets/tools/extract_masks_hf.py`, các config `*_nocampose`.
 
 Tool được làm trên branch `drive2sim`. Trên branch này, mã DriveStudio được **chuyển hẳn vào package `drive2sim/recon/`** (mục 3), cùng một `pyproject.toml`, thay vì để các thư mục `datasets/`, `models/`, `utils/`, `tools/` ở gốc repo. Branch `drive2sim` được dùng làm dòng chính của nhóm từ đây.
@@ -148,16 +149,19 @@ NCore vẫn dùng ở hai chỗ: là **một nguồn vào** (PhysicalAI, CARLA g
 
 **Khái niệm.** DriveStudio có 7 loader (`drive2sim/recon/data/loaders/<dataset>.py`, 460–720 dòng mỗi file, tổng 3678 dòng) với cùng bộ hàm (`load_calibrations`, `load_cameras`, `load_objects`, `load_lidar`). Đo bằng `diff` so với loader Argoverse: nuPlan khác 92 dòng, KITTI 119, PandaSet 168, nuScenes 248, Waymo 379 (có thêm rolling shutter của patch Bosch), PhysicalAI 671; hàm `load_objects` của 5 trên 6 loader chỉ khác 4 dòng. Phần lớn là mã chép lại.
 
-**Quyết định.** Chưa gộp. Nguồn mới không viết loader mới: converter của nguồn đó ghi theo đúng khung thư mục của một dataset có sẵn (ví dụ khung Argoverse: `ego_pose/` theo khung, extrinsics cố định, trục OpenCV) rồi dùng loader của dataset đó.
+**Quyết định.** Giữ loader riêng cho bảy dataset DriveStudio; KITTI-360 và PHENIKAA dùng chung loader theo phần bên dưới. Nguồn mới ưu tiên dùng loader hiện có: converter của nguồn đó ghi theo đúng khung thư mục của một dataset có sẵn (ví dụ khung Argoverse: `ego_pose/` theo khung, extrinsics cố định, trục OpenCV) rồi dùng loader của dataset đó.
 
 **Lý do.**
 - Tool chạy trọn đường với loader có sẵn; gộp không thêm tính năng nào bây giờ.
 - Teammate vẫn sửa loader trên `main`, và thay đổi đó được chuyển tay sang `drive2sim` (mục 7.3). Chuyển một sửa đổi vào file cùng tên dễ hơn nhiều so với vào một loader đã gộp.
 - Mask và SMPL do stage `prep.*` sinh ra trong `cache/` không buộc phải sửa loader: stage dựng một thư mục cảnh ảo bằng symlink, gồm thư mục cảnh và mask, SMPL từ cache, rồi DriveStudio đọc như một thư mục cảnh bình thường (mục 4.3).
 
-**Ngoại lệ: KITTI-360 (loader con của KITTI).** Converter KITTI-360 ghi theo khung KITTI, nhưng loader KITTI coi mọi camera là pinhole, bỏ hệ số méo, đọc ảnh `.jpg` và chỉ biết hai camera cùng cỡ 1242x375 (`dataset_meta.py`). KITTI-360 có ảnh PNG, hai camera pinhole 1408x376 và hai camera mắt cá 1400x1400 cần vẽ theo mô hình OpenCV fisheye. Vì vậy có `drive2sim/recon/data/loaders/kitti360.py`: lớp con của loader KITTI, chỉ thay phần khác (mô hình và cỡ camera đọc từ `manifest.yaml`, ảnh PNG, intrinsics 8 số, tia và mask vùng hợp lệ của camera mắt cá theo cách loader PhysicalAI làm với F-theta); `load_objects`, LiDAR, pose dùng lại nguyên của KITTI. Loader KITTI chỉ đổi hai chỗ thành thuộc tính lớp (`CAMERA_DATA_CLASS`, `SMPL_CAMERA_LIST`), hành vi giữ nguyên.
-- Ưu điểm: không chép lại mã; cảnh KITTI gốc đi đúng đường cũ; mô hình camera lấy từ manifest, không đoán theo số phần tử của file intrinsics (CONTRACTS mục 2.1).
-- Nhược điểm: loader cần `manifest.yaml` trong thư mục cảnh, nên cảnh ảo của stage nay có symlink tới manifest (mục 4.3); thêm một file loader, trái với quyết định "nguồn mới không viết loader mới" ở trên, chỉ chấp nhận vì khung KITTI thiếu khả năng vẽ camera mắt cá.
+**Gộp KITTI-360 và PHENIKAA (26/11/2026).** Hai converter ghi cùng khung KITTI, khác tên camera, độ phân giải, mô hình ống kính và đuôi ảnh. Cả hai dùng `standard.py` với `StandardPixelSource`, `StandardCameraData`, kế thừa loader KITTI. Thông số camera lấy từ manifest; đuôi `.jpg`, `.png`, `.jpeg` dò ở khung đầu mỗi camera và dùng cho toàn bộ camera đó. Mask thân xe lấy theo tên camera trong manifest, ưu tiên mask của cảnh. Danh sách camera dùng cho SMPL lấy từ manifest. LiDAR và box dùng lại loader KITTI. Converter của hai dataset vẫn đọc nguồn riêng.
+
+- Lý do: hai nguồn đã cùng quy ước pose và LiDAR, nên dùng chung giúp tránh sửa lặp khi thêm camera hoặc mask.
+- Ưu điểm: giảm một loader, giữ luồng đọc pinhole và fisheye hiện có; config run cũ được `recon/utils/misc.py: import_str` đổi từ hai tên `KITTI360PixelSource`, `PhenikaaPixelSource` sang lớp chung.
+- Nhược điểm: loader phụ thuộc manifest và khung KITTI; một camera phải dùng cùng đuôi ảnh trong đoạn được nạp. NuScenes và các dataset DriveStudio khác vẫn dùng loader riêng. Chuẩn hoá pose theo từng ảnh, rolling shutter và các dạng LiDAR khác nằm ngoài đợt gộp này.
+- Kiểm chứng: test hồi quy dựng nguồn ảnh qua `DrivingDataset.build_data_source` bằng cả tên lớp hiện tại và tên cũ. Kiểm tra local: 29 test loader trên CPU trong môi trường `drive2sim`, 38 test contracts và stage train đạt; chưa chạy train GPU cho đợt gộp này.
 
 **Khi nào gộp.** Khi có một trong các điều kiện: thêm một nguồn không ghi được theo khung của dataset nào có sẵn; một sửa đổi phải lặp lại ở từ ba loader trở lên; teammate không còn sửa loader trên `main`.
 
@@ -167,7 +171,7 @@ NCore vẫn dùng ở hai chỗ: là **một nguồn vào** (PhysicalAI, CARLA g
 
 **Khái niệm.**
 - *Stage* là một lớp Python đăng ký theo tên (ví dụ `init.depth`), khai báo phiên bản, tham số, kiểu artifact vào và ra, có dùng LiDAR không, có được cache không (CONTRACTS mục 5.1).
-- *Approach* là file `drive2sim/approaches/<id>.yaml` gồm: danh sách stage chạy lần lượt; *mục cấu hình* (`options`) cho những khâu thay thế được cho nhau; *ràng buộc* (`constraints`) giữa các mục cấu hình; *preset* là tổ hợp cấu hình đặt sẵn; cùng track, mức năng lực, điều kiện dữ liệu (CONTRACTS mục 4).
+- *Approach* là file `drive2sim/approaches/<id>.yaml` gồm: danh sách stage chạy lần lượt; *mục cấu hình* (`options`) cho những khâu thay thế được cho nhau; *ràng buộc* (`constraints`) giữa các mục cấu hình; *preset* là tổ hợp cấu hình đặt sẵn; cùng track, mức năng lực, điều kiện dữ liệu (CONTRACTS mục 4) và loại phương pháp `kind` (`per_scene`, `feed_forward`, `slam`; chỉ để trang Chạy mới chia nhóm approach, engine không đọc).
 - *Tuyến tính*: các stage chạy đúng thứ tự trong file, mỗi lần một stage. Một stage dùng được kết quả của bất kỳ stage nào đứng trước. Không có điều kiện, nhánh song song hay vòng lặp lúc đang chạy.
 - *Mục cấu hình* được quyết định **trước khi chạy** (người dùng chọn trên Studio hoặc CLI, hoặc engine tự chọn theo manifest với giá trị `auto`). Sau khi thay mục cấu hình bằng lựa chọn cụ thể, danh sách stage là cố định.
 
@@ -247,6 +251,22 @@ NCore vẫn dùng ở hai chỗ: là **một nguồn vào** (PhysicalAI, CARLA g
 **Lý do và đánh đổi.** Phần cứng gắn trên xe cố định trong ảnh, còn mặt đường, bóng xe và vệt sáng thay đổi theo cảnh. Asset được vẽ theo biên phần cứng và kiểm trên nhiều khung thật, tránh nhận nhầm vệt sáng như cách tìm cạnh đứng yên. Chi phí là hai ảnh mask nhỏ và một phép ghép mask; biên chỉ gần đúng và cần kiểm lại nếu ảnh bị crop, xoay hay rig thay đổi. Chưa xác nhận trên các chuỗi KITTI-360 khác. Không thêm stage hay option; hành vi dataset được dùng chung bởi OmniRe và Street GS. Không thay protocol SSIM/LPIPS: chúng vẫn dùng ảnh tô đen vùng bỏ qua (`docs/datasets/kitti360.md`).
 
 Approach trainer tĩnh riêng đã được gỡ. Run cũ và metric của nó vẫn giữ trên đĩa; code đọc kết quả theo định dạng chung vẫn được giữ, nhưng stage đã gỡ không thể chạy tiếp. Renderer 3DGUT và thư viện gsplat-geer vẫn là thành phần của trainer chung. Hồi quy train KITTI-360 chờ người dùng review code trước.
+
+**Gói output Kaggle (21/11/2026).** Ô cuối notebook gọi `kaggle/packing.py`: gói
+`runs/` thành `d2s-pack/runs.tar`, mỗi mục cache thành một tar riêng, bỏ cache `.partial`.
+`pull_run` tải gói trước, bỏ gói cache đã có trên máy, bung rồi dùng `remote.merge_output`
+như cũ. Khi gói lỗi, xoá toàn bộ gói đã tạo; không có gói thì tải file rời để tương thích
+notebook cũ. Không thêm lệnh CLI công khai hay đổi định dạng run, cache.
+
+**Lý do và ưu điểm.** Log tải run `82bc` ghi nhận 11.570 file mask (51 MB) mất 2 giờ 15 phút
+vì Kaggle CLI tải từng file. Gói tar giảm số lượt tải xuống còn vài file. Giữ file rời để
+notebook sau vẫn đọc trực tiếp output làm input; tách tar theo mục cache để bỏ qua cache đã có.
+
+**Nhược điểm và phương án khác.** Giữ cả tar và file rời làm output chiếm thêm dung lượng gần
+bằng tổng run và cache, đồng thời cần chỗ cho tar và dữ liệu đã bung trên máy. Đây là chi phí
+của cách gói đã được người dùng cho phép trong phiên Claude; không đổi gì thì tiếp tục tải
+hàng nghìn file nhỏ. Tar không nén tránh thêm thời gian nén checkpoint và ảnh. Chưa chạy bước
+gói trên notebook Kaggle thật; test local kiểm đường tải gói, tải file rời và dọn gói khi lỗi.
 
 ### 2.9 Môi trường
 
@@ -401,7 +421,7 @@ Nguồn: `drive2sim/recon/trainers/base.py`, `camera_rasterization_kwargs` (3DGS
 **Mô hình ngoài ba loại chuẩn: Mei (KITTI-360).** Camera mắt cá KITTI-360 hiệu chỉnh bằng mô hình Mei (gương cầu `xi`, méo xuyên tâm và tiếp tuyến). Converter khớp đa thức OpenCV fisheye `k1..k4` với Mei (`drive2sim/core/camera.py`, khớp bình phương tối thiểu theo mô hình Mei và OpenCV fisheye) và ghi `opencv_fisheye`. Đã đo trên calib thật: sai số của phép khớp xuyên tâm 0,004 px (`image_02`), 0,011 px (`image_03`) tới tia lệch trục 1,45 rad trên ảnh 1400 px; bỏ méo tiếp tuyến làm lệch thêm, so với Mei chính xác trên điểm LiDAR thật: trung vị 0,10 / 0,17 px, lớn nhất 0,42 / 0,78 px. Camera nhìn khoảng 191 độ theo chiều ngang. Phép chuyển giữ nguyên góc nhìn: ngoài miền khớp, đa thức vẫn lệch Mei dưới 0,5 px tới mép trái, phải của ảnh (khoảng 96 độ lệch trục). Khi train và đánh giá, loader che vùng ảnh ngoài góc nhỏ nhất giữa: góc mô hình ống kính còn lệch Mei dưới 0,5 px (converter tính từ calib của từng camera, ghi `cameras[].max_angle`: `image_02` 96,1 độ, `image_03` 92,5 độ), góc bắt đầu vùng đen (loader dò từ ảnh, `dark_border_angle`) và giới hạn của renderer (3DGUT, 3DGEER: 88 độ, vì gsplat bỏ Gaussian có tâm sau mặt phẳng camera nên không vẽ gì từ pi/2 trở ra), cùng mặt nạ thân xe (`docs/datasets/kitti360.md` mục 5.1, `docs/datasets/kitti360_fisheye_workflow.md`).
 
 - Ingest ghi mô hình thật: các dataset pinhole là `opencv_pinhole`; PhysicalAI giữ ảnh F-theta gốc (`docs/datasets/physicalai.md`) nên camera là `ftheta`, cảnh là track fisheye. Cảnh PhysicalAI đã ingest trước thay đổi này ghi nhầm `opencv_pinhole`; ingest lại để sửa.
-- OmniRe, Street GS trên KITTI-360: loader `kitti360.py` vẽ `image_02`, `image_03` theo đúng mô hình OpenCV fisheye (tia từng pixel bằng `camera_model_rays`, `cam_infos` mang `camera_model: fisheye` và `radial_coeffs`), pixel có tia lệch trục quá góc dùng được của camera (3DGEER: góc mô hình ống kính hoặc vùng đen; 3DGUT: thêm 88 độ) bị loại khỏi loss; config `kitti360/4cams` (bốn camera) và `kitti360/2cams` (hai camera, ví dụ cặp pinhole). Camera mắt cá train được với renderer `3dgut` hoặc `3dgeer` của cả OmniRe và Street GS; cặp pinhole train được với `3dgs`. Mới kiểm bằng cảnh giả trên CPU, **chưa chạy thật** (cần GPU).
+- OmniRe, Street GS trên KITTI-360: loader `standard.py` vẽ `image_02`, `image_03` theo đúng mô hình OpenCV fisheye (tia từng pixel bằng `camera_model_rays`, `cam_infos` mang `camera_model: fisheye` và `radial_coeffs`), pixel có tia lệch trục quá góc dùng được của camera (3DGEER: góc mô hình ống kính hoặc vùng đen; 3DGUT: thêm 88 độ) bị loại khỏi loss; config `kitti360/4cams` (bốn camera) và `kitti360/2cams` (hai camera, ví dụ cặp pinhole). Camera mắt cá train được với renderer `3dgut` hoặc `3dgeer` của cả OmniRe và Street GS; cặp pinhole train được với `3dgs`. Mới kiểm bằng cảnh giả trên CPU, **chưa chạy thật** (cần GPU).
 - `train.drivestudio` train cảnh fisheye trên ảnh gốc (`data.pixel_source.undistort=false`, đè giá trị `True` của `physicalai/7cams.yaml`). Khử méo về pinhole để dùng 3DGS là việc của stage `prep.undistort`, chưa làm; tới lúc đó 3DGS bị khoá trên cảnh fisheye.
 - Trang Chạy mới hiện track của cảnh, track của từng approach, làm mờ preset và lựa chọn không vẽ được camera của cảnh (kèm lý do), trước cả khi engine trả lời. Cấu hình mặc định không vẽ được camera của cảnh thì trang chọn sẵn preset đầu tiên vẽ được (OmniRe: `geer`; Street GS: `ut`).
 - Chưa làm: shutter của camera PhysicalAI vẫn ghi `GLOBAL` trong manifest (thông số thật nằm trong calibration của cảnh, loader đọc trực tiếp).
@@ -425,6 +445,108 @@ Nguồn: `drive2sim/recon/trainers/base.py`, `camera_rasterization_kwargs` (3DGS
 - Upload, download qua API nội dung của Jupyter, chậm với cảnh lớn; giới hạn kích thước request chưa kiểm tra. Có phiên mà API này trả 500 cho mọi file; download khi đó chuyển sang đọc qua `colab exec` (base64, kiểm MD5), đo khoảng 2,4 MB/s với phần 32 MiB (13,5 s); upload chưa có đường dự phòng.
 - Đăng nhập cần người (trang đăng nhập Google); Studio mở trang đó và nhận mã xác thực dán vào, nhưng phải gọi hàm nội bộ của google-colab-cli 0.8.0 (`colab/account_helper.py`), bản khác có thể đổi. Không có API để biết trước còn GPU hay không.
 - Chưa chạy thật trên Colab (mục 7.1).
+
+### 2.17 Benchmark: một bộ đo trong vòng render, gom bảng bằng Python thuần
+
+**Khái niệm.** Benchmark xếp hạng các run đã có kết quả theo mức phù hợp với closed-loop và chi phí, không chỉ PSNR trên ảnh nội suy. Bộ yêu cầu hiện hành là bản sửa ngày 25/11/2026 (`docs/superpowers/specs/2026-11-25-benchmark-requirements.md`) của R1–R8 ở báo cáo tuần 03 mục 4.2; số hiệu R giữ nguyên để khớp code và CONTRACTS mục 6.5. Mỗi nhóm run (track A, B, C, ô A-LB, A-L, A-0, cùng cảnh và split) được xếp theo Avg của Mip-NeRF; các track không so chéo với nhau.
+
+| # | Đo gì | Vai trò trong xếp hạng | Nơi tính | Trạng thái |
+|---|---|---|---|---|
+| R1 | PSNR, SSIM, LPIPS, Avg; PSNR vùng người, xe, vật động; theo camera | xếp hạng chính; chỉ trên ảnh test của camera **đã train** | `eval.standard` (`overall`) | đã đo (protocol 0.4; cách đo không đổi ở 0.5) |
+| R2 | PSNR, LPIPS trên camera chỉ test (`image_01` của KITTI-360, lệch 0,59 m), bản thô và bản sau chỉnh màu | phân xử hoà thứ nhất (bản sau chỉnh màu) | `eval.standard` (`shifted`) | xong trong code, chưa chạy thật; KID để sau |
+| R3 | PSNR của `.ply` nền tĩnh trên vùng nền tĩnh (`ply_psnr`); export gap báo kèm | phân xử hoà thứ hai | `eval.ply` → `ply_gap.json` | xong trong code, chưa chạy thật; không áp dụng cho method không xuất `.ply`; không phân xử với PVG, DeformableGS (`.ply` chưa phải nền tĩnh, `export_static: false`) |
+| R4 | AbsRel, RMSE, `delta < 1,25` của độ sâu so với LiDAR | báo kèm | `eval.standard` (`depth`) | đã đo |
+| R5 | pinhole và fisheye; ô A-LB, A-L, A-0 | **không còn là yêu cầu**, là chiều báo cáo: R1, R2, R3, R7 báo riêng từng loại camera | `d2s benchmark` | R1 và R7 đã có; R2, R3 theo nhóm khi có số |
+| R6 | thời gian train, dung lượng `.ply` mỗi 100 m (track B); ATE method tự báo | báo kèm | `d2s benchmark` | xong trong code; chưa có run track B; PSNR quanh chỗ nối chunk làm sau |
+| R7 | đoạn hỏng (từ 5 khung liền nhau, mỗi khung thấp hơn trung vị quá 2 dB), riêng từng nhóm camera | chẩn đoán, không xếp hạng | `d2s benchmark` | đã đo |
+| R8 | thời gian train thực, tổng thời gian dựng cảnh, VRAM, FPS, GPU; ngưỡng hoà hiệu chỉnh theo seed | bước phân xử cuối (chỉ cùng GPU) | `d2s benchmark` | đã đo; hiệu chỉnh seed chưa chạy |
+
+**Chuỗi phân xử trong một nhóm.** (1) Xếp theo Avg. (2) Run kém run Avg tốt nhất dưới ngưỡng hoà (PSNR R1; mặc định 0,3 dB, hoặc `max(0,3 dB, 2σ)` nếu có khối `calibration`) là **ngang**; tập này tính một lần. (3) Trong tập ngang: R2 (PSNR sau chỉnh màu cao hơn; chênh dưới ngưỡng hoà coi như bằng) → R3 (PSNR của `.ply` nền tĩnh cao hơn; chênh dưới 0,3 dB coi như bằng; bỏ qua khi `.ply` của một run chưa phải nền tĩnh) → thời gian train ngắn hơn, **chỉ khi cùng GPU**; khác GPU thì không có người thắng (`winner_run_id: null`) kèm cảnh báo. Bước nào còn thiếu số hoặc không áp dụng cho một run của tập thì bị bỏ qua cho cả tập; `decided_by` ghi bước đã chọn người thắng. (4) Run khác protocol không so được (`ncore-0.3` với `0.5`) chỉ được liệt kê. (5) R4, R6, R7 không đổi thứ hạng.
+
+**Lý do.** Các thực nghiệm tới tuần 03 mỗi lần đọc kết quả bằng tay từ `summary.json`. Thiết kế benchmark cần những thứ mà vòng render đang có dữ liệu nhưng chưa lưu (PSNR từng ảnh, độ sâu render và độ sâu LiDAR), nên đo thêm ngay trong `recon/rendering/videos.py::render` thay vì viết một stage render lần hai: ảnh test chỉ phải vẽ một lần, và số mới đo bằng đúng code cũ, nên PSNR, SSIM, LPIPS của camera đã train không đổi. R2 dùng camera stereo không train thay cho KID ở ±1/±2/±3 m vì không cần render camera dịch ngang, `torch-fidelity` hay trọng số Inception: ảnh thật của `image_01` có sẵn, PSNR và LPIPS đã có trong vòng render. Chỉnh màu affine là cần vì camera chưa train không có ma trận chỉnh màu học được (`AffineTransform`); thiếu nó PSNR của camera đó lẫn sai lệch phơi sáng giữa hai camera vào lỗi hình học.
+
+**Cách làm.**
+- **Split có camera chỉ test** (`d2s-split/0.2`, `test_only_cameras`; CONTRACTS mục 3.1): camera đó chỉ có mặt ở `test`. `train.drivestudio` đổi tên camera thành vị trí trong `data.pixel_source.cameras` rồi đặt `data.pixel_source.test_only_cameras`; `DrivingDataset.split_train_test` (qua `recon/data/split_indices.py`) không đưa ảnh của camera đó vào `train_indices`, và `project_lidar_pts_on_images` không lấy màu hay độ hiển thị LiDAR từ nó (vẫn tính độ sâu LiDAR để đo R4). Option chỉ được đặt khi khác rỗng, nên run cũ không đổi lệnh. Một run cho cả R1 (`image_00` ở khung test) và R2 (`image_01`): `d2s split create ... --test-only-cameras image_01 --split every8_stereo`.
+- `recon/rendering/depth_metrics.py` (numpy thuần): AbsRel, RMSE, `delta < 1,25` trên điểm ảnh có LiDAR. `recon/rendering/color_match.py` (numpy thuần): khớp affine màu 3×4 bình phương tối thiểu cho từng ảnh (trả `None` khi suy biến: ảnh một màu, dưới 100 điểm hợp lệ), mask nền tĩnh `valid & ~sky & ~dynamic`, và `export_gap`. `render` ghi từng ảnh test vào `metrics/frames_test_*.jsonl`: vị trí camera, `psnr`, `ssim`, `lpips`, `psnr_cc`, `lpips_cc`, `psnr_static`, `depth`.
+- `eval.standard` (protocol `0.5`, `d2s-summary/0.7`) chép thành `frames.jsonl`; khi split có camera chỉ test, `overall` chỉ tính trên camera đã train và camera chỉ test vào `shifted`. Run cũ không có `psnr_cc` được đo lại từ checkpoint như với protocol 0.3 và 0.4.
+- `eval.ply` (R3): xuất một `.ply` chỉ nền tĩnh, vẽ bằng gsplat (3DGS cho pinhole, 3DGUT cho fisheye) ở ảnh test của camera đã train, so với ảnh thật trên cùng mask với render gốc (`psnr_static`). Gap = PSNR gốc trừ PSNR `.ply`; kèm số Gaussian và dung lượng. Stage là stage cuối của các approach DriveStudio (sau `export.ply_world` và `export.preview`); method không xuất được `.ply` (SLAM dạng anchor và MLP) là "không áp dụng", khác "chưa đo".
+- `engine/benchmark.py` chỉ đọc file kết quả của run (không GPU): đoạn hỏng theo nhóm camera và bỏ camera chỉ test (R7), quãng đường và chi phí mỗi 100 m (R6), xếp hạng và phân xử như trên, ngưỡng hoà từ khối `calibration` (một cấu hình × 3 seed trên KITTI-360 A1, một lần). `d2s benchmark <file.yaml>` in bảng; định dạng ở CONTRACTS mục 6.5.
+- Thay đổi kèm: `summary_path` và bảng `d2s report` đọc `summary.json` của cả `eval.ncore`, và PLY của `export.nurec_ply`; trước đó run Instant NuRec không có metric nào trong `d2s report` và Studio. `eval.ncore` ghi `protocol.version` là `ncore-0.3` vì SSIM và vùng hợp lệ của nó khác `eval.standard`.
+
+**Ô A-0 (không LiDAR, không box).** `train.drivestudio` có tham số `lidar` (mặc định `true`). `lidar=false`, chỉ cho `pvg` và `deformablegs` (OmniRe, Street GS lấy điểm xe và người từ LiDAR trong box): bỏ `model.Background.init.from_lidar` (nền chỉ còn điểm ngẫu nhiên gần và xa), bỏ loss `depth` so với LiDAR, và tính aabb từ vị trí camera (`data.lidar_source.aabb_from_cameras`; trước đây LiDAR quyết định cả biên cảnh). `inverse_depth_smoothness` không dùng LiDAR nên giữ nguyên. LiDAR vẫn được nạp để đo `depth` lúc đánh giá (R4), nên A-0 vẫn so được depth với A-L; hệ quả là cảnh không có LiDAR vẫn bị khoá. `Stage.lidar_used(params)` làm `lidar_usage` của run A-0 rỗng. PVG cần thời gian cho mỗi điểm nên `trainers/single.py` khởi tạo tensor thời gian rỗng khi không có LiDAR (trước đây `None` làm PVG lỗi), và cho điểm ngẫu nhiên thời gian rải đều trong [0, 1]: PVG chỉ giữ Gaussian có `marginal_t > 0.05` quanh khung hiện tại, nên nếu mọi điểm có thời gian 0 (như điểm ngẫu nhiên cạnh điểm LiDAR) thì ở khung xa 0 không còn Gaussian nào, và gsplat chia cho 0 ở bước train đầu tiên (SIGFPE; run #4 đợt 2 tuần 04 hỏng vì vậy, tìm ra bằng `PYTHONFAULTHANDLER=1` và in `gs.means.shape`, bản vá thử ở máy thuê train được). Run `lidar=true` giữ nguyên hành vi (điểm ngẫu nhiên vẫn thời gian 0). **Chưa chạy thật:** không biết chất lượng và độ ổn định của PVG, DeformableGS khi chỉ khởi tạo ngẫu nhiên.
+
+**Ưu điểm.** Không thêm lần render cho R1, R2, R7; dữ liệu từng ảnh dùng được cho các phân tích sau; phần gom bảng test được ở `.venv` nhẹ; một run train cho cả R1 và R2.
+
+**Nhược điểm.**
+- Run đã train mà không còn checkpoint thì không có `frames.jsonl` mới, và `d2s benchmark` ghi "chưa đo" cho R2, R3 và đoạn hỏng.
+- R2 đo camera lệch 0,59 m **theo một hướng**, không phải lệch làn; nó cho biết model có giữ hình học khi camera dịch một chút hay không, không thay thế KID ở ±3 m (hoãn). Chỉnh màu affine 12 hệ số mỗi ảnh có thể che một phần lỗi màu thật của model; bản thô (`shift_psnr`) vẫn được báo để đối chiếu.
+- Bỏ camera chỉ test khỏi khởi tạo LiDAR làm vài điểm ở rìa vùng nhìn của nó biến mất; chưa đo ảnh hưởng. Trainer có thành phần riêng theo camera (embedding, affine) có thể không vẽ được camera chưa train: cần chạy thử 3k bước trước khi chạy ma trận (Task 11 của plan).
+- `eval.ply` nằm trong danh sách stage mặc định của năm approach DriveStudio mà chưa chạy thật trên GPU, nên đặt **cuối** danh sách stage: nếu nó lỗi thì run báo lỗi ở stage cuối, `export.preview` đã xong. Gap gồm cả phần mất do không có ma trận chỉnh màu từng ảnh và do renderer chung khác renderer lúc train, không chỉ do `.ply`.
+- `depth` đo ở khung test nên LiDAR của khung đó có thể dính xe đang chạy mà cảnh nền không có; chưa kiểm ảnh hưởng.
+- Ngưỡng hoà hiệu chỉnh từ 3 seed có σ ước lượng thô; sàn 0,3 dB giữ ngưỡng không nhỏ hơn mặc định.
+- **Chủ ý không làm hoặc đã bỏ (25/11/2026, đã cân nhắc theo AGENTS mục 2.1):**
+  - `ghost_ratio`: chưa có định nghĩa, PVG và DeformableGS không tách lớp nền nên không đo được; bỏ cả tiêu chí "độ sạch cảnh nền" khỏi chuỗi phân xử.
+  - `static_psnr` như một yêu cầu xếp hạng: bỏ. PSNR trên vùng nền tĩnh vẫn được ghi (`psnr_static` trong `frames.jsonl`) nhưng chỉ để tính export gap R3 trên cùng mask.
+  - "Kết quả xác định" của R8: bỏ; thay bằng một lần đo dao động theo seed để đặt ngưỡng hoà.
+  - KID khi lệch làn: ngoài phạm vi tuần này (cần render camera dịch ngang, `torch-fidelity` và tải trọng số Inception).
+  - ATE: chỉ áp dụng cho method tự ước lượng pose (MCGS-SLAM); ghi số method tự báo (`mcgs_eval.json`), không tính lại.
+- **Chunk (R6) làm sau:** chunk là các split có `frame_range` chồng nhau, mỗi chunk một run thường (`core/split.py`), nên không cần code train mới; phần cần thêm là nhóm "chunked" trong `d2s benchmark` gộp `frames.jsonl` các chunk lên một trục quãng đường và báo PSNR quanh chỗ nối. Chỉ làm khi có run chunk đầu tiên, vì chưa có số nào cho thấy chỗ nối là điểm yếu. Gộp `.ply` của các chunk chưa có thiết kế; R3 của track B để trống. Với stride 10 hai khung test cách nhau cỡ 15 m (KITTI-360 drive_0003: 1.289 m trên 864 khung), nên độ phân giải ở chỗ nối chỉ cỡ đó. R1 của track B chỉ tính trên khung chưa đưa vào method (MCGS-SLAM: `held_out=true`; `prep.mcgs`, `train.mcgs` chưa có).
+- **Chưa chạy thật trên GPU (mục 7.1):** camera chỉ test, `psnr_cc`, `eval.ply`, hiệu chỉnh seed. Kiểm tra đầu tiên: KITTI-360 A1, `pvg` và `omnire` 3.000 bước trên split `every8_stereo`.
+
+### 2.18 Chạy trên GPU thuê (vast.ai) bằng SSH và rsync, không thêm executor
+
+**Khái niệm.** vast.ai cho thuê máy có GPU theo giờ, truy cập bằng SSH; mỗi máy là một container Linux có toàn quyền root và ổ đĩa riêng.
+
+**Lý do.** Benchmark 13 run cần khoảng 23 GPU-giờ trên RTX 4090 (báo cáo tuần 03 mục 7), vượt quota Kaggle. Trên máy thuê, tool chạy như trên máy cá nhân (`--executor local`): không cần gói job, notebook hay API riêng, và run tạo trên máy thuê ghi đúng GPU vào `env.json`, nên thời gian, VRAM, FPS so được giữa các run cùng loại máy.
+
+**Cách làm.** `envs/vast.sh` (và `make vast-*`): `setup` chép cây code (cả file chưa commit, ghi commit và số file bẩn vào `COMMIT`), tạo conda env từ `envs/main.yml` và chạy `envs/install_main.sh` ở nền với `TORCH_CUDA_ARCH_LIST` theo GPU và wheel cache; `push-scene` chép `data/<scene_id>/`; `run` chạy `d2s run start ...` ở nền; `pull` kéo `runs/` và `cache/` về (chạy giữa chừng được).
+
+**Ưu điểm.** Không đổi engine, không sửa CONTRACTS cho gói job; Studio đọc thẳng run đã kéo về.
+
+**Nhược điểm.**
+- Không có trạng thái hay chạy tiếp tự động như Kaggle, Colab: máy bị thu hồi (loại interruptible) thì mất phần chưa `pull`; chạy tiếp bằng `d2s run resume` trên máy thuê.
+- Image phải có nvcc 12.x và GPU không phải Blackwell (RTX 50xx): `install_main.sh` ghim `torch 2.4.1+cu121` và build gsplat-geer, pytorch3d... từ mã nguồn (hàng chục phút ở lần đầu).
+- Dữ liệu lái xe có license riêng: chỉ để trên máy thuê ở chế độ riêng tư và xoá máy khi xong.
+- **Chưa chạy thật** (chưa có máy thuê); script mới kiểm cú pháp và chạy khô (`VAST_DRY_RUN=1`).
+
+### 2.19 MCGS-SLAM như codebase ngoài (đã có code và test cả ba stage; đã chạy thật một lần trên RTX 4090 vast.ai, 27/11/2026, kết quả rất thấp)
+
+**Khái niệm.** MCGS-SLAM (`github.com/mcgs-slam/mcgs-slam`, MIT, revision chốt `147eb3a`) là SLAM đa camera dùng 3DGS. Đây là method chọn cho track B (quãng đường dài) của benchmark (báo cáo tuần 03 mục 5.4).
+
+**Điều đọc được từ mã nguồn (25/11/2026), ảnh hưởng tới cách tích hợp.**
+- Môi trường khác hẳn môi trường chính: Python 3.8+, PyTorch 2.1.2, CUDA 11.8, gcc-11, build `droid_backends`, `lietorch_backends`, `simple-knn`, `diff-gaussian-rasterization`. `setup.py` chỉ biên dịch sm_60 tới sm_86: T4 của Kaggle (sm_75) chạy được; RTX 40xx (sm_89) cần thêm, `envs/install_mcgs.sh` tự vá. Nên là env riêng (`D2S_MCGS_DIR`), như Instant NuRec. Nhóm đã chạy thật MCGS-SLAM trên Kaggle T4 (notebook 12 trong thư mục `Phase 3/kaggle`, mẫu Waymo 100613, 17,4 phút, đỉnh 8,8 GB VRAM, ATE 1,19 m); `install_mcgs.sh` theo đúng script cài của lần chạy đó (micromamba, PyTorch pip `2.1.2+cu118`, mmcv dựng sẵn, PyGLM, `bdist_wheel -k` vì `setup.py` gọi `setup()` hai lần), không theo README từng chữ.
+- Chỉ camera pinhole, ảnh nhập là **thư mục ảnh theo camera**, tên file chứa timestamp, các camera phải trùng timestamp (sai lệch dưới 0,02 s); calib YAML có `intrinsic`, `baseline`, `T_cami_cam0`. Không hỗ trợ fisheye. KITTI-360 chỉ có 2 camera pinhole (cặp stereo), nên track B trên KITTI-360 chạy ở chế độ stereo, **không dùng được ưu điểm đa camera** làm lý do chọn method này.
+- Đầu ra: `traj_mcgs.txt` (TUM, **chỉ keyframe**), `3dgs_final.ply` (3DGS chuẩn), `psnr/after_opt/final_result_kf.json`. PSNR đó đo trên **keyframe đã dùng để train**, không phải ảnh giữ lại, nên con số 26,81 dB ở báo cáo tuần 03 mục 5.4 không so được với PSNR test của các method khác. Bản đồ Gaussian dùng pose và độ sâu đã nhân 0,2 so với quỹ đạo (`POSE_SCALE`).
+- Muốn có PSNR trên ảnh giữ lại thì phải bỏ khung test khỏi đầu vào, căn quỹ đạo về hệ cảnh (`external/mcgs/align.py`: Umeyama, ATE), nội suy pose khung test và render bản đồ bằng rasterizer của chính nó trong env của nó.
+
+**Đã có:** `envs/install_mcgs.sh` (4 bước, chạy tiếp được; công thức đã chạy trên Kaggle và trên vast.ai RTX 4090; sau khi cài, bước 1 sửa mã MCGS-SLAM một chỗ: bước nhảy mốc thời gian giữa các camera 500 → 100000, vì chuỗi dài hơn 500 khung làm mốc hai camera trùng nhau và bước tinh chỉnh toàn cục chết ở `process_global_track_data`), `drive2sim/external/mcgs/` (`__init__.py`: đường dẫn, tên file đầu ra; `align.py`: Umeyama, ATE; `views.py`: `ScenePoses`, dựng view test; `calib.py`: thứ tự thư mục ảnh và `calib.yml`), ba stage `prep.mcgs`, `train.mcgs`, `eval.mcgs` và approach `mcgs` (`approaches/mcgs.yaml`); đều có test bằng cảnh và pose giả.
+
+**Hỗ trợ dataset (kiểm bằng `tests/drive2sim/engine/test_dataset_support.py`, 25/11/2026).**
+
+| Dataset | BezierGS: engine cho chạy (pinhole, có box) | BezierGS: đã train thật | MCGS-SLAM: `eval.mcgs` đọc được pose, ảnh |
+|---|---|---|---|
+| nuScenes, Waymo, Argoverse 2, PandaSet, nuPlan | Có, mọi số camera có config | Chỉ Waymo 017 (chuyển từ định dạng BezierGS, không qua ingest của tool) | Có, qua `get_camera2worlds` của loader. **Loader Waymo đã chạy thật** trên `waymo_017` (49 khung, CPU, 25/11/2026): ma trận xoay hợp lệ, xe đi 0,65 m mỗi khung, khớp ghi chú của BezierGS; **loader nuScenes cũng đã chạy thật** trên `nuscenes_scene-0061` (191 khung): quãng đường 91,0 m, khớp số 91 m ở `docs/datasets/overview.md`; Argoverse 2, PandaSet, nuPlan chưa (không có cảnh). Đường đọc trực tiếp của KITTI-360 chạy trên 200 khung của `kitti360_2013_05_28_drive_0003_sync`: định thức bằng 1, hai camera pinhole cách nhau 0,59 m (đúng baseline stereo KITTI-360) |
+| KITTI | Có (1, 2 camera) | Chưa | Có (đọc trực tiếp) |
+| KITTI-360 | Có, chỉ split gồm 2 camera pinhole; split có camera mắt cá bị khoá | Chưa | Có (đọc trực tiếp, đã test bằng cảnh giả); chấm được cả camera mắt cá |
+| PhysicalAI (F-theta) | Bị khoá (renderer 3DGS chỉ nhận pinhole) | Không | Không: SLAM chỉ nhận pinhole |
+
+BezierGS thiếu box 3D thì bị khoá ngay lúc chọn approach (`requires.cuboids: required`), không chạy rồi mới lỗi. "Engine cho chạy" chỉ nói điều kiện và config dataset có đủ, không nói train thành công: BezierGS dùng chung nạp dữ liệu và `get_init_objects` với OmniRe, nên bằng chứng huấn luyện thật của họ OmniRe (nuScenes, KITTI-360) là bằng chứng gián tiếp. Approach `mcgs` có đủ ba stage nhưng chưa chạy thật, nên chưa dataset nào có số đo MCGS-SLAM qua tool; camera mắt cá không đi vào SLAM ở mọi dataset, và split có camera mắt cá bị khoá (`requires.camera_models` chỉ có pinhole).
+
+**`eval.mcgs` (mức A; chạy thật một lần ở run #8 đợt 2 tuần 04):** chấm `3dgs_final.ply` trên khung test của split. Căn quỹ đạo keyframe vào pose camera tham chiếu (`reference_camera`, mặc định `image_00`) bằng Umeyama, đổi pose thật của khung test sang hệ bản đồ (`world → slam = Rᵀ(p − t)/scale`, rồi co 0,2 lần), ghi `views.npz` và chạy `ncore_eval_render.py` của NuRec (gsplat, 3DGUT cho fisheye trong môi trường chính). Ghi `summary.json` (protocol `ncore-0.3`, cùng bộ đo với `eval.ncore`), `frames.jsonl` và `mcgs_eval.json` (ATE, tỉ lệ căn, `held_out`, giới hạn). Chạy sau `train.mcgs` thì `held_out` và camera tham chiếu lấy từ `mcgs_prep.json` trong thư mục model; chạy tay với `--set eval.mcgs.model_dir=<output của demo.py>` (không có file này) thì giữ mặc định cũ (`held_out` `false`, `image_00`). Ghi thêm `coverage` (tỉ lệ điểm ảnh được chấm: chỉ điểm có alpha > 0,9 ngoài mask thân xe) vào `summary.json`, `frames.jsonl`, `mcgs_eval.json`; view không có điểm hợp lệ ghi `null`, không ghi `NaN`. Split có camera chỉ test thì `overall` chỉ tính trên camera đã train và camera chỉ test vào `shifted`, như `eval.standard` (protocol 0.5; `psnr_cc`, `lpips_cc` trống vì không chỉnh màu). Điểm cần đọc kèm: bản đồ chỉ dựng từ ảnh pinhole nên fisheye bị alpha thấp; pose test là pose thật đã căn; SH bậc 0; khung test chỉ "chưa thấy" khi `held_out`. `ncore_eval_render.py` ghi thêm `per_view.json` (kết quả từng view) để dựng `frames.jsonl`; `d2s benchmark` đọc `frames.jsonl` cạnh `summary.json` của stage `eval.*` đã ghi nó.
+
+**Quy ước đầu vào của MCGS-SLAM (đọc mã @147eb3a, 25/11/2026; `external/mcgs/calib.py` dựng theo đó).**
+- `streams.py::image_stream`: mỗi thư mục ảnh liệt kê bằng `os.listdir`, sắp theo **số cuối cùng trong tên file**, lấy `[::stride]`; các thư mục ghép theo vị trí trong danh sách, kiểm `|timestamp − t0| < 2e-2` với `timestamp = số trong tên / timescale`. Mọi thư mục phải cùng số ảnh. `options.py`: `--stride` mặc định **3** (phải truyền `--stride 1`), `--stereo` luôn `True`, ảnh co về khoảng 384×512 trừ khi calib có `ht`, `wd`; chế độ đa camera chỉ bật khi có **hơn 2** thư mục.
+- `calib.yml`: `intrinsic` một hàng mỗi thư mục `[fx, fy, cx, cy]` (thêm `k1 k2 p1 p2 k3` thì SLAM gọi `cv2.undistort`, nên ảnh đã rectified như KITTI-360 giữ 4 cột), `camera: pinhole`, `baseline`, `T_cami_cam0`, `timescale`. Bảy số SE3 theo lietorch `tx ty tz qx qy qz qw`, biến điểm từ hệ camera tham chiếu (thư mục 0) sang hệ camera đó; hàng 0 của `T_cami_cam0` là đơn vị.
+- Thứ tự thư mục: `[ref, partner, các camera còn lại..., partner]` như mẫu Waymo `calib/100613.yml`, thư mục thứ hai là camera đối tác stereo và nó lặp ở cuối (không phải lỗi gõ); `baseline = T(ref → partner)`, `T_cami_cam0 = [đơn vị, T(ref → thư mục 2), ...]`. Hai camera cũng lặp: `[ref, partner, partner]` (KITTI-360: `image_00`, `image_01`, `image_01`, `baseline ≈ [-0,59, 0, 0, 0, 0, 0, 1]`), vì MCGS-SLAM @147eb3a chỉ bật nhánh nhiều camera khi có hơn hai thư mục, còn nhánh kia gọi `FactorGraph.update(use_scaling=...)` không tồn tại (run #8 tuần 04 hỏng vì vậy). `partner` mặc định là camera gần `ref` nhất theo khoảng cách tâm.
+
+**Đường chạy approach `mcgs` (`prep.mcgs` → `train.mcgs` → `eval.mcgs`; local hoặc GPU thuê, Kaggle và Colab từ chối codebase ngoài).**
+- `prep.mcgs` (cache được): chọn camera pinhole của split **trừ camera chỉ test** (tham số `cameras` đặt tay; chọn thẳng camera chỉ test hoặc fisheye là lỗi), xuất `images/<camera_id>/<khung:06d>.<đuôi>` (symlink, không được thì chép), ghi `calib.yml` và `mcgs_prep.json`. Mặc định `held_out: true`: bỏ khung test của camera đã train khỏi mọi thư mục, để điểm đo là điểm trên ảnh SLAM chưa thấy (trước đây `eval.mcgs` mặc định `held_out: false`, điểm là điểm trên ảnh đã thấy). Khung thiếu ảnh ở một camera thì bị bỏ ở mọi thư mục và ghi vào `dropped_frames`, vì MCGS-SLAM đòi mọi thư mục cùng số ảnh. Split có dưới 2 camera pinhole đã train bị khoá ở lúc chọn approach (`Stage.unavailable_reason`).
+- `train.mcgs`: `demo.py --calib --imagedir ... --stride 1 --output` trong env MCGS (`mode`: `full` = `--prgbd --jdsa`, `prgbd`, `minimal`; `--buffer` = số khung của `mcgs_prep.json` cộng một, vì bộ đệm video mặc định 215 làm global BA cuối run chết ở `video.nets[ii, ...]` khi số keyframe vượt bộ đệm: run #8 đợt 2 tuần 04 có 757 keyframe; bộ đệm 865 cho cảnh 864 khung dùng khoảng 9,4 GB VRAM lúc tracking, đo bằng `nvidia-smi` trên RTX 4090 24 GB), chép `mcgs_prep.json`, ghi `train_stats.json` (`train_time_s`, `num_gaussians`, `mode`).
+- Không có stage xuất `.ply`: bản đồ nằm trong hệ riêng của SLAM, nên R3 "không áp dụng" (`export_applicable: false`).
+
+**Giới hạn cần đọc kèm số đo.** `coverage` thấp nghĩa là PSNR đo trên phần ảnh nhỏ (cao hơn thực tế); pose khung test là pose thật đã căn bằng quỹ đạo keyframe, không phải pose SLAM ước lượng; SH bậc 0; chưa có kiểm tra môi trường `external:mcgs` ở `environment_check` (thiếu bản cài thì `train.mcgs` báo lỗi và chỉ `envs/install_mcgs.sh`).
+
+**Chưa kiểm (cần một lần chạy thật, kế hoạch Task 7):** chiều của `baseline` và `T_cami_cam0` (nếu `baseline` sai dấu thì ATE lớn và tỉ lệ căn xa 1: đổi chiều trong `calib_document`, thêm test, chạy lại); `demo.py` có đọc symlink và `calib.yml` do `yaml.safe_dump` ghi không; chạy Waymo 017 (49 khung, `every8`, ba camera trước) rồi KITTI-360 `drive_0003` khung 0–863 (B2); so với số Kaggle (Waymo 100613: ATE 1,19 m, PSNR keyframe 26,81 dB; PSNR test phải thấp hơn PSNR keyframe). Notebook Kaggle cho MCGS-SLAM chưa làm.
 
 ## 3. Cấu trúc repo đích
 
@@ -453,8 +575,9 @@ drivestudio_plus/                          branch drive2sim
 │   ├── recon/                             mã tái dựng (từ DriveStudio)
 │   │   ├── data/                          đọc dữ liệu đã tiền xử lý để train
 │   │   │   ├── base/                      pixel_source, lidar_source, scene_dataset, split_wrapper
-│   │   │   ├── loaders/                   <dataset>.py: một loader mỗi dataset (mục 2.4)
+│   │   │   ├── loaders/                   standard.py (KITTI-360, PHENIKAA) và loader riêng của dataset DriveStudio (mục 2.4)
 │   │   │   ├── driving_dataset.py
+│   │   │   ├── split_indices.py           chỉ số ảnh train/test, có camera chỉ test (thuần Python)
 │   │   │   └── dataset_meta.py
 │   │   ├── preprocess/                    dữ liệu gốc → thư mục DriveStudio
 │   │   │   ├── run.py                     điểm vào: python -m drive2sim.recon.preprocess.run --dataset <dataset>
@@ -468,19 +591,19 @@ drivestudio_plus/                          branch drive2sim
 │   │   ├── utils/                         camera, geometry, logging, misc, visualization, backup
 │   │   └── tools/                         train.py, eval.py, viewer.py, export_ply.py, gather_results.py (thay dần bằng stage và CLI)
 │   ├── core/                              identifiers.py, schema.py, files.py, split.py, camera.py (khớp Mei → OpenCV fisheye) (đã có); transforms.py (chưa có)
-│   ├── ingest/                            detect.py (source inspect), dispatch.py (chọn chuỗi), drivestudio.py (converter chung cho 7 dataset), kitti360.py (converter KITTI-360), kitti360_boxes.py (box 3D KITTI-360), images.py, manifest.py, validate.py
-│   ├── stages/                            commands.py, scene_view.py; prep/masks_segformer.py, prep/smpl.py, train/drivestudio.py, eval/standard.py, export/ply_world.py, export/preview.py (đã có); init/, render/ (khung)
-│   ├── engine/                            stage.py, registry.py, resolve.py, approaches.py, workdir.py, scenes.py, cache.py, run.py, report.py, housekeeping.py (xoá, dọn cache), pack.py (gói bàn giao), remote.py (phần chung của executor Kaggle và Colab: kiểm tra commit, ghép output tải về)
-│   ├── approaches/                        omnire.yaml, streetgs.yaml
-│   ├── kaggle/                            client.py, bundle.py, executor.py, ingest.py (ingest trên Kaggle), names.py (tên notebook và dataset, CONTRACTS mục 10.1), setup.py, templates/run.ipynb, templates/ingest.ipynb
+│   ├── ingest/                            detect.py (source inspect), dispatch.py (chọn chuỗi), drivestudio.py (converter chung cho 7 dataset), kitti360.py (converter KITTI-360), kitti360_boxes.py (box 3D KITTI-360), phenikaa.py (converter PHENIKAA), ego_masks.py (mask thân xe theo camera), images.py, manifest.py, validate.py
+│   ├── stages/                            commands.py, scene_view.py; prep/masks_segformer.py, prep/smpl.py, prep/mcgs.py, train/drivestudio.py, train/mcgs.py, eval/standard.py, eval/ply.py, eval/mcgs.py, export/ply_world.py, export/preview.py (đã có); init/, render/ (khung)
+│   ├── engine/                            stage.py, registry.py, resolve.py, approaches.py, workdir.py, scenes.py, cache.py, run.py, report.py, benchmark.py, housekeeping.py (xoá, dọn cache), pack.py (gói bàn giao), remote.py (phần chung của executor Kaggle và Colab: kiểm tra commit, ghép output tải về)
+│   ├── approaches/                        omnire.yaml, streetgs.yaml, mcgs.yaml
+│   ├── kaggle/                            client.py, bundle.py, executor.py, packing.py (gói output), ingest.py (ingest trên Kaggle), names.py (tên notebook và dataset, CONTRACTS mục 10.1), setup.py, templates/run.ipynb, templates/ingest.ipynb
 │   ├── colab/                             client.py, executor.py, setup.py, accounts.py, account_helper.py, drive.py, templates/job.sh (mục 2.16)
 │   ├── sim/                   (khung)     renderer.py (L2), actors.py (L3), server/ (L4; protos/ từ NuRec)
 │   ├── studio/                            api/ (app.py, state.py, events.py, jobs.py, kaggle_watch.py, colab_watch.py, remote_watch.py, routes/<nhóm>.py); frontend/ (Vite + React: src/pages/, src/components/, src/viewer/ (Spark), src/live.tsx, src/locales/, src/api/generated/, dist/ đã build); viz/ (khung)
-│   ├── external/              nurec/: Instant NuRec (môi trường, PLY; tools/ chạy bằng Python của NuRec)
-│   ├── scripts/                           công cụ phát triển chạy một lần: make_demo.py, check_kitti360_projection.py (chiếu LiDAR KITTI-360 lên ảnh, tỉ số cạnh)
-│   └── cli/                               main.py, output.py; source.py, scene.py, split.py, approach.py, run.py, report.py, export.py, pack.py, cache.py, kaggle.py, colab.py, studio.py, schema.py
+│   ├── external/              nurec/: Instant NuRec (môi trường, PLY; tools/ chạy bằng Python của NuRec); mcgs/: MCGS-SLAM (đường dẫn, căn quỹ đạo, view test, calib)
+│   ├── scripts/                           công cụ phát triển chạy một lần: make_demo.py, check_kitti360_projection.py (chiếu LiDAR KITTI-360 lên ảnh, tỉ số cạnh), setup_benchmark_week04.py (split, lệnh chạy, file định nghĩa benchmark tuần 04; docs/experiments/benchmark_week04.md)
+│   └── cli/                               main.py, output.py; source.py, scene.py, split.py, approach.py, run.py, report.py, benchmark.py, export.py, pack.py, cache.py, kaggle.py, colab.py, studio.py, schema.py
 ├── third_party/                           smplx (pip -e, import smplx); Humans4D (submodule, import hmr2); ncore (submodule, tag v19.9.0: converter NCore); gsplat-geer (submodule, fork `awun0105/3dgeer` nhánh `drive2sim`: gsplat-geer của Bosch `f15cee2` + `glm` + kỹ thuật kernel Faster-GS, cài bằng `envs/install_main.sh` bước 4)
-├── envs/                                  main.yml (conda: Python 3.10), install_main.sh (cài môi trường chính, dùng chung cho Kaggle), install_cuda.sh (CUDA 12.8 riêng khi nvcc của máy khác major), install_nurec.sh; bộ cài một lệnh: install.sh (Linux, macOS), install.ps1 (Windows), install.mjs (lệnh Node `npx github:thaianh20021/drive2sim`, khai trong package.json ở gốc) (mục 2.9, docs/install.md)
+├── envs/                                  main.yml (conda: Python 3.10), install_main.sh (cài môi trường chính, dùng chung cho Kaggle), install_cuda.sh (CUDA 12.8 riêng khi nvcc của máy khác major), install_nurec.sh, install_mcgs.sh, install_sam2.sh, vast.sh (GPU thuê); bộ cài một lệnh: install.sh (Linux, macOS), install.ps1 (Windows), install.mjs (lệnh Node `npx github:thaianh20021/drive2sim`, khai trong package.json ở gốc) (mục 2.9, docs/install.md)
 └── tests/drive2sim/           (khung)     cùng cây thư mục với drive2sim/; fixtures/
 ```
 
@@ -505,7 +628,7 @@ Chạy script bằng `python -m`, ví dụ `python -m drive2sim.recon.tools.trai
 | Approach mới | `drive2sim/approaches/` | `<approach_id>.yaml` | Tự nạp khi engine khởi động |
 | Lựa chọn mới cho một mục cấu hình (ví dụ `init.slam`) | Stage mới như trên | | Thêm vào `options.<mục>.choices` của approach |
 | Method, node, loại Gaussian mới | `drive2sim/recon/models/nodes/` hoặc `drive2sim/recon/models/gaussians/` | `<tên>.py`; lớp theo quy ước sẵn có (`<Tên>Nodes`, `<Tên>Gaussians`) | Config method trong `drive2sim/configs/methods/`; giá trị mới cho tham số `method` của `train.drivestudio` |
-| Loader dữ liệu | `drive2sim/recon/data/loaders/` | Không thêm loader cho nguồn mới: converter ghi theo khung thư mục của một dataset có sẵn (mục 2.4). Ngoại lệ khi khung đó thiếu khả năng: lớp con kế thừa loader của khung, như `kitti360.py` kế thừa `kitti.py` | Config `drive2sim/configs/datasets/<dataset>/<k>cams.yaml`; dòng trong `DRIVESTUDIO_DATASETS` (`drive2sim/stages/scene_view.py`) |
+| Loader dữ liệu | `drive2sim/recon/data/loaders/` | Không thêm loader cho nguồn mới: converter ghi theo khung thư mục của một dataset có sẵn (mục 2.4). KITTI-360 và PHENIKAA dùng `standard.py` kế thừa `kitti.py`, đọc camera từ manifest (mục 2.4) | Config `drive2sim/configs/datasets/<dataset>/<k>cams.yaml`; dòng trong `DRIVESTUDIO_DATASETS` (`drive2sim/stages/scene_view.py`) |
 | Tiện ích dùng chung của phần tái dựng | `drive2sim/recon/utils/` | `<chủ_đề>.py` | |
 | Config method | `drive2sim/configs/methods/` | `<method>.yaml`; biến thể `<method>_<biến thể>.yaml` kế thừa từ config gốc, chỉ ghi phần khác | |
 | Bước tiền xử lý dữ liệu gốc cho DriveStudio (tạm, cho tới khi có `ingest/`) | `drive2sim/recon/preprocess/<dataset>/` hoặc `drive2sim/recon/preprocess/<loại>/` | `process.py`, `human.py`, `preview.py`; loại chung: `masks/`, `smpl/` | Nhánh `--dataset` trong `drive2sim/recon/preprocess/run.py` |
@@ -516,8 +639,13 @@ Chạy script bằng `python -m`, ví dụ `python -m drive2sim.recon.tools.trai
 | Codebase ngoài | `drive2sim/external/<codebase>/` | `worker.py`; môi trường ở `envs/<codebase>.yml` | Stage `train.external` với tham số `codebase: <tên>` |
 | Gói kết quả để bàn giao | `drive2sim/engine/pack.py` | `plan_pack`, `write_pack` | CLI gọi qua `cli/pack.py`; CONTRACTS 10.4 |
 | Lệnh CLI mới | `drive2sim/cli/<nhóm>.py` | hàm `<hành_động>` | Theo CONTRACTS mục 10.4 |
+| Gom kết quả nhiều run thành bảng benchmark | `drive2sim/engine/benchmark.py` | `run_benchmark`, `bad_segments`, `order_group`; CLI `cli/benchmark.py` | CONTRACTS mục 6.5 |
+| Metric đo thêm trong vòng render (numpy thuần, test được ở `.venv` nhẹ) | `drive2sim/recon/rendering/depth_metrics.py`, `drive2sim/recon/rendering/color_match.py` | `compute_depth_metrics`; `fit_color_affine`, `apply_color_affine`, `static_region_mask`, `export_gap` | `render` trong `recon/rendering/videos.py`; `recon/tools/eval_ply.py` (`export_gap`) |
+| Chạy trên GPU thuê (vast.ai) | `envs/vast.sh`, target `vast-*` trong `Makefile` | | Mục 2.18 |
+| Codebase ngoài chạy trong env riêng (MCGS-SLAM) | `drive2sim/external/<codebase>/` (đường dẫn, `align.py`, `calib.py`), `envs/install_<codebase>.sh`, `approaches/<codebase>.yaml`, stage `prep/mcgs.py`, `train/mcgs.py`, `eval/mcgs.py` | | Mục 2.19 |
 | API cho Studio | `drive2sim/studio/api/routes/<nhóm>.py` | đường dẫn `/api/<nhóm số nhiều>/...`, verb, lỗi và sự kiện theo CONTRACTS mục 11 | `app.py` |
 | Màn hình Studio | `drive2sim/studio/frontend/src/pages/` | `PascalCase.tsx`; chuỗi giao diện trong `src/locales/vi.json`, `en.json` (CONTRACTS mục 10.6) | Router của frontend |
+| Gói output notebook Kaggle | `drive2sim/kaggle/packing.py` | `pack_output`, `unpack_output`, `pack_file_pattern` | Ô cuối notebook và `executor.pull_run`; CONTRACTS 9.2 |
 | Mẫu notebook Kaggle | `drive2sim/kaggle/templates/` | `<tên>.ipynb` | `bundle.py` |
 | Script job chạy trên VM Colab | `drive2sim/colab/templates/` | `job.sh` | `colab/executor.py` |
 | Phần dùng chung của các executor chạy ở máy khác | `drive2sim/engine/remote.py` | | Kaggle và Colab gọi |
@@ -585,13 +713,20 @@ Bảng gồm cả stage đã có và stage theo thiết kế đích; cột Trạ
 | `train.drivestudio` | Đã có | Train bằng trainer DriveStudio; method, renderer, FastGS, CamPose chọn qua tham số. Cần LiDAR: config hiện có khởi tạo Gaussian từ LiDAR | không | `drive2sim/recon/tools/train.py` |
 | `prep.ncore` | Đã có (KITTI-360) | Đoạn khung của split → clip NCore V4 cho Instant NuRec, bằng converter của Fisheye Fusion Lab chạy trong môi trường NuRec (camera mắt cá resample về F-theta 120° của NVIDIA) | có | `drive2sim/external/nurec/tools/kitti360_to_ncore.py` |
 | `train.nurec` | Đã có | Dựng cảnh bằng Instant NuRec (feed-forward) trong môi trường riêng: `run_inference.py --merge`, camera ngữ cảnh theo thứ tự chuẩn của NuRec | không | Instant NuRec `run_inference.py` |
+| `prep.mcgs` | Đã có (chạy thật 27/11/2026, vast.ai RTX 4090) | Xuất ảnh pinhole của camera đã train (không có khung test khi `held_out`), `calib.yml`, `mcgs_prep.json` cho MCGS-SLAM | không | `drive2sim/external/mcgs/calib.py` |
+| `train.mcgs` | Đã có (chạy thật 27/11/2026, vast.ai RTX 4090; 864 khung, 1539 s, 172k Gaussian) | Chạy `demo.py` của MCGS-SLAM trong môi trường riêng; ghi quỹ đạo, bản đồ Gaussian, `train_stats.json` | không | MCGS-SLAM `demo.py` |
+| `eval.mcgs` | Đã có (chạy thật 27/11/2026: PSNR 10,25 dB, ATE 21,1 m, `coverage` 0,79) | Căn quỹ đạo vào pose thật, vẽ bản đồ ở khung test bằng gsplat, PSNR, SSIM, LPIPS, `coverage` → `summary.json`, `frames.jsonl`, `mcgs_eval.json` | không | `tools/ncore_eval_render.py` |
 | `eval.ncore` | Đã có | Chấm PLY trên khung test của split: xuất view từ clip NCore, vẽ bằng gsplat, PSNR, SSIM, LPIPS → `summary.json` | không | `tools/ncore_eval_export.py`, `ncore_eval_render.py` |
 | `export.nurec_ply` | Đã có | PLY của NuRec đổi từ hệ world của clip NCore sang hệ world của DriveStudio | không | `drive2sim/external/nurec/ply.py` |
 | `render.nurec_video` | Đã có | Video đi dọc cả đoạn từ PLY của NuRec: mọi khung của clip NCore, các camera của split, hàng ảnh thật trên hàng ảnh dựng, mặc định đúng tốc độ gốc theo mốc thời gian của khung (tham số `speed`) (`external/nurec/tools/ncore_render_video.py`, như `render_flythrough.py` của Fisheye Fusion Lab); video của `eval.ncore` chỉ có khung test của một camera. Run cũ thêm bằng `d2s export video` hoặc nút trên Studio | không | `drive2sim/stages/render/nurec_video.py` |
 | `train.external` | Chưa có (NuRec dùng `train.nurec`) | Worker chung cho codebase ngoài | không | Chưa có |
+| `eval.xsim` | Đã nối; chưa nghiệm thu GPU | Worker XSIM render ảnh test và video; chấm ở môi trường chính bằng ảnh thật, mask đánh giá của gói và scorer của `eval.standard` | có (render) | `external/xsim/evaluation.py`, `scoring.py` |
+| `prep.observations` | Đã có, chưa chạy trên cảnh thật | Xuất ảnh, mask, pose, LiDAR, box, SMPL từ `DrivingDataset` dựng như `train.drivestudio`, cho approach ở môi trường khác | không | `drive2sim/recon/tools/export_observations.py` |
+| `train.xsim` | Đã nối, chưa chạy thật trên GPU | Train XSIM gốc trên gói quan sát trong môi trường XSIM riêng | có | `external/xsim/worker.py`, `training.py` |
 | `eval.standard` | Đã có (chỉ đọc metric do `train.py` ghi) | Đánh giá theo protocol chung (SPEC mục 9) | không | `drive2sim/recon/tools/eval.py` (`do_evaluation`) |
 | `render.videos` | Chưa có (video do `train.py` ghi) | Video ảnh gốc, ảnh render, sai khác theo camera | không | `drive2sim/recon/rendering/videos.py` |
 | `export.ply_world` | Đã có | PLY 3DGS trong hệ world | không | `drive2sim/recon/tools/export_ply.py` |
+| `eval.ply` | Đã có trong code, chưa chạy thật | Export gap của `.ply` nền tĩnh: vẽ lại `.ply` bằng gsplat ở ảnh test của camera đã train, PSNR trên mask nền tĩnh so với render gốc (R3) → `ply_gap.json` | không | `drive2sim/recon/tools/eval_ply.py` |
 | `export.preview` | Đã có | Gói xem trước cho Spark | không | Mở rộng `drive2sim/recon/tools/export_ply.py`; dữ liệu cần (`instances_quats`, `instances_trans`, `instances_fv`, `points_ids`) có sẵn trong `state_dict()` của RigidNodes (`drive2sim/recon/models/nodes/rigid.py:483`) |
 
 **Thư mục cảnh ảo.** Script DriveStudio đều đọc và ghi trong một thư mục cảnh `<data_root>/<số>/`, trong khi thư mục cảnh `data/<scene_id>/` không được sửa và stage chỉ được ghi vào thư mục của nó (CONTRACTS mục 5.1). Các stage bọc DriveStudio vì vậy dựng trong thư mục của mình một `view/000/` gồm symlink tới từng mục của thư mục cảnh, cộng các artifact cần thêm (ví dụ `sky_masks/` từ cache), rồi chạy script trên đó (`drive2sim/stages/scene_view.py`). Mục script tạo mới là thư mục thật trong thư mục của stage. View không chứa symlink tới các mục stage sắp ghi, nên script không thể ghi qua symlink vào dữ liệu thật. View có symlink tới `manifest.yaml` (chỉ đọc; loader KITTI-360 đọc mô hình và cỡ camera từ đó), không có `splits/`, `reports/`. Cách này không sửa dòng nào trong mã DriveStudio; đã kiểm `segformer_hf.py` chỉ ghi `sky_masks/`, `fine_dynamic_masks/` và quy trình SMPL chỉ ghi dưới `humanpose/`.
@@ -599,6 +734,8 @@ Bảng gồm cả stage đã có và stage theo thiết kế đích; cột Trạ
 Trong `train.drivestudio`, tổ hợp scene graph, renderer và luật densify vẫn chọn bằng config của DriveStudio. Chỉ tách thêm thành stage riêng khi config không làm được.
 
 ### 4.4 Tầng tái dựng (DriveStudio)
+
+Studio và report dùng chung `engine.run.load_summary` để chọn stage đánh giá từ bản ghi run theo CONTRACTS mục 6.3.
 
 Stage `train.drivestudio` train bằng trainer trong `drive2sim/recon/trainers/` với config method và config dataset có sẵn của dataset gốc (`drive2sim/configs/datasets/<dataset>/<k>cams.yaml`), đọc thẳng `data/<scene_id>/` (DriveStudio nhận `data.scene_idx` dạng chuỗi: `data_root/<scene_idx>`). Sau refactor: trainer nhận `points_init` từ stage `init.*`; đánh giá do `eval.standard` gọi, không còn chạy ở cuối `drive2sim/recon/tools/train.py`.
 
@@ -676,7 +813,7 @@ Lệnh dạng `d2s <nhóm> <hành động>`. Danh sách đầy đủ, tuỳ ch�
 | `colab` | `push`, `status`, `logs`, `pull`, `stop` |
 | `export` | `ply`, `preview` |
 | `cache` | `list`, `gc` |
-| `report`, `pack`, `studio`, `serve` | (lệnh đơn) |
+| `report`, `benchmark`, `pack`, `studio`, `serve` | (lệnh đơn) |
 
 ## 5. Luồng dữ liệu
 
@@ -712,9 +849,13 @@ Số test ghi trong từng dòng là số lúc hoàn thành việc đó. Hiện 
 `.venv` nhẹ 441 test đạt, 15 bỏ qua (cần PyTorch hoặc numpy); `make test-gpu` ở conda env GPU
 chạy cả các test đó, 496 test đạt, không bỏ qua test nào.
 
+KITTI-360 và PHENIKAA đã dùng chung `StandardPixelSource`; có ánh xạ tên lớp cũ và test hồi quy đường dựng nguồn ảnh. Các loader dataset khác giữ phạm vi hiện có (mục 2.4). Chưa chạy train GPU cho đợt gộp này.
+
 | Việc | Trạng thái | Commit |
 |---|---|---|
+| XSIM | Môi trường riêng (`envs/install_xsim.sh`), đầu vào là gói quan sát chung (`prep.observations`), chấm bằng scorer chung; Kaggle và Colab cài thêm venv XSIM. Chưa nghiệm thu GPU. | |
 | Bàn giao `d2s pack`, ingest và môi trường thân thiện, SMPL theo split | Code và test local hoàn tất; chưa nghiệm thu train GPU cho thay đổi loader; gói 11 run thật đã ghi trên USB và kiểm đủ 15.708 mã băm sau giải nén; Studio đọc 11 run, đã render thử một frame bằng GPU có sẵn | |
+| Kaggle: gói output thành tar theo run và mục cache | Code và test local hoàn tất; có đường tải file rời cho notebook cũ và khi gói lỗi; chưa chạy bước gói trên Kaggle thật | |
 | Docs thiết kế (SPEC, ARCHITECTURE, CONTRACTS) | Xong, cập nhật theo từng quyết định | |
 | Di chuyển mã DriveStudio vào `drive2sim/recon/` (ba lượt) | Xong; kiểm tra tĩnh đạt; chưa chạy thật | `7a7c121`, `726b3ba`, `9f35aff` |
 | Sửa chạy tiếp khi train | Xong trong code; chưa chạy thật | `7851701` |
@@ -734,7 +875,11 @@ chạy cả các test đó, 496 test đạt, không bỏ qua test nào.
 | Studio API: nhận dạng và ingest nền (`/api/sources`, `/api/jobs`), huỷ, xoá, export run, xoá cảnh và split, kiểm tra lại cảnh, cache | Xong; 182 test đạt trên Python 3.9 và 3.12 | |
 | Studio giao diện (`studio/frontend`): nhóm A (tổng quan cảnh, camera, ảnh đồng bộ theo khung, split trên thanh thời gian, báo cáo kiểm tra, tạo split), chạy mới (mục cấu hình bị khoá kèm lý do, xem trước stage và cache), nhóm B và C (làn đường stage theo SSE, metric theo năm nhóm, đường cong train, artifact từng stage kèm mở thư mục, video, log, chạy tiếp), nhóm D (một bảng xếp hạng có tab nhóm metric và bộ sắp xếp theo cột, chiều tăng hoặc giảm, biểu đồ PSNR theo thời gian, VRAM, tốc độ render, số Gaussian có đường Pareto, PSNR theo vùng, phân rã thời gian, đường cong train, CSV, video cạnh nhau); tiếng Việt và tiếng Anh; chế độ sáng, tối; màn hình hẹp | Xong; đã xem bằng trình duyệt trên dữ liệu mẫu (không phải dữ liệu thật) | |
 | Studio giao diện làm lại: tổng quan (việc đang chạy, dẫn đầu theo PSNR, run gần đây), thêm cảnh từ thư mục gốc (ingest nền), xoá cảnh, split, run, kiểm tra lại cảnh, huỷ và chạy tiếp từ danh sách, xuất PLY và gói xem trước, Kaggle (trạng thái, đẩy, tải), lưu trữ (cache, dọn cache có xem trước), xem 3D bằng Spark (gói xem trước có phát lại xe theo khung, `scene.ply`, kéo thả file splat trên máy), tìm nhanh, thông báo nổi | Xong; đã xem bằng trình duyệt trên dữ liệu mẫu và splat tổng hợp (không phải dữ liệu thật) | |
-| Studio còn thiếu: sơ đồ rig nhìn từ trên xuống và quỹ đạo xe trên bản đồ 2D (cần đọc extrinsics, pose theo cách lưu của từng dataset); depth và tách lớp; xuất hình cho báo cáo (mới có CSV); viewer chế độ chính theo thiết kế đích (worker render + viser trong Studio, `studio/viz`, mục 2.12; hiện dùng `tools/viewer.py` chạy riêng); trình phát video theo từng camera với ảnh gốc, ảnh render, bản đồ sai khác, thanh trượt so sánh và phát đồng bộ mọi camera (SPEC 8C; hiện là danh sách file MP4); chồng box, mask, LiDAR lên ảnh và độ dài cảnh ở trang cảnh (SPEC 8A); hiện người và vật biến dạng bằng box trong viewer Spark; nhóm E | Chưa làm | |
+| Trình phát video so sánh (SPEC 8C; `studio/frontend/src/components/VideoCompare.tsx`, `engine/videos.py`, `GET /api/runs/{id}/video_sets`): ảnh gốc, render, sai khác, độ sâu, các lớp (nền, xe, người, vật động) cùng khung, phát đồng bộ (video chính dẫn nhịp, video phụ lệch quá 0,04 s thì kéo về), thanh trượt hai kênh hoặc nhiều kênh cạnh nhau, cả khung ghép hoặc từng camera (`layout.json`), lùi tiến từng khung, tốc độ, chú thích thang màu; đánh giá cuối ghi thêm video sai khác (thang cố định, vùng không tính tô xám) và độ sâu; `scripts/video_layouts.py` tạo bù layout cho run cũ | Xong; test Python (gom bộ, khung camera nuScenes, KITTI-360, bản đồ sai khác); đã xem trên trình duyệt với run `28e5` (nuScenes 3 camera) và `fe92` (KITTI-360 mắt cá). Video sai khác, độ sâu chưa xem trên run thật (run đầu tiên có chúng: `d9ee`) | |
+| Sơ đồ camera và quỹ đạo xe (SPEC 8A; `recon/tools/scene_rig.py`, `engine/rig.py`, `reports/rig.json` CONTRACTS mục 3.3, `d2s scene rig`, `GET/POST /api/scenes/{id}/rig`, `components/SceneRig.tsx` ở tab Camera): pose lấy qua loader DriveStudio ở chế độ viewer, không đọc riêng file pose từng dataset; hướng xe đo từ hướng xe chạy trên cả cảnh; quỹ đạo có thanh khung, hướng xe, thước tỉ lệ | Xong; test toán với xe chạy vòng cung chỉ có camera nhìn ngang, test chạy loader thật trên cảnh KITTI-360 giả; đã tạo và xem trên trình duyệt cho `nuscenes_scene-0061`, `kitti360_0003_local`, `kitti360_drive0003` (cảnh Kaggle chỉ có pose, calib) | |
+| Xuất hình cho báo cáo (SPEC 8D; `studio/frontend/src/components/figureExport.tsx`): nút SVG, PNG (2x) dưới mỗi biểu đồ của trang so sánh; hình luôn theo giao diện sáng (đọc màu khi tạm đặt `data-theme="light"`, ghi thẳng vào từng phần tử), gồm tiêu đề, chú giải, cảnh báo của biểu đồ (trộn split, khác GPU) và dòng nguồn (cảnh, split, số iteration, ngày) | Xong; đã xuất thử SVG và PNG trên trình duyệt khi trang ở giao diện tối | |
+| Nghiệm thu tầng dữ liệu (SPEC mục 13; `drive2sim/scripts/data_acceptance.py`): dựng `DrivingDataset` bằng mã DriveStudio gốc (worktree tạm của ref `main`, config dataset gốc cùng lựa chọn camera, split của run) và bằng đường của tool (`config.yaml` của run) trên cùng thư mục cảnh ảo, so mọi tensor loader giữ; khác biệt cố ý ghi ở `KNOWN` | **Đạt** 20/11/2026: run `28e5` (nuScenes `scene-0061`, `front3`), 74 mảng, 71 giống từng bit, 3 bản đồ độ sâu LiDAR khác đúng do giữ điểm gần nhất (cùng tập pixel, khác dưới 0,03 % pixel, đường mới gần hơn ở mọi pixel đó, trung vị 12–16 m). Test phép so: lệch pose 1 µm bị bắt, độ sâu xa hơn bị báo chưa giải thích. KITTI-360 không có đường cũ (loader mới) | |
+| Studio còn thiếu: viewer chế độ chính theo thiết kế đích (worker render + viser trong Studio, `studio/viz`, mục 2.12; hiện dùng `tools/viewer.py` chạy riêng); chồng box, mask, LiDAR lên ảnh và độ dài cảnh ở trang cảnh (SPEC 8A); hiện người và vật biến dạng bằng box trong viewer Spark; nhóm E | Chưa làm | |
 | Kaggle (`kaggle/`): upload cảnh, notebook có gói job, đẩy, trạng thái, tải về, chạy tiếp qua output notebook trước; `run start --executor kaggle`; Studio `/api/kaggle` | Chạy thật 14/11/2026 với nuScenes `scene-0061`: upload cảnh và dataset SMPL, đẩy notebook, chạy tiếp lần 2 đều chạy. Đã sửa: chờ dataset vừa tạo (Kaggle trả 403 vài giây đầu), báo lỗi khi `kernels push` thoát 0 mà không tạo notebook (giới hạn 2 phiên GPU cùng lúc), cài trong venv Python 3.10. **Chưa có run chạy hết** (xem dòng môi trường) | `ccdb6f5`, `8a44539`, `a939c21` |
 | Ingest trên Kaggle (`kaggle/ingest.py`, `templates/ingest.ipynb`, `d2s kaggle ingest`): notebook CPU gắn dữ liệu gốc trên Kaggle, chạy `scene ingest`, máy chỉ tải file nhỏ (`manifest.yaml`, báo cáo, pose, calib: `kaggle/scene_files.py`), ghi `kaggle_scene.json`; `d2s kaggle scene-files` lấy bù pose, calib cho cảnh ingest trước đó (notebook CPU `d2s-files-...`, `templates/scene_files.ipynb`); `kaggle push` gắn output notebook ingest thay vì upload cảnh; chặn chạy cảnh đó trên máy, Colab | Xong trong code, test với Kaggle giả; dữ liệu gốc đã lên Kaggle 15/11/2026: dataset `d2s-raw-nuscenes-mini` (nuScenes v1.0-mini nguyên bản), notebook `d2s-kitti360-0003-raw` (KITTI-360 0003 đủ 1031 khung, 4 camera, LiDAR) cùng dataset `d2s-raw-kitti360-meta` (calib, pose, box 3D); notebook ingest chạy thật 15/11/2026: `d2s-ingest-nuscenes-mini-0061` ingest nuScenes `scene-0061` trên CPU Kaggle, báo cáo 0 lỗi, manifest trùng cảnh ingest trên máy (bỏ qua phiên bản converter). Lần tải đầu gặp 429 của Kaggle, chạy lại lệnh thì tải xong. Chưa train run nào từ cảnh ingest trên Kaggle | |
 | Phiên bản đầu ra của converter (`source.output_version`, `d2s-manifest/1.1`): cảnh báo cảnh cũ ở `scene validate`, Studio (trang cảnh), `approach check`, `run start`; `kaggle ingest` tự dùng notebook `-c<phiên bản>` mới, không đẩy lại notebook cũ (mục 4.2) | Xong trong code, test với Kaggle giả (17/11/2026); chưa chạy thật trên Kaggle | |
@@ -746,10 +891,12 @@ chạy cả các test đó, 496 test đạt, không bỏ qua test nào.
 | Studio: trợ lý hỏi đáp (`studio/api/assistant.py`, route `/api/assistant`, ngăn Trợ lý; Anthropic qua SDK, OpenAI, Gemini, OpenRouter, endpoint tự đặt; đề xuất cấu hình mở trang tạo run) | Xong trong code; test với nhà cung cấp giả (cả gói `anthropic` giả); chưa gọi nhà cung cấp thật | |
 | Studio: thời gian còn lại của stage đang chạy (`frontend/src/eta.ts`: từ sự kiện `progress`, còn lại = đã chạy × (1 − f) / (f − f0) tính từ lần báo đầu của stage; hiện ở ngăn Hoạt động và đường stage của trang run) và của việc nền có `progress` (tải từ Drive) | Xong trong code; kiểm công thức bằng script; chưa xem trên run train thật | |
 | Approach Instant NuRec (`approaches/nurec.yaml`, `external/nurec/`, stage `prep.ncore`, `train.nurec`, `eval.ncore`, `export.nurec_ply`, `render.nurec_video`; môi trường `nurec` cài bằng `envs/install_nurec.sh` hoặc nút trên Studio; notebook Colab, Kaggle) | Chạy thật trên máy lab với KITTI-360 `drive_0005` (120 khung, 4 camera): xem `docs/methods/nurec.md`. Chỉ có đường KITTI-360; `pq-front` chưa chọn được | |
-| Approach PVG, DeformableGS (`approaches/pvg.yaml`, `deformablegs.yaml`: config DriveStudio có sẵn, 3DGS, CamPose, không cần box 3D, mask không có vật động) và lựa chọn OmniRe nhiều camera (`extended_cam`, `omnire_extended_cam.yaml`). `train.drivestudio` tự tắt `data.pixel_source.load_dynamic_mask`, `load_objects` khi cảnh không có mask vật động, box; `export_preview.py` bỏ node RigidNodes rỗng | PVG chạy thật (thử nhanh) trên KITTI-360 không box: đủ năm stage, PSNR 13,8 (`docs/methods/nurec.md`). DeformableGS, OmniRe nhiều camera chưa chạy thật | |
+| Approach PVG, DeformableGS (`approaches/pvg.yaml`, `deformablegs.yaml`: mặc định là config DriveStudio có sẵn, 3DGS, CamPose; từ 26/11/2026 thêm renderer 3DGUT, 3DGEER (vẽ được mắt cá, tắt CamPose), CamPose tắt được, Faster-GS, và FastGS chỉ cho DeformableGS vì PVG refine theo cách riêng không áp mask của FastGS; `ut_densify=screen` chỉ cho OmniRe, Street GS vì trainer của nó là MultiTrainer; không cần box 3D, mask không có vật động) và lựa chọn OmniRe nhiều camera (`extended_cam`, `omnire_extended_cam.yaml`). `train.drivestudio` tự tắt `data.pixel_source.load_dynamic_mask`, `load_objects` khi cảnh không có mask vật động, box; `export_preview.py` bỏ node RigidNodes rỗng | PVG chạy thật (thử nhanh) trên KITTI-360 không box: đủ năm stage, PSNR 13,8 (`docs/methods/nurec.md`). DeformableGS, OmniRe nhiều camera chưa chạy thật. Các biến thể 3DGUT, 3DGEER, FastGS, Faster-GS của PVG, DeformableGS mới kiểm `approach check` và test config, chưa chạy thật | |
+| Approach BezierGS (`approaches/beziergs.yaml`, method `beziergs` của `train.drivestudio`, `configs/methods/beziergs.yaml`): node `BezierNodes` (`recon/models/nodes/bezier.py`, toán ở `bezier_math.py`) thay `RigidNodes`, `BezierTrainer` (`recon/trainers/bezier.py`) thêm lần vẽ vật động, bản đồ vận tốc và ba loss; chỉ 3DGS, không CamPose, cần box 3D và mask động (`docs/methods/beziergs.md`) | Xong trong code; test CPU (với `pytorch3d`, `gsplat` giả); đã chạy 30k iteration trên Kaggle T4 với Waymo 017: PSNR 27,2–27,8 so với 29,9 của BezierGS gốc; StreetGS cùng cảnh, cùng quy trình đạt 27,4, nên khoảng cách nằm ở phần chung với framework, chưa rõ nguyên nhân; thử biến thể `fastgs` (`beziergs_fastgs.yaml`): ít hơn 7 lần Gaussian, PSNR gần như giữ nguyên; `make test-gpu` chưa chạy | |
 | Studio: trang Thư viện (`engine/libraries.py`, route `/api/libraries`): môi trường chính, Instant NuRec, renderer CUDA, NCore, công cụ dựng người, SegFormer, SDK 7 dataset, uv, Colab CLI, Anthropic SDK, Node.js; trạng thái và nút cài qua `InstallFlow` (`start_command` cho lệnh pip, tải weight, `uv tool`) | Danh mục đọc đúng trạng thái trên máy lab; test với lệnh cài thật (Python) và route; chưa bấm cài SDK nào thật | |
+| Studio: trang Benchmark (`#/benchmark`, `frontend/src/pages/BenchmarkPage.tsx`, route `GET /api/benchmarks[/{name}]` ở `studio/api/routes/benchmarks.py`) hiện kết quả `run_benchmark`; dữ liệu mẫu có `benchmarks/demo.yaml` | Test API và dữ liệu mẫu; trang đã dựng và chụp màn hình bằng Firefox với dữ liệu mẫu (chưa có số R2, R3 thật vì chưa có run GPU) | |
 | Studio: ghép video hai run thành một MP4 ở trang So sánh (`studio/api/video_compare.py`, route `/api/compare/videos`) | Ghép thật hai video run PVG, NuRec trên máy lab (`docs/methods/nurec.md`); test | |
-| Studio: công cụ kiểm tra dữ liệu ở trang Cảnh: ảnh toàn cảnh 360° và LiDAR chồng ảnh (`studio/api/frame_tools.py`). Các phần khác của trang legacy Fisheye Fusion Lab đã có sẵn ở drive2sim: nhập KITTI-360 (ingest), dữ liệu demo (`make_demo`), train GEER nhỏ (run 3DGEER, thử nhanh), trang Experiment (So sánh, báo cáo), gói zip Colab, Kaggle (executor), tập con (split theo đoạn khung, camera; `d2s pack`) | Chạy thật trên KITTI-360 `drive_0005`: toàn cảnh phủ 79% (2048×1024, 1,9 s), LiDAR khít mép nhà, xe trên camera pinhole và mắt cá | |
+| Studio: công cụ kiểm tra dữ liệu ở trang Cảnh: ảnh toàn cảnh 360° và LiDAR chồng ảnh (`studio/api/frame_tools.py`). Các phần khác của trang legacy Fisheye Fusion Lab đã có sẵn ở drive2sim: nhập KITTI-360 (ingest), dữ liệu demo (`make_demo`), train GEER nhỏ (run 3DGEER, thử nhanh), trang Experiment (So sánh, báo cáo), gói zip Colab, Kaggle (executor), tập con (split theo đoạn khung, camera; `d2s pack`) | Chạy thật trên KITTI-360 `drive_0005`: toàn cảnh phủ 79% (2048×1024, 1,9 s), LiDAR khít mép nhà, xe trên camera pinhole và mắt cá; khi merge nhánh `feat/studio-fisheye-lab` (20/11/2026) ghép với ảnh chồng do loader tạo (`recon/tools/lidar_overlay.py`): cùng thang màu, điểm trên thân xe tô xám, test phép chiếu nhanh trùng loader, dataset cách nhanh chưa đọc được thì dùng ảnh của loader cho các khung có sẵn | |
 | Studio: nhận dạng dataset khi duyệt Google Drive (cùng `inspect_source` trên cây dựng lại, như Fisheye Fusion Lab nhận ra gốc KITTI-360 trên Drive), chỉ tải một chuỗi KITTI-360 (`kitti360.sequence_prefixes`) hoặc vài mục đã tick (`include` của `pull_folder`) | Chạy thật trên Drive của người dùng: `datasets/kitti360_full` nhận ra KITTI-360 | |
 | Studio: bản xem trước video cho trình duyệt (`studio/api/preview.py`); Colab tải qua `colab exec` khi API nội dung lỗi | Xong; test; chưa phát thử với run thật | `b1983fb`, `6fb4609` |
 | `envs/main.yml`, `envs/install_main.sh`, ô cài phụ thuộc trong notebook Kaggle dùng chung script; kiểm tra môi trường (`engine/environment.py`, `GET /api/approaches/{id}/environment`, `d2s approach check`) | Đã cài thử trên máy cá nhân (Quadro T2000, CUDA toolkit 12.8); notebook Kaggle chạy thật 14/11/2026: qua bước PyTorch và `requirements.txt` trong venv 3.10, lỗi ở bước build gsplat-geer vì image Kaggle chỉ có `nvcc` 13.0, khác major với torch cu121; nay `install_main.sh` thấy khác major thì cài CUDA 12.8 riêng (`envs/install_cuda.sh`, gói conda của NVIDIA, ~3 GB, không cần root) rồi build bằng bản đó | |
@@ -759,7 +906,7 @@ chạy cả các test đó, 496 test đạt, không bỏ qua test nào.
 | Stage `export.preview` (`recon/tools/export_preview.py`: nền, từng xe, pose theo khung) | Xong trong code; test với lệnh giả; **chưa chạy thật** (cần checkpoint và PyTorch) | |
 | Viewer chính (mục 2.12) trong Studio: trang Xem 3D, mode Render GPU kiểm tra máy rồi bật `tools/viewer.py --host 127.0.0.1` cho một run và nhúng vào trang (`studio/api/gpu_viewer.py`) | Xong trong code; test với viewer giả; **chưa chạy thật** (cần checkpoint thật) | |
 | Xem 3D đúng hệ toạ độ (mục 2.13): PLY của tool ghi trục lên trong header, file ngoài tự đoán trục lên, khung nhìn bao phần lõi cảnh, mở ở pose camera gốc từ `cameras.json` | Xong; đã thử trong trình duyệt với một `scene.ply` thật từ nơi khác (đoán ra Z−, cảnh đứng thẳng) và run mẫu; `cameras.json` do `train.py` ghi **chưa chạy thật** (cần GPU), nên chỉ run train sau thay đổi này mới có góc camera gốc | |
-| Bộ kiểm tra: chiếu LiDAR lên ảnh | Chưa làm; báo cáo ghi mục `projection.not_run` | |
+| Bộ kiểm tra: chiếu LiDAR lên ảnh (`recon/tools/lidar_overlay.py`, `ingest/reports.py`, `projection_checks` trong `ingest/validate.py`, `d2s scene lidar-check`, `GET/POST /api/scenes/{id}/lidar`, `components/LidarOverlay.tsx` ở tab Kiểm tra; CONTRACTS mục 3.4): ảnh LiDAR chồng lên ảnh camera (3 khung) để người xem, không phải bước duyệt; kiểm tra thô tự động: camera gần như không có điểm (`projection.camera_sparse`), độ sâu vô lý (`projection.depth_range`), camera nghiêng bất thường so với các camera khác (`projection.camera_tilt`, từ `tilt_deg` của `rig.json`) | Xong; test cả ba cảnh báo; thử làm hỏng calib bản sao `kitti360_0003_local`: đổi vị trí camera sang mm bị bắt (`camera_sparse`), xoay `image_03` 100 độ bị bắt (`camera_tilt`; kiểm mật độ không bắt được vì camera mắt cá vẫn thấy nửa số điểm). Trên bản sao `nuscenes_scene-0061` (calib mỗi khung một file): `CAM_FRONT_LEFT` xoay 100 độ bị bắt (`camera_sparse` và `camera_tilt`), vị trí gắn ghi theo mm bị bắt (`camera_sparse`); calib `CAM_FRONT_LEFT` và `CAM_FRONT_RIGHT` đổi chỗ cho nhau **không** bị bắt (số liệu bình thường), chỉ thấy trên ảnh chồng (vạch LiDAR không khớp cây, toà nhà). Bốn cảnh thật không có cảnh báo (camera nghiêng dưới 5 độ). **Lệch nhỏ vài pixel không đo tự động:** đã thử tỉ số gradient ảnh tại mép độ sâu và cách của Levinson & Thrun (2013) trên ảnh, cả hai không tìm lại được độ lệch (4, −3) px cố ý đưa vào nuScenes, KITTI-360 (đỉnh luôn ở biên vùng tìm); muốn đo cần thứ tự vòng quét của LiDAR như `scripts/check_kitti360_projection.py` | |
 | `scene ingest` cho Waymo, Argoverse 2, KITTI, nuPlan, PandaSet, PhysicalAI (converter chung, nhận dạng từng dataset) | Xong trong code; có test với dữ liệu giả; **chưa chạy thật** (cần dữ liệu và devkit của từng dataset) | |
 | `scene ingest` cho KITTI-360 (`ingest/kitti360.py`, 2 pinhole + 2 mắt cá + LiDAR + pose); khớp Mei → OpenCV fisheye (`core/camera.py`) | Xong; test với dữ liệu giả; **đã chạy thật** trên chuỗi 0003 (30 khung): pose camera 0 khớp `cam0_to_world.txt` (lệch 6e-7 xoay, 0,45 mm tịnh tiến, bằng độ làm tròn của file), chiếu LiDAR khớp chuỗi chính thức tới 2e-10 px (pinhole), 0,8 px (mắt cá, do phép khớp Mei) bằng công cụ `drive2sim/scripts/check_kitti360_projection.py` (`docs/datasets/kitti360.md`). Box 3D (`ingest/kitti360_boxes.py`): đọc `data_3d_bboxes`, ghi `instances/` và `dynamic_masks/` theo định dạng KITTI của DriveStudio; test với dữ liệu giả, chạy thật 15/11/2026 trên 40 khung của chuỗi 0003 (9 xe), box chiếu lên ảnh pinhole và mắt cá trùng xe | |
 | Loader DriveStudio cho KITTI-360 (`recon/data/loaders/kitti360.py`, lớp con của loader KITTI): mô hình, cỡ camera đọc từ `manifest.yaml`, ảnh PNG, camera mắt cá vẽ theo mô hình OpenCV fisheye (không khử méo), vùng ngoài góc dùng được của camera (mục 2.15) bị loại khỏi loss; config `kitti360/4cams`, `kitti360/2cams`; `train.drivestudio` tự chọn config theo manifest | Xong trong code; test với cảnh giả trên CPU (tia, góc tia so với `cv2.fisheye`, chiếu điểm, camera pinhole giữ đường cũ, `DrivingDataset` dựng được với LiDAR); **chưa chạy thật** (chưa train OmniRe, Street GS trên cảnh KITTI-360 thật) | |
@@ -768,6 +915,9 @@ chạy cả các test đó, 496 test đạt, không bỏ qua test nào.
 | Metric theo camera và theo vùng hợp lệ (protocol `0.3`): `train.py` ghi PSNR, SSIM, LPIPS theo từng camera, `eval.standard` đổi chỉ số camera sang `camera_id` để điền `per_camera`; khi loader có `valid_masks` (mắt cá KITTI-360, Waymo, PhysicalAI) SSIM và LPIPS chỉ tính trên điểm ảnh hợp lệ như PSNR (trước đây vùng không hợp lệ bị tô đen ở cả hai ảnh nên SSIM, LPIPS bị đẩy lên tốt hơn thực tế); ảnh không có điểm hợp lệ bị bỏ qua thay vì làm trung bình thành NaN | Xong trong code; test trên CPU (`tests/drive2sim/recon/rendering/test_image_metrics.py`); **đã chạy thật** 17/11/2026 trên Quadro T2000: OmniRe + 3DGUT + FastGS + Faster-GS, KITTI-360 0003 ingest lại trên máy 20 khung, split `every5_mixed4` (68 ảnh train, 12 test, cả 4 camera), 500 bước: mọi stage xong (SMPL bỏ qua vì đoạn không có người), `per_camera` đủ 4 camera (PSNR `image_00` 18,7, `image_01` 18,9, `image_02` 16,2, `image_03` 15,0; chỉ để kiểm đường chạy, 500 bước chưa hội tụ), train 120 giây, VRAM đỉnh 2,2 GB. Loader KITTI-360 mắt cá, `export.ply_world`, `export.preview` cũng chạy qua trong run này. Run cũ giữ `summary.json` protocol `0.2`: SSIM, LPIPS của camera có `valid_masks` không so trực tiếp được với run mới | |
 | `converter_version` thêm hậu tố `.dirty-<hash8>` khi mã converter (`ingest/`, `recon/preprocess/`, `core/`) có thay đổi chưa commit, để khoá cache không trùng giữa hai bản code chưa commit | Xong; test với repo git tạm | |
 | `make test-gpu`: chạy toàn bộ test bằng conda env GPU, gồm test cần PyTorch mà `make check` bỏ qua | Xong | |
+| Benchmark lõi (mục 2.17): protocol `0.5` (`frames.jsonl` có `psnr_cc`, `lpips_cc`, `psnr_static`, `depth` so với LiDAR; `d2s-summary/0.8` có `shifted`, `coverage`), split có camera chỉ test (`d2s-split/0.2`), stage `eval.ply`, `engine/benchmark.py` (chuỗi phân xử R2, R3, thời gian train cùng GPU, hiệu chỉnh ngưỡng theo seed), `d2s benchmark`, `d2s-benchmark/0.2`, `d2s-benchresult/0.4`; `d2s report` đọc cả `eval.ncore` | Code và test local hoàn tất; phần đo trong `render` (`videos.py`), `train.drivestudio` với camera chỉ test, `eval.ply` và `tools/eval_ply.py` **chưa chạy thật** vì máy phát triển không có GPU (kiểm đầu tiên: KITTI-360 A1, 3.000 bước). Chưa làm: KID lệch làn, PSNR quanh chỗ nối chunk. Chủ ý không làm: `ghost_ratio`, `static_psnr` như tiêu chí xếp hạng, ATE tự tính | |
+| Chạy trên GPU thuê vast.ai (`envs/vast.sh`, mục 2.18) | Script kiểm cú pháp và chạy khô; **chưa chạy trên máy thuê** | |
+| MCGS-SLAM ngoài (mục 2.19): `envs/install_mcgs.sh`, `external/mcgs/` (căn quỹ đạo, dựng view test, calib), stage `prep.mcgs`, `train.mcgs`, `eval.mcgs`, approach `mcgs`; `coverage` ở `summary.json` | Có test (cảnh, pose, ảnh giả; bước vẽ và `demo.py` giả); script cài, `demo.py`, bước vẽ bằng gsplat **chưa chạy thật**. **Chưa có** notebook Kaggle, kiểm tra môi trường `external:mcgs`; cần một lần chạy thật để chốt chiều `baseline` (mục 2.19) | |
 | `sim/` (L2–L4) | Chưa làm | |
 
 Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiền xử lý (mask, SMPL); OmniRe, Street GS, PVG, Deformable-GS; renderer 3DGS / 3DGUT / 3DGEER; rolling shutter ở `ut`/`geer`; FastGS; `tools/eval.py`; video; `tools/viewer.py`; `tools/export_ply.py`; đọc NCore V4 cho PhysicalAI.
@@ -803,7 +953,7 @@ Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiề
 1. **Kaggle chạy tiếp được:** sửa chạy tiếp (mục 7.2; đã sửa trong code, chưa chạy thử) và làm `drive2sim/kaggle/`. Chạy được OmniRe trên cảnh nuScenes mini mà teammate đã dùng; đây cũng là lần kiểm tra hành vi của bước 0.
 2. **Engine và stage bọc mã hiện có:** registry, file approach có mục cấu hình, `train.drivestudio`, `eval.standard`, `export.ply_world`, `run.json`, CLI `d2s`. Video vẫn do `train.py` ghi sau đánh giá cuối; chưa tách thành stage `render.videos`. Đạt L1 theo thiết kế; Studio nhóm A–D làm song song.
 3. **Tầng dữ liệu:** `source inspect`; `scene ingest` cho nuScenes (gọi script có sẵn, sinh `manifest.yaml`); bộ kiểm tra. Sau bước này `d2s run start omnire` chạy trọn đường. Chạy thật trên Kaggle cùng cảnh nuScenes mini mà teammate đã dùng, so PSNR với đường cũ. Rồi stage `prep.masks_segformer`, `prep.smpl` ghi vào cache.
-4. **Tách khởi tạo:** `init.lidar` tách khỏi dataset, rồi `init.depth`. Thí nghiệm có LiDAR so với không LiDAR là đổi mục cấu hình `init`.
+4. **Tách khởi tạo:** `init.lidar` tách khỏi dataset, rồi `init.depth`. Thí nghiệm có LiDAR so với không LiDAR là đổi mục cấu hình `init`. Chưa làm bước này; ô A-0 của benchmark dùng tạm tham số `train.drivestudio.lidar=false` (mục 2.17), vì tách `init.lidar` là refactor lớn cần so hồi quy trên GPU mà A-0 không cần.
 5. **Config kế thừa** thay cho config chép file. Đã cài `extends` (`drive2sim/core/config.py`, CONTRACTS mục 10.5); các biến thể `*_nocampose`, `*_geer`, `*_ut`, `*_fastgs` đã chuyển sang dạng kế thừa; `tests/drive2sim/core/test_config.py` (`VARIANTS`) kiểm mỗi biến thể chỉ khác file cha ở đúng các khoá đã khai. File gốc lấy từ DriveStudio (`omnire.yaml`, `streetgs.yaml`, `omnire_extended_cam.yaml`, `pvg.yaml`, `deformablegs.yaml`) giữ nguyên.
 6. **sim/renderer.py** → L2 và viewer chế độ chính.
 7. **sim/actors.py** → L3.
@@ -820,12 +970,16 @@ Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiề
 
 ## 9. License
 
+XSIM và xsimgs dùng Apache-2.0. Checkout XSIM giữ THIRD_PARTY_LICENSES.md cho mã kế thừa gsplat, 3DGUT và OmniRe. Quyền sử dụng weights SMPL được quản lý riêng.
+
+
 - Repo: MIT (DriveStudio) cộng AGPL-3.0 (patch Bosch, FastGS dựa trên patch), nên phần thêm vào cũng phân phối theo AGPL.
 - gsplat-geer đi kèm `3dgs-license.txt` của Inria (phi thương mại).
 - `drive2sim/recon/tools/export_ply.py` dùng `plyfile` (GPLv3+).
 - Weights SegFormer của NVIDIA dùng trong `drive2sim/recon/preprocess/masks/segformer_hf.py` chỉ cho dùng phi thương mại.
 - NCore, proto `SensorsimService`: Apache-2.0; giữ nguyên ghi chú bản quyền khi đưa vào repo.
 - viser, nerfview, Spark: MIT.
+- BezierGS (LogosIntelligenceLab/BezierGS, commit `6df0a36`): MIT; `recon/models/nodes/bezier_math.py`, `bezier.py` và `recon/trainers/bezier.py` port thuật toán của nó, ghi nguồn ở docstring đầu file.
 - Dữ liệu (Waymo, nuScenes...) không nằm trong repo; dataset upload lên Kaggle luôn để private; cảnh upload lên Colab chỉ nằm trên VM của người dùng. KITTI-360: CC BY-NC-SA 3.0.
 - google-colab-cli (Apache-2.0) chỉ được gọi như lệnh ngoài, không đi kèm repo.
 
@@ -839,3 +993,100 @@ Mã DriveStudio đã có sẵn trong `drive2sim/recon/`: loader 7 dataset; tiề
 - Kiểm tra schema cho mọi file trong `drive2sim/approaches/`, kể cả `constraints` và `presets`.
 - Kiểm tra chạy tiếp: ngắt một run giữa chừng rồi chạy lại, so checkpoint và các file `done`.
 
+
+
+### Công cụ sửa mask thân xe (26/11/2026)
+
+**Quyết định.** `studio/frontend/src/components/EgoMaskEditor.tsx` hiển thị camera được chọn,
+hướng dẫn điểm xanh/đỏ, trạng thái chờ và cọ tẩy. Nét tẩy chuyển theo pixel ảnh gốc tới
+`studio/api/routes/scenes.py`, xử lý ở `studio/api/ego_mask_tool.py: erase`, ghi mask nháp.
+Mask đã lưu chỉ đổi khi người dùng xác nhận lưu. Chuyển camera bị khoá khi đang xử lý.
+
+**Lý do và ưu điểm.** Tẩy sửa được những mảng SAM2 chọn thừa mà không gọi lại model. Cọ chạy
+bằng OpenCV trên mask nhị phân, cùng đường lưu và đọc mask hiện có. Không cần môi trường SAM2
+để tẩy mask đã lưu.
+
+**Nhược điểm.** Nét tẩy cần một yêu cầu tới server khi thả chuột; ảnh trung vị và mask nháp
+vẫn nằm trong `reports/ego_mask/`. Chọn điểm SAM2 mới sẽ tạo lại mask từ các điểm, nên giao diện
+nhắc người dùng về việc này. Endpoint và đơn vị cọ được ghi trong CONTRACTS.
+
+
+### Chặn tên cảnh trùng trước khi nạp (26/11/2026)
+
+**Quyết định.** Route ingest kiểm tra định danh và thư mục cảnh trước khi tạo job.
+`BackgroundJobs.submit` hỗ trợ `exclusive` cho cùng loại việc và `target`; ingest giữ đích
+`scene:<scene_id>` trong khi chờ/chạy. Kiểm tra và ghi job dùng cùng khoá luồng. Job lỗi hoặc
+hoàn tất không giữ đích. Converter vẫn kiểm tra thư mục đích trước khi ghi.
+
+**Lý do và ưu điểm.** Tên trùng được báo 409 ngay trong hộp thoại, có thể sửa tên và gửi lại.
+Giao diện cảnh báo tên đã có từ danh sách cảnh, còn server kiểm tra lại để xử lý nhiều cửa sổ.
+Ô tên nhận tên ngắn, thêm tiền tố dataset và hiển thị định danh đầy đủ trước khi gửi,
+để người dùng nhập `test` vẫn lưu đúng dạng `phenikaa_test`.
+
+**Nhược điểm.** Giữ đích thuộc vòng đời server Studio; converter tiếp tục chịu trách nhiệm
+kiểm tra dữ liệu đích khi có tiến trình ngoài Studio. Không tạo thêm file trạng thái giữ chỗ.
+
+
+### Tích hợp các nhánh benchmark, Studio và XSIM (26/11/2026)
+
+**Quyết định.** Giữ cả artifact `observations` và `mcgs_input`. Split có camera chỉ test được
+chuyển qua đường dựng dữ liệu chung; XSIM xuất đủ camera, chỉ khởi tạo và train từ các cặp train,
+chấm camera chỉ test trong `Summary.shifted`, có khớp màu affine như scorer DriveStudio.
+`prep.observations` kiểm tra khung test của các camera có train, thay vì gộp cả camera chỉ test.
+
+**Lý do và ưu điểm.** Gộp nguyên thay đổi ở từng nhánh sẽ làm XSIM từ chối split mới hoặc tính
+camera chỉ test vào metric tổng. Báo cáo chính được chọn từ stage eval thành công có summary,
+để bước chấm PLY bổ sung không che báo cáo chính. NuRec ghi protocol theo cách chấm thực tế;
+metric cũ thiếu dấu protocol tiếp tục dùng nhãn `ncore-0.3`.
+
+**Nhược điểm.** Bộ kiểm thử local xác nhận các đường dữ liệu và tương thích; train XSIM, MCGS,
+NuRec và kết nối CARLA trên GPU thật còn cần chạy xác minh riêng.
+
+
+### Snapshot mask và scorer sau tích hợp (26/11/2026)
+
+**Nguyên nhân.** Đầu vào cảnh của cache trước đây chỉ có `scene_id` và phiên bản converter.
+Sửa mask trong Studio không đổi khoá, nên observations có thể giữ vùng che cũ. NuRec dùng mask
+ước lượng riêng và đưa camera chỉ test vào context/refinement. MCGS bỏ hệ số méo pinhole khi
+xuất view nhưng vẫn giữ ảnh méo. Scorer NuRec nhận ảnh thô, trong khi DriveStudio/XSIM đã che
+pixel trước khi gọi scorer, gây lệch SSIM tại biên mask. Editor có thể tẩy nhầm nháp còn ẩn.
+
+**Quyết định.** Giữ các module hiện có: `ingest/ego_masks.py` giải mask hiệu lực, băm nội dung
+và chụp bản hiệu lực; `engine/run.py` ghi digest vào `d2s-run/0.4`, dựng cảnh ảo với snapshot.
+`kaggle/bundle.py` mang các PNG/status nhỏ qua `scene_ref.json` base64, nên dùng lại dataset cảnh
+trên Kaggle/Colab được. Cảnh ảo ở `.runtime/<run_id>/` được dựng lại tại máy chạy để không gói
+nhầm symlink dữ liệu lớn. Không thêm package hoặc cây thư mục mã mới (mục 3/3.1 giữ nguyên).
+
+`prep.ncore` truyền mask chính thức qua converter và cùng rectifier của RGB. `external/mcgs/views.py`
+đọc resolver chung, dùng `initUndistortRectifyMap` với K gốc cho cả RGB và valid mask pinhole;
+biên ngoài ảnh bị loại. `train.nurec` loại camera chỉ test khỏi context, refinement xuất đúng
+cặp train, `eval.ncore` tách overall/shifted và metric khớp màu. Scorer chung đặt pixel không hợp
+lệ về 0 trước bản đồ SSIM; protocol mới 0.6. `engine/benchmark.py` nhận diện `eval.ncore` 0.5 cũ
+thành nhóm riêng, giữ khả năng so DriveStudio 0.3–0.6 vốn đã che ảnh trước scorer.
+
+Editor giữ nháp ở `reports/ego_mask/` như quyết định hiện có, thêm discard và revision cùng
+nguồn saved/draft tường minh. PNG thay nguyên tử; một RLock trong Studio giữ thao tác kiểm
+revision và sửa file liền nhau. Client cũ vẫn dùng được, client Studio mới gửi revision.
+
+**Ưu điểm.** Cache đổi theo mask thật, run resume giữ dữ liệu cũ, remote không phải upload lại
+cảnh lớn. Mask cùng hình học với ảnh, camera chỉ test giữ đúng vai trò và editor sửa đúng bản.
+
+**Nhược điểm và lựa chọn khác.** Mỗi run giữ thêm vài PNG và status, chưa đo dung lượng trên toàn
+bộ cảnh thật. Base64 làm payload snapshot tăng khoảng một phần ba so với PNG. Đổi digest làm
+cache của run mới không dùng khoá cảnh cũ, nên lần đầu phải tính lại. Run cũ không có snapshot
+không thể khôi phục mask lịch sử. Xoá cache khi sửa mask không giải quyết resume/remote và phá
+cache vẫn còn hữu ích; băm cả thư mục cảnh quá tốn công so với việc chỉ băm mask có thể sửa.
+Khoá editor chỉ bảo vệ một tiến trình Studio; chưa có nhu cầu chạy nhiều server cùng workdir.
+
+**Tiến độ (bổ sung mục 7.1).** Đã triển khai các đường code và test hồi quy local cho sáu lỗi.
+Chưa nghiệm thu train/render trên GPU hoặc job Kaggle/Colab thật; xem báo cáo kiểm thử của đợt
+sửa để phân biệt test bằng dữ liệu giả, CPU và nghiệm thu dữ liệu thật.
+
+
+Kiểm chứng đợt sửa: bộ local và Python 3.9 cùng đạt 768 passed, 49 skipped; nhóm bổ sung
+loader/refinement/benchmark đạt 109 passed trong môi trường conda. `make test-gpu` đạt 1004
+passed và 3 lỗi BezierGS đã có trước đợt sửa (các test CPU gọi toán CUDA của gsplat); mã BezierGS
+không đổi. Build và sinh kiểu Studio qua. Playwright headless với API thật, cảnh ảnh giả đã
+kiểm mở nháp, bỏ nháp trên server, tẩy đúng nguồn saved, quay lại camera vẫn có nháp, từ chối
+revision cũ và lưu thành mask chính thức; không có lỗi JavaScript. Đây là kiểm chứng local,
+không thay thế train/render bằng dữ liệu thật trên GPU hoặc thực thi cloud.

@@ -1,0 +1,226 @@
+\chapter{Research Plan (Kế hoạch nghiên cứu)}
+
+\section{Kế hoạch 3 phase}
+
+Project chia thành 3 phase.
+Mỗi phase tạo ra đầu vào cho phase sau: phase 1 chốt hướng đi, phase 2 tạo bằng chứng, phase 3 biến bằng chứng thành sản phẩm.
+
+\begin{table}[H]
+  \centering
+  \caption{Tổng quan 3 phase}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.3cm} X X}
+    \toprule
+    \textbf{Phase} & \textbf{Mục tiêu} & \textbf{Kết quả chính} \\
+    \midrule
+    1. Hiểu bài toán & Cả nhóm có chung bức tranh tổng thể & Dataset và nguồn pose đã chốt, danh sách approach, kế hoạch phân công \\
+    \addlinespace
+    2. Code pipeline của mỗi approach, kèm chạy thử & Có số liệu thật để so sánh & Demo và bảng benchmark của 4 approach \\
+    \addlinespace
+    3. Xây tool và bàn giao & Gom kết quả thành sản phẩm dùng được & Tool, technical report, bàn giao cho mentor \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\subsection{Phase 1: Literature review và thống nhất hướng đi}
+
+Mục tiêu của phase này là để cả nhóm hiểu cùng một bài toán trước khi chia việc.
+
+Công việc:
+\begin{itemize}
+  \item Đọc tài liệu và tổng hợp các phương pháp, approach và pipeline hiện có.
+  \item Thảo luận nhóm để thống nhất bức tranh tổng thể: bài toán, dataset, phương pháp, các thành phần cần có và các công việc cần làm.
+  \item Khảo sát dataset cho hai track pinhole/fisheye + LiDAR, kiểm tra dữ liệu có đủ calibration, pose và timestamp không.
+  \item Chốt nguồn pose: dùng pose có sẵn của dataset, hay phải chạy ước lượng pose.
+  \item Phác thảo high-level architecture và các module contract ở mức đủ để chia việc.
+  \item Thống nhất phần dùng chung: format dữ liệu, hệ tọa độ, cách đo và cách ghi kết quả.
+\end{itemize}
+
+Kết quả cần có:
+\begin{itemize}
+  \item Dataset và nguồn pose đã chốt.
+  \item Danh sách 4 approach được chọn và lý do chọn.
+  \item Bản nháp architecture và evaluation protocol.
+  \item Phân công người phụ trách từng approach.
+\end{itemize}
+
+\subsection{Phase 2: Chạy thử 4 approach và benchmark}
+
+Nhóm chia nhau tìm hiểu 4 approach/pipeline/method tốt nhất.
+Mỗi approach phải được chạy thật, có demo và số liệu, không dừng ở việc đọc paper.
+
+Mỗi người phụ trách một approach và làm theo các bước:
+\begin{enumerate}
+  \item Đọc paper và code, ghi lại input, output, các module trong pipeline và yêu cầu phần cứng.
+  \item Dựng môi trường và chạy thử trên dữ liệu mẫu của repository để xác nhận code hoạt động.
+  \item Chuyển dataset đã chốt sang định dạng mà approach yêu cầu.
+  \item Chạy thử một đoạn ngắn từ đầu đến cuối: dữ liệu $\to$ calibration/pose $\to$ reconstruction $\to$ render ảnh giữ lại $\to$ tính số đo.
+  \item Chạy trên toàn bộ đoạn dữ liệu đã thống nhất và tạo demo.
+  \item Ghi lại kết quả theo mẫu chung, kể cả các trường hợp thất bại.
+  \item Hoàn thành bảng ánh xạ module và adapter tối thiểu, để approach sớm chạy được trên tool.
+\end{enumerate}
+
+Mọi approach được đánh giá trên cùng dữ liệu và cùng cách đo:
+\begin{table}[H]
+  \centering
+  \caption{Nội dung evaluation/benchmark cho mỗi approach}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{3.5cm} X}
+    \toprule
+    \textbf{Nhóm} & \textbf{Cần ghi lại} \\
+    \midrule
+    Chất lượng hình ảnh & Render lại các ảnh không dùng để train (held-out views), so với ảnh thật, ví dụ bằng PSNR \\
+    \addlinespace
+    Chi phí & Thời gian chạy, VRAM, phần cứng cần dùng, lượng thao tác thủ công \\
+    \addlinespace
+    Khả năng hỗ trợ & Pinhole, fisheye, LiDAR và những phần approach không làm được \\
+    \addlinespace
+    Khả năng tích hợp & Module thay thế được, format output, khả năng đưa vào CARLA \\
+    \addlinespace
+    Failure cases & Trường hợp lỗi, nguyên nhân dự đoán, cách khắc phục đã thử \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Song song, có thể chạy CARLA với bản đồ có sẵn để kiểm tra phần mô phỏng độc lập với reconstruction.
+Nếu kết quả thực tế không khớp với thiết kế ban đầu, cập nhật lại architecture và contract.
+
+Kết quả cần có:
+\begin{itemize}
+  \item Demo và log chạy của từng approach.
+  \item Bảng benchmark so sánh 4 approach.
+  \item Nhận xét approach nào phù hợp với track nào, kèm bằng chứng.
+  \item Danh sách module và contract đã chỉnh theo kết quả thực tế.
+\end{itemize}
+
+\subsection{Phase 3: Xây dựng tool, hoàn thiện và bàn giao}
+
+Phase này tổng hợp kết quả của phase 2 thành một tool hoàn chỉnh.
+
+Công việc:
+\begin{itemize}
+  \item Chuẩn hóa các module đã chạy được của 4 approach theo contract chung.
+  \item Xây dựng tool để chọn method trong từng module và đổi thứ tự module theo từng approach.
+  \item Chạy thử các pipeline trên tool, so kết quả với số liệu ở phase 2 để phát hiện sai lệch.
+  \item Sửa lỗi và cải thiện tool.
+  \item Kiểm tra CARLA integration feasibility và chạy lại để kiểm tra tính nhất quán.
+  \item Hoàn thành technical report.
+  \item Bàn giao code, hướng dẫn sử dụng, demo và báo cáo cho mentor đánh giá.
+\end{itemize}
+
+Kết quả cần có:
+\begin{itemize}
+  \item Tool chạy được các pipeline đã chọn.
+  \item Scene demo và bảng đánh giá cuối cùng.
+  \item Technical report và bộ tài liệu bàn giao.
+\end{itemize}
+
+\begin{warning}
+Các mục sau chưa được xác nhận là deliverable bắt buộc: chạy toàn bộ Autoware và hoàn thành neural sensor closed-loop.
+Cần hỏi mentor trước khi đưa vào phạm vi.
+\end{warning}
+
+\section{Liên hệ giữa phase và tài liệu}
+
+\begin{table}[H]
+  \centering
+  \caption{Phase và phần tài liệu tương ứng}
+  \begin{tabularx}{\linewidth}{l l X}
+    \toprule
+    \textbf{Phase} & \textbf{Thời gian đề xuất} & \textbf{Tài liệu} \\
+    \midrule
+    Phase 1 & Tuần 1 & Part I: chốt dataset, protocol, 4 approach; các chương khác ở mức đủ dùng và cập nhật dần \\
+    Phase 2 & Tuần 2--4 & Part II: mỗi người hoàn thành chương của mình \\
+    Phase 3 & Tuần 5--6 & Part III: tổng hợp, tích hợp tool, đánh giá CARLA feasibility \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Responsibilities}
+
+\begin{table}[H]
+  \centering
+  \caption{Phân công}
+  \begin{tabularx}{\linewidth}{X l}
+    \toprule
+    \textbf{Công việc} & \textbf{Người phụ trách} \\
+    \midrule
+    Approach A & TBD \\
+    Approach B & TBD \\
+    Approach C & TBD \\
+    Approach D & TBD \\
+    Tool và script đánh giá dùng chung & TBD \\
+    Road logic, traffic và CARLA & TBD \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Dependencies}
+
+\begin{itemize}
+  \item Chương 4 phải chốt trước khi benchmark, vì mọi số liệu đều phụ thuộc vào protocol.
+  \item Dataset và nguồn pose phải chốt trước khi chạy approach.
+  \item Script đánh giá dùng chung phải có trước khi so sánh kết quả.
+  \item Chạy approach và chạy baseline CARLA không phụ thuộc nhau, nên có thể làm song song.
+  \item Tích hợp tool phụ thuộc vào bảng ánh xạ module và adapter của từng approach.
+\end{itemize}
+
+\section{Milestones}
+
+Các mốc dưới đây là đề xuất, dựa trên thời gian phase ở mục trên.
+
+\begin{table}[H]
+  \centering
+  \caption{Mốc kiểm tra}
+  \begin{tabularx}{\linewidth}{l X l}
+    \toprule
+    \textbf{Tuần} & \textbf{Mốc} & \textbf{Mức} \\
+    \midrule
+    1 & Part I được thống nhất, dataset, protocol và 4 approach đã chốt & M0 \\
+    2 & Mỗi approach chạy được trên dữ liệu mẫu, script đánh giá dùng được & M1 \\
+    3 & Vertical slice chạy được trên dataset đã chốt & M1 \\
+    4 & Có demo và benchmark của 4 approach, Part II hoàn thành & M2 \\
+    5 & Các approach chạy được trên tool, bảng so sánh hoàn thành & M2 \\
+    6 & Tool ổn định, CARLA feasibility và report hoàn thành, bàn giao mentor & M2, một phần M3 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Rủi ro và phương án dự phòng}
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Rủi ro chính}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Rủi ro} & \textbf{Dấu hiệu sớm} & \textbf{Phương án dự phòng} \\
+    \midrule
+    Approach không chạy được hoặc thiếu code & Chưa chạy được dữ liệu mẫu sau tuần 2 & Thay bằng approach dự phòng trong shortlist \\
+    \addlinespace
+    Dataset thiếu calibration hoặc pose & LiDAR chiếu lên ảnh bị lệch & Đổi sequence, đổi dataset hoặc chạy ước lượng pose \\
+    \addlinespace
+    Thiếu GPU hoặc VRAM & Train quá lâu hoặc hết bộ nhớ & Dùng đoạn dữ liệu ngắn hơn hoặc thuê GPU \\
+    \addlinespace
+    Khó nối renderer với CARLA & Chưa có phần nối sẵn cho method & Dừng ở baseline CARLA, ghi lại trong feasibility study \\
+    \addlinespace
+    Trích xuất road logic không kịp & Bản đồ tự động không hợp lệ & Vẽ tay cho một khu vực nhỏ \\
+    \addlinespace
+    Tích hợp tool bị trễ & Chưa có bảng ánh xạ module cuối tuần 4 & Ưu tiên tool chạy được 2 approach tốt nhất \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Nhật ký quyết định}
+
+Mỗi quyết định được ghi lại cùng bằng chứng, để biết khi nào cần xem xét lại.
+
+\begin{table}[H]
+  \centering
+  \caption{Mẫu nhật ký quyết định}
+  \begin{tabularx}{\linewidth}{l X X l}
+    \toprule
+    \textbf{Ngày} & \textbf{Quyết định} & \textbf{Bằng chứng} & \textbf{Trạng thái} \\
+    \midrule
+     &  &  &  \\
+    \bottomrule
+  \end{tabularx}
+\end{table}

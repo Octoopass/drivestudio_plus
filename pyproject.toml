@@ -19,6 +19,8 @@ dev = ["pytest>=7", "httpx>=0.24"]
 studio = ["fastapi>=0.110", "uvicorn>=0.29"]
 # Chạy run trên Kaggle: tool gọi lệnh kaggle (đã kiểm cờ với Kaggle CLI 2.2.5).
 kaggle = ["kaggle>=2.2,<3"]
+# Ingest PHENIKAA: đọc LiDAR .laz (drive2sim/ingest/phenikaa.py); cần thêm numpy, OpenCV.
+phenikaa = ["laspy[lazrs]>=2.5"]
 # Heavy dependencies (PyTorch, gsplat-geer, ...) are installed from requirements.txt.
 
 [tool.setuptools.packages.find]
@@ -26,7 +28,7 @@ include = ["drive2sim*"]
 namespaces = true
 
 [tool.setuptools.package-data]
-drive2sim = ["assets/**/*", "configs/**/*", "approaches/*.yaml", "kaggle/templates/*", "colab/templates/*", "sim/server/protos/*", "studio/frontend/dist/**/*"]
+drive2sim = ["external/xsim/patches/*.patch", "assets/**/*", "configs/**/*", "approaches/*.yaml", "kaggle/templates/*", "colab/templates/*", "sim/server/protos/*", "studio/frontend/dist/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,6 @@
+# DeformableGS without camera-pose refinement: deformablegs.yaml with the CamPose node removed.
+# Needed by the 3DGUT / 3DGEER / FastGS variants, which cannot use CamPose. Untested.
+# Kế thừa deformablegs.yaml bằng extends (CONTRACTS mục 10.5); null là xoá khoá.
+extends: deformablegs.yaml
+model:
+  CamPose: null

@@ -13,6 +13,7 @@ import { StageRoad } from "../components/StageRoad";
 import { ago, Confirm, count, duration, Empty, ErrorBox, fixed, InfoTip, Loading, Note, PageHead, Status, Tabs, useToast } from "../components/ui";
 import { ConfigText, paramsLabel, useApproaches } from "../components/ConfigText";
 import { SpeedupText } from "../components/SpeedupText";
+import { VideoCompare } from "../components/VideoCompare";
 import { DensifyText } from "../components/DensifyInfo";
 import { useI18n } from "../i18n";
 import { useLive } from "../live";
@@ -528,23 +529,29 @@ export function RunPage({ runId }: { runId: string }) {
             ((videos.data?.items ?? []).length === 0 ? (
               <Empty title={t("run.videos.none")} />
             ) : (
-              <div className="videos">
-                {videos.data!.items.map((video) => (
-                  <figure key={video.url}>
-                    {video.ready === false ? (
-                      <p className="muted">{t("run.videos.writing")}</p>
-                    ) : (
-                      <video src={playableUrl(video)} controls preload="metadata" />
-                    )}
-                    <figcaption>
-                      {`${video.stage_id}/${video.name}`}{" "}
-                      <a href={video.url} download>
-                        {t("run.videos.original")}
-                      </a>
-                    </figcaption>
-                  </figure>
-                ))}
-              </div>
+              <>
+                <VideoCompare runId={runId} />
+                <details className="vc-others">
+                  <summary>{t("video.others")}</summary>
+                  <div className="videos">
+                    {videos.data!.items.map((video) => (
+                      <figure key={video.url}>
+                        {video.ready === false ? (
+                          <p className="muted">{t("run.videos.writing")}</p>
+                        ) : (
+                          <video src={playableUrl(video)} controls preload="none" />
+                        )}
+                        <figcaption>
+                          {`${video.stage_id}/${video.name}`}{" "}
+                          <a href={video.url} download>
+                            {t("run.videos.original")}
+                          </a>
+                        </figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                </details>
+              </>
             ))}
 
           {tab === "logs" && (

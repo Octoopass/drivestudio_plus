@@ -1,0 +1,215 @@
+\chapter{Literature Review \& Approach Selection (Khảo sát và chọn approach)}
+
+\section{Cách khảo sát}
+
+Khảo sát chia làm 2 cấp, vì đây là 2 loại kết quả khác nhau:
+\begin{itemize}
+  \item \textbf{Framework:} hệ thống đi từ dữ liệu thật đến mô phỏng, ví dụ NuRec, Cam2Sim, HUGSIM.
+  \item \textbf{Method:} thuật toán cho một khối, ví dụ SplatAD hay DirectFisheye-GS cho khối dựng cảnh.
+\end{itemize}
+
+Một hệ thống được xem là framework Real2Sim đầy đủ khi có 5 phần: dữ liệu thật, tái dựng cảnh, road logic và kịch bản, tích hợp mô phỏng, và AD Stack chạy vòng kín.
+Chỉ dựng được cảnh đẹp thì chưa đủ. Hệ thống phải có vòng mô phỏng phản ứng theo hành động của xe.
+Tuy vậy, một framework nghiên cứu không nhất thiết có sẵn bước trích xuất bản đồ tự động hay tích hợp simulator ở mức sản phẩm.
+
+Thông tin dưới đây được đối chiếu với paper, repository và tài liệu chính thức tháng 11/2026.
+``Có'' nghĩa là tài liệu có nêu, không có nghĩa nhóm đã chạy thử trên dữ liệu của mình.
+``Chưa xác nhận'' nghĩa là nguồn đã đọc không nêu, chưa kết luận là không có.
+
+\section{Các framework Real2Sim}
+
+Dưới đây là 6 framework chính có mã nguồn công khai.
+Đây là danh sách chọn lọc, không phải toàn bộ các hệ thống hiện có.
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Sáu framework Real2Sim chính}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.2cm} >{\raggedright\arraybackslash}p{2.1cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Framework} & \textbf{Công bố} & \textbf{Điểm mạnh} & \textbf{Hạn chế} \\
+    \midrule
+    NuRec & NVIDIA, 2025--2026 & Tái dựng ở mức công nghiệp, có hệ sinh thái, nối được AlpaSim và CARLA & Tự nó không chạy mô phỏng, cần dữ liệu NCore và dữ liệu phụ trợ \\
+    \addlinespace
+    Cam2Sim & ASE 2026, Tools and Datasets & Từ log thật ra kịch bản CARLA, có OSM và OpenDRIVE & Chỉ có xe đỗ, chưa có traffic động. Mới thử 1 kịch bản, DAVE-2, 3 lần chạy mỗi miền \\
+    \addlinespace
+    HUGSIM & TPAMI 2026 & Simulator closed-loop, hơn 70 sequence, benchmark nhiều planner & Không dùng CARLA, HD map chỉ có ở nuScenes \\
+    \addlinespace
+    NeuroNCAP & ECCV 2024 & Kiểm thử an toàn theo kịch bản lấy cảm hứng từ Euro NCAP, dựng cảnh bằng NeRF & Tập trung đánh giá an toàn, không nhằm xây bản sao mạng đường \\
+    \addlinespace
+    WorldEngine & arXiv 2606.19836, 2026 & Gồm SimEngine (mô phỏng) và AlgEngine (huấn luyện), hướng post-training cho policy & Trọng tâm là huấn luyện policy, không phải so sánh chất lượng tái dựng \\
+    \addlinespace
+    AETHER & Repository 2026, chưa xác nhận paper & Module rõ ràng, traffic từ LimSim/SUMO hoặc IDM, nhiều planner & Dự án nhỏ, đang phát triển, cần tự kiểm tra khả năng tái lập \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+So với yêu cầu của đề bài, các framework đáp ứng như sau:
+
+\begin{table}[H]
+  \centering
+  \footnotesize
+  \caption{So sánh theo yêu cầu của project}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{1.85cm} >{\raggedright\arraybackslash}p{1.35cm} >{\raggedright\arraybackslash}p{1.6cm} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{1.45cm}}
+    \toprule
+    \textbf{Framework} & \textbf{Fisheye} & \textbf{LiDAR} & \textbf{Bản đồ đường} & \textbf{Xe khác} & \textbf{Vòng kín} & \textbf{CARLA} \\
+    \midrule
+    NuRec & Có & Có & XODR tùy chọn trong USDZ & Có vật thể động & Qua AlpaSim; CARLA có điểm nối & Có \\
+    \addlinespace
+    Cam2Sim & Chưa xác nhận & Tùy chọn, dùng phát hiện xe đỗ & OSM, dùng \texttt{map.xodr} & Chỉ xe đỗ & DAVE-2 & Có \\
+    \addlinespace
+    HUGSIM & Chưa xác nhận & Không cần để dựng cảnh & Multi-plane ground, HD map ở nuScenes & Replay, IDM, hành vi tấn công & UniAD, VAD, LTF & Không \\
+    \addlinespace
+    NeuroNCAP & Chưa xác nhận & Chưa xác nhận & Chưa xác nhận & Theo kịch bản an toàn & End-to-end planner & Không \\
+    \addlinespace
+    WorldEngine & Chưa xác nhận & Chưa xác nhận & Chưa xác nhận & Mô hình hành vi sinh & Có & Không thấy nêu \\
+    \addlinespace
+    AETHER & Chưa xác nhận & Có & Bản đồ và mạng SUMO & LimSim/SUMO, IDM & UniAD, VAD, LTF, VLA & Không \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Từ 2 bảng trên, có thể rút ra:
+\begin{itemize}
+  \item Không có framework nào tốt nhất ở mọi tiêu chí.
+  \item Chỉ NuRec và Cam2Sim có tích hợp CARLA. Ví dụ NuRec + CARLA có điểm nhận lệnh lái nhưng chưa nối AD Stack (chương 11); vòng kín đầy đủ của NuRec được mô tả qua AlpaSim.
+  \item Đề bài yêu cầu fisheye và LiDAR, nhưng hiện chỉ NuRec có tài liệu xác nhận cả hai.
+  \item Traffic động là điểm yếu của Cam2Sim, nên không thể lấy Cam2Sim làm lời giải trọn vẹn cho yêu cầu traffic.
+\end{itemize}
+
+\section{Các hướng mới}
+
+Các hệ thống sau chưa được tính vào 6 framework chính, nhưng hữu ích để tham khảo:
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Các hướng mới đáng chú ý}
+  \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.3cm} l >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Hệ thống} & \textbf{Năm} & \textbf{Ý nghĩa} & \textbf{Vì sao chưa tính} \\
+    \midrule
+    Dash2Sim & 2026 & Từ video dashcam ra log 4D có tọa độ và tỉ lệ thật, chạy closed-loop trên nuPlan, đúng trường hợp đầu vào tối thiểu & Chưa kiểm tra mã nguồn; không dùng CARLA \\
+    \addlinespace
+    Instant NuRec & 2026 & Dựng cảnh feed-forward, khoảng 1,5 giây mỗi clip theo công bố của tác giả, tương thích AlpaSim & Thuộc hệ sinh thái NuRec \\
+    \addlinespace
+    Odyssey & 2026 & Benchmark closed-loop dài hơi: 100 kịch bản, mỗi kịch bản 100 giây từ nuPlan & Là benchmark; tác giả mới thông báo sẽ phát hành code \\
+    \addlinespace
+    UniSim & CVPR 2023 & Nền tảng về mô phỏng cảm biến neural closed-loop & Chưa tìm thấy mã nguồn công khai \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Ứng viên theo module}
+
+Danh sách dưới đây là điểm bắt đầu, chưa phải lựa chọn cuối.
+
+\begin{table}[H]
+  \centering
+  \caption{Ứng viên theo module}
+  \begin{tabularx}{\linewidth}{l X}
+    \toprule
+    \textbf{Module} & \textbf{Các implementation có thể thử} \\
+    \midrule
+    Data Preparation & Dataset-specific converters, NuRec NCore adapters \\
+    Pose Estimation & Ground-truth poses, LiDAR odometry (KISS-ICP, FAST-LIO), ViPE, Global SfM, COLMAP \\
+    Reconstruction & NuRec, Instant NuRec, SplatAD, DirectFisheye-GS, Splatfacto, geometric reconstruction \\
+    Rendering & gsplat, 3DGUT/3DGRUT, method-specific renderer \\
+    Road Logic & OSM và OpenDRIVE, quỹ đạo kết hợp ảnh BEV (RoGS, RoadVGGT), existing maps \\
+    Simulation & CARLA, AlpaSim, runtime riêng của HUGSIM hoặc AETHER \\
+    Traffic & CARLA Traffic Manager, LimSim/SUMO, IDM \\
+    AD Evaluation & CARLA controller, DAVE-2, UniAD, VAD, Autoware \\
+    Metrics & Shared evaluation scripts \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Những vấn đề chưa được giải quyết trọn vẹn}
+
+Ngay cả 6 framework trên cũng chưa giải quyết xong 4 vấn đề sau. Đây cũng là chỗ project có thể đóng góp:
+\begin{itemize}
+  \item \textbf{Tự động tái dựng road logic:} trích xuất đúng làn đường, kết nối, giao lộ, đèn tín hiệu và quyền ưu tiên từ dữ liệu thật.
+  \item \textbf{Nhất quán hình học:} đưa cảnh tái dựng, quỹ đạo xe, LiDAR và bản đồ về cùng một hệ tọa độ có đơn vị thật.
+  \item \textbf{Mô phỏng tất định:} giữ hành vi xe khác, thời gian mô phỏng và dữ liệu cảm biến lặp lại được để kiểm thử hồi quy.
+  \item \textbf{Mở rộng quy mô:} giảm thời gian, chi phí tính toán, dung lượng và thao tác thủ công cho mỗi khu vực mới.
+\end{itemize}
+
+Khoảng trống chính là biến một cảnh tái dựng đẹp thành một môi trường mô phỏng tin cậy, tất định, đúng vị trí địa lý và điều khiển được.
+
+\section{Tiêu chí chọn approach}
+
+Bốn approach được chọn trong Phase 1 theo các tiêu chí sau, xếp từ quan trọng đến ít quan trọng:
+\begin{enumerate}
+  \item \textbf{Chạy được thật:} có mã nguồn, tài liệu, và chạy được với tài nguyên của nhóm.
+  \item \textbf{Hợp dữ liệu đầu vào:} xử lý được pinhole, fisheye và LiDAR. Bộ 4 approach phải phủ đủ hai track.
+  \item \textbf{Nối được với CARLA:} có sẵn hoặc có thể làm phần nối.
+  \item \textbf{Hỗ trợ road logic và traffic:} có thể dùng lại cho yêu cầu mô phỏng.
+  \item \textbf{Chi phí:} thời gian train, VRAM, lượng việc làm tay.
+  \item \textbf{Chia được thành module:} có thể đưa vào tool và thay method.
+\end{enumerate}
+
+\section{Gợi ý ưu tiên}
+
+Đây là gợi ý để nhóm thảo luận, chưa phải quyết định. Chưa có approach nào được nhóm chạy thử.
+
+\begin{table}[H]
+  \centering
+  \small
+  \caption{Gợi ý thứ tự nghiên cứu}
+  \begin{tabularx}{\linewidth}{l l >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+    \toprule
+    \textbf{Thứ tự} & \textbf{Framework} & \textbf{Vì sao} & \textbf{Cần kiểm tra trước} \\
+    \midrule
+    1 & NuRec & Có tài liệu cho fisheye, LiDAR, CARLA & Yêu cầu GPU, chuyển dữ liệu sang NCore, giấy phép dữ liệu \\
+    \addlinespace
+    2 & Cam2Sim & Là tham khảo tốt cho việc nối bản đồ, tọa độ và CARLA & Chưa có traffic động; bước COLMAP làm thủ công \\
+    \addlinespace
+    3 & HUGSIM & Tham khảo tốt cho renderer, vật thể động, đánh giá closed-loop & Không dùng CARLA và LiDAR nên khó đưa vào pipeline chung \\
+    \addlinespace
+    4 & AETHER & Tham khảo tốt cho chia module và traffic & Độ ổn định, khả năng nhập scene mới \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+WorldEngine và NeuroNCAP phù hợp để tham khảo về kịch bản và đánh giá hơn là để đưa vào pipeline của project.
+Các method riêng cho fisheye, như DirectFisheye-GS, vẫn cần được xem xét cho Track B.
+
+\section{Nguồn}
+
+{\raggedright
+\begin{itemize}
+  \item NuRec: \url{https://docs.nvidia.com/nurec/}, \url{https://github.com/NVIDIA/NuRec}
+  \item NuRec + CARLA: \url{https://carla.readthedocs.io/en/latest/nvidia_nurec/}
+  \item AlpaSim: \url{https://github.com/NVlabs/alpasim}
+  \item Cam2Sim: \url{https://arxiv.org/abs/2607.04770}, \url{https://github.com/ast-fortiss-tum/cam2sim}
+  \item HUGSIM: \url{https://doi.org/10.1109/TPAMI.2025.3647952}, \url{https://github.com/hyzhou404/HUGSIM}
+  \item NeuroNCAP: \url{https://arxiv.org/abs/2404.07762}, \url{https://github.com/atonderski/neuro-ncap}
+  \item WorldEngine: \url{https://arxiv.org/abs/2606.19836}, \url{https://github.com/OpenDriveLab/WorldEngine}
+  \item AETHER: \url{https://github.com/siyingli99/Aether}
+  \item Instant NuRec: \url{https://arxiv.org/abs/2607.14203}, \url{https://github.com/NVIDIA/instant-nurec}
+  \item Odyssey: \url{https://arxiv.org/abs/2610.06469}
+  \item UniSim: \url{https://waabi.ai/unisim/}
+  \item Dash2Sim: \url{https://arxiv.org/abs/2606.07366}
+  \item ViPE: \url{https://github.com/nv-tlabs/vipe}
+  \item RoGS: \url{https://arxiv.org/abs/2405.14342}
+  \item RoadVGGT: \url{https://arxiv.org/abs/2607.23758}
+  \item OpenDRIVE Digital Twin Generator: \url{https://github.com/ftgTUGraz/opendrive-digital-twin-generator}
+\end{itemize}
+}
+
+\section{Các approach được chọn và hypotheses}
+
+\begin{table}[H]
+  \centering
+  \caption{Approach được chọn}
+  \begin{tabularx}{\linewidth}{l l l X}
+    \toprule
+    \textbf{Approach} & \textbf{Tên} & \textbf{Track} & \textbf{Lý do chọn và hypothesis} \\
+    \midrule
+    A & TBD & TBD & TBD \\
+    B & TBD & TBD & TBD \\
+    C & TBD & TBD & TBD \\
+    D & TBD & TBD & TBD \\
+    \bottomrule
+  \end{tabularx}
+\end{table}

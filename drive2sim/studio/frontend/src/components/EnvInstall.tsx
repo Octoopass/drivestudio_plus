@@ -54,7 +54,8 @@ export function EnvInstall({ env, onDone }: { env: string; onDone?: () => void }
   }, [running, onDone]);
 
   const start = async (fromStep: number) => {
-    const key = env === "nurec" ? "env.install.confirm_nurec" : "env.install.confirm";
+    const key =
+      env === "nurec" || env === "xsim" ? `env.install.confirm_${env}` : "env.install.confirm";
     if (!window.confirm(t(key, { env, python: install?.python ?? "" }))) return;
     setError(null);
     try {

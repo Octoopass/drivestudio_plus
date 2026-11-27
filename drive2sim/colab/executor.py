@@ -240,7 +240,7 @@ else:
     log, exit_file = jobs / (job + ".log"), jobs / (job + ".exit")
     exit_file.unlink(missing_ok=True)
     args = [str(script), str(root), cfg["repo_url"], cfg["branch"], cfg["commit"], str(bundle),
-            str(root / "input" / cfg["scene_key"])]
+            str(root / "input" / cfg["scene_key"]), "1" if cfg.get("xsim") else "0"]
     command = (f"bash {shlex.join(args)} > {shlex.quote(str(log))} 2>&1; "
                f"echo $? > {shlex.quote(str(exit_file))}")
     # Môi trường của job: của kernel, bỏ PYTHONPATH (đường dẫn gói của Python Colab, không hợp với
@@ -538,7 +538,7 @@ def push_run(
         raise ColabError(f"GPU {gpu} không có trên Colab; chọn một trong {', '.join(GPUS)}")
     run_dir = workdir.find_run(run_id)
     record = files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
-    remote.require_main_codebase(record.approach.approach_id, "Colab")
+    needs_xsim = remote.require_remote_codebase(record.approach.approach_id, "Colab")
     if record.status == "succeeded":
         raise ColabError(f"run {run_id} đã xong; không cần đẩy lại")
     if run_is_active(run_dir):
@@ -617,6 +617,7 @@ def push_run(
         "branch": branch,
         "commit": commit,
         "scene_key": scene_key,
+        "xsim": needs_xsim,
     }
     launched = _run_on_vm(client, session, _LAUNCH, config)
     busy = _markers(launched, "BUSY")

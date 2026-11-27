@@ -207,7 +207,12 @@ def test_push_poll_pull_resume_and_stop(setup: tuple[Workdir, FakeColab, Path]) 
     assert sum("/upload/" in path for path in fake.uploads) > 2  # cảnh cắt thành nhiều phần
     assert not any((vm / "upload").iterdir())  # phần đã ghép xong được xoá
     bundle = json.loads((vm / "bundles" / state.job / "scene_ref.json").read_text())
-    assert bundle == {"scene_id": SCENE, "converter_version": "0.1.0+test", "kaggle_dataset": None}
+    assert bundle == {
+        "scene_id": SCENE,
+        "converter_version": "0.1.0+test",
+        "kaggle_dataset": None,
+        "scene_masks": {},
+    }
 
     first = wait_job(workdir, fake)
     assert first["status"] == "failed" and first["exit_code"] == 1

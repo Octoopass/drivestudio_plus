@@ -4,10 +4,12 @@ import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-import numpy as np
+import pytest
 
-from drive2sim.external import nurec
-from drive2sim.sim.server import sensorsim
+np = pytest.importorskip("numpy")
+
+from drive2sim.external import nurec  # noqa: E402
+from drive2sim.sim.server import sensorsim  # noqa: E402
 
 
 def _scene_tool() -> dict:

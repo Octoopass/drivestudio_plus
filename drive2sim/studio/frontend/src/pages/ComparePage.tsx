@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ApiError, api, asApiError, playableUrl, post, preferredVideo, seg, useApi } from "../api/client";
 import type { List, Manifest, ReportRow, SceneDetail, Video } from "../api/types";
 import { GroupedBarChart, Legend, MultiLineChart, ScatterChart, seriesColor, StackedBarChart, type Point } from "../components/charts";
+import { Exportable } from "../components/figureExport";
 import { count, duration, Empty, ErrorBox, InfoTip, Loading, PageHead, Panel, Segmented, Tabs } from "../components/ui";
 import { ConfigText } from "../components/ConfigText";
 import { useI18n } from "../i18n";
@@ -61,6 +62,9 @@ function WarnMark({ text }: { text: string }) {
 // Nhóm stage cho biểu đồ phân rã thời gian, theo tiền tố stage_id.
 const TIME_PARTS = ["prep", "train", "eval", "export"] as const;
 
+// Giá trị của ô chọn cảnh (và tham số scene của URL) cho "Tất cả cảnh".
+const ALL_SCENES = "*";
+
 export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; splitId?: string }) {
   const { t } = useI18n();
   const scenes = useApi<List<Manifest>>("/api/scenes");
@@ -69,13 +73,16 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
   // (mặc định).
   const report = useApi<List<ReportRow>>("/api/report");
   const latest = (report.data?.items ?? []).filter(isComparable).reduce<ReportRow | undefined>((a, r) => (!a || r.run_id > a.run_id ? r : a), undefined);
-  const currentScene = sceneId || latest?.scene_id || scenes.data?.items[0]?.scene_id || "";
+  // "Tất cả cảnh" (ALL_SCENES): mọi cảnh trên một trang; metric hai cảnh khác nhau không so được
+  // (khác dữ liệu, khác ảnh test), nên bảng chia khối theo cảnh và biểu đồ tách màu, Pareto theo cảnh.
+  const allScenes = sceneId === ALL_SCENES;
+  const currentScene = allScenes ? "" : sceneId || latest?.scene_id || scenes.data?.items[0]?.scene_id || "";
   const scene = useApi<SceneDetail>(currentScene ? `/api/scenes/${seg(currentScene)}` : null);
-  const currentSplit = splitId;
+  const currentSplit = allScenes ? "" : splitId;
   const query = new URLSearchParams();
   if (currentScene) query.set("scene_id", currentScene);
   if (currentSplit) query.set("split_id", currentSplit);
-  const inView = (r: ReportRow) => r.scene_id === currentScene && (!currentSplit || r.split_id === currentSplit);
+  const inView = (r: ReportRow) => (allScenes || r.scene_id === currentScene) && (!currentSplit || r.split_id === currentSplit);
   // Một bảng, chọn nhóm metric bằng tab (nhớ trong trình duyệt). Mỗi nhóm có cột sắp xếp mặc định;
   // chiều mặc định là "tốt nhất trước" (theo hướng tốt hơn của cột).
   const [groupId, setGroupId] = useState<string>(() => readPref(TAB_KEY, "summary"));
@@ -86,7 +93,7 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
 
   // Chỉ run đã xong và train đầy đủ: run đang chạy, lỗi, huỷ hay chạy thử nhanh không có metric
   // so được với các run còn lại.
-  const comparable = useMemo(() => (report.data?.items ?? []).filter((r) => inView(r) && isComparable(r)), [report.data, currentScene, currentSplit]);
+  const comparable = useMemo(() => (report.data?.items ?? []).filter((r) => inView(r) && isComparable(r)), [report.data, currentScene, currentSplit, allScenes]);
   const groups = comparable.length ? [SUMMARY_GROUP, ...visibleGroups(comparable)] : [];
   const group = groups.find((g) => g.id === groupId) ?? groups[0];
   const sortable = group ? group.metrics.filter((m) => !m.text) : [];
@@ -124,7 +131,7 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
   // xếp hạng vô nghĩa, nên tách khối; khối nhiều iteration hơn đứng trước. Xếp hạng, in đậm số
   // tốt nhất làm trong từng khối.
   const blocks = useMemo(() => {
-    const keyOf = (r: ReportRow) => [grouped ? r.split_id : "", r.num_iters ?? -1, r.train_resolution ?? ""] as const;
+    const keyOf = (r: ReportRow) => [allScenes ? r.scene_id : "", grouped ? r.split_id : "", r.num_iters ?? -1, r.train_resolution ?? ""] as const;
     const found = new Map<string, { key: ReturnType<typeof keyOf>; rows: ReportRow[] }>();
     for (const row of rows) {
       const key = keyOf(row);
@@ -133,12 +140,15 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
       found.get(id)!.rows.push(row);
     }
     return [...found.entries()]
-      .sort(([, a], [, b]) => a.key[0].localeCompare(b.key[0]) || b.key[1] - a.key[1] || a.key[2].localeCompare(b.key[2]))
-      .map(([id, block]) => ({ id, split: block.key[0], rows: block.rows, sample: block.rows[0] }));
-  }, [rows, grouped]);
+      .sort(([, a], [, b]) => a.key[0].localeCompare(b.key[0]) || a.key[1].localeCompare(b.key[1]) || b.key[2] - a.key[2] || a.key[3].localeCompare(b.key[3]))
+      .map(([id, block]) => ({ id, scene: block.key[0], split: block.key[1], rows: block.rows, sample: block.rows[0] }));
+  }, [rows, grouped, allScenes]);
   // Bảng trộn nhiều split mà không gom: cột metric đo trên ảnh test (chất lượng ảnh, theo vùng) có
   // dấu cảnh báo, vì hai split khác nhau đánh giá trên các khung test khác nhau.
-  const mixedSplit = splits.length > 1 && !grouped;
+  // Mọi cảnh: chỉ tính trộn khi một cảnh có nhiều split (hai cảnh vốn có split riêng, đã tách khối).
+  const splitsPerScene = new Map<string, Set<string>>();
+  for (const r of rows) splitsPerScene.set(r.scene_id, (splitsPerScene.get(r.scene_id) ?? new Set()).add(r.split_id));
+  const mixedSplit = !grouped && [...splitsPerScene.values()].some((set) => set.size > 1);
   const chooseBySplit = (value: boolean) => {
     setBySplit(value);
     writePref(BY_SPLIT_KEY, value ? "1" : "0");
@@ -147,6 +157,16 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
   // chạy thử ít bước vừa nhanh vừa kém nên làm lệch đường Pareto.
   const chartIters = Math.max(-1, ...rows.map((r) => r.num_iters ?? -1));
   const chartRows = rows.filter((r) => (r.num_iters ?? -1) === chartIters);
+  // Mọi cảnh: biểu đồ gom theo "cảnh · split" (màu, đường Pareto riêng), không trộn hai cảnh.
+  const chartView = allScenes ? chartRows.map((r) => ({ ...r, split_id: `${r.scene_id} · ${r.split_id}` })) : chartRows;
+  const chartSplits = allScenes ? [...new Set(chartView.map((r) => r.split_id))].sort() : splits;
+  // Dòng nguồn ghi dưới hình xuất: cảnh, split, số iteration, ngày xuất.
+  const figureSource = t("figure.source", {
+    scene: allScenes ? t("compare.field.all_scenes") : currentScene,
+    splits: splits.join(", "),
+    iters: count(chartIters),
+    date: new Date().toISOString().slice(0, 10),
+  });
   // Bảng có run train trên nhiều GPU: cảnh báo một lần ở thanh trên bảng.
   const gpus = [...new Set(rows.map((r) => r.gpu).filter((g): g is string => !!g))];
   const mixedGpu = gpus.length > 1;
@@ -169,7 +189,8 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
       <div className="row wrap">
         <label className="field">
           <span>{t("compare.field.scene")}</span>
-          <select value={currentScene} disabled={!scenes.data?.items.length} onChange={(e) => go({ page: "compare", sceneId: e.target.value })}>
+          <select value={allScenes ? ALL_SCENES : currentScene} disabled={!scenes.data?.items.length} onChange={(e) => go({ page: "compare", sceneId: e.target.value })}>
+            <option value={ALL_SCENES}>{t("compare.field.all_scenes")}</option>
             {(scenes.data?.items ?? []).map((m) => (
               <option key={m.scene_id}>{m.scene_id}</option>
             ))}
@@ -177,7 +198,7 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
         </label>
         <label className="field">
           <span>{t("compare.field.split")}</span>
-          <select value={currentSplit} disabled={!scene.data?.splits.length} onChange={(e) => go({ page: "compare", sceneId: currentScene, splitId: e.target.value || undefined })}>
+          <select value={currentSplit} disabled={allScenes || !scene.data?.splits.length} title={allScenes ? t("compare.field.split_per_scene") : undefined} onChange={(e) => go({ page: "compare", sceneId: currentScene, splitId: e.target.value || undefined })}>
             <option value="">{t("compare.field.all_splits")}</option>
             {(scene.data?.splits ?? []).map((id) => (
               <option key={id}>{id}</option>
@@ -188,7 +209,7 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
 
       <ErrorBox error={report.error} />
       {(!scenes.data || !report.data) && !report.error && !scenes.error && <Loading rows={4} />}
-      {((scenes.data && !currentScene) || (report.data && rows.length === 0)) && (
+      {((scenes.data && !currentScene && !allScenes) || (report.data && rows.length === 0)) && (
         <section className="panel">
           <Empty title={t("compare.empty.title")}>
             <p>{t("compare.empty.text")}</p>
@@ -304,6 +325,11 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
               <tbody key={block.id}>
                 <tr className="group-row">
                   <td className="block-head" colSpan={(!currentSplit && !grouped ? 4 : 3) + group.metrics.length}>
+                    {allScenes && (
+                      <>
+                        {t("compare.field.scene")} <b>{block.scene}</b> ·{" "}
+                      </>
+                    )}
                     {grouped && (
                       <>
                         {t("compare.table.split")} <b>{block.split}</b> ·{" "}
@@ -350,12 +376,12 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
       {chartRows.length > 0 && chartRows.length < rows.length && (
         <p className="small faint">{t("compare.charts.only_iters", { count: count(chartIters) })}</p>
       )}
-      {chartRows.length > 0 && <Charts rows={chartRows} splits={splits} grouped={grouped} gpus={gpus} />}
+      {chartRows.length > 0 && <Charts rows={chartView} splits={chartSplits} grouped={grouped || allScenes} gpus={gpus} source={figureSource} />}
 
       {rows.length > 1 && (
         <Panel title={t("compare.side.title")} info={t("compare.side.info")}>
           {/* key: đổi cảnh hoặc split thì chọn lại hai run, không giữ run của cảnh cũ. */}
-          <SideBySide key={`${currentScene}/${currentSplit}`} rows={rows} />
+          <SideBySide key={`${allScenes ? ALL_SCENES : currentScene}/${currentSplit}`} rows={rows} />
         </Panel>
       )}
     </div>
@@ -366,11 +392,15 @@ export function ComparePage({ sceneId = "", splitId = "" }: { sceneId?: string; 
 // đường Pareto) và có dấu cảnh báo ở biểu đồ đo trên ảnh; gom theo split thì màu theo split, mỗi
 // split một đường Pareto, cột và đường cong ghi kèm split. Bảng trộn nhiều GPU thì biểu đồ có trục
 // thời gian, VRAM hay FPS có dấu cảnh báo.
-function Charts({ rows: sorted, splits, grouped, gpus }: { rows: ReportRow[]; splits: string[]; grouped: boolean; gpus: string[] }) {
+function Charts({ rows: sorted, splits, grouped, gpus, source }: { rows: ReportRow[]; splits: string[]; grouped: boolean; gpus: string[]; source: string }) {
   const { t } = useI18n();
   const rows = grouped ? [...sorted].sort((a, b) => a.split_id.localeCompare(b.split_id)) : sorted;
   const splitWarn = splits.length > 1 && !grouped ? <WarnMark text={t("compare.chart.mixed_split", { splits: splits.join(", ") })} /> : null;
   const gpuWarn = gpus.length > 1 ? <WarnMark text={t("compare.chart.mixed_gpu", { gpus: gpus.join(", ") })} /> : null;
+  // Cảnh báo dạng chữ cho hình xuất (SPEC 8D): giữ nguyên ý của dấu tam giác trên trang.
+  const splitNote = splits.length > 1 && !grouped ? t("compare.chart.mixed_split", { splits: splits.join(", ") }) : null;
+  const gpuNote = gpus.length > 1 ? t("compare.chart.mixed_gpu", { gpus: gpus.join(", ") }) : null;
+  const notes = (...items: (string | null | false)[]) => items.filter((x): x is string => Boolean(x));
   const titled = (key: string, ...marks: ReactNode[]) => (
     <span className="row" style={{ gap: 6 }}>
       {t(key)}
@@ -412,14 +442,22 @@ function Charts({ rows: sorted, splits, grouped, gpus }: { rows: ReportRow[]; sp
           <Panel key={plot.key} title={titled(`compare.chart.${plot.key}`, splitWarn, plot.hardware && gpuWarn)} info={t("compare.chart.pareto_hint")}>
             {plot.points.length ? (
               <>
-                <ScatterChart
-                  points={plot.points}
-                  label={t(`compare.chart.${plot.key}`)}
-                  xLabel={plot.xLabel}
-                  xBetter={plot.xBetter}
-                  groups={grouped ? splits : undefined}
-                  frontByGroup={grouped}
-                />
+                <Exportable
+                  info={{
+                    title: t(`compare.chart.${plot.key}`),
+                    notes: notes(splitNote, plot.hardware && gpuNote, t("compare.chart.pareto_hint")),
+                    source,
+                    legend: grouped ? splits.map((name, i) => ({ name, color: seriesColor(i) })) : [],
+                  }}>
+                  <ScatterChart
+                    points={plot.points}
+                    label={t(`compare.chart.${plot.key}`)}
+                    xLabel={plot.xLabel}
+                    xBetter={plot.xBetter}
+                    groups={grouped ? splits : undefined}
+                    frontByGroup={grouped}
+                  />
+                </Exportable>
                 {grouped && <Legend items={splits.map((name, i) => ({ name, color: seriesColor(i) }))} />}
               </>
             ) : (
@@ -430,7 +468,15 @@ function Charts({ rows: sorted, splits, grouped, gpus }: { rows: ReportRow[]; sp
         <Panel title={titled("compare.chart.regions", splitWarn)} info={t("compare.chart.regions_hint")}>
           {regionGroups.length ? (
             <>
-              <GroupedBarChart groups={regionGroups} seriesNames={regionSeries} label={t("compare.chart.regions")} unit="dB" />
+              <Exportable
+                info={{
+                  title: t("compare.chart.regions"),
+                  notes: notes(splitNote),
+                  source,
+                  legend: regionSeries.map((name, i) => ({ name, color: seriesColor(i) })),
+                }}>
+                <GroupedBarChart groups={regionGroups} seriesNames={regionSeries} label={t("compare.chart.regions")} unit="dB" />
+              </Exportable>
               <Legend items={regionSeries.map((name, i) => ({ name, color: seriesColor(i) }))} />
             </>
           ) : (
@@ -440,7 +486,15 @@ function Charts({ rows: sorted, splits, grouped, gpus }: { rows: ReportRow[]; sp
         <Panel title={titled("compare.chart.breakdown", gpuWarn)} info={t("compare.chart.breakdown_hint")}>
           {timeRows.length ? (
             <>
-              <StackedBarChart rows={timeRows} partNames={TIME_PARTS.map((p) => t(`compare.chart.part.${p}`))} label={t("compare.chart.breakdown")} format={(s) => duration(s)} />
+              <Exportable
+                info={{
+                  title: t("compare.chart.breakdown"),
+                  notes: notes(gpuNote),
+                  source,
+                  legend: TIME_PARTS.map((p, i) => ({ name: t(`compare.chart.part.${p}`), color: seriesColor(i) })),
+                }}>
+                <StackedBarChart rows={timeRows} partNames={TIME_PARTS.map((p) => t(`compare.chart.part.${p}`))} label={t("compare.chart.breakdown")} format={(s) => duration(s)} />
+              </Exportable>
               <Legend items={TIME_PARTS.map((p, i) => ({ name: t(`compare.chart.part.${p}`), color: seriesColor(i) }))} />
             </>
           ) : (
@@ -448,13 +502,13 @@ function Charts({ rows: sorted, splits, grouped, gpus }: { rows: ReportRow[]; sp
           )}
         </Panel>
       </div>
-      <TrainCurves rows={rows} grouped={grouped} warn={splitWarn} />
+      <TrainCurves rows={rows} grouped={grouped} warn={splitWarn} note={splitNote} source={source} />
     </>
   );
 }
 
 /** PSNR trên ảnh train theo bước của nhiều run (tối đa 6), đọc từ metrics.json của từng run. */
-function TrainCurves({ rows, grouped, warn }: { rows: ReportRow[]; grouped: boolean; warn: ReactNode }) {
+function TrainCurves({ rows, grouped, warn, note, source }: { rows: ReportRow[]; grouped: boolean; warn: ReactNode; note: string | null; source: string }) {
   const { t } = useI18n();
   const shown = rows.filter((r) => r.status === "succeeded" || r.status === "running").slice(0, 6);
   const [curves, setCurves] = useState<Record<string, Point[]>>({});
@@ -489,7 +543,15 @@ function TrainCurves({ rows, grouped, warn }: { rows: ReportRow[]; grouped: bool
       info={t("compare.chart.curves_hint")}>
       {/* Biểu đồ vẽ theo viewBox cố định: giới hạn bề rộng để chữ trên trục không phóng quá to. */}
       <div style={{ maxWidth: 820 }}>
-        <MultiLineChart series={series} label={t("compare.chart.curves")} xLabel={t("run.curve.step")} />
+        <Exportable
+          info={{
+            title: t("compare.chart.curves"),
+            notes: note ? [note] : [],
+            source,
+            legend: series.map((s, i) => ({ name: s.name, color: seriesColor(i) })),
+          }}>
+          <MultiLineChart series={series} label={t("compare.chart.curves")} xLabel={t("run.curve.step")} />
+        </Exportable>
       </div>
       <Legend items={series.map((s, i) => ({ name: s.name, color: seriesColor(i) }))} />
     </Panel>

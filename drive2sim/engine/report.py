@@ -35,7 +35,8 @@ from drive2sim.engine.run import D2S_DIR, list_runs, load_env, load_summary
 from drive2sim.engine.workdir import Workdir, WorkdirError
 
 TRAIN_PREFIX = "train."
-PLY_STAGE = "export.ply_world"
+# Stage xuất PLY: ``export.ply_world`` (approach DriveStudio), ``export.nurec_ply`` (NuRec).
+PLY_STAGES = ("export.ply_world", "export.nurec_ply")
 PLY_FILE = "scene.ply"
 PREVIEW_STAGE = "export.preview"
 
@@ -149,12 +150,12 @@ def avg_error(psnr: float, ssim: float, lpips: float) -> float:
 
 
 def recon_time(record: RunRecord) -> Optional[float]:
-    """Tổng thời gian các stage từ đầu run tới hết ``export.ply_world``.
+    """Tổng thời gian các stage từ đầu run tới hết stage xuất PLY (``PLY_STAGES``).
 
     Stage dùng lại cache tính ``reused_duration_s`` (thời gian lần chạy gốc).
 
     Returns:
-        Số giây; ``None`` nếu run không có stage ``export.ply_world`` xong, hoặc một stage dùng
+        Số giây; ``None`` nếu run không có stage xuất PLY xong, hoặc một stage dùng
         lại cache mà không biết thời gian gốc.
     """
     total = 0.0
@@ -165,9 +166,18 @@ def recon_time(record: RunRecord) -> Optional[float]:
             total += stage.reused_duration_s
         else:
             total += stage.duration_s
-        if stage.stage_id == PLY_STAGE:
+        if stage.stage_id in PLY_STAGES:
             return round(total, 3) if stage.status == "succeeded" else None
     return None
+
+
+def _ply_path(run_dir: Path) -> Path:
+    """Đường dẫn ``scene.ply`` của stage xuất PLY có file; không có thì của stage đầu tiên."""
+    stages_dir = run_dir / D2S_DIR / "stages"
+    for stage_id in PLY_STAGES:
+        if (stages_dir / stage_id / PLY_FILE).is_file():
+            return stages_dir / stage_id / PLY_FILE
+    return stages_dir / PLY_STAGES[0] / PLY_FILE
 
 
 def preview_stats(folder: Path) -> tuple[Optional[int], Optional[float]]:
@@ -284,9 +294,7 @@ def report_rows(
         for name, value in splits[key].items():
             setattr(row, name, value)
         run_dir = workdir.run_dir(record.scene_id, record.approach.approach_id, record.run_id)
-        row.ply_gaussians, row.ply_size_mb = ply_stats(
-            run_dir / D2S_DIR / "stages" / PLY_STAGE / PLY_FILE
-        )
+        row.ply_gaussians, row.ply_size_mb = ply_stats(_ply_path(run_dir))
         row.preview_gaussians, row.preview_size_mb = preview_stats(
             run_dir / D2S_DIR / "stages" / PREVIEW_STAGE
         )
@@ -315,7 +323,7 @@ def report_rows(
                 f"gsplat {env.gsplat}" if env.gsplat else "",
             ]
             row.software = ", ".join(part for part in parts if part) or None
-        summary = load_summary(run_dir)
+        summary = load_summary(run_dir, record)
         if summary is not None:
             metrics = summary.overall
             row.psnr, row.ssim, row.lpips = metrics.psnr, metrics.ssim, metrics.lpips

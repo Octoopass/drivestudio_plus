@@ -19,6 +19,10 @@ from drive2sim.recon.rendering.videos import (
 logger = logging.getLogger()
 current_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
 
+# drive2sim: frame rate of the test-set videos (few frames, one every N); the full-set videos use
+# cfg.render.fps. scripts/video_layouts.py reads it for runs trained before layout files.
+TEST_VIDEO_FPS = 2
+
 @torch.no_grad()
 def do_evaluation(
     step: int = 0,
@@ -49,7 +53,7 @@ def do_evaluation(
             trainer=trainer,
             dataset=dataset.test_image_set,
             compute_metrics=True,
-            compute_error_map=cfg.render.vis_error,
+            compute_error_map=cfg.render.vis_error or "rgb_error_maps" in (render_keys or []),
             save_video_kwargs={
                 "save_pth": video_output_pth,
                 "layout": dataset.layout,
@@ -57,7 +61,7 @@ def do_evaluation(
                 "keys": render_keys,
                 "num_cams": dataset.pixel_source.num_cams,
                 "save_seperate_video": cfg.logging.save_seperate_video,
-                "fps": 2,
+                "fps": TEST_VIDEO_FPS,
                 "verbose": True,
             },
         )
@@ -88,12 +92,23 @@ def do_evaluation(
             for camera, values in render_results.get("per_camera", {}).items():
                 for name, value in values.items():
                     eval_dict[f"image_metrics/test/per_camera/{camera}/{name}"] = value
+            # drive2sim: depth against LiDAR as image_metrics/test/depth/<abs_rel|rmse|delta_1_25>;
+            # absent when the scene has no LiDAR or no test image had enough LiDAR points.
+            for name, value in (render_results.get("depth") or {}).items():
+                eval_dict[f"image_metrics/test/depth/{name}"] = value
             if args.enable_wandb:
                 wandb.log(eval_dict)
             test_metrics_file = f"{cfg.log_dir}/metrics{post_fix}/images_test_{current_time}.json"
             with open(test_metrics_file, "w") as f:
-                json.dump(eval_dict, f)
+                json.dump(eval_dict, f, default=float)  # drive2sim: numpy float32 metrics
             logger.info(f"Image evaluation metrics saved to {test_metrics_file}")
+            # drive2sim: one JSON line per measured test image (frames_test_<time>.jsonl) for the
+            # benchmark's per-distance analysis (drive2sim/engine/benchmark.py).
+            frames_file = f"{cfg.log_dir}/metrics{post_fix}/frames_test_{current_time}.jsonl"
+            with open(frames_file, "w") as f:
+                for record in render_results.get("frames", []):
+                    f.write(json.dumps(record, default=float) + "\n")
+            logger.info(f"Per-image metrics saved to {frames_file}")
 
         if args.enable_wandb:
             for k, v in vis_frame_dict.items():
@@ -113,7 +128,7 @@ def do_evaluation(
             trainer=trainer,
             dataset=dataset.full_image_set,
             compute_metrics=True,
-            compute_error_map=cfg.render.vis_error,
+            compute_error_map=cfg.render.vis_error or "rgb_error_maps" in (render_keys or []),
             save_video_kwargs={
                 "save_pth": video_output_pth,
                 "layout": dataset.layout,
@@ -148,7 +163,7 @@ def do_evaluation(
                 wandb.log(eval_dict)
             full_metrics_file = f"{cfg.log_dir}/metrics{post_fix}/images_full_{current_time}.json"
             with open(full_metrics_file, "w") as f:
-                json.dump(eval_dict, f)
+                json.dump(eval_dict, f, default=float)  # drive2sim: numpy float32 metrics
             logger.info(f"Image evaluation metrics saved to {full_metrics_file}")
 
         if args.enable_wandb:
@@ -290,8 +305,9 @@ def main(args):
         render_keys.insert(0, "lidar_on_images")
     if cfg.render.vis_sky:
         render_keys += ["rgb_sky_blend", "rgb_sky"]
-    if cfg.render.vis_error:
-        render_keys.insert(render_keys.index("rgbs") + 1, "rgb_error_maps")
+    # drive2sim: always render the error map and depth (Studio's video player)
+    render_keys.insert(render_keys.index("rgbs") + 1, "rgb_error_maps")
+    render_keys.append("depths")
     
     render_keys = cfg.render.get("keys", render_keys)
 

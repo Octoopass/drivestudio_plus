@@ -89,8 +89,16 @@ class SingleTrainer(BasicTrainer):
                         **init_cfg.from_lidar, device=self.device
                     )
                 else:
-                    sampled_pts, sampled_color, sampled_time = \
-                        torch.empty(0, 3).to(self.device), torch.empty(0, 3).to(self.device), None
+                    # drive2sim: no LiDAR init (train.drivestudio lidar=False). PVG needs a time
+                    # for every point, so start from an empty (0, 1) tensor; the random points
+                    # added below then get a random time (see there).
+                    sampled_pts, sampled_color = (
+                        torch.empty(0, 3).to(self.device), torch.empty(0, 3).to(self.device)
+                    )
+                    sampled_time = (
+                        torch.empty(0, 1).to(self.device)
+                        if isinstance(model, PeriodicVibrationGaussians) else None
+                    )
                 
                 random_pts = []
                 num_near_pts = init_cfg.get('near_randoms', 0)
@@ -111,7 +119,14 @@ class SingleTrainer(BasicTrainer):
                     sampled_pts = torch.cat([sampled_pts, valid_pts], dim=0)
                     sampled_color = torch.cat([sampled_color, torch.rand(valid_pts.shape, ).to(self.device)], dim=0)
                     if sampled_time is not None:
-                        sampled_time = torch.cat([sampled_time, torch.zeros(valid_pts.shape[0], 1).to(self.device)], dim=0)
+                        # drive2sim: next to LiDAR points (which carry their own spread of times) the
+                        # randoms get time 0, as upstream. Without LiDAR (lidar=False) every point
+                        # would have time 0, and PVG keeps only Gaussians with marginal_t > 0.05
+                        # around the current frame (pvg.py get_gaussians): at any frame far from 0 no
+                        # Gaussian survives, N=0, and gsplat divides by zero (SIGFPE). So spread the
+                        # random times uniformly over the normalized time range [0, 1].
+                        random_time_fn = torch.zeros if init_cfg.get("from_lidar", None) is not None else torch.rand
+                        sampled_time = torch.cat([sampled_time, random_time_fn(valid_pts.shape[0], 1).to(self.device)], dim=0)
                 
                 if isinstance(model, PeriodicVibrationGaussians):
                     model.create_from_pcd(

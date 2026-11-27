@@ -10,7 +10,9 @@ File này chứa:
 - ``ExportPlyWorldStage``: stage đăng ký với engine.
 
 Giới hạn của file PLY, theo ``export_ply.py``: chỉ có nền tĩnh và (tuỳ chọn) xe đặt cố định ở một
-khung; không có bầu trời, người SMPL và vật biến dạng (ARCHITECTURE mục 7.2).
+khung; không có bầu trời, người SMPL và vật biến dạng (ARCHITECTURE mục 7.2). Với PVG, nền chỉ giữ
+Gaussian sống ít nhất 20 khung (``--static_min_life_frames``,
+``drive2sim/recon/tools/time_varying_export.py``), để vệt xe chạy không hiện cùng lúc.
 
 Chưa chạy thật: cần checkpoint thật và PyTorch.
 """

@@ -53,15 +53,19 @@ data/<scene_id>/
 ├── manifest.yaml                # tool ghi khi ingest
 ├── splits/<split_id>.json
 ├── reports/validation.json
+├── reports/rig.json            # sơ đồ camera, quỹ đạo xe (mục 3.3)
+├── reports/lidar_check.json    # LiDAR chiếu lên ảnh: số liệu (mục 3.4)
+├── reports/lidar_overlay/      # ảnh LiDAR chồng lên ảnh, <khung>_<camera>.jpg (mục 3.4)
 └── kaggle_scene.json            # chỉ có khi cảnh ingest trên Kaggle (mục 9.4)
 ```
 
 Cảnh ingest bằng `d2s kaggle ingest` (mục 9.4) chỉ có file nhỏ trên máy: `manifest.yaml`, `reports/`, `splits/`, `kaggle_scene.json`, file text ở cấp gốc và pose, calib (`intrinsics/`, `extrinsics/`, `ego_pose/` hoặc `lidar_pose/`) để xem model bằng renderer gốc; ảnh, LiDAR, mask nằm trong output của notebook ingest trên Kaggle.
 
 - `<khung>` là chỉ số 3 chữ số (`000`), `<camera>` là chỉ số camera của DriveStudio cho dataset đó.
-- Cách lưu pose khác nhau giữa các dataset và **được giữ nguyên**, vì mỗi dataset đọc bằng loader riêng của nó (`drive2sim/recon/data/loaders/<dataset>.py`): Waymo, Argoverse, KITTI, nuPlan lưu `ego_pose/<khung>.txt` và `extrinsics/<camera>.txt`; PandaSet lưu `ego_pose/` và `extrinsics/<khung>_<camera>.txt`; nuScenes lưu `extrinsics/<khung>_<camera>.txt` và `lidar_pose/`. Bảng đầy đủ ở `ARCHITECTURE.md` mục 2.2.
+- Cách lưu pose khác nhau giữa các dataset và **được giữ nguyên**, vì các dataset DriveStudio đọc bằng loader riêng (`drive2sim/recon/data/loaders/<dataset>.py`); KITTI-360 và PHENIKAA cùng dùng `standard.StandardPixelSource` và `kitti.KITTILiDARSource`: Waymo, Argoverse, KITTI, nuPlan lưu `ego_pose/<khung>.txt` và `extrinsics/<camera>.txt`; PandaSet lưu `ego_pose/` và `extrinsics/<khung>_<camera>.txt`; nuScenes lưu `extrinsics/<khung>_<camera>.txt` và `lidar_pose/`. Bảng đầy đủ ở `ARCHITECTURE.md` mục 2.2.
 - Nguồn mới không có loader riêng: converter ghi theo đúng khung thư mục của một dataset có sẵn rồi dùng loader của dataset đó (`ARCHITECTURE.md` mục 2.4).
 - **KITTI-360** (`drive2sim/ingest/kitti360.py`, `docs/datasets/kitti360.md`) ghi theo khung KITTI của DriveStudio: xe trùng hệ LiDAR Velodyne (x tới trước, y trái, z lên); `lidar/<khung>.bin` chép nguyên file Velodyne (`float32` x, y, z, cường độ); `ego_pose/<khung>.txt` là ma trận 4×4 Velodyne → world, world là hệ Velodyne ở khung đầu của cảnh; `extrinsics/<camera>.txt` là camera → Velodyne (trục OpenCV), cố định; ảnh `images/<khung>_<camera>.png` chép nguyên PNG của nguồn. Thêm `frame_ids.txt` (số hiệu khung gốc theo thứ tự khung), `timestamps.txt` (micro giây mỗi khung) và `raw_source.json` (`{"raw_dir", "sequence"}`: thư mục KITTI-360 gốc, để `prep.ncore` của Instant NuRec đọc lại dữ liệu gốc; cảnh cũ không có file này thì dùng biến `D2S_KITTI360_ROOT`). Khi nguồn có box 3D, thêm `instances/instances_info.json`, `instances/frame_instances.json` và `dynamic_masks/{all,human,vehicle}/<khung>_<camera>.png` theo đúng định dạng script KITTI của DriveStudio (`docs/datasets/kitti360.md` mục 3.1).
+- **PHENIKAA** (`drive2sim/ingest/phenikaa.py`, `docs/datasets/phenikaa.md`) ghi cùng khung KITTI như KITTI-360, xe (`ego`) là hệ xe của PHENIKAA: `lidar/<khung>.bin` (`float32` x, y, z, cường độ 0–1, hệ xe, đổi từ `.laz`); `ego_pose/<khung>.txt` xe → world, world là hệ xe ở khung đầu; `extrinsics/<camera>.txt` camera → xe (trục OpenCV); ảnh `images/<khung>_<camera>.jpg`: camera mắt cá giữ ảnh gốc (`opencv_fisheye`, 8 số `fx fy cx cy k1..k4` Kannala–Brandt), camera pinhole được khử méo lúc ingest (`opencv_pinhole`, 9 số với méo bằng 0). Thêm `frame_ids.txt`, `timestamps.txt`, `reports/ingest.json` (nguồn, calib, camera bỏ, skew bị bỏ). Khi có nhãn nguồn, `phenikaa_tracking.py` nối box qua các khung, ghi `instances/instances_info.json`, `instances/frame_instances.json` và `dynamic_masks/{all,human,vehicle}/`; ID theo dõi do converter suy ra. Manifest phản ánh box đã xuất.
 - **`intrinsics/<camera>.txt` theo mô hình camera** ghi trong manifest (`cameras[].model`): `opencv_pinhole` là 9 số `fx fy cx cy k1 k2 p1 p2 k3` (như Argoverse, KITTI); `opencv_fisheye` là 8 số `fx fy cx cy k1 k2 k3 k4` (thứ tự của `cv2.fisheye`, `theta_d = θ·(1 + k1·θ² + k2·θ⁴ + k3·θ⁶ + k4·θ⁸)`). Bốn số đầu luôn là `fx fy cx cy` (pixel, ảnh gốc). Hai dạng phân biệt bằng `model`, không bằng số phần tử. Camera mắt cá KITTI-360 (Mei) được khớp sang `opencv_fisheye` trên miền 0–1,45 rad (`drive2sim/core/camera.py`); ngoài miền đó sai số tăng dần. Converter chuyển gần đúng mô hình ống kính như vậy thì ghi vào manifest góc lệch trục lớn nhất mà mô hình mới còn lệch mô hình gốc không quá `FIT_TOLERANCE_PX` (0,5 px), tính từ calib của từng camera: `cameras[].max_angle` (rad, không bắt buộc, trong (0, π]; thêm sau `d2s-manifest/1.1` mà không tăng phiên bản; KITTI-360 ghi từ đầu ra phiên bản 3). Chuỗi 0003: `image_02` 1,678 (96,1 độ), `image_03` 1,615 (92,5 độ). Loader che theo góc nhỏ nhất giữa trường này, vùng đen dò từ ảnh và giới hạn của renderer (3DGUT, 3DGEER: 88 độ, `drive2sim/stages/train/drivestudio.py` `RENDERER_MAX_ANGLE`); không có trường này là không giới hạn ngoài miền đa thức ống kính còn tăng. So sánh manifest giữa hai tài khoản Kaggle (mục 9.4) bỏ qua trường này.
 - Thư mục cảnh chỉ chứa những gì có từ nguồn. Mask bầu trời và SMPL do stage `prep.*` sinh ra là artifact trong `cache/` (mục 5), không ghi vào đây.
 
@@ -113,18 +117,21 @@ available:
 
 ```json
 {
-  "schema_version": "d2s-split/0.1",
+  "schema_version": "d2s-split/0.2",
   "split_id": "every8_allcams",
   "scene_id": "nuscenes_scene-0061",
   "strategy": "every_nth_frame:8",
   "frame_range": [0, 38],
   "cameras": ["CAM_FRONT", "CAM_FRONT_LEFT", "CAM_FRONT_RIGHT"],
+  "test_only_cameras": [],
   "train": [[0, "CAM_FRONT"], [0, "CAM_FRONT_LEFT"], [1, "CAM_FRONT"]],
   "test":  [[8, "CAM_FRONT"], [8, "CAM_FRONT_LEFT"], [8, "CAM_FRONT_RIGHT"]]
 }
 ```
 
 Mỗi phần tử là cặp `[frame_index, camera_id]`. Một cặp không được nằm ở cả `train` và `test`.
+
+`test_only_cameras` (từ `d2s-split/0.2`, mặc định rỗng; file `0.1` vẫn đọc được): các camera chỉ có mặt ở `test`, không bao giờ train, để đo ảnh ở camera lệch khỏi quỹ đạo train (R2, ví dụ `image_01` của KITTI-360 so với `image_00`). Phải là tập con của `cameras` và không được bằng cả `cameras`. Tạo bằng `d2s split create ... --test-only-cameras image_01`.
 
 `strategy` lấy một trong:
 - `every_nth_frame:N`: các khung N, 2N, 3N… (tính từ khung đầu của `frame_range`) làm test cho mọi camera trong `cameras`; các khung còn lại, kể cả khung đầu, làm train. Trùng với `test_image_stride` của DriveStudio (`split_train_test` trong `drive2sim/recon/data/driving_dataset.py`).
@@ -152,6 +159,34 @@ Approach khai báo các `strategy` mà codebase của nó hỗ trợ (`requires.
 
 `converter.outdated` (`warning`): cảnh được ingest bằng converter cũ (mục 2.2), `details` là `{"output_version", "current_output_version"}`; cảnh vẫn chạy được.
 
+### 3.3 `reports/rig.json`
+
+Sơ đồ camera trên xe và quỹ đạo xe, nhìn từ trên xuống, cho Studio (SPEC mục 8A). Ghi bởi `drive2sim/recon/tools/scene_rig.py` (cần PyTorch): nó dựng `DrivingDataset` của DriveStudio ở chế độ viewer (đọc pose, calib, không đọc ảnh, LiDAR) và lấy pose camera, intrinsics mà loader của dataset đưa cho trainer, **không** tự đọc file pose của từng dataset (mỗi dataset lưu khác nhau), nên sơ đồ đúng bằng dữ liệu train và chạy được với cảnh ingest trên Kaggle. `d2s scene ingest` (và ingest trong Studio) ghi nó sau khi ingest; lỗi ở bước này chỉ là cảnh báo. Cảnh có trước: `d2s scene rig <scene_id>` hoặc nút tạo ở tab Camera của trang cảnh. Notebook ingest trên Kaggle chạy `d2s scene ingest`, và file nằm trong `reports/` nên được tải về cùng file nhỏ (mục 9.4).
+
+Hệ toạ độ: `x` tới, `y` trái, `z` lên, mét; gốc là tâm các camera ở khung đầu. Trục lên là trung bình hướng lên (`-Y` của camera OpenCV) của mọi camera ở mọi khung. Trục tới là hướng xe chạy: trung bình (trên vòng tròn) góc giữa mỗi đoạn đường dài hơn 0,3 m và hướng nhìn của camera tham chiếu (`timeline.reference_sensor` nếu là camera, không thì camera đầu), nên đúng cả khi cảnh không có camera nhìn thẳng phía trước; sai số cỡ 2 độ (cảnh thật: camera trước nuScenes −1,2 độ, KITTI-360 `image_00` 1,8 độ). Xe đứng yên thì lấy hướng camera tham chiếu (`forward_source: "camera"`).
+
+```json
+{
+  "version": 1, "scene_id": "nuscenes_scene-0061",
+  "frame": "x forward, y left, z up (m); origin: camera centre at frame 0",
+  "reference_camera": "CAM_FRONT", "forward_source": "motion",
+  "cameras": [{"camera_id": "CAM_FRONT", "model": "opencv_pinhole", "position_m": [0.75, -0.01, -0.05],
+               "yaw_deg": -1.2, "pitch_deg": -2.2, "hfov_deg": 64.6}],
+  "trajectory": [{"frame": 0, "x": 0.0, "y": 0.0, "z": 0.0, "yaw_deg": 0.0}]
+}
+```
+
+`yaw_deg` dương là sang trái; vị trí camera tính so với tâm các camera ở khung đầu. `hfov_deg`: pinhole từ tiêu cự; mắt cá, F-theta là góc giữa hai pixel hợp lệ xa nhất trên hàng giữa ảnh theo tia của loader (camera mắt cá KITTI-360: trong góc che của loader, ví dụ 191,8 độ với `image_02` của cảnh ghi `max_angle`). `trajectory`: tâm các camera và hướng xe theo từng khung.
+
+### 3.4 `reports/lidar_check.json`, `reports/lidar_overlay/`
+
+LiDAR chiếu lên ảnh để kiểm tra calib, pose (`drive2sim/recon/tools/lidar_overlay.py`, cần PyTorch và ảnh trên máy). Phép chiếu là của loader DriveStudio (`lidar_depth_maps`, đúng hình học khi train). Ghi sau ingest cùng `rig.json` (`drive2sim/ingest/reports.py`; notebook ingest trên Kaggle chạy nó, máy tải về `lidar_check.json` cùng file nhỏ, không có ảnh); cảnh có trước: `d2s scene lidar-check <scene_id>` hoặc nút ở tab Kiểm tra. Trên 3 khung (đầu, giữa, cuối):
+
+- `lidar_overlay/<khung>_<camera>.jpg`: điểm LiDAR tô màu độ sâu (thang của `depth_visualizer`) trên ảnh loader nạp; LiDAR thưa (dưới 40 000 điểm mỗi megapixel) vẽ điểm to ra 1 pixel. Để người xem, **không** phải bước duyệt.
+- `lidar_check.json`: `{"version", "scene_id", "frames", "cameras": [{"camera_id", "frames", "points_per_frame", "points_per_megapixel", "median_depth_m", "p95_depth_m"}], "overlays": [{"frame", "camera_id", "file"}]}`.
+
+`validate_scene` đọc hai file này và `rig.json`: `projection.camera_sparse` (cảnh báo, mật độ dưới 2 % camera nhiều điểm nhất), `projection.depth_range` (cảnh báo, độ sâu trung vị ngoài 1–150 m), `projection.camera_tilt` (cảnh báo, `tilt_deg` của camera quá 60 độ), `projection.done` (thông tin); chưa có `lidar_check.json` thì `projection.not_run`. Không bắt được tự động: lệch nhỏ vài pixel, và calib hai camera bị đổi chỗ cho nhau; hai lỗi này chỉ thấy trên ảnh chồng (ARCHITECTURE mục 7.1).
+
 ## 4. Approach
 
 ### 4.1 File khai báo
@@ -165,6 +200,9 @@ name: "OmniRe"
 version: 0.1.0
 codebase: drivestudio              # drivestudio | external:<tên>
 level: L1                          # L1 | L2 | L3 | L4
+kind: per_scene                    # per_scene | feed_forward | slam (tuỳ chọn, mặc định per_scene)
+experimental: false                # true: chưa nghiệm thu, Studio gắn nhãn "thử nghiệm" (tuỳ chọn)
+dynamics: boxes                    # boxes | time | option | static (tuỳ chọn)
 requires:
   camera_models: [opencv_pinhole, opencv_fisheye, ftheta]   # nhận được với ít nhất một tổ hợp lựa chọn
   cuboids: required                # required | optional | none
@@ -224,6 +262,7 @@ stages:                            # chạy lần lượt; ${...} được thay 
       fastgs: "${options.fastgs}"
   - {stage: eval.standard}
   - {stage: export.ply_world}
+  - {stage: eval.ply}
 ```
 
 Ví dụ trên là dạng đích: stage `init.*` chưa có (ARCHITECTURE mục 4.3), nên `drive2sim/approaches/omnire.yaml` hiện chưa có mục `init`; video do `train.py` ghi, chưa có stage `render.videos`.
@@ -231,6 +270,9 @@ Ví dụ trên là dạng đích: stage `init.*` chưa có (ARCHITECTURE mục 4
 - Một stage dùng được artifact của bất kỳ stage nào đứng trước. Engine nối theo kiểu artifact: stage cần `points_init` nhận artifact `points_init` gần nhất phía trước.
 - `${options.<tên mục>}` được thay bằng lựa chọn cụ thể trước khi chạy. Sau khi thay, danh sách stage là cố định; không có điều kiện, nhánh song song hay vòng lặp lúc đang chạy.
 - `groups`, và `label`, `help`, `labels`, `descriptions`, `group` của mục cấu hình, và `preset_help` chỉ dùng để hiển thị (thêm từ `0.2`; file `0.1` vẫn đọc được). Studio hiện các mục cấu hình theo nhóm; giải thích của mục cấu hình, của từng lựa chọn, của preset và lý do một lựa chọn bị khoá nằm trong icon (i), không hiện thành dòng chữ trên trang. Thuật toán phụ trợ (FastGS, và sau này các thuật toán tăng tốc khác) đặt mỗi thuật toán thành một mục cấu hình bật/tắt riêng trong nhóm `speedup`; tổ hợp chưa có file config thì khai báo trong `constraints`. Viết tiếng Việt như `reason` của ràng buộc. Thêm approach hay lựa chọn mới không cần sửa Studio: thiếu các trường này thì Studio hiện tên mục cấu hình và giá trị thô.
+- `kind` (tuỳ chọn, thêm sau `0.3` mà không tăng phiên bản; mặc định `per_scene`): loại phương pháp, chỉ để Studio chia nhóm danh sách approach ở trang Chạy mới; engine không đọc. `per_scene`: train riêng cho từng cảnh (OmniRe, PVG, Street Gaussians, DeformableGS, BezierGS); `feed_forward`: suy ra cảnh bằng một lần chạy model đã học sẵn, không train theo cảnh (Instant NuRec); `slam`: vừa ước lượng pose camera vừa dựng bản đồ (MCGS-SLAM). Loại này khác `codebase`: `codebase` nói code chạy ở môi trường nào, `kind` nói method hoạt động ra sao.
+- `experimental` (tuỳ chọn, thêm sau `0.3` mà không tăng phiên bản; mặc định `false`): `true` khi approach đã nối vào tool nhưng chưa nghiệm thu, tức chưa có run train và eval đầy đủ chạy xong trên GPU (hiện là XSIM). Studio gắn nhãn "thử nghiệm" ở trang Chạy mới, `d2s approach list` ghi thêm cột. Chỉ để hiển thị; engine không đọc, run vẫn tạo và chạy bình thường. Bỏ trường này khi approach đã nghiệm thu.
+- `dynamics` (tuỳ chọn, thêm sau `0.3` mà không tăng phiên bản): cách approach dựng vật chuyển động (xe, người), Studio hiện thành nhãn trên thẻ approach ở trang Chạy mới. `boxes`: xe, người là node riêng đi theo box 3D của cảnh (OmniRe, Street Gaussians, BezierGS, XSIM); `time`: Gaussian đổi theo thời gian, không cần box, không tách riêng từng vật (PVG, DeformableGS); `option`: tuỳ một mục cấu hình, mặc định tắt (Instant NuRec, `include_dynamic`); `static`: bản đồ tĩnh (MCGS-SLAM). Chỉ để hiển thị; điều kiện về box vẫn do `requires.cuboids` quyết định, và Studio làm mờ approach có `cuboids: required` khi cảnh không có box (`available.cuboids: none`), cùng quy tắc với kiểm tra lúc tạo run.
 - `retired_options` (tuỳ chọn, thêm sau `0.3` mà không tăng phiên bản): mục cấu hình đã gỡ khỏi approach, cùng dạng với `options`. Engine không đọc; Studio dùng nhãn và `default` cũ để hiện cấu hình của run cũ còn ghi mục đó (ẩn khi run dùng giá trị mặc định). Tên không được trùng mục trong `options`. Ví dụ `omnire.yaml` giữ `densify` (MCMC, gỡ 19/11/2026). Ô cấu hình trên Studio luôn hiện `renderer` đầu tiên, kể cả khi là mặc định, trừ khi preset của run đã đặt renderer.
 - **Loại camera (track).** Approach không ghi track. Track suy ra từ mô hình camera: `opencv_pinhole`, `ideal_pinhole` là track `pinhole`; `opencv_fisheye`, `ftheta` là track `fisheye`. `requires.camera_models` là mọi mô hình approach nhận với **ít nhất một** tổ hợp lựa chọn. Lựa chọn chỉ nhận một phần thì ghi trong `camera_models` của mục cấu hình đó, mỗi lựa chọn một danh sách, chỉ dùng mô hình có trong `requires.camera_models` (thêm từ `0.3`). Ví dụ OmniRe: 3DGS gốc chỉ vẽ pinhole, 3DGUT và 3DGEER vẽ thêm fisheye, F-theta (`drive2sim/recon/trainers/base.py`, `camera_rasterization_kwargs`). Vậy track của từng preset suy ra từ lựa chọn của preset đó: `paper` chỉ pinhole, `geer` cả hai. API Studio (`GET /api/approaches`) và `d2s approach list`, `show` trả thêm `camera_support`: `{"tracks", "camera_models", "default": {...}, "presets": {tên: {...}}}` (`resolve.camera_support`). File `0.1`, `0.2` có trường `track` vẫn đọc được; trường đó bị bỏ qua.
 - Preset chỉ là cách điền nhanh các mục cấu hình. `run.json` ghi tên preset (`approach.preset`) chỉ khi cấu hình cuối đúng bằng preset đó; người dùng chọn preset rồi chỉnh một mục cấu hình khác đi (Studio, hoặc `--preset` kèm `--set` ở CLI) thì `preset` là `null`. Studio làm mờ lựa chọn vi phạm ràng buộc với các mục cấu hình đang chọn, kèm mục cấu hình cần đổi và `reason`.
@@ -280,9 +322,11 @@ class Stage(ABC):                      # lớp gốc; lớp con khai báo thuộ
         """Ghi đầu ra vào ctx.output_dir và trả về đường dẫn của từng đầu ra."""
 
 class StageContext(Protocol):
+    run_id: str
     output_dir: Path
     scene: Scene                       # thư mục dữ liệu chuẩn + manifest
     split: Split
+    workdir: Path                      # thư mục làm việc (data/, cache/, runs/)
     def progress(self, fraction: float, message: str = "") -> None: ...
     def log_metric(self, name: str, value: float, step: int) -> None: ...
     def report_peak_vram(self, megabytes: int) -> None: ...  # stage chạy GPU ở tiến trình con báo VRAM đỉnh; engine ghi giá trị lớn hơn vào run.json
@@ -290,6 +334,7 @@ class StageContext(Protocol):
 
 Stage đăng ký bằng `@register_stage("<stage_id>")`. Engine lo cache, file `done`, thư mục `.partial` và `artifact.json`; stage chỉ ghi file vào `output_dir`.
 
+- `scene.root` có thể là thư mục cảnh ảo của run (`<workdir>/.runtime/<run_id>/scene_view/000`, khi run có bản chụp mask), nên stage cần thư mục làm việc thì đọc `ctx.workdir`, không suy ra từ `scene.root`.
 - `inputs` của `run` chỉ chứa artifact: tên đầu vào → thư mục của artifact. Cảnh và split đọc từ `ctx`. Khai báo `"scene"` hoặc `"split"` trong `inputs` của lớp nghĩa là kết quả phụ thuộc cảnh hoặc split, nên `scene_id` hoặc `split_id` vào khoá cache.
 - Decorator kiểm tra khai báo ngay lúc import và từ chối: tên lớp sai mẫu `<Nhóm><Tên>Stage`; `version` sai dạng `MAJOR.MINOR.PATCH`; `cacheable` khác quy tắc của nhóm (`true` với `prep`, `init`; `false` với nhóm khác, mục 5.2); loại artifact không có trong bảng mục 5.4; không có **đúng một** đầu ra (thư mục kết quả của stage là một artifact, `artifact.json` có một `artifact_type`); `Params` không phải lớp Pydantic; `stage_id` đã được lớp khác đăng ký.
 - Cài trong `drive2sim/engine/stage.py` (interface) và `drive2sim/engine/registry.py` (đăng ký, nạp mọi stage trong `drive2sim/stages/`).
@@ -332,11 +377,13 @@ Riêng `train.*`: chạy tiếp bằng `checkpoint_resume.pth` (model, optimizer
 | `scene_subset` | Kết quả của `prep.select`: danh sách camera, đoạn khung, độ phân giải đã chọn |
 | `masks` | Thư mục có `sky_masks/<khung>_<camera>.png` và (khi `dynamic` bật) `fine_dynamic_masks/{all,human,vehicle}/<khung>_<camera>.png`, đúng tên DriveStudio. Do `prep.masks_segformer` ghi |
 | `smpl` | Thư mục có `humanpose/smpl.pkl` (định dạng của `drive2sim/recon/preprocess/smpl/run.py`) cùng file trung gian trong `humanpose/temp/`, `humanpose/postprocess/`. Do `prep.smpl` ghi |
+| `observations` | Gói quan sát `d2s-observations` v1 do `prep.observations` xuất từ `DrivingDataset` dựng đúng như `train.drivestudio` (cùng method config, config dataset, tham số dòng lệnh). `observations.json`: định dạng, split và `split_key`, `camera_indices`, `frames` (khung cảnh), `source_frames`, `timestamps_us`, `loader_test_frames`, mô tả camera (mô hình `pinhole`/`fisheye`, kích thước đã nạp, `fx, fy, cx, cy`, hệ số méo), `lidar_frames`, cờ `instances`, `smpl`, `data_config`. `images/<khung>_<camera>.png`: RGB 8 bit như loader giữ (hard link tới ảnh cảnh khi pixel trùng). `masks/train_<camera>.png`: pixel được giám sát (`egocar_masks` của loader); `masks/eval_<camera>.png`: pixel được chấm (`valid_masks`), không có thì chấm cả ảnh. `sky/`, `cameras.npz` (camera → world từng khung), `lidar/<khung>.npz` (điểm, gốc tia world, pose cảm biến), `instances.npz` (pose world, kích thước, khung thấy, loại node), `smpl.npz` (ma trận quay khớp). Gói không chứa mô hình SMPL: khi `smpl` bật, stage `train.xsim`, `eval.xsim` chuyển `SMPL_NEUTRAL.pkl` thành `<D2S_XSIM_DIR>/smpl/SMPL_NEUTRAL.pth` bằng `recon/tools/convert_smpl.py` và đặt `SMPL_PATH` cho worker. Pose ở hệ world của loader (pose xe ở khung đầu). |
 | `ncore_clip` | Clip NCore V4 của đoạn khung trong split (Instant NuRec đọc): file `<sequence_id>.json` và các store `.itar` do converter ghi, cùng `clip.json` (`clip`, `frame_ids` của clip, `scene_frame_ids`, `scene_frames`, `sensors` (`camera_id` → tên sensor NCore), `fisheye_model`, `lidar`). Do `prep.ncore` ghi |
+| `mcgs_input` | Đầu vào của MCGS-SLAM (`train.mcgs` đọc): `images/<camera_id>/<khung:06d>.<đuôi>` (symlink tới ảnh của cảnh, hoặc bản chép nếu không tạo được; mọi thư mục cùng danh sách khung, không có khung test khi `held_out`), `calib.yml` (`intrinsic`, `camera`, `baseline`, `T_cami_cam0`, `timescale`; bảy số SE3 `tx ty tz qx qy qz qw` biến điểm từ hệ camera tham chiếu sang hệ camera đó), `mcgs_prep.json` (`layout` thứ tự thư mục, một camera có thể lặp hai lần; `cameras`; `reference_camera`; `frames`; `dropped_frames` là khung thiếu ảnh ở một camera nên bỏ ở mọi thư mục; `held_out`). Do `prep.mcgs` ghi |
 | `depth_prior` | Depth metric theo camera và khung, mỗi ảnh một file `.npy` `float32`, mét; kèm tên model trong `artifact.json` |
 | `points_init` | `points_init.npz`: `points` `float32[M,3]` trong hệ `world`, `colors` `uint8[M,3]`, `track_ids` (tuỳ chọn) |
 | `model` | Thư mục log của codebase; với DriveStudio có `checkpoint_final.pth`, `config.yaml`, `metrics/`, `videos/`, `train_stats.json`, `cameras.json` (mục 6.1). Codebase khác cung cấp kết quả qua định dạng chung của các stage sau |
-| `eval_report` | Thư mục chứa `summary.json` (mục 6.3) và metric gốc của codebase |
+| `eval_report` | Thư mục chứa `summary.json` (mục 6.3) và metric gốc của codebase; `eval.ply` cũng ghi `ply_gap.json` (mục 6.5) vào thư mục của nó với loại này, vì chưa stage nào đọc nó như đầu vào |
 | `videos` | Video MP4 H.264 |
 | `export_ply` | PLY 3DGS trong hệ `world` |
 | `preview` | Gói xem trước cho Spark (mục 7) |
@@ -364,7 +411,8 @@ runs/<scene_id>/<approach_id>/<run_id>/
         │   ├── metrics.json             # metric trong lúc train
         │   ├── metrics/images_test_*.json
         │   ├── videos/ images/ configs_bk/ backup/
-        │   ├── checkpoint_<bước>.pth     # chỉ model, sau mỗi lần lưu
+        │   ├── checkpoint_<bước>.pth     # chỉ model, sau mỗi lần lưu; train.py xoá khi train xong (từ 21/11/2026), trừ khi tham số keep_step_checkpoints
+        │   ├── metrics_steps/test_<bước>.json  # đo test giữa chừng (từ 21/11/2026, tham số eval_at; mặc định nửa số bước): psnr, ssim, lpips, per_camera (chỉ số camera như metrics/), num_gaussians, train_time_s
         │   ├── checkpoint_resume.pth    # model + optimizer + grad scaler; xoá khi train xong
         │   ├── checkpoint_final.pth
         │   ├── train_stats.json         # thời gian train thực, VRAM, số Gaussian, iteration; ghi cùng mỗi checkpoint
@@ -372,8 +420,9 @@ runs/<scene_id>/<approach_id>/<run_id>/
         │   ├── log.txt                  # stdout và stderr của train.py
         │   ├── artifact.json
         │   └── done
-        ├── eval.standard/               # summary.json, artifact.json, done
-        └── export.ply_world/            # scene.ply, scene.json, cameras.json, artifact.json, done
+        ├── eval.standard/               # summary.json, frames.jsonl, artifact.json, done
+        ├── export.ply_world/            # scene.ply, scene.json, cameras.json, artifact.json, done
+        └── eval.ply/                    # ply_gap.json, background/scene.ply, artifact.json, done
 ```
 
 Gốc thư mục run chỉ có `d2s/`, nên file của tool không trùng tên với file của codebase.
@@ -395,11 +444,15 @@ Gốc thư mục run chỉ có `d2s/`, nên file của tool không trùng tên v
 | `_SMPLNodes_rgbs` | Chỉ người |
 | `_DeformableNodes_rgbs` | Chỉ vật biến dạng |
 | `_Dynamic_rgbs` | Mọi vật chuyển động (xe, người, vật biến dạng) |
+| `_rgb_error_maps` | Sai khác giữa ảnh render (8 bit) và ảnh thật: trung bình trị tuyệt đối trên ba kênh màu, thang màu `inferno` **cố định** từ 0 tới `ERROR_MAP_MAX` = 0,25 (64/255) cho mọi khung, camera và run; điểm ảnh không tính metric (`valid_masks`: rìa mắt cá, thân xe) tô xám 0,35. Từ 20/11/2026; DriveStudio chuẩn hoá mỗi khung theo min, max riêng nên không so được giữa các khung |
+| `_depths` | Độ sâu model vẽ ra, thang `turbo` theo log từ 4 tới 120 m (`depth_visualizer`), cố định cho mọi khung. Từ 20/11/2026; renderer 3DGUT, 3DGEER chỉ vẽ độ sâu khi train có depth loss |
+
+**`<bộ>_<bước>_layout.json`** (từ 20/11/2026, `write_video_layout` trong `drive2sim/recon/rendering/videos.py`) nằm cạnh video của mỗi bộ: `width`, `height` (khung ghép, pixel), `fps`, `cameras` (`[{"name", "x", "y", "width", "height"}]`: khung của từng camera trong khung ghép, tìm bằng cách cho hàm ghép của dataset ghép ảnh dò, nên đúng với mọi bố cục, kể cả bố cục đổi cỡ ảnh như KITTI-360), `error_map` (`max`, `cmap`, `invalid_grey`) và `depth` (`min_m`, `max_m`, `curve`, `cmap`) để vẽ chú thích. Video MP4 bị imageio đổi cỡ cho chia hết 16 (ví dụ khung ghép 2399×449 thành video 2400×464), nên người đọc cắt camera theo **tỉ lệ** của khung ghép, không theo pixel của video. Run train trước đó tạo bù bằng `python -m drive2sim.scripts.video_layouts [<run_id> ...]` (đọc `cameras.json`, `config.yaml`); fps của bộ test là `TEST_VIDEO_FPS` = 2 (`recon/tools/eval.py`), bộ full là `render.fps`.
 
 - **`full_set` trông đẹp hơn thực tế.** Khoảng 90 % khung trong đó model đã thấy lúc train, nên gần như "học thuộc".
 - **Muốn biết model tốt đến đâu, xem `test_set`.** Đặt `test_set_..._rgbs` cạnh `test_set_..._gt_rgbs` để so cùng khung.
 - **`novel` cho thấy chất lượng khi đi lệch khỏi đường xe đã chạy.** Đó là thứ cần cho mô phỏng, nhưng không đo được bằng số vì không có ảnh thật.
-- Danh sách video theo `render_keys` trong `train.py`; bật `render.vis_lidar`, `render.vis_sky`, `render.vis_error` trong config thì có thêm `lidar_on_images`, `rgb_sky_blend`/`rgb_sky`, `rgb_error_maps`. Đường đi `novel` theo `render.render_novel.traj_types` (`front_center_interp`, `s_curve`, `three_key_poses`, `drive2sim/recon/utils/camera.py`).
+- Danh sách video theo `render_keys` trong `train.py`; đánh giá cuối luôn thêm `rgb_error_maps` và `depths` (từ 20/11/2026); bật `render.vis_lidar`, `render.vis_sky`, `render.vis_error` trong config thì có thêm `lidar_on_images`, `rgb_sky_blend`/`rgb_sky`, `rgb_error_maps`. Đường đi `novel` theo `render.render_novel.traj_types` (`front_center_interp`, `s_curve`, `three_key_poses`, `drive2sim/recon/utils/camera.py`).
 
 Huỷ run (`d2s run cancel`, `POST /api/runs/{run_id}/cancel`) chỉ ghi file `cancel`, nên huỷ được từ tiến trình khác. Engine kiểm tra file này trước mỗi stage; stage đang chạy một tiến trình con thì kiểm tra mỗi giây, gửi SIGTERM cho cả nhóm tiến trình, chờ 10 giây rồi SIGKILL. Stage bị huỷ có trạng thái `cancelled` và chạy tiếp được bằng `run resume`. Run có trạng thái `running` mà không có tiến trình nào giữ `pid` (máy tắt giữa chừng) thì lệnh huỷ đổi ngay sang `cancelled`.
 
@@ -407,7 +460,7 @@ Huỷ run (`d2s run cancel`, `POST /api/runs/{run_id}/cancel`) chỉ ghi file `c
 
 ```json
 {
-  "schema_version": "d2s-run/0.3",
+  "schema_version": "d2s-run/0.4",
   "run_id": "20261112-081000-omnire-a1b2",
   "scene_id": "nuscenes_scene-0061",
   "split_id": "every8_allcams",
@@ -437,6 +490,7 @@ Huỷ run (`d2s run cancel`, `POST /api/runs/{run_id}/cancel`) chỉ ghi file `c
 - `stages[].error` chỉ có khi stage `failed`, cùng hình dạng lỗi với API (mục 11.3). Traceback đầy đủ nằm trong `d2s/log.txt`.
 - `duration_s` là thời gian máy thực sự chạy stage trong run này. Stage bị ngắt (huỷ, lỗi, hết phiên Kaggle) rồi chạy tiếp thì **cộng dồn** thời gian mọi lần chạy; `peak_vram_mb` lấy lớn nhất qua các lần. Stage đã `succeeded` từ lần trước giữ nguyên số đo cũ.
 - Stage dùng lại kết quả cũ (cache hoặc file `done`) có `duration_s` và `peak_vram_mb` bằng 0. Khi dùng lại từ cache, `reused_duration_s` ghi thời gian của lần chạy gốc (đọc từ `artifact.json`, mục 5.3), để tổng thời gian dựng cảnh không phụ thuộc run nào chạy trước.
+- `lidar_usage` liệt kê stage **dùng LiDAR để train** (`Stage.lidar_used(params)`), không phải stage chỉ nạp LiDAR. `train.drivestudio` với tham số `lidar=false` (ô A-0 của benchmark, mục 6.5; chỉ `pvg`, `deformablegs`) không có trong danh sách: nền khởi tạo từ điểm ngẫu nhiên, không có loss depth so với LiDAR, vùng cảnh (aabb) tính từ vị trí camera. LiDAR vẫn được nạp để đo depth lúc đánh giá nên cảnh phải có LiDAR (cảnh không LiDAR vẫn bị khoá). Đặt bằng `--set train.drivestudio.lidar=false`.
 - `peak_vram_mb` do engine đo chỉ thấy bộ nhớ GPU của tiến trình engine, nên bằng 0 với stage chạy một tiến trình con (`prep.*`, `train.drivestudio`, `export.ply_world`). VRAM của train lấy từ `train_stats.json` qua `summary.json` (mục 6.3).
 - `approach.quick` là `true` với run chạy thử nhanh (`--quick`): mọi stage có tham số `num_iters` train 3000 iteration, trừ khi người dùng tự đặt `num_iters` bằng `--set`. Run này để kiểm tra approach chạy hết từ đầu tới cuối; metric không so được với run đủ iteration, nên Studio gắn nhãn "thử nhanh" và không đưa run này vào bảng so sánh.
 - Thay đổi từ `0.1`: thêm `created_utc`, `stages[].params`, `stages[].error`. Thay đổi từ `0.2`: thêm `approach.quick`, `stages[].reused_duration_s`; `duration_s` cộng dồn khi chạy tiếp. File `0.1`, `0.2` vẫn đọc được.
@@ -444,12 +498,12 @@ Huỷ run (`d2s run cancel`, `POST /api/runs/{run_id}/cancel`) chỉ ghi file `c
 
 ### 6.3 `summary.json`
 
-Tóm tắt metric theo protocol của SPEC mục 9, do `eval.standard` ghi vào thư mục của nó: `d2s/stages/eval.standard/summary.json`.
+Tóm tắt metric theo protocol của SPEC mục 9, do stage đánh giá ghi vào `d2s/stages/<eval.stage>/summary.json`. Studio và report lấy stage `eval.*` thành công cuối cùng theo thứ tự pipeline trong `run.json`. Stage đang chạy lại chưa được dùng, kể cả khi còn file từ lần chạy trước. Run cũ thiếu danh sách stage dùng vị trí của `eval.standard`.
 
 ```json
 {
-  "schema_version": "d2s-summary/0.4",
-  "protocol": {"version": "0.3", "image_dtype": "uint8", "resolution": "downscale_when_loading=[2, 2, 2], downscale=1",
+  "schema_version": "d2s-summary/0.8",
+  "protocol": {"version": "0.5", "image_dtype": "uint8", "resolution": "downscale_when_loading=[2, 2, 2], downscale=1",
                "lpips": {"net": "alex", "package": "torchmetrics", "package_version": "0.10.3"}},
   "split_id": "every8_allcams",
   "overall": {"psnr": 27.1, "ssim": 0.83, "lpips": 0.21,
@@ -461,11 +515,23 @@ Tóm tắt metric theo protocol của SPEC mục 9, do `eval.standard` ghi vào 
   "num_iters": 30000,
   "render_fps": 38.6,
   "render_resolution": "800x450",
-  "speedups": ["fastgs", "fastergs.fused_adam", "fastergs.fused_ssim"]
+  "speedups": ["fastgs", "fastergs.fused_adam", "fastergs.fused_ssim"],
+  "depth": {"abs_rel": 0.12, "rmse": 3.4, "delta_1_25": 0.93},
+  "shifted": {"cameras": ["image_01"], "num_images": 24, "psnr": 21.4, "ssim": 0.71, "lpips": 0.31,
+              "psnr_cc": 23.1, "lpips_cc": 0.27}
 }
 ```
 
 Các con số trong ví dụ chỉ minh hoạ định dạng. Metric vùng người, vùng xe chỉ có khi cảnh có box.
+
+- `shifted` (từ `d2s-summary/0.7`, protocol `0.5`): metric trên camera chỉ test của split (`Split.test_only_cameras`, mục 3.1), yêu cầu R2 của benchmark; để trống khi split không có camera chỉ test. `cameras` là `camera_id` của các camera đó, `num_images` số ảnh test đã đo; `psnr`, `ssim`, `lpips` là trung bình theo ảnh cùng cách đo như `overall`; `psnr_cc`, `lpips_cc` đo sau khi khớp cho **mỗi ảnh** một phép affine màu 3×4 (bình phương tối thiểu trên điểm hợp lệ, `drive2sim/recon/rendering/color_match.py`) giữa render và ảnh thật, vì camera chưa train không có ma trận chỉnh màu học được; ảnh có phép khớp suy biến (gần như một màu, dưới 100 điểm hợp lệ) bị bỏ khỏi trung bình sau chỉnh màu. Bản sau chỉnh màu là số để phân xử hoà (mục 6.5).
+- `coverage` (từ `d2s-summary/0.8`, số trong [0, 1]): tỉ lệ điểm ảnh được chấm, trung bình trên mọi view test. Chỉ `eval.ncore` và `eval.mcgs` điền: `ncore_eval_render.py` chỉ chấm điểm ảnh ngoài mask thân xe và có `alpha > 0,9`, nên PSNR của hai stage này đo trên phần ảnh nhỏ hơn và cao hơn thực tế khi bản đồ chưa phủ hết; người đọc cần `coverage` để biết số đo trên bao nhiêu phần ảnh. `eval.standard` đo trên mọi điểm hợp lệ nên để trống. View không có điểm hợp lệ nào không có PSNR: `ncore_eval_render.py` ghi `null` (không ghi `NaN`) trong `per_view.json`, `frames.jsonl` bỏ view đó khỏi trung bình, và camera mà mọi view như vậy không có trong `per_camera`.
+- Khi split có camera chỉ test, `overall.psnr`, `ssim`, `lpips` chỉ tính trên các ảnh test của **camera đã train** (R1), lấy từ `frames.jsonl`; các metric vùng (`human_psnr`, `vehicle_psnr`, `dynamic_psnr`, `occupied_psnr`) và `per_camera` giữ số của DriveStudio, gồm cả camera chỉ test. Split không có camera chỉ test thì `overall` y như protocol `0.4`. Thiếu `frames.jsonl` mà split có camera chỉ test là lỗi.
+- Protocol `0.5` chỉ thêm `shifted` và ba khoá của `frames.jsonl` (`psnr_cc`, `lpips_cc`, `psnr_static`, bên dưới); cách tính PSNR, SSIM, LPIPS trên camera đã train không đổi so với `0.4`, nên số hai protocol so được với nhau. `eval.standard` coi file `frames.jsonl` không có `psnr_cc` là do code đo cũ và đo lại từ checkpoint nếu còn.
+
+- `depth` (từ `d2s-summary/0.6`, protocol `0.4`): độ sâu render so với độ sâu LiDAR trên ảnh test, yêu cầu R4 của benchmark. Chỉ đo ở điểm ảnh có tia LiDAR trúng (`lidar_depth_map` của loader, cùng đại lượng với loss depth), hợp lệ và có độ sâu render dương; ảnh có dưới 50 điểm như vậy bị bỏ; mỗi ảnh có trọng số bằng nhau. `abs_rel` = trung bình `|pred − lidar| / lidar`, `rmse` tính bằng mét, `delta_1_25` = tỉ lệ điểm có `max(pred/lidar, lidar/pred) < 1,25`. Để trống khi cảnh không có LiDAR hoặc run đo bằng protocol cũ. Chưa chạy thật trên GPU (mục 7.1 của ARCHITECTURE).
+- `d2s/stages/eval.standard/frames.jsonl` (từ protocol `0.4`): mỗi dòng một JSON là metric của một ảnh test: `frame_index` (khung trong timeline của camera), `camera_index` (vị trí camera trong manifest), `time` (thời gian chuẩn hoá, có thể `null`), `position` (toạ độ camera trong hệ thế giới của cảnh, mét), `psnr`, `ssim`, `lpips`, `psnr_cc` và `lpips_cc` (sau chỉnh màu affine, từ protocol `0.5`; `null` khi phép khớp màu suy biến), `psnr_static` (từ protocol `0.5`: PSNR trên vùng nền tĩnh = hợp lệ, không phải trời, ngoài hình chiếu box vật động; `null` khi không còn điểm nào; stage `eval.ply` dùng làm số của render gốc), `depth` (`abs_rel`, `rmse`, `delta_1_25`, `num_points`, hoặc `null`). `d2s benchmark` dùng file này để tìm đoạn đường hỏng. Run đo bằng protocol 0.3 trở xuống không có file này; `eval.standard` đo lại từ checkpoint nếu còn (mục 6.3 phía trên).
+- Protocol `0.4` không đổi cách tính PSNR, SSIM, LPIPS so với `0.3`, chỉ thêm `depth` và `frames.jsonl`, nên số của hai protocol so được với nhau. `eval.ncore` (Instant NuRec) và `eval.mcgs` (MCGS-SLAM) ghi `protocol.version` là `ncore-0.3` vì SSIM và vùng hợp lệ của chúng khác (cùng script `ncore_eval_render.py`); `eval.mcgs` còn ghi `frames.jsonl` (không có `depth`, thêm `coverage` của từng ảnh; `psnr`, `ssim`, `lpips` là `null` khi view không có điểm hợp lệ); `d2s benchmark` cảnh báo khi một nhóm trộn các protocol khác nhau.
 
 - Cách đo (`protocol.version` `0.3`): cuối `train.py`, sau bước train cuối, model vẽ lại mọi ảnh của tập test; ảnh render được làm tròn về 8 bit như ảnh gốc rồi so với ảnh camera từng ảnh một, sau đó lấy trung bình. PSNR là `−10·log10(MSE)`; SSIM dùng `skimage.metrics.structural_similarity`; LPIPS dùng `torchmetrics` với backbone `alex`. Khi loader đánh dấu điểm ảnh không hợp lệ (`valid_masks`: mắt cá ngoài vùng nhìn dùng được, thân xe), cả ba metric chỉ xét điểm ảnh hợp lệ: PSNR trên các điểm đó, SSIM lấy trung bình bản đồ SSIM trên các điểm đó, LPIPS đo trên khung bao vùng hợp lệ với ảnh gốc dán vào điểm không hợp lệ (điểm không hợp lệ còn lại trong khung, như góc ảnh mắt cá, vẫn làm LPIPS loãng đi một chút). Ảnh không có điểm hợp lệ nào bị bỏ qua. `eval.standard` chỉ đọc kết quả này, không đo lại. Thay đổi từ `0.1`: `0.1` so ảnh render ở dạng số thực. Thay đổi từ `0.2`: `0.2` tính SSIM, LPIPS trên toàn ảnh sau khi tô đen vùng không hợp lệ ở cả hai ảnh, nên vùng đó được tính là khớp hoàn toàn và SSIM, LPIPS của camera có `valid_masks` tốt hơn thực tế; thêm metric theo camera. Hai run khác protocol không so SSIM, LPIPS của các camera này với nhau.
 - Metric theo vùng (lấy từ metric test của DriveStudio): `human_psnr` vùng người (gồm cả xe đạp, xe máy vì người ngồi trên đó đổi dáng), `vehicle_psnr` vùng xe, `dynamic_psnr` vùng mọi vật động (`masked_psnr` của DriveStudio), `occupied_psnr` vùng **không phải bầu trời** (`Non-Sky PSNR`, không phải vùng vật động). Vùng người, xe, vật động là hình chữ nhật bao quanh box 3D chiếu lên ảnh.
@@ -506,6 +572,75 @@ Các giá trị trong ví dụ chỉ minh hoạ định dạng. Trường nào k
 - `machines`: các máy đã chạy run theo thứ tự; chạy tiếp trên máy có cấu hình khác (ví dụ phiên Kaggle mới được cấp GPU khác) thì thêm một máy. `gpu` ở ngoài là GPU của máy chạy gần nhất.
 - Cách đọc, không cần nạp PyTorch: CPU từ `/proc/cpuinfo`, RAM từ `/proc/meminfo`, GPU (tên, VRAM, driver, số GPU) từ `nvidia-smi`; phiên bản `pytorch`, `gsplat` từ metadata gói đã cài, `cuda` từ đuôi phiên bản PyTorch (`+cu117` → `11.7`).
 - Thay đổi từ `0.1`: thêm `machines`; các trường phiên bản và `gpu` ghi lúc chạy thay vì lúc tạo run. Thay đổi từ `0.2`: mỗi máy có thêm `stages`, các stage đã thật sự chạy trên máy đó (stage dùng lại kết quả cũ không tính); `same_machine` bỏ qua trường này. Báo cáo lấy GPU của máy đã chạy stage `train.*` (run train trên Kaggle rồi xuất lại gói xem trước trên máy cá nhân không thành "nhiều GPU"); `env.json` cũ chưa có `stages` thì gộp mọi máy. Các trường cấp trên (`gpu`, `executor`, phiên bản) là của lần chạy gần nhất.
+
+### 6.5 Benchmark: `benchmarks/<tên>.yaml` và kết quả
+
+Benchmark so các run đã có kết quả (thiết kế ở báo cáo tuần 03 mục 4.2, yêu cầu R1–R8). File định nghĩa nằm trong thư mục làm việc, do người viết tay; mỗi mục là một nhóm run được xếp hạng với nhau. `bench_track` là track của benchmark (`A` dựng từng cảnh, `B` quãng đường dài, `C` feed-forward), **không phải** loại camera pinhole hay fisheye. Track `A` bắt buộc có `cell`: `A-LB` (có LiDAR và box), `A-L` (chỉ LiDAR), `A-0` (không cả hai); track khác không có `cell`. Mọi run trong một mục phải cùng cảnh và split.
+
+```yaml
+schema_version: d2s-benchmark/0.2
+calibration:                      # tuỳ chọn: một cấu hình train lặp theo seed, đo σ của PSNR
+  scene_id: kitti360_drive-0003
+  split_id: every10_front2
+  runs: [20261124-090000-pvg-s0s0, 20261124-091500-pvg-s1s1, 20261124-093000-pvg-s2s2]
+entries:
+  - bench_track: A
+    cell: A-L
+    scene_id: kitti360_drive-0003
+    split_id: every10_front2
+    runs: [20261124-101500-pvg-a1b2, 20261124-103000-deformablegs-c3d4]
+```
+
+`d2s benchmark <file> [--out <kết quả.json>]` đọc các file kết quả đã có của run (không chạy GPU) và ghi `d2s-benchresult`:
+
+```json
+{
+  "schema_version": "d2s-benchresult/0.4",
+  "tie_threshold_db": 0.3,
+  "tie_threshold_source": "default",
+  "warnings": [],
+  "groups": [
+    {
+      "bench_track": "A",
+      "cell": "A-L",
+      "scene_id": "kitti360_drive-0003",
+      "split_id": "every10_front2",
+      "winner_run_id": "20261124-103000-deformablegs-c3d4",
+      "decided_by": "train_time",
+      "rows": [
+        {"run_id": "20261124-103000-deformablegs-c3d4", "approach_id": "deformablegs", "rank": 1,
+         "tied_with_best": true, "psnr": 24.8, "ssim": 0.78, "lpips": 0.26, "avg_error": 0.0405,
+         "psnr_pinhole": 24.8,
+         "shift_psnr": 21.9, "shift_lpips": 0.31, "shift_psnr_cc": 23.4, "shift_lpips_cc": 0.27,
+         "shift_cameras": ["image_01"],
+         "depth": {"abs_rel": 0.12, "rmse": 3.4, "delta_1_25": 0.93},
+         "export_gap_db": 0.4, "ply_psnr": 24.1, "export_static": true, "export_applicable": true,
+         "ply_gaussians": 640000, "ply_size_mb": 151.2, "train_time_s": 5400, "recon_time_s": 6100,
+         "peak_vram_mb": 6100, "render_fps": 41.0, "gpu": "NVIDIA GeForce RTX 4090",
+         "distance_m": 480.0, "train_s_per_100m": null, "ply_mb_per_100m": null,
+         "ate_rmse_m": null,
+         "bad_segments": {"pinhole": [{"start_m": 60.0, "end_m": 100.0, "num_frames": 5,
+                                       "min_psnr": 19.5}]},
+         "frames_measured": 20, "coverage": null}
+      ],
+      "warnings": []
+    }
+  ]
+}
+```
+
+Các con số trong ví dụ chỉ minh hoạ định dạng. Quy tắc:
+- **Xếp hạng trong nhóm** theo Avg của Mip-NeRF (mục 6.3; thấp là tốt). Run kém run có Avg tốt nhất dưới `tie_threshold_db` (mặc định 0,3 dB PSNR) được coi là **ngang** (`tied_with_best`, gồm cả chính run tốt nhất); tập run ngang xác định **một lần**, so với run có Avg tốt nhất. Trong tập ngang phân xử lần lượt: (1) R2, `shifted.psnr_cc` cao hơn, chênh dưới ngưỡng hoà coi như bằng; (2) R3, `ply_psnr` (PSNR của `.ply` nền tĩnh trên vùng nền tĩnh) cao hơn, chênh dưới 0,3 dB coi như bằng; bỏ qua (kèm `warnings`) khi `.ply` của một run trong tập chưa phải nền tĩnh (`export_static` `false`); (3) thời gian train ngắn hơn, **chỉ khi mọi run còn lại cùng GPU**. Một bước mà có run trong tập chưa đo hoặc không áp dụng thì bị bỏ qua cho cả tập (R3 không áp dụng cho method không xuất được `.ply`). `winner_run_id` là run thắng và `decided_by` là bước đã chọn nó (`avg` nếu chỉ một run ngang run tốt nhất, `r2`, `r3`, `train_time`); `winner_run_id` là `null` (kèm `warnings`) khi không run nào có kết quả, khi các run ngang nhau mà khác GPU hoặc thiếu thời gian train, hoặc khi các run đo bằng protocol không so được (`0.3`, `0.4`, `0.5` so được với nhau; `ncore-0.3` thì không), lúc đó chỉ liệt kê theo Avg. Lệch làn (KID) chưa đo nên chưa xét. R4, R6, R7 báo kèm, không đổi thứ hạng.
+- **Ngưỡng hoà** (R8): mặc định 0,3 dB. Khối `calibration` của file định nghĩa (từ `d2s-benchmark/0.2`) liệt kê ít nhất hai run **cùng một cấu hình, chỉ khác `seed`** (tool không kiểm điều đó); ngưỡng là `max(0,3 dB, 2σ)` với σ là độ lệch chuẩn mẫu của PSNR các run đó, tính một lần và dùng cho mọi nhóm, `tie_threshold_source` là `calibration`. Dưới hai run có kết quả thì dùng 0,3 dB (`tie_threshold_source` là `default`) kèm cảnh báo ở `warnings` của kết quả, không lỗi; run hiệu chỉnh không tồn tại thì lỗi. Hiệu chỉnh một lần (một cấu hình × 3 seed trên KITTI-360 A1), không lặp mỗi benchmark.
+- **R2** (`shift_*`, từ `d2s-benchresult/0.2`): đọc từ `summary.json` khối `shifted` (mục 6.3), trên camera chỉ test của split. `shift_psnr_cc` là số phân xử hoà thứ nhất. Để trống khi split không có camera chỉ test hoặc run đo bằng protocol dưới `0.5`.
+- **Đoạn đường hỏng** (R7, chỉ chẩn đoán, không vào xếp hạng): PSNR một khung test là trung bình các camera của khung **trong cùng nhóm camera**; `bad_segments` có khoá `pinhole` và `fisheye` (nhóm theo `model` trong manifest; chỉ nhóm có ảnh), mỗi khoá là danh sách đoạn hỏng của nhóm. Đoạn hỏng là từ 5 khung test liền nhau trở lên, mỗi khung thấp hơn trung vị của nhóm quá 2 dB. Ảnh của camera chỉ test bị bỏ (PSNR thấp hơn hẳn và vị trí lệch khỏi quỹ đạo, sẽ làm lệch trung vị và quãng đường). `start_m`, `end_m` là quãng đường dọc đường gấp khúc qua vị trí camera của các khung test (giữa hai khung test liền nhau là khung train nên đường thực dài hơn một chút). Cần `frames.jsonl` (mục 6.3); `frames_measured` (số cặp khung-camera đã train có metric) bằng 0 nghĩa là chưa đo, không phải không có đoạn hỏng. Trước `0.2`, `bad_segments` là một danh sách chung cho mọi camera; file `0.1` vẫn đọc được, danh sách đó thành khoá `all`.
+- `coverage` (từ `d2s-benchresult/0.3`): chép từ `summary.json` (mục 6.3), tỉ lệ điểm ảnh được chấm; chỉ run `eval.ncore`, `eval.mcgs` có. Chiều báo cáo kèm PSNR của run đó, không xếp hạng. Ảnh có `psnr` là `null` bị bỏ khỏi `frames_measured`, đoạn đường hỏng và quãng đường.
+- `psnr_pinhole`, `psnr_fisheye`: trung bình PSNR theo camera **đã train**, nhóm camera theo `model` trong manifest (`opencv_fisheye`, `ftheta` là fisheye); camera chỉ test bị bỏ (số của nó nằm ở `shift_*`). Chiều báo cáo, không xếp hạng.
+- `ply_psnr` và `export_gap_db` (R3) đọc từ `d2s/stages/eval.ply/ply_gap.json` nếu có; `ply_psnr` là số phân xử hoà (từ `d2s-benchresult/0.4`; trước đó là `export_gap_db` nhỏ hơn), `export_gap_db` báo kèm để chẩn đoán phần mất khi xuất. Lý do (26/11/2026): trong tập ngang PSNR gốc đã gần bằng nhau, nên so gap gần như so PSNR của `.ply`, nhưng gap còn thưởng run có render gốc kém; số phân xử nên là chất lượng tuyệt đối của file đưa sang mô phỏng. `export_static` (từ `0.4`) là `false` khi stage `train.drivestudio` của run train PVG hoặc DeformableGS (`TIME_VARYING_METHODS` trong `engine/benchmark.py`): `export_ply.py` ghi tham số gốc của node `Background`, với PVG là tâm chưa cộng dao động và độ đục chưa nhân suy giảm theo thời gian, với DeformableGS là tâm chưa qua mạng biến dạng, nên `.ply` không phải nền tĩnh của cảnh đã train; R3 của các run này báo kèm (bảng `d2s benchmark` đánh dấu `†`) nhưng không phân xử, tới khi có cách xuất nền tĩnh riêng cho hai method. PVG đã có (26/11/2026, chưa kiểm trên run thật nên vẫn `export_static: false`): `export_ply.py` chỉ giữ Gaussian nền có độ dài đời `exp(_betas) / time_interval` từ `--static_min_life_frames` khung trở lên (mặc định 20; `drive2sim/recon/tools/time_varying_export.py`); tham số gốc của PVG là mỗi Gaussian ở đúng thời điểm đỉnh của nó (tâm không lệch, độ đục đầy đủ), nên chỉ cần bỏ Gaussian sống ngắn. `scene.json` của `.ply` có khối `time_varying` (số giữ, số bỏ, phân vị độ dài đời) để chỉnh ngưỡng. Renderer chung của `eval.ply` (3DGUT cho mắt cá) là giả định về renderer phía mô phỏng; run train bằng 3DGEER bị chấm bằng 3DGUT. Stage `eval.ply` (`drive2sim/stages/eval/ply.py`; stage cuối của các approach xuất `.ply`, sau `export.ply_world` và `export.preview`, để một lỗi chưa gặp của stage mới không làm mất gói xem trước) xuất một `.ply` **chỉ nền tĩnh** (`export_ply.py --rigid_frame -1`, ở `eval.ply/background/scene.ply`), vẽ nó bằng renderer 3DGS chung (gsplat: 3DGS cho camera pinhole, 3DGUT cho camera còn lại, bất kể model train bằng renderer nào) ở các ảnh test của **camera đã train**, rồi so với ảnh thật trên **cùng mask** với render gốc: điểm ảnh hợp lệ, không phải trời, ngoài hình chiếu box vật động (không có box thì chỉ bỏ trời). PSNR của render gốc lấy từ `psnr_static` trong `frames.jsonl` (mục 6.3, protocol `0.5`; thiếu khoá này stage báo lỗi trước khi dùng GPU). `ply_gap.json`: `export_gap_db` = PSNR render gốc trừ PSNR render `.ply` (trung bình theo ảnh, trên các ảnh có cả hai; dương là `.ply` kém hơn), `native_psnr`, `ply_psnr`, `num_images`, `mask`, `per_group` (cùng bốn số cho `pinhole`, `fisheye`), `ply_gaussians`, `ply_size_mb`. Phần mất đi gồm Gaussian mờ bị lọc khi xuất, không có ma trận chỉnh màu từng ảnh (`AffineTransform`), và chênh lệch giữa renderer lúc train với renderer chung. Chưa chạy thật trên GPU. `export_applicable` là `false` khi danh sách stage của run (`run.json`) không có `export.ply_world` hay `export.nurec_ply`, tức method không xuất được `.ply` nền tĩnh (như SLAM dạng anchor và MLP): R3 **không áp dụng**, khác với chưa đo (`export_gap_db` trống, `export_applicable` `true`).
+- **R6** (track B): `distance_m` là độ dài đường gấp khúc qua các khung test của camera đã train; `train_s_per_100m` và `ply_mb_per_100m` là thời gian train và dung lượng `scene.ply` chia cho `distance_m / 100`, chỉ điền ở track `B` khi `distance_m > 0`. `ate_rmse_m` là ATE do method tự báo (`mcgs_eval.json` cạnh `summary.json`), không tính lại. Chưa có: PSNR quanh chỗ nối chunk (làm khi có run chunk đầu tiên).
+- **R8**: `train_time_s`, `recon_time_s` (tổng thời gian dựng cảnh tới khi xuất xong `scene.ply`), `peak_vram_mb`, `render_fps`, `gpu`. Chỉ so được giữa run cùng loại GPU; khác GPU thì bước phân xử thời gian train không chạy.
+- Trường để trống nghĩa là **chưa đo**. Chưa đo: KID khi lệch làn (R2, hoãn), PSNR quanh chỗ nối chunk (R6). Chủ ý **không đo**: `ghost_ratio` (chưa có định nghĩa, chỉ có nghĩa với method tách lớp nền và vật động), `static_psnr` như tiêu chí xếp hạng (R3 dùng PSNR nền tĩnh nhưng chỉ để tính export gap), ATE tự tính (chỉ method tự ước lượng pose có; ghi số do method báo), "kết quả xác định" (thay bằng một lần đo dao động theo seed để đặt ngưỡng hoà). Lý do ở ARCHITECTURE mục 2.17.
+- `warnings` nêu khi nhóm không so được trực tiếp: run chưa có kết quả, GPU khác nhau (thời gian, VRAM, FPS), protocol không so được, các run ngang nhau mà không phân xử được.
 
 ## 7. Gói xem trước
 
@@ -611,6 +746,9 @@ class ActorEditor(Protocol):           # L3
 
 ### 9.1 Worker
 
+Script `envs/install_xsim.sh` dựng mã nguồn XSIM đã chốt và venv riêng trong `D2S_XSIM_DIR` (mặc định `~/.cache/drive2sim/xsim`); `D2S_XSIM_PYTHON` đặt thẳng Python của worker.
+
+
 Dùng cho codebase ngoài (môi trường riêng) và cho tiến trình render của viewer và server:
 
 ```
@@ -636,6 +774,7 @@ d2s-worker --job job.json --result result.json
 - `stage_id` và `params` chỉ có khi `kind` là `stage`. `inputs` ánh xạ tên đầu vào của stage sang đường dẫn.
 - `env` là tên file môi trường trong `envs/` (không có đuôi `.yml`).
 - Mọi đường dẫn tương đối với `D2S_WORKDIR` (mục 10.3).
+- Stage `train.xsim` chạy worker bằng `drive2sim.external.xsim.xsim_python()` với đầu vào `observations`. Worker ghi `checkpoint.pt` vào thư mục model và báo VRAM qua `result.json`; fingerprint của checkpoint gồm revision và bản vá XSIM, config native, các module adapter quyết định model (`worker.MODEL_MODULES`), gói quan sát và tham số train trừ `num_iters`, `save_every`, `preload_images`, `num_workers`. Stage `eval.xsim` cho worker render: ảnh test 8 bit vào `renders/<khung>_<camera>.png`, video vào `videos/`, `renders.json`; rồi chấm bằng tiến trình con ở môi trường chính (`python -m drive2sim.external.xsim.scoring`, ghi `scores.json`) dùng ảnh thật và mask đánh giá của gói, `compute_image_metrics` và LPIPS torchmetrics như `eval.standard`, ghi `summary.json`. Trong `videos/`, hai bộ `full_set` và `test_set` có các kênh `rgbs` và `gt_rgbs` cùng layout. Trường `frames` trong layout ghi khung cảnh, khung nguồn, timestamp microsecond và camera có ảnh. Tốc độ phát là 10 khung/giây.
 
 `result.json` do worker ghi khi xong, kể cả khi thất bại:
 
@@ -677,7 +816,7 @@ bundle/
 └── resume.json       # {"kernels": các notebook của tối đa 5 lần đẩy trước, mới nhất trước; [] ở lần đầu}
 ```
 
-- **Cảnh** được upload một lần thành dataset private `<người dùng>/d2s-scene-<cảnh>-<commit converter>` (mục 10.1, ví dụ `d2s-scene-nuscenes-0061-96876ad`); ingest lại bằng converter khác thì upload dataset mới. Dataset đặt theo tên cũ `d2s-<hash8 của scene_id@converter_version>` vẫn được dùng lại, không upload lại. Run có stage `prep.smpl` (OmniRe dựng người) cần file mô hình SMPL `SMPL_NEUTRAL.pkl`, có bản quyền nên không đi kèm repo: người dùng upload file thành một dataset private và đặt biến `D2S_KAGGLE_SMPL_DATASET=<người dùng>/<tên>`; `kaggle push` gắn thêm dataset đó, thiếu biến thì từ chối. Trước khi đẩy notebook, `kaggle push` chờ dataset ở trạng thái `ready` (tối đa 15 phút), vì notebook chạy khi dataset còn đang xử lý sẽ không thấy cảnh.
+- **Cảnh** được upload một lần thành dataset private `<người dùng>/d2s-scene-<cảnh>-<commit converter>` (mục 10.1, ví dụ `d2s-scene-nuscenes-0061-96876ad`); ingest lại bằng converter khác thì upload dataset mới. Dataset đặt theo tên cũ `d2s-<hash8 của scene_id@converter_version>` vẫn được dùng lại, không upload lại. Run có stage `prep.smpl` (OmniRe dựng người) cần file mô hình SMPL `SMPL_NEUTRAL.pkl`, có bản quyền nên không đi kèm repo: người dùng upload file thành dataset private tên `d2s-model-smpl` (mục 10.1). `kaggle push` gắn thêm dataset `<tài khoản đang đăng nhập>/d2s-model-smpl`, nên đổi tài khoản Kaggle không phải đổi cấu hình; biến `D2S_KAGGLE_SMPL_DATASET=<tài khoản>/<tên>` ghi đè, ví dụ để dùng dataset tài khoản khác chia sẻ. Tài khoản đang đăng nhập không thấy dataset đó thì `kaggle push` từ chối trước khi đẩy notebook. Trước khi đẩy notebook, `kaggle push` chờ dataset ở trạng thái `ready` (tối đa 15 phút), vì notebook chạy khi dataset còn đang xử lý sẽ không thấy cảnh.
 - **Code**: notebook `git clone --branch <branch>` đúng repo (remote `origin`, hoặc biến `D2S_KAGGLE_REPO`) rồi checkout đúng commit, nên commit phải có trên **chính remote đó** và remote phải có nhánh `<branch>`; `kaggle push` từ chối nếu không (commit chỉ có trên remote khác, ví dụ `fork`, cũng bị từ chối). URL không thuộc remote nào của repo thì không kiểm tra được.
 - **Notebook** `<người dùng>/d2s-<cảnh>-<approach>-<biến thể>-<4 hex của run>-<lần đẩy>` (mục 10.1, ví dụ `d2s-nuscenes-0061-omnire-3dgs-fastgs-453a-1`), private, có GPU (`machine_shape` mặc định `NvidiaTeslaT4`, đổi bằng `--accelerator`) và internet. Notebook in phiên bản GPU và PyTorch, clone đúng commit, cài môi trường chính bằng `envs/install_main.sh` (cài lại PyTorch 2.4.1 + CUDA 12.1, build gsplat-geer, nvdiffrast, pytorch3d cho đúng compute capability của GPU phiên đó), rồi chạy `d2s kaggle run bundle/ --workdir /kaggle/working --input-root /kaggle/input`. Các ô lệnh shell chạy bằng `%%bash` với `set -e`: clone hay cài lỗi thì notebook dừng và kết thúc với trạng thái `error`.
 - `d2s kaggle run` tìm cảnh dưới `--input-root` theo `manifest.yaml` (không giả định đường dẫn gắn của Kaggle), dựng `data/<scene_id>/` bằng symlink tới từng mục của cảnh, ghi `splits/` mới, rồi chạy run như `run resume`. Kết quả ở `/kaggle/working/runs/` và `/kaggle/working/cache/` theo đúng cấu trúc mục 5 và 6; ô chạy run luôn xoá `data/` và mọi symlink sau khi run kết thúc, kể cả khi run lỗi, để output chỉ còn kết quả và lần đẩy sau chạy tiếp được; mã lỗi của run được trả lại sau khi dọn.
@@ -687,8 +826,9 @@ bundle/
 - **Cache cho tài khoản mới**: output notebook chỉ tài khoản đã chạy mới đọc được. Stage cache nào không notebook nào cùng tài khoản có (lần đẩy đầu, không phải chạy tiếp) mà máy có cache cùng tham số (`cache/<cảnh>/<khoá>/` có `artifact.json`, của run đã tải về) thì `push` upload các thư mục đó thành dataset private `<người dùng>/d2s-cache-<cảnh>-<8 hex băm các khoá>` (chép bằng hard link khi được) và gắn qua `dataset_sources`; `d2s kaggle run` chép sang như với output notebook. Dataset cùng tên đã có thì dùng lại, không upload lại.
 - **Dùng lại môi trường đã build**: notebook đặt `D2S_WHEEL_SOURCES=/kaggle/input` và `D2S_WHEEL_CACHE=/kaggle/working/wheels` cho `envs/install_main.sh`. Mỗi gói build từ mã nguồn (gsplat-geer, nvdiffrast, fused-ssim, pytorch3d, detectron2, neural_renderer) có khoá = băm(gói kèm commit, bản PyTorch, `TORCH_CUDA_ARCH_LIST`, bản Python); có `wheels/<khoá>/*.whl` trong đầu vào thì cài thẳng, không thì build bằng `pip wheel` rồi cài; cả hai trường hợp đều chép wheel vào `wheels/<khoá>/` của output. Chỉ cài CUDA 12.8 riêng khi thật sự phải build. `push` gắn thêm notebook mới nhất đã xong của cùng tài khoản (thử tối đa 5 notebook, bỏ notebook đã xoá hoặc đang chạy) vào `kernel_sources` làm nguồn wheel. `pull` không tải `wheels/`. Ở run `90dd` lần 2, clone và cài môi trường mất 31 trong 61 phút của notebook.
 - **Lệnh hỏi trạng thái** (`kaggle kernels status`, `kaggle datasets status`) dừng sau 5 phút và báo lỗi (đã gặp lệnh treo hơn 30 phút); lệnh khác dừng sau 6 giờ.
-- **Kết quả nhỏ trong log**: ô cuối của notebook in `run.json`, `env.json`, các file `done`, `summary.json`, `*metrics*.json`, `train_stats.json`, `profile_step*.json`, `densify_stats.jsonl` của run (mỗi file tối đa 4 MB) vào stderr của tiến trình sau chữ `D2S_RUN_LIGHT` (base64 của JSON `{đường dẫn: nội dung}`), rồi mới trả mã lỗi của run. `d2s kaggle pull <run_id> --light` đọc chúng bằng một lệnh `kaggle kernels logs` và ghép như `pull`, không đánh dấu đã tải (`pulled_utc`), nên `pull` vẫn tải đủ sau; từ chối khi run đã tải đủ. Lý do: output đầy đủ có hàng nghìn file, tải mất cỡ một giờ và dễ bị 429.
+- **Kết quả nhỏ trong log**: ô cuối của notebook in `run.json`, `env.json`, các file `done`, `summary.json`, `*metrics*.json`, `train_stats.json`, `profile_step*.json`, `densify_stats.jsonl` của run (mỗi file tối đa 4 MB) vào stderr của tiến trình sau chữ `D2S_RUN_LIGHT` (base64 của JSON `{đường dẫn: nội dung}`). Run lỗi thì ô cuối chỉ in cảnh báo, không trả mã lỗi, nên notebook vẫn kết thúc `complete`: Kaggle âm thầm bỏ khỏi `kernel_sources` mọi notebook có lần chạy cuối lỗi (đã thử với notebook thật ngày 27/11/2026), và khi đó lần đẩy sau không gắn được output để chạy tiếp hay lấy wheel. Trạng thái thật của run nằm trong `run.json`; `d2s kaggle status` nhắc đọc nó bằng `pull --light` khi notebook `complete`. Chỉ lỗi ở bước clone, cài môi trường (ô `%%bash` có `set -e`) mới làm notebook kết thúc `error`. Nguồn wheel và nguồn cache lấy từ run khác chỉ chọn notebook `complete`. `d2s kaggle pull <run_id> --light` đọc chúng bằng một lệnh `kaggle kernels logs` và ghép như `pull`, không đánh dấu đã tải (`pulled_utc`), nên `pull` vẫn tải đủ sau; từ chối khi run đã tải đủ. Lý do: output đầy đủ có hàng nghìn file, tải mất cỡ một giờ và dễ bị 429.
 - `d2s kaggle pull` tải output rồi ghép vào `d2s/` của run: mỗi stage có trong bản Kaggle thay stage cùng tên trên máy; stage chỉ có trên máy (ví dụ `export.preview` chạy trên máy sau lần tải trước) được giữ lại và nối vào cuối `run.json`; `env.json` lấy theo Kaggle cộng các máy chỉ có trên máy; `kaggle.json` giữ nguyên. Chép thêm các kết quả cache máy chưa có, không ghi đè cache đã có; cache máy đã có thì không tải (`--file-pattern` loại `cache/<cảnh>/<stage>@<khoá>/` đã có, vì lệnh `kaggle` tải từng file một và cache mask có hàng nghìn file). Từ chối khi run đang chạy trên máy.
+- **Gói output** (`drive2sim/kaggle/packing.py`, từ 21/11/2026): ô cuối của notebook gói `runs/` thành `d2s-pack/runs.tar` và mỗi mục `cache/<cảnh>/<stage>@<khoá>/` thành `d2s-pack/cache/<cảnh>/<stage>@<khoá>.tar` (không nén, bỏ mục `.partial`); file rời vẫn giữ để notebook sau gắn output làm input đọc thẳng. `pull` tải `d2s-pack/` trước (bỏ gói của mục cache máy đã có), bung ra đúng cây `runs/`, `cache/` rồi ghép như trên; Nếu bước gói lỗi thì xoá toàn bộ gói đã tạo; output không có gói (notebook cũ, hoặc bước gói lỗi) thì tải file rời như trước. Gói từ chối đường dẫn hay link trỏ ra ngoài thư mục đích. Lý do: lệnh `kaggle kernels output` tải từng file một, khoảng 0,7 giây mỗi file; run `82bc` (cảnh mới, chưa có cache trên máy) tải 11.570 file mask (51 MB) mất 2 giờ 15 phút, còn gói của chúng là một file 47 MB, gói trong 1,9 giây.
 - **Trạng thái lần hỏi gần nhất**: mỗi lần Studio (vòng theo dõi, tab Kaggle) hay `d2s kaggle status` hỏi được trạng thái notebook, `kaggle.json` ghi `remote_status` (`running`, `complete`...) và `checked_utc`. `run.json` trên máy vẫn `pending` tới khi tải về; Studio dựa vào `remote_status` để hiện "đang chạy", "xong trên Kaggle, chưa tải về", "chưa đẩy lên" (`frontend/src/runStatus.ts`). Run đẩy bằng tài khoản Kaggle khác không hỏi được nên hiện "trên Kaggle, chưa rõ trạng thái".
 - **Tài khoản**: run dùng tài khoản mà lệnh `kaggle` đang đăng nhập (`kaggle config view`), ghi vào `kaggle.json` (`username`). Notebook, dataset đều private, nên đổi khoá API sang tài khoản khác thì `kaggle status`, `kaggle pull` báo rõ run đã đẩy bằng tài khoản nào để đổi lại khoá, và `kaggle push` không chạy tiếp run đó (tài khoản mới không đọc được notebook cũ); xoá `kaggle.json` của run để chạy lại từ đầu bằng tài khoản mới. `kaggle.json` ghi cả `kernels`: notebook của mọi lần đẩy, cũ trước mới sau, để lần đẩy sau gắn đúng output các lần trước; file ghi trước khi có trường này thì tên các lần trước dựng lại theo quy tắc cũ `d2s-<hash8 của run_id>-<lần đẩy>`.
 
@@ -764,7 +904,7 @@ Dữ liệu gốc lớn (ví dụ KITTI-360 đủ khung, khoảng 8,8 GB một c
 | Dataset cảnh trên Kaggle, thư mục cảnh trên VM Colab | `d2s-scene-<cảnh>-<commit converter>` | `d2s-scene-nuscenes-0061-96876ad` |
 | Notebook ingest trên Kaggle | `d2s-ingest-<nguồn bỏ d2s-, raw>[-<số của --sequence>]`, hoặc `d2s-ingest-<--scene>`; thêm `-c<phiên bản đầu ra>` khi notebook tên đó ingest bằng converter cũ (chỉ khi phiên bản > 1, mục 9.4) | `d2s-ingest-nuscenes-mini-0061`, `d2s-ingest-kitti360-0003`, `d2s-ingest-kitti360-0003-c2` |
 | Dataset dữ liệu gốc trên Kaggle (người dùng tạo) | `d2s-raw-<dataset>-<phần>` | `d2s-raw-kitti360-0003`, `d2s-raw-nuscenes-mini` |
-| Dataset mô hình trên Kaggle (người dùng tạo, có bản quyền riêng) | `d2s-model-<tên>` | `d2s-model-smpl` (đặt vào `D2S_KAGGLE_SMPL_DATASET`) |
+| Dataset mô hình trên Kaggle (người dùng tạo, có bản quyền riêng) | `d2s-model-<tên>` | `d2s-model-smpl` (tìm theo tài khoản đang đăng nhập; `D2S_KAGGLE_SMPL_DATASET` ghi đè) |
 
 ### 10.2 File và thư mục
 
@@ -804,7 +944,9 @@ Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dà
 | `d2s scene validate <scene_id>` | Kiểm tra lại, ghi `validation.json`; cảnh ingest bằng converter cũ có mục cảnh báo `converter.outdated` (mục 3.2) |
 | `d2s scene list` / `d2s scene show <scene_id>` | Liệt kê cảnh; xem manifest và báo cáo |
 | `d2s scene delete <scene_id>` | Xoá dữ liệu chuẩn, split, cache và run của cảnh; hỏi xác nhận |
-| `d2s split create <scene_id> --strategy every_nth_frame:8 [--cameras <id,...>] [--frame-range <đầu>,<cuối>] [--split <split_id>]` | Tạo split; mặc định mọi camera và cả cảnh, tên theo mục 10.1 |
+| `d2s scene rig <scene_id>` | Ghi `reports/rig.json` (mục 3.3) cho cảnh đã ingest, rồi kiểm tra lại; cần PyTorch |
+| `d2s scene lidar-check <scene_id>` | Chiếu LiDAR lên ảnh, ghi `reports/lidar_check.json`, `reports/lidar_overlay/` (mục 3.4) rồi kiểm tra lại; mã thoát 1 khi có cảnh báo `projection.*`; cần PyTorch và ảnh trên máy |
+| `d2s split create <scene_id> --strategy every_nth_frame:8 [--cameras <id,...>] [--frame-range <đầu>,<cuối>] [--test-only-cameras <id,...>] [--split <split_id>]` | Tạo split; mặc định mọi camera và cả cảnh, tên theo mục 10.1. `--test-only-cameras` (từ `d2s-split/0.2`) là camera chỉ test, không train (mục 3.1), phải nằm trong cảnh; nên đặt `--split` riêng vì tên mặc định trùng split cùng camera mà train hết. API Studio (`POST .../splits`) chưa nhận trường này |
 | `d2s split list <scene_id>` / `d2s split show <scene_id> <split_id>` / `d2s split delete <scene_id> <split_id>` | Liệt kê, xem, xoá split |
 | `d2s approach list` / `d2s approach show <approach_id>` | Liệt kê approach; xem mục cấu hình, preset, ràng buộc |
 | `d2s approach check <approach_id> --scene <scene_id> --split <split_id> [--preset <tên>] [--set <mục>=<giá trị>]... [--quick]` | Kiểm tra điều kiện và in danh sách stage sẽ chạy, stage nào dùng lại cache; cảnh ingest bằng converter cũ (mục 2.2) thì in cảnh báo ra stderr, không chặn (`run start` cũng vậy) |
@@ -818,6 +960,7 @@ Lệnh có dạng `d2s <nhóm> <hành động> [tuỳ chọn]`. Tuỳ chọn dà
 | `d2s colab push <run_id> [--branch <branch>] [--gpu <GPU>] [--session <tên>]` / `d2s colab status <run_id>` / `d2s colab logs <run_id> [--follow]` / `d2s colab pull <run_id> [--keep-session]` / `d2s colab stop <run_id>` | Chạy run trên VM Colab (mục 9.3): đẩy và chạy job tách khỏi kết nối, xem trạng thái và log cuối, đọc log tới khi xong, tải kết quả về (run xong thì tắt phiên), tắt phiên; `push` do `run start --executor colab` tự gọi |
 | `d2s colab account list` / `d2s colab account use <email>` / `d2s colab account forget <email>` / `d2s colab account login` / `d2s colab update` | Tài khoản Google của lệnh `colab` (mục 9.3): liệt kê (dấu `*` là tài khoản đang dùng), chuyển, bỏ khỏi danh sách, thêm (in đường dẫn đăng nhập Google rồi hỏi mã xác thực trong terminal); cập nhật google-colab-cli |
 | `d2s report <run_id>...` | Bảng so sánh nhiều run |
+| `d2s benchmark <file.yaml> [--out <file.json>]` | Bảng benchmark theo file định nghĩa (mục 6.5): xếp hạng từng nhóm run, chọn run thắng, liệt kê đoạn đường hỏng; chỉ đọc file kết quả của run, không chạy GPU |
 | `d2s pack <run_id>... --output <file.tar> [--dry-run]` | Gói đầy đủ các run đã chọn, gồm mọi checkpoint, cảnh chuẩn và cache được tham chiếu. `--dry-run` chỉ kiểm kê đường dẫn và dung lượng. Không ghi đè file có sẵn, không gói run đang chạy. Kèm mô hình SMPL cần thiết tại smpl_models/SMPL_NEUTRAL.pkl; bỏ view/viewer tạm có thể dựng lại và thông tin đăng nhập; không lấy dữ liệu gốc ngoài cảnh chuẩn. |
 | `d2s export ply <run_id>` / `d2s export preview <run_id>` | Chạy lại stage export cho một run |
 | `d2s cache list [--scene <scene_id>]` / `d2s cache gc [--scene <scene_id>]` | Xem, dọn cache |
@@ -889,6 +1032,8 @@ Route đã có (`drive2sim/studio/api/routes/`):
 | Route | Việc | Tương ứng CLI |
 |---|---|---|
 | `GET /api/scenes`, `GET /api/scenes/{scene_id}` | Liệt kê cảnh; manifest, `validation` (báo cáo kiểm tra hoặc `null`), `splits` (danh sách `split_id`), `split_cameras` (camera của từng split, `{split_id: [camera_id]}`; giao diện hiện loại ống kính và xét approach theo camera của split, như engine), `kaggle` (danh sách notebook nạp cảnh trong `kaggle_scene.json` khi cảnh được nạp trên Kaggle, máy không có ảnh; ngược lại `null`), `converter_outdated` (`{"output_version", "current_output_version"}` khi cảnh được ingest bằng converter cũ, mục 2.2; ngược lại `null`) | `scene list`, `scene show` |
+| `GET /api/scenes/{scene_id}/lidar`, `POST` cùng đường dẫn | `{"check": nội dung lidar_check.json | null, "overlays": [{"frame", "camera_id", "file", "url"}]}`; `POST` chiếu lại rồi kiểm tra lại (`409` với cảnh chỉ có trên Kaggle hoặc không có LiDAR) | `scene lidar-check` |
+| `GET /api/scenes/{scene_id}/rig`, `POST` cùng đường dẫn | `{"rig": nội dung reports/rig.json | null}`; `POST` tạo lại file (vài chục giây, `500` kèm log khi lỗi) | `scene rig` |
 | `GET /api/scenes/{scene_id}/frames/{frame_index}` | `{"frame_index", "images": [{"camera_id", "url"}]}` cho lưới ảnh đồng bộ; `url` là `null` khi thiếu ảnh | |
 | `GET`, `POST /api/scenes/{scene_id}/splits`, `GET .../splits/{split_id}` | Liệt kê, tạo, xem split; thân của `POST`: `strategy`, `cameras`, `frame_range`, `split_id` | `split list`, `split create`, `split show` |
 | `GET /api/approaches`, `GET /api/approaches/{approach_id}` | Đọc file approach | `approach list`, `approach show` |
@@ -900,6 +1045,7 @@ Route đã có (`drive2sim/studio/api/routes/`):
 | `GET /api/runs/{run_id}/log` | `{"engine": <d2s/log.txt>, "stages": {stage_id: <200 dòng cuối log.txt>}}` | |
 | `GET /api/runs/{run_id}/videos` | Video MP4 trong thư mục run: `{"name", "stage_id", "url", "preview_url", "ready"}`; `url` là video gốc qua `/files/`, `preview_url` là bản xem trước (dòng dưới), `ready` là `false` khi video còn đang được ghi (chưa có hộp `moov`, ví dụ `train.py` đang render cả đoạn sau bước cuối) | |
 | `GET /api/runs/{run_id}/videos/preview` | Query: `stage_id`, `name` (như ở danh sách video). Bản trình duyệt phát được: H.264 `yuv420p`, rộng tối đa 1920 điểm ảnh, chỉ mục ở đầu file; tạo lần đầu bằng ffmpeg (`ffmpeg` trên `PATH` hoặc của `imageio-ffmpeg`) và lưu ở `d2s/previews/<stage_id>/<name>`, dùng lại khi video gốc không đổi. Không có ffmpeg thì trả video gốc. Video đang ghi hoặc ffmpeg lỗi: `409`. Lý do: video ghép mọi camera (KITTI-360 bốn camera: 4224x2304) vượt mức H.264 trình duyệt giải mã được, thẻ `<video>` hiện khung đen | |
+| `GET /api/runs/{run_id}/video_sets` | Video đánh giá gom theo bộ: `{"id", "stage_id", "set" (test_set, full_set), "step", "postfix", "channels" (kênh → url, theo thứ tự `CHANNELS`), "layout" (nội dung `layout.json` hoặc null)}` (`drive2sim/engine/videos.py`) | |
 | `GET /api/runs/{run_id}/artifacts` | Nơi lưu kết quả của từng stage: `{"run_dir", "run_dir_abs", "files" (file của tool trong `d2s/`), "stages": [{"stage_id", "status", "location": "run" \| "cache", "path", "path_abs", "size_bytes", "files": [{"name", "is_dir", "size_bytes", "path"}]}]}`; `path` tương đối với thư mục làm việc. Run chạy trên Kaggle sau `kaggle pull` cũng nằm ở đây (mục 9.2) | |
 | `GET /api/runs/{run_id}/curve` | Đường cong train đọc từ `metrics.json` của stage `train.*` (mục 6.1): `{"stage_id", "series": {"psnr", "loss", "gaussians": [[bước, giá trị], ...]}}`; PSNR trên ảnh train, tổng các loss, tổng số Gaussian; tối đa 400 điểm mỗi đường | |
 | `POST /api/reveal` | Thân: `path` (tương đối với thư mục làm việc). Mở thư mục đó (với file: thư mục chứa file) trong trình quản lý file của máy chạy Studio; đường dẫn ra ngoài thư mục làm việc, không tồn tại, hoặc máy không có giao diện đồ hoạ thì `409` kèm lý do | |
@@ -907,21 +1053,22 @@ Route đã có (`drive2sim/studio/api/routes/`):
 | `GET /api/sources/uploads`, `POST /api/sources/uploads`, `POST /api/sources/uploads/{name}/chunk`, `DELETE /api/sources/uploads/{name}` | Tải dữ liệu gốc từ máy người dùng lên `uploads/<name>/` của thư mục làm việc, cho Studio chạy trên máy khác (GPU thuê, server lab qua port forward), nơi `/api/pick-folder` mở hộp thoại trên server. `POST /api/sources/uploads` (thân: `name` theo mẫu `[A-Za-z0-9][A-Za-z0-9_.-]{0,79}`, `files: [{"path", "size"}]` với `path` tương đối trong thư mục người dùng chọn) trả kế hoạch `{"name", "path", "path_abs", "files": [{"path", "size", "offset", "done"}], "skipped", "needed_bytes", "free_bytes"}`: file đã đủ thì `done`, file dở (`<file>.part`) tải tiếp từ `offset`; bỏ file rác của hệ điều hành; đường dẫn tuyệt đối, có `..`, sâu quá 12 cấp hoặc không đủ chỗ trống (chừa 5 GiB) thì `400`. `.../chunk?path=&offset=&total=` nhận thân là byte thô (tối đa 64 MiB, Studio gửi 8 MiB), nối vào `<file>.part`, đủ `total` byte thì đổi tên; khối không nối tiếp phần đã có thì `409` (lập kế hoạch lại rồi gửi tiếp). Danh sách: `{"name", "path", "path_abs", "files", "size_bytes", "partial"}`. Tải xong, ô nạp cảnh gọi `POST /api/sources/inspect` với `path_abs` | Không có lệnh riêng: trên máy chạy tool, chép thư mục rồi dùng `source inspect` |
 | `GET /api/runs/{run_id}/splats` | `{"preview", "ply", "cameras"}`: gói xem trước (`preview.json` cộng `background_url`, `actor_urls`, `poses_url`) nếu đã chạy `export.preview`, url của `scene.ply`, và url của `cameras.json` (lấy ở `export.preview`, rồi `export.ply_world`, rồi `train.*`; `null` nếu không có) | |
 | `GET /api/runs/{run_id}/render-check` | `{"ready", "checks": [{"id", "ok", "value"}]}`: máy chạy Studio có render được run này bằng GPU không. `id` theo thứ tự: `gpu` (nvidia-smi; kèm `memory_mb`), `pytorch` (gói đã cài), `cuda` (PyTorch thấy GPU, hỏi trong tiến trình con), `gsplat`, `checkpoint` (`checkpoint_final.pth` của stage `train.*`), thêm `smpl_model` khi config có người SMPL và bật `load_smpl`; `value` là thứ đã thấy hoặc lý do lỗi. Chỉ kiểm tra, không nạp model | |
-| `GET /api/approaches/{approach_id}/environment?stages=` | Môi trường Python của máy chạy Studio có đúng môi trường approach cần không (theo `codebase`; dòng DriveStudio cần `main`): `{"env", "file", "install", "level": "ok" \| "warn" \| "missing", "checks": [{"id", "level", "found", "expected"}]}` với `id` là `gpu`, `pytorch`, `cuda`, `gsplat`, và `smpl_model` khi run có stage làm ra SMPL: `stages` (stage đã giải theo cảnh, split, cấu hình, từ `POST .../check`, cách nhau bởi dấu phẩy) có thì xét đúng các stage đó như lúc tạo run; không có thì xét mọi stage approach có thể chạy và thiếu file SMPL chỉ là `warn` (SMPL `auto` bỏ bước này khi split không có người); approach `nurec` (`codebase: external:nurec`, môi trường `nurec`) có `gpu`, `nurec_source` (mã nguồn ở `D2S_NUREC_DIR`, mặc định `~/.cache/drive2sim/instant-nurec`, đúng commit chốt), `nurec_env` (venv Python 3.11 có torch CUDA, `nvidia-ncore`), `nurec_checkpoint` (file `SMPL_NEUTRAL.pkl` tìm theo biến `D2S_SMPL_MODEL`, `<thư mục làm việc>/smpl_models/`, `<repo>/smpl_models/`, rồi dataset gắn dưới `/kaggle/input`). `warn`: khác phiên bản, vẫn chạy được nhưng kết quả có thể lệch; `missing`: run sẽ lỗi. Chỉ cho run chạy trên máy này; notebook Kaggle tự cài. `env` là `null` khi codebase không cần môi trường GPU | `approach check` (khoá `environment`) |
+| `GET /api/approaches/{approach_id}/environment?stages=` | Môi trường Python của máy chạy Studio có đúng môi trường approach cần không (theo `codebase`; dòng DriveStudio cần `main`): `{"env", "file", "install", "level": "ok" \| "warn" \| "missing", "checks": [{"id", "level", "found", "expected"}]}` với `id` là `gpu`, `pytorch`, `cuda`, `gsplat`, và `smpl_model` khi run có stage làm ra SMPL: `stages` (stage đã giải theo cảnh, split, cấu hình, từ `POST .../check`, cách nhau bởi dấu phẩy) có thì xét đúng các stage đó như lúc tạo run; không có thì xét mọi stage approach có thể chạy và thiếu file SMPL chỉ là `warn` (SMPL `auto` bỏ bước này khi split không có người); approach `nurec` (`codebase: external:nurec`, môi trường `nurec`) có `gpu`, `nurec_source` (mã nguồn ở `D2S_NUREC_DIR`, mặc định `~/.cache/drive2sim/instant-nurec`, đúng commit chốt), `nurec_env` (venv Python 3.11 có torch CUDA, `nvidia-ncore`), `nurec_checkpoint`; approach `xsim` (`codebase: external:xsim`, môi trường `xsim`) có các mục của môi trường `main` (vì chuẩn bị dữ liệu và chấm điểm chạy ở đó), `gpu` kèm VRAM (`warn` dưới 24 GB), `xsim_source`, `xsim_env` (file `SMPL_NEUTRAL.pkl` tìm theo biến `D2S_SMPL_MODEL`, `<thư mục làm việc>/smpl_models/`, `<repo>/smpl_models/`, rồi dataset gắn dưới `/kaggle/input`). `warn`: khác phiên bản, vẫn chạy được nhưng kết quả có thể lệch; `missing`: run sẽ lỗi. Chỉ cho run chạy trên máy này; notebook Kaggle tự cài. `env` là `null` khi codebase không cần môi trường GPU | `approach check` (khoá `environment`) |
 | `GET /api/environment/install`, `POST /api/environment/install`, `POST /api/environment/install/cancel` | Cài môi trường ngay từ Studio: chạy `envs/install_<env>.sh --python <Python đang chạy Studio> --from <bước>` trong nhóm tiến trình riêng, log ở `<thư mục làm việc>/logs/install-<env>.log`. Thân của `POST`: `env` (`main`, hoặc `nurec`: `envs/install_nurec.sh`, venv riêng Python 3.11 do uv dựng nên không kiểm Python của Studio), `from_step` (1 là từ đầu; cài tiếp từ bước lỗi). Trả `{"state", "env", "python", "step", "steps", "label", "from_step", "started_at", "step_started_at", "finished_at", "log", "log_path"}`; `state`: `idle`, `running`, `succeeded`, `failed`, `cancelled`; `step`/`steps`/`label` đọc từ dòng `=== hh:mm:ss N/M ...` của script; `log` là phần cuối. Không có GPU NVIDIA, Python khác bản `envs/<env>.yml` chốt (main: 3.10) hoặc không thấy script (cài drive2sim không từ mã nguồn) thì `400`. Mỗi lúc một lần cài; không đi qua hàng việc nền (`/api/jobs`); tắt Studio thì lần cài dở bị dừng. Cài xong mở lại Studio để nạp gói mới | `bash envs/install_main.sh` |
 | `GET /api/environment/nurec/notebook/{platform}` | Notebook Instant NuRec cho `colab` hoặc `kaggle` (`drive2sim/external/nurec/tools/nurec_notebook.py`, như Fisheye Fusion Lab): tự cài NuRec rồi dựng cảnh từ một clip NCore và checkpoint có trên máy đó; trả file `.ipynb`. Run của approach codebase ngoài không đẩy được lên Kaggle, Colab (`POST /api/runs` với `executor` khác `local` trả `400`) | Không có lệnh riêng |
 | `GET /api/libraries`, `POST /api/libraries/{item_id}/install` | Bảng thư viện (`drive2sim/engine/libraries.py`): `{"groups", "items": [{"id", "group", "name", "desc", "links", "size", "minutes", "requires", "dataset", "installable", "status": "ok" \| "partial" \| "missing", "found"}], "install"}` (`install` như `GET /api/environment/install`). Cài: mục của môi trường chính, NuRec chạy script môi trường từ một bước (`renderers` từ bước 4, `smpl-tools` từ bước 8); mục khác chạy một lệnh (pip vào Python đang chạy Studio, tải weight SegFormer, `uv tool install`) qua cùng `InstallFlow`: mỗi lúc một việc, log `<thư mục làm việc>/logs/install-<id>.log`. Mục cài tay (Node.js) hoặc mục lạ `400` | Không có lệnh riêng |
 | `POST /api/libraries/install-all` | **Cài tất cả**: cài lần lượt mọi mục còn thiếu theo `libraries.bulk_ids()` (bỏ mục `bulk: False`, mục cài tay). Mỗi mục hỏi lại trạng thái khi tới lượt (mục có nhờ mục trước là `present`); mục cần mục chưa có, hoặc máy không cài được (không GPU, Python khác bản, không phải Linux, thiếu công cụ hệ thống ở `needs`) là `skipped` kèm `reason`; mục lỗi không dừng cả hàng. Tiến độ ở khoá `all` của `GET /api/environment/install`: `{state, current, items: [{id, name, result: waiting\|running\|installed\|present\|skipped\|failed\|cancelled, reason}]}`; dừng bằng `POST /api/environment/install/cancel`. Mọi lệnh pip của bảng chạy với file ràng buộc ghim gói đã có (`pip_constraints`), dùng `uv pip` khi Python không có pip; sau mỗi lần cài, package `tests/` mà gói cài nhầm vào site-packages bị xoá | `d2s libraries install --all` |
 | `POST /api/compare/videos`, `GET /api/compare/videos/{name}` | Ghép video của hai run thành một MP4 (`studio/api/video_compare.py`): thân `{"a": {"run_id", "stage_id", "name"}, "b": {...}, "layout": "vstack" | "hstack"}` (video như `GET /api/runs/{id}/videos`); trả `{"url", "name", "layout"}`. ffmpeg co về cùng rộng 1280 px (trên dưới) hoặc cùng cao 480 px (cạnh nhau), nhãn là `run_id` (không vẽ được chữ thì ghép không nhãn), H.264, dừng ở video ngắn hơn; lưu ở `<thư mục làm việc>/compare/<khoá>_<layout>.mp4`, khoá theo hai file nguồn và thời điểm sửa. Không có video `404`; video đang ghi, thiếu ffmpeg, ffmpeg lỗi `409`; hai bên là một video `400` | Không có lệnh riêng |
-| `GET /api/scenes/{scene_id}/frames/{frame_index}/panorama?width=`, `GET /api/scenes/{scene_id}/frames/{frame_index}/lidar?camera=` | Công cụ kiểm tra dữ liệu (`studio/api/frame_tools.py`, như Fisheye Fusion Lab). `panorama`: PNG equirectangular rộng `width` (512 tới 4096, mặc định 2048), cao một nửa, ghép mọi camera của khung bằng phần xoay của `extrinsics/<camera>.txt` và mô hình ống kính của `intrinsics/<camera>.txt`, giữa ảnh là trục tới của xe; header `X-D2S-Coverage`. `lidar`: PNG ảnh của `camera` có điểm `lidar/<khung>.bin` (dạng KITTI, hệ xe) chiếu lên, tô theo độ sâu; header `X-D2S-Points`. Cảnh không có calib cố định theo camera, LiDAR dạng khác (chỉ `kitti`, `kitti360`), camera lạ, thiếu file: `400` | Không có lệnh riêng |
+| `GET /api/scenes/{scene_id}/frames/{frame_index}/panorama?width=`, `GET /api/scenes/{scene_id}/frames/{frame_index}/lidar?camera=` | Công cụ kiểm tra dữ liệu (`studio/api/frame_tools.py`, như Fisheye Fusion Lab). `panorama`: PNG equirectangular rộng `width` (512 tới 4096, mặc định 2048), cao một nửa, ghép mọi camera của khung bằng phần xoay của `extrinsics/<camera>.txt` và mô hình ống kính của `intrinsics/<camera>.txt`, giữa ảnh là trục tới của xe; header `X-D2S-Coverage`. `lidar`: PNG ảnh của `camera` có điểm `lidar/<khung>.bin` (dạng KITTI, hệ xe) chiếu lên, tô theo độ sâu cùng thang với video độ sâu và ảnh chồng của mục 3.4 (turbo theo log, 4–120 m), điểm rơi lên thân xe (mask ego của dataset) tô xám; header `X-D2S-Points`, `X-D2S-Source: fast`. Phép chiếu này được test trùng phép chiếu của loader (`tests/drive2sim/studio/test_frame_tools.py`; trên KITTI-360 thật mọi pixel loader chiếu đều trùng). Cảnh mà cách nhanh không đọc được (calib theo khung như nuScenes, LiDAR dạng khác): trả JPEG ảnh chồng do loader tạo sẵn (`reports/lidar_overlay/`, mục 3.4) nếu khung đó có, header `X-D2S-Source: loader`; không có thì `400` kèm danh sách khung có sẵn. Camera lạ, thiếu file: `400` | Không có lệnh riêng |
 | `GET /api/assistant/config`, `POST /api/assistant/config`, `GET /api/assistant/models`, `POST /api/assistant/chat` | Trợ lý hỏi đáp (`studio/api/assistant.py`). Cài đặt: `{"provider", "base_url", "model", "has_key", "key_hint", "providers"}`; `provider` là `anthropic` (SDK `anthropic`, gói tuỳ chọn; thiếu thì `400` kèm lệnh cài), `openai`, `gemini`, `openrouter` hoặc `custom` (endpoint chuẩn OpenAI, `base_url` dạng `https://host/v1`). `POST .../config` (thân: `provider`, `base_url`, `model`, `api_key`, `clear_key`, bỏ trống thì giữ) lưu ở `~/.config/drive2sim/assistant.json` (quyền 600, `D2S_ASSISTANT_STORE`), mỗi nhà cung cấp một key; key không bao giờ trả về, chỉ `key_hint` 4 ký tự cuối; `D2S_ASSISTANT_KEY` thay key. `models` trả `{"models": [id]}`. `chat` (thân: `messages: [{"role": "user"|"assistant", "content"}]`, `page`) gửi 12 câu gần nhất kèm dữ kiện Studio lúc hỏi (cảnh và split, approach với preset, tuỳ chọn và `camera_support`, 15 run gần nhất, kiểm tra môi trường, GPU; không có key, đã rút gọn) và trả `{"reply", "apply", "model"}`; `apply` là khối `d2s-apply` cuối câu trả lời (`scene_id`, `split_id`, `approach_id`, `preset`, `executor`, `quick`) hoặc `null`. Claude dùng `claude-opus-5-5` mặc định, effort `low`, và `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) với model nhận nó; bị từ chối (`refusal`), thiếu key, model, URL hoặc nhà cung cấp lỗi thì `400` kèm câu báo | Không có lệnh riêng |
 | `POST /api/runs/{run_id}/gpu-viewer`, `POST /api/runs/{run_id}/frame-server`, `POST /api/runs/{run_id}/render-frame`, `GET /api/gpu-viewer`, `DELETE /api/gpu-viewer[?kind=viewer\|frames]` | Bật, xem, tắt tiến trình GPU của một run: viewer GPU (`drive2sim/recon/tools/viewer.py --host 127.0.0.1`, mode Render GPU) hoặc frame server (`drive2sim/recon/tools/frame_server.py`, mode Kết hợp: nạp model một lần, `render-frame` nhận JSON `{"c2w": 16 số theo hàng OpenCV hệ world, "K": 9 số, "width", "height", "frame"}` và trả JPEG vẽ bằng đúng hàm của viewer GPU, header `X-Render-Ms`). Mỗi lúc một tiến trình cho cả Studio (GPU nhỏ không giữ nổi hai bản model); bật cái khác thì cái cũ tắt; bật lại frame server cùng run thì giữ nguyên. Trang Xem 3D gọi `DELETE ...?kind=` khi rời mode, rời trang hay đóng tab; `kind` chỉ tắt nếu tiến trình đang chạy đúng loại đó. Trạng thái có thêm `kind`. Trước khi bật, Studio dựng lại cảnh ảo trong `d2s/viewer/scene_view/` từ thư mục cảnh và cache trên máy (mask, SMPL), và ghi `d2s/viewer/config.yaml` là `config.yaml` của stage train với `data.data_root` trỏ vào đó (run tải từ Kaggle có đường dẫn Kaggle). Trạng thái `{"state": "stopped" \| "starting" \| "running" \| "exited", "run_id", "url", "exit_code", "log"}`; máy chưa đủ điều kiện hoặc run chưa có checkpoint thì `409` | |
 | `GET /api/kaggle/setup/status` | Kiểm tra trước khi chạy trên Kaggle: `cli` (lệnh `kaggle` đã cài, phiên bản), `credentials` (`source`: nguồn khoá đứng đầu theo thứ tự Kaggle CLI đọc: `env`, `access_token`, `kaggle.json`, `oauth`; `active`: nguồn CLI thật sự dùng, theo `kaggle config view`; `warning`: khác `null` khi hai nguồn khác nhau, tức token sai hoặc đã thu hồi bị CLI bỏ qua và run sẽ chạy bằng tài khoản khác; thư mục cấu hình), `account` (đăng nhập được không, tên), `gpu` (giờ GPU đã dùng, còn lại, tổng, lúc làm mới; từ `kaggle quota`), `code` (commit đã push chưa, có thay đổi chưa commit không), và `ready` | |
 | `POST /api/kaggle/setup/token` | Thân: `token`, `username` (chỉ với khoá kiểu cũ), `replace`. Ghi khoá vào đúng chỗ Kaggle CLI đọc, quyền `600`: token `KGAT_...` vào `~/.kaggle/access_token` (CLI không theo `KAGGLE_CONFIG_DIR` với token mới), khoá cũ vào `kaggle.json` của thư mục cấu hình (`KAGGLE_CONFIG_DIR`, `~/.kaggle`, hoặc `~/.config/kaggle` trên Linux khi chưa có `~/.kaggle`). Trả `kind`, `path`, `note` (khác `null` khi biến `KAGGLE_API_TOKEN` hoặc token mới được CLI đọc trước khoá vừa lưu). Không trả lại khoá; khoá sai dạng `400`, đã có khoá mà `replace` là `false` thì `409` | |
 | `GET /api/studio` | `{"workdir", "demo"}`: thư mục làm việc, và `demo` là `true` khi đó là thư mục dữ liệu mẫu (có file `DEMO`, do `drive2sim/scripts/make_demo.py` tạo); Studio hiện nhãn "Dữ liệu mẫu" | |
 | `GET /api/report` | Bảng so sánh (lọc `scene_id`, `split_id`, `run_id` lặp lại được); mỗi dòng có `train_params` (như `GET /api/runs`), `preset` (tên preset của run, hoặc `null`), metric của `summary.json`, `avg_error` (chỉ số gộp của Mip-NeRF: trung bình nhân của `10^(−PSNR/10)`, `√(1 − SSIM)`, LPIPS; thấp là tốt), cờ `quick`, `num_iters`, `train_resolution` (cỡ ảnh lúc train và đánh giá, `render_resolution` của `summary.json`, ví dụ `800x450`), `source_resolution` (cỡ ảnh gốc của camera trong split theo manifest, ví dụ `1600x900`; nhiều cỡ nối bằng ` / `), `train_images`, `test_images` (số ảnh, tức cặp khung–camera, của phần train và test trong split), `test_every` (N của split `every_nth_frame:N`, `null` với split khác), `train_time_s` (train thực), `recon_time_s` (tổng thời gian các stage từ đầu tới khi xuất xong `scene.ply`, stage dùng lại cache tính thời gian gốc), `render_fps`, `num_gaussians` (cả model), `ply_gaussians` và `ply_size_mb` (của `scene.ply`), `preview_gaussians` và `preview_size_mb` (tổng mọi file của gói xem trước), `occupied_psnr`, `gpu`, `software` (phiên bản PyTorch và gsplat từ `env.json`, ví dụ `PyTorch 2.4.1+cu121, gsplat 1.5.3`), và `stage_times` (`stage_id` → `{"seconds", "reused"}`, stage dùng lại cache tính thời gian gốc; không có trong CSV); `?format=csv` để xuất | `report` |
+| `GET /api/benchmarks`, `GET /api/benchmarks/{name}` | Liệt kê file định nghĩa `benchmarks/<tên>.yaml` trong thư mục làm việc (`{items: [{name}], total}`, rỗng khi chưa có thư mục); xem một benchmark: trả `d2s-benchresult` (mục 6.5) do `run_benchmark` dựng, giống `d2s benchmark` nhưng không ghi file. Chỉ đọc file kết quả, không chạy GPU, tính lại mỗi lần gọi. `name` không có đuôi `.yaml`, chỉ gồm chữ, số, `_`, `-`, `.` và không bắt đầu bằng `.` (sai thì `400`); không có file thì `404`; file sai schema hoặc run không hợp lệ thì `400` kèm thông báo | `benchmarks` |
 | `POST /api/sources/inspect` | Thân `{"path"}`; kết quả nhận dạng như `source inspect --json`; `404` nếu không có thư mục | `source inspect` |
-| `POST /api/sources/ingest` | Thân `path`, `source_type`, `version`, `sequence`, `scene_id`, `interpolate_n`; chọn chuỗi ngay (`400` kèm các lựa chọn nếu thiếu), rồi ingest nền; trả `202` kèm việc | `scene ingest` |
+| `POST /api/sources/ingest` | Thân `path`, `source_type`, `version`, `sequence`, `scene_id`, `interpolate_n`; Studio cho nhập tên ngắn, chuẩn hoá ký tự như tên mặc định và thêm tiền tố dataset nếu thiếu, hiển thị tên đầy đủ rồi gửi `scene_id`; chọn chuỗi và kiểm tra `scene_id` ngay (`400` nếu yêu cầu sai, `409` nếu tên cảnh đã tồn tại hoặc đang được nạp), rồi ingest nền; trả `202` kèm việc. Lỗi kiểm tra không tạo job; có thể sửa tên và gửi lại | `scene ingest` |
 | `GET /api/jobs`, `GET /api/jobs/{job_id}` | Việc nền (ingest, đẩy và tải Kaggle, Colab): `job_id`, `kind` (`ingest`, `kaggle_push`, `kaggle_pull`, `colab_push`, `colab_pull`, `colab_update`, `colab_session`, `drive_pull`), `label`, `status` (`queued`, `running`, `succeeded`, `failed`), `result` (`scene_id` hoặc `run_id`; `drive_pull` là thư mục đã tải), `error`, `progress` (`null` hoặc `{"done", "total", "detail", "at", "first"}` với việc biết tiến độ, hiện là `drive_pull` tính theo byte; `first` là phần đã có lúc bắt đầu, giao diện tính tốc độ và thời gian còn lại từ `started_at`, `at` và phần làm thêm), `created_at`, `started_at`, `finished_at`; giữ trong bộ nhớ tới khi tắt Studio. Tắt Studio (Ctrl+C) thoát ngay: lệnh `kaggle`, `colab` đang chạy bị dừng (việc thành `failed`, lỗi "dừng vì tắt Studio"; tải dở không ghép gì vào run), run đang chạy trên máy bị huỷ như nút huỷ (chạy tiếp được), ingest đang chạy vẫn chờ xong | |
 | `GET /api/kaggle/{run_id}` | `kaggle.json` của run cộng `status` của notebook | `kaggle status` |
 | `POST /api/kaggle/{run_id}/push`, `POST /api/kaggle/{run_id}/pull` | Đẩy, tải ở nền; trả `202` kèm việc | `kaggle push`, `kaggle pull` |
@@ -990,3 +1137,68 @@ Mã lỗi của worker (mục 9.1) và của run (mục 6.2) dùng cùng bảng,
 - Mỗi sự kiện có `id:` tăng dần trong một run; client gửi `Last-Event-ID` để nhận lại những gì bỏ lỡ (server giữ 1000 sự kiện gần nhất trong bộ nhớ, ngoài ra có `d2s/log.txt`).
 - Nhịp `: keepalive` mỗi 15 giây để kết nối không bị proxy hoặc port forward cắt.
 - Studio ước lượng thời gian còn lại của stage đang chạy từ chuỗi `progress` của stage đó (lần báo đầu và lần mới nhất của `fraction`, `frontend/src/eta.ts`), không cần trường riêng; vì vậy `fraction` nên tăng đều theo khối lượng việc (ví dụ bước train đã xong / tổng bước).
+
+### Provider XSIM
+
+`BundleScene` chỉ đọc gói quan sát. Phần train mở ảnh, mask bầu trời của các cặp train; phần
+test chỉ dùng pose camera của cặp test để render, ảnh thật lấy từ gói. LiDAR theo
+`lidar_policy`: `all` dùng mọi sweep loader giữ (như DriveStudio khởi tạo từ LiDAR cả đoạn),
+`train` chỉ sweep ở khung train. Mỗi sweep đặt vào ảnh cầu của `SphericalCamera`: dải góc nâng
+đo trên các sweep của cảnh, nới nửa bước, bước mặc định 0,2°, 2048 cột, phương vị 0 tại +y tăng
+về +x trong hệ cảm biến. Ô giữ điểm gần nhất; ô trống có điểm và gốc tia bằng 0 nên XSIM không
+coi là có đo. Worker in số sweep, kích thước lưới và tỉ lệ điểm giữ được. Box lấy loại node của
+DriveStudio: node cứng → VEHICLE, SMPL → PEDESTRIAN, biến dạng → CYCLIST; người gồm cả hai loại
+sau. SMPL đổi sang `SMPLData` bằng `toast.Quat.from_matrix` và `toast.sample_trajectory` như
+`xsim.data.utils.smpl`.
+
+
+### Công cụ mask thân xe trong Studio
+
+`POST /api/scenes/{scene_id}/egomask/{camera}/erase` nhận `points` là danh sách
+`[x, y]` theo pixel ảnh gốc và `radius` là bán kính cọ, từ 1 đến 256 pixel.
+Tẩy trên mask nháp nếu có, nếu không thì lấy mask đã lưu của cảnh. Tạo mask nháp mới,
+trả `{"coverage": <tỉ lệ diện tích bị che>}`. Thiếu mask hoặc điểm ngoài ảnh trả lỗi
+qua cơ chế lỗi hiện có của công cụ. `POST .../save` xác nhận mask nháp như luồng chọn điểm.
+Camera đang xử lý bị khoá chuyển để kết quả không gắn nhầm camera. Chọn điểm SAM2 sau khi
+tẩy sẽ tạo lại dự đoán từ các điểm đã chọn; giao diện thông báo điều này khi tẩy.
+
+
+Khi split có `test_only_cameras`, gói observations vẫn xuất quan sát của mọi camera được chọn.
+XSIM dùng các cặp `train` tường minh để khởi tạo và train; `overall` chỉ chấm ảnh test của camera
+có train. Camera chỉ test được ghi vào `shifted`, gồm metric thô và metric khớp màu khi phép
+khớp hợp lệ. `per_camera` giữ số đo của cả hai nhóm. Báo cáo đánh giá phụ chỉ có file riêng như
+`ply_gap.json` không thay thế `summary.json` của stage đánh giá chính.
+
+
+### Sửa tính nhất quán của mask và đánh giá (26/11/2026)
+
+Run mới lưu `scene_mask_digest` (SHA-256, không bắt buộc với run cũ) trong `run.json` và bản
+chụp mask hiệu lực ở `d2s/scene_masks/`. Khoá đầu vào cảnh thêm digest này; mask nháp không tham gia.
+Worker dựng cảnh ảo với bản chụp, kể cả khi chạy remote. Thiếu bản chụp của run đã có digest là lỗi.
+Run cũ thiếu digest dùng cảnh hiện tại, giữ khả năng đọc dữ liệu lịch sử.
+
+Mask hiệu lực ưu tiên file cảnh, xác nhận `none`, rồi asset mặc định. Mask cảm biến theo khung
+vẫn được giữ. NuRec rectify mask theo ảnh; MCGS khử méo ảnh pinhole và mask theo cùng K.
+Camera `test_only_cameras` không vào context hoặc refinement của NuRec; metric ghi ở `shifted`.
+Protocol chung mới `0.6` chuẩn hoá pixel ngoài mask trong hàm metric dùng chung. NuRec protocol
+`0.5` được phân biệt khi benchmark đọc run lịch sử; kết quả cũ giữ nguyên.
+
+`DELETE /api/scenes/{scene_id}/egomask/{camera}/draft` bỏ riêng nháp. Thân yêu cầu tẩy có thêm
+`source` (`saved` hoặc `draft`, không bắt buộc với client cũ); server dùng đúng bản được chọn.
+
+`scene_ref.json` của gói Kaggle/Colab có thêm `scene_masks`: mapping tên PNG theo camera hoặc
+`status.json` sang nội dung base64 của snapshot. Gói cũ không có trường này vẫn đọc được cho
+run thiếu digest. Chỉ nhận tên camera trong manifest và `status.json`, kiểm lại digest khi chạy.
+Snapshot theo mỗi run, nên sửa mask không bắt upload lại toàn bộ dataset cảnh trên remote.
+Cảnh ảo được dựng lại ở `<workdir>/.runtime/<run_id>/scene_view/000/`, không đóng gói cùng run.
+`prep.ncore` tạo bản mask hiệu lực ở thư mục output của stage rồi truyền `--ego-masks` cho
+converter. `train.nurec_refine` ghi `train_views.json` (sensor → chỉ số khung clip → tên mask)
+và truyền `--views-json` cho exporter để giữ đúng từng cặp train, kể cả split trộn camera.
+
+Trạng thái editor thêm `draft_coverage` và `revision` (SHA-256) cho mỗi camera. Route mutation
+nhận query `revision` không bắt buộc cho client cũ; revision khác hiện tại trả HTTP 409 theo
+mã lỗi chung hiện có, không ghi đè. Segment, erase và discard trả revision mới cùng kết quả.
+Studio gửi revision, tải lại trạng thái khi đổi camera hoặc gặp 409; nháp còn trên server được
+hiện lại. Khi xoá hết điểm, server bỏ nháp và thao tác tẩy tiếp theo dùng mask đã lưu.
+PNG được thay bằng rename nguyên tử; khoá trong tiến trình Studio bao quanh kiểm revision và
+đọc-sửa-ghi. Cơ chế này phục vụ nhiều tab trên một Studio, không cung cấp khoá nhiều server.

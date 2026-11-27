@@ -28,6 +28,7 @@ clock from their frame id (gaps in the frame ids become gaps in time), global sh
 from __future__ import annotations
 
 import argparse
+from typing import Optional
 import io
 import json
 import pickle
@@ -338,6 +339,37 @@ def camera_params(info: dict, model: str, w: int, h: int, fisheye_model: str = "
     )
 
 
+def official_ego_mask(
+    mask_root: Optional[str], camera: str, width: int, height: int
+) -> Optional[Image.Image]:
+    """Đọc snapshot đúng kích thước ảnh nguồn; thư mục rỗng nghĩa là không che thân xe.
+
+    Trả None chỉ khi caller không truyền snapshot, để giữ lệnh converter legacy độc lập.
+    Mask này được đưa qua cùng rectifier với ảnh ở vòng lặp camera.
+
+    Args:
+        mask_root: Thư mục snapshot truyền qua --ego-masks, hoặc None cho converter legacy.
+        camera: Tên camera gốc, dùng làm tên file PNG.
+        width: Chiều rộng ảnh nguồn, pixel.
+        height: Chiều cao ảnh nguồn, pixel.
+
+    Returns:
+        Mask mức xám của snapshot, mask đen khi không có file, hoặc None cho lệnh legacy.
+
+    Raises:
+        ValueError: Nếu kích thước mask khác ảnh nguồn.
+    """
+    if mask_root is None:
+        return None
+    path = Path(mask_root) / f"{camera}.png"
+    if not path.is_file():
+        return Image.new("L", (width, height), 0)
+    mask = Image.open(path).convert("L")
+    if mask.size != (width, height):
+        raise ValueError(f"{camera}: mask {mask.size} khác kích thước ảnh {(width, height)}")
+    return mask
+
+
 def mask_frames(tar_path: Path, size: tuple[int, int], limit: int = 200) -> np.ndarray:
     """Up to `limit` evenly spaced grayscale frames of the whole sequence at `size`
     (half resolution: the mask thresholds were tuned at the 3DGUT trainer's 700x700 scale)."""
@@ -469,16 +501,19 @@ def convert(args) -> Path:
             img.save(buf, format="JPEG", quality=args.jpeg_quality)
             ts = np.array([t_us[f], t_us[f]], dtype=np.uint64)
             cw.store_frame(buf.getvalue(), "jpeg", ts, {}, {})
-        if model == "fisheye":
-            # The body is a property of the rig, not of the clip: estimate it from the whole sequence
-            # (a short straight clip keeps lane markings at fixed pixels and they would look like body edges).
-            grays = mask_frames(data / f"data_2d_raw/{seq}_{c}.tar", (w // 2, h // 2))
-            mask = fisheye_ego_mask(grays).resize((w, h), Image.NEAREST)
-            if rect is not None:
-                mask = rect.mask(mask)
-            log(f"{c}: ego mask covers {np.asarray(mask).mean() / 2.55:.0f}% of pixels")
-        else:
-            mask = Image.new("L", (w, h), 0)
+        # drive2sim: stage luôn truyền snapshot mask, kể cả khi camera không dùng mask.
+        # Chỉ lệnh converter độc lập không có --ego-masks mới dùng ước lượng legacy.
+        mask_root = getattr(args, "ego_masks", None)
+        mask = official_ego_mask(mask_root, c, w, h)
+        if mask is None:
+            if model == "fisheye":
+                grays = mask_frames(data / f"data_2d_raw/{seq}_{c}.tar", (w // 2, h // 2))
+                mask = fisheye_ego_mask(grays).resize((w, h), Image.NEAREST)
+            else:
+                mask = Image.new("L", (w, h), 0)
+        if rect is not None:
+            mask = rect.mask(mask)
+        log(f"{c}: ego mask covers {np.asarray(mask).mean() / 2.55:.0f}% of pixels")
         mw.store_camera_masks(sid, {"ego": mask})
         size = "x".join(str(int(v)) for v in rect.target.resolution) if rect is not None else f"{w}x{h}"
         log(f"{c} -> {sid} ({model if rect is None else 'fisheye -> F-theta 120deg'}, {size}, {len(fids)} frames)")
@@ -524,6 +559,7 @@ def convert(args) -> Path:
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--data", default="./kitti360", help="KITTI-360 archive root")
+    p.add_argument("--ego-masks", default=None, help="drive2sim: official mask snapshot directory")
     p.add_argument("--out", required=True, help="output directory for the NCore clip")
     p.add_argument("--sequence", default="2013_05_28_drive_0003_sync")
     p.add_argument("--start", type=int, default=0, help="first frame id to consider")

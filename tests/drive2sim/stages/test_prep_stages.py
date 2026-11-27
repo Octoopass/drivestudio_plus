@@ -51,6 +51,7 @@ class Context:
         self.output_dir = output_dir
         self.scene = Scene(scene_dir.name, scene_dir, Manifest.model_validate(MANIFEST))
         self.split = Split.model_validate(SPLIT)
+        self.workdir = scene_dir.parent.parent  # make_scene đặt cảnh ở <workdir>/data/<cảnh>
 
     def progress(self, fraction: float, message: str = "") -> None:
         """Bỏ qua tiến độ."""
@@ -230,6 +231,69 @@ def test_smpl_command_for_kitti360_reuses_kitti_branch(tmp_path: Path) -> None:
     # chỉ hai camera pinhole (đọc file: module import OpenCV, không có trong môi trường test nhẹ)
     source = (paths.PACKAGE_DIR / "recon" / "preprocess" / "kitti360" / "human.py").read_text()
     assert "CAMERA_LIST = [0, 1]" in source
+
+
+def test_smpl_command_for_phenikaa_needs_pinhole_cameras(tmp_path: Path) -> None:
+    # Số và thứ tự camera PHENIKAA khác nhau giữa các cảnh: chỉ số camera đi qua --cameras
+    command = build_smpl_command("phenikaa", tmp_path, [0, 3])
+    assert command[command.index("--dataset") + 1] == "phenikaa"
+    assert command[command.index("--cameras") + 1 :] == ["0", "3"]
+    with pytest.raises(ValueError, match="camera pinhole"):
+        build_smpl_command("phenikaa", tmp_path)
+    assert "--cameras" not in build_smpl_command("kitti360", tmp_path)
+    run_source = (paths.PACKAGE_DIR / "recon" / "preprocess" / "smpl" / "run.py").read_text()
+    assert 'args.dataset == "phenikaa"' in run_source and '"--cameras"' in run_source
+    assert (paths.PACKAGE_DIR / "recon" / "preprocess" / "phenikaa" / "human.py").is_file()
+
+
+def phenikaa_scene(tmp_path: Path, cameras: list[dict]) -> tuple[Path, Context]:
+    """Cảnh PHENIKAA có một người đi bộ, với danh sách camera cho trước."""
+    scene = make_scene(tmp_path)
+    ctx = Context(scene, tmp_path / "cache" / "smpl")
+    manifest = dict(
+        MANIFEST,
+        scene_id="phenikaa_x",
+        source=dict(MANIFEST["source"], dataset="phenikaa"),
+        cameras=cameras,
+        timeline=dict(MANIFEST["timeline"], reference_sensor=cameras[0]["camera_id"]),
+    )
+    ctx.scene = Scene(scene.name, scene, Manifest.model_validate(manifest))
+    (scene / "instances").mkdir()
+    people = {"0": {"id": 0, "class_name": "Pedestrian"}}
+    (scene / "instances" / "instances_info.json").write_text(json.dumps(people))
+    return scene, ctx
+
+
+def test_smpl_phenikaa_uses_pinhole_cameras_of_the_scene(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pinhole, fisheye = MANIFEST["cameras"]
+    _, ctx = phenikaa_scene(tmp_path, [fisheye, pinhole])  # pinhole ở chỉ số 1
+    calls: list[list[str]] = []
+
+    def fake_run(command: list[str], log_path: Path, **kwargs: object) -> None:
+        calls.append(command)
+        view = Path(command[command.index("--data_root") + 1]) / "000"
+        (view / "humanpose").mkdir(exist_ok=True)
+        (view / "humanpose" / "smpl.pkl").write_text("new")
+
+    monkeypatch.setattr(smpl, "run_logged", fake_run)
+    model = tmp_path / "SMPL_NEUTRAL.pkl"
+    model.write_text("smpl")
+    monkeypatch.setenv("D2S_SMPL_MODEL", str(model))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    PrepSmplStage().run(ctx, {}, NoParams())
+    assert calls[0][calls[0].index("--cameras") + 1 :] == ["1"]
+    assert (ctx.output_dir / "humanpose" / "smpl.pkl").read_text() == "new"
+
+
+def test_smpl_phenikaa_without_pinhole_camera_skips(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, ctx = phenikaa_scene(tmp_path, [MANIFEST["cameras"][1]])
+    monkeypatch.setattr(smpl, "run_logged", lambda *a, **k: pytest.fail("không được chạy"))
+    assert PrepSmplStage().run(ctx, {}, NoParams()) == {"smpl": ctx.output_dir}
+    assert "không có camera pinhole" in (ctx.output_dir / "log.txt").read_text()
 
 
 def test_smpl_skips_kitti_layout_scene_without_people(

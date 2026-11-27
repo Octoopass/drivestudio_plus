@@ -1,0 +1,1378 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta name="deck-kit-tools" content="/home/lqaq/.agents/skills/deck-kit/scripts">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Real2Sim: báo cáo tiến độ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg: #fdfae7;
+      --primary: #1e2bfa;
+      --text: #111111;
+      --text-muted: #6b6b6b;
+      --text-light: #9a9a9a;
+      --accent-light: rgba(30, 43, 250, 0.08);
+      --accent-medium: rgba(30, 43, 250, 0.15);
+      --border: rgba(30, 43, 250, 0.2);
+      --card-bg: rgba(30, 43, 250, 0.04);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    /* Slide container */
+    .deck {
+      width: 100vw;
+      height: 100vh;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      /* Asymmetric padding: extra bottom space to clear the fixed
+         slide-counter (left) and nav-controls (right). Without this,
+         cards/grids that fill slide-content overlap the nav chrome. */
+      padding: 3.5vw 4vw 8.5vh 4vw;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateX(40px);
+      transition: opacity 0.5s ease, transform 0.5s ease;
+      overflow: hidden;
+    }
+
+    .slide.active {
+      opacity: 1;
+      pointer-events: all;
+      transform: translateX(0);
+      z-index: 10;
+    }
+
+    .slide.prev {
+      transform: translateX(-40px);
+    }
+
+    /* Typography */
+    h1, h2, h3, h4 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-weight: 600;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+    }
+
+    h1 {
+      font-size: clamp(2.8rem, 5vw, 4.2rem);
+      font-weight: 700;
+    }
+
+    h2 {
+      font-size: clamp(1.8rem, 3vw, 2.6rem);
+      margin-bottom: 1.5rem;
+    }
+
+    h3 {
+      font-size: clamp(1.1rem, 1.8vw, 1.5rem);
+      font-weight: 500;
+      line-height: 1.3;
+    }
+
+    h4 {
+      font-size: clamp(0.85rem, 1.2vw, 1rem);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--primary);
+    }
+
+    p, li {
+      font-size: clamp(0.85rem, 1.1vw, 1.05rem);
+      line-height: 1.6;
+      color: var(--text-muted);
+    }
+
+    /* Slide header bar */
+    .slide-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 2.5vh;
+      flex-shrink: 0;
+    }
+
+    .slide-header h4 {
+      margin: 0;
+    }
+
+    .slide-header .tag {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--primary);
+      background: var(--accent-light);
+      padding: 0.35rem 0.9rem;
+      border-radius: 100px;
+    }
+
+    /* Slide content area */
+    .slide-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    /* Navigation */
+    .nav-controls {
+      position: fixed;
+      bottom: 2.5vh;
+      right: 3vw;
+      display: flex;
+      align-items: center;
+      gap: 0.8rem;
+      z-index: 100;
+    }
+
+    .nav-btn {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border);
+      background: var(--bg);
+      color: var(--primary);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+      font-size: 1.1rem;
+    }
+
+    .nav-btn:hover {
+      background: var(--primary);
+      color: var(--bg);
+      border-color: var(--primary);
+    }
+
+    .nav-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    .slide-counter {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+      position: fixed;
+      bottom: 2.5vh;
+      left: 3vw;
+      z-index: 100;
+    }
+
+    .progress-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      height: 3px;
+      background: var(--primary);
+      transition: width 0.4s ease;
+      z-index: 100;
+    }
+
+    /* Decorative elements */
+    .accent-line {
+      width: 60px;
+      height: 4px;
+      background: var(--primary);
+      border-radius: 2px;
+      margin-bottom: 1.5rem;
+    }
+
+    .accent-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--primary);
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    /* ============================================================
+       LAYOUT 1: Cover / Title Slide
+       ============================================================ */
+    .layout-cover {
+      justify-content: center;
+      align-items: flex-start;
+      padding-left: 8vw;
+    }
+
+    .layout-cover h1 {
+      max-width: 55vw;
+      margin-bottom: 1.5rem;
+      line-height: 1.05;
+    }
+
+    .layout-cover .subtitle {
+      font-size: clamp(1rem, 1.5vw, 1.25rem);
+      color: var(--text-muted);
+      max-width: 40vw;
+      margin-bottom: 3rem;
+      font-weight: 400;
+    }
+
+    .layout-cover .meta {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 0.8rem;
+      color: var(--text-light);
+      letter-spacing: 0.05em;
+    }
+
+    .layout-cover .cover-decoration {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 35vw;
+      height: 100vh;
+      background: var(--accent-light);
+      clip-path: polygon(30% 0, 100% 0, 100% 100%, 0% 100%);
+    }
+
+    .layout-cover .cover-dots {
+      position: absolute;
+      bottom: 12vh;
+      right: 8vw;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      opacity: 0.25;
+    }
+
+    .layout-cover .cover-dots .dot {
+      width: 6px;
+      height: 6px;
+      background: var(--primary);
+      border-radius: 50%;
+    }
+
+    /* ============================================================
+       LAYOUT 2: Agenda / Table of Contents
+       ============================================================ */
+    .layout-agenda .agenda-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      grid-template-rows: repeat(3, 1fr);
+      gap: 1rem 3rem;
+      margin-top: 1rem;
+      flex: 1;
+      min-height: 0;
+    }
+
+    .agenda-item {
+      display: flex;
+      gap: 1.2rem;
+      align-items: center;
+      padding: 1rem 1.2rem;
+      border-radius: 12px;
+      transition: background 0.2s ease;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .agenda-item:hover {
+      background: var(--card-bg);
+    }
+
+    .agenda-num {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: var(--primary);
+      line-height: 1;
+      min-width: 36px;
+    }
+
+    .agenda-item h3 {
+      margin-bottom: 0.3rem;
+      font-size: clamp(1rem, 1.4vw, 1.2rem);
+    }
+
+    .agenda-item p {
+      font-size: clamp(0.8rem, 1vw, 0.95rem);
+      line-height: 1.5;
+    }
+
+    /* ============================================================
+       LAYOUT 3: Key Metrics (3 large callouts)
+       Cards size to their content; the row centers vertically
+       inside the remaining slide-content area.
+       ============================================================ */
+    .layout-metrics .slide-content {
+      justify-content: flex-start;
+    }
+
+    .layout-metrics .metrics-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.5rem;
+      margin-top: 0.5rem;
+      align-items: stretch;
+    }
+
+    .metric-card {
+      display: flex;
+      flex-direction: column;
+      gap: 0.7rem;
+      padding: 1.5rem 1.6rem;
+      border-radius: 14px;
+      border: 1.5px solid var(--border);
+      background: var(--card-bg);
+    }
+
+    .metric-card .metric-value {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(2.2rem, 3.4vw, 3rem);
+      font-weight: 700;
+      color: var(--primary);
+      line-height: 1;
+    }
+
+    .metric-card .metric-label {
+      font-size: clamp(0.95rem, 1.3vw, 1.1rem);
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.3;
+    }
+
+    .metric-card .metric-desc {
+      font-size: clamp(0.78rem, 0.95vw, 0.9rem);
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .metric-card .metric-supports {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+      margin: 0.2rem 0 0;
+      padding: 0.7rem 0 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .metric-card .metric-supports li {
+      font-size: clamp(0.75rem, 0.9vw, 0.85rem);
+      color: var(--text-muted);
+      padding-left: 1rem;
+      position: relative;
+      line-height: 1.45;
+    }
+
+    .metric-card .metric-supports li::before {
+      content: '—';
+      position: absolute;
+      left: 0;
+      color: var(--text-light);
+    }
+
+    .metric-card .metric-change {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 0.78rem;
+      font-weight: 600;
+      margin-top: 0.3rem;
+    }
+
+    .metric-change.positive { color: #059669; }
+    .metric-change.negative { color: #dc2626; }
+
+    /* ============================================================
+       LAYOUT 4: Data Dashboard (6 stat grid)
+       Cells have natural height with stat at top + name + small
+       context line. Grid is auto-sized; the row stays in the upper
+       portion of slide-content with the bottom-padding reserved
+       for nav chrome.
+       ============================================================ */
+    .layout-dashboard .slide-content {
+      justify-content: flex-start;
+    }
+
+    .layout-dashboard .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.2rem;
+      margin-top: 0.5rem;
+    }
+
+    .stat-cell {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      padding: 1.4rem 1.5rem;
+      border-radius: 12px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+    }
+
+    .stat-cell .stat-top {
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+    }
+
+    .stat-cell .stat-num {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(1.6rem, 2.4vw, 2.1rem);
+      font-weight: 700;
+      color: var(--primary);
+      line-height: 1;
+    }
+
+    .stat-cell .stat-unit {
+      font-size: 0.8rem;
+      color: var(--text-light);
+      font-weight: 500;
+    }
+
+    .stat-cell .stat-name {
+      font-size: clamp(0.85rem, 1vw, 0.95rem);
+      color: var(--text);
+      line-height: 1.35;
+      font-weight: 500;
+    }
+
+    .stat-cell .stat-context {
+      font-size: 0.75rem;
+      color: var(--text-light);
+      line-height: 1.4;
+      padding-top: 0.4rem;
+      border-top: 1px solid var(--border);
+    }
+
+    /* ============================================================
+       LAYOUT 5: Two Column Split
+       Left = numbered insight list, Right = pull-quote + supporting
+       stats. Both columns size to their content with natural rhythm
+       (gap-based spacing, no forced height-distribution).
+       ============================================================ */
+    .layout-split .slide-content {
+      justify-content: flex-start;
+    }
+
+    .layout-split .split-body {
+      display: grid;
+      grid-template-columns: 1.05fr 1fr;
+      gap: 3.5rem;
+      margin-top: 0.5rem;
+    }
+
+    .split-left, .split-right {
+      display: flex;
+      flex-direction: column;
+      gap: 1.4rem;
+    }
+
+    .split-right {
+      padding-left: 2.5rem;
+      border-left: 2px solid var(--border);
+    }
+
+    .insight-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 1.1rem;
+      margin: 0;
+      counter-reset: insight;
+    }
+
+    .insight-list li {
+      position: relative;
+      padding-left: 2.6rem;
+      font-size: clamp(0.88rem, 1.05vw, 1rem);
+      color: var(--text);
+      line-height: 1.55;
+      counter-increment: insight;
+    }
+
+    .insight-list li::before {
+      content: counter(insight, decimal-leading-zero);
+      position: absolute;
+      left: 0;
+      top: 0;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--primary);
+      letter-spacing: 0.05em;
+      line-height: 1.7;
+    }
+
+    .split-highlight {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(1.15rem, 1.55vw, 1.5rem);
+      font-weight: 500;
+      color: var(--text);
+      line-height: 1.4;
+      padding: 1.3rem 1.5rem;
+      background: var(--accent-light);
+      border-radius: 12px;
+      border-left: 4px solid var(--primary);
+    }
+
+    .split-highlight cite {
+      display: block;
+      margin-top: 0.7rem;
+      font-style: normal;
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .mini-stat-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      padding-top: 0.4rem;
+    }
+
+    .mini-stat {
+      padding: 0.9rem 1rem;
+      border-radius: 10px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+    }
+
+    .mini-stat .mini-val {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--primary);
+      line-height: 1;
+    }
+
+    .mini-stat .mini-label {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-top: 0.4rem;
+      line-height: 1.35;
+    }
+
+    /* ============================================================
+       LAYOUT 6: Horizontal Bar Ranking
+       ============================================================ */
+    .layout-bars .bars-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 0.8rem;
+      margin-top: 0.5rem;
+    }
+
+    .bar-item {
+      display: grid;
+      grid-template-columns: minmax(180px, 30%) 1fr auto;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.6rem 0;
+    }
+
+    .bar-label {
+      font-size: clamp(0.8rem, 1.1vw, 1rem);
+      color: var(--text);
+      font-weight: 500;
+      line-height: 1.3;
+    }
+
+    .bar-track {
+      height: 28px;
+      background: var(--accent-light);
+      border-radius: 6px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .bar-fill {
+      height: 100%;
+      background: var(--primary);
+      border-radius: 6px;
+      transition: width 0.8s ease;
+    }
+
+    .bar-pct {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--primary);
+      min-width: 45px;
+      text-align: right;
+    }
+
+    .bar-note {
+      font-size: 0.75rem;
+      color: var(--text-light);
+      margin-top: 0.2rem;
+    }
+
+    /* ============================================================
+       LAYOUT 7: Quote / Highlight
+       ============================================================ */
+    .layout-quote {
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+    }
+
+    .layout-quote .quote-mark {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 8rem;
+      font-weight: 700;
+      color: var(--primary);
+      opacity: 0.15;
+      line-height: 0.5;
+      margin-bottom: 1rem;
+    }
+
+    .layout-quote blockquote {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(1.6rem, 2.8vw, 2.4rem);
+      font-weight: 500;
+      line-height: 1.35;
+      color: var(--text);
+      max-width: 65vw;
+      margin-bottom: 2rem;
+    }
+
+    .layout-quote .quote-source {
+      font-size: clamp(0.85rem, 1.1vw, 1rem);
+      color: var(--text-muted);
+    }
+
+    .layout-quote .quote-source strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .layout-quote .quote-decoration {
+      position: absolute;
+      top: 10vh;
+      left: 5vw;
+      width: 80px;
+      height: 80px;
+      border: 2px solid var(--border);
+      border-radius: 50%;
+    }
+
+    .layout-quote .quote-decoration-2 {
+      position: absolute;
+      bottom: 12vh;
+      right: 6vw;
+      width: 60px;
+      height: 60px;
+      background: var(--accent-light);
+      border-radius: 50%;
+    }
+
+    /* ============================================================
+       LAYOUT 8: Timeline / Process Flow
+       ============================================================ */
+    .layout-timeline .timeline-track {
+      display: flex;
+      gap: 1.5rem;
+      flex: 1;
+      align-items: center;
+      justify-content: center;
+      margin-top: 0.5rem;
+    }
+
+    .timeline-step {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      position: relative;
+    }
+
+    .timeline-step:not(:last-child)::after {
+      content: '';
+      position: absolute;
+      top: 28px;
+      right: -0.75rem;
+      width: 1.5rem;
+      height: 2px;
+      background: var(--border);
+    }
+
+    .step-circle {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: var(--bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 1.3rem;
+      font-weight: 700;
+      margin-bottom: 1.2rem;
+      flex-shrink: 0;
+    }
+
+    .timeline-step:nth-child(2) .step-circle { opacity: 0.85; }
+    .timeline-step:nth-child(3) .step-circle { opacity: 0.7; }
+    .timeline-step:nth-child(4) .step-circle { opacity: 0.55; }
+
+    .step-title {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(0.95rem, 1.4vw, 1.15rem);
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 0.4rem;
+    }
+
+    .step-desc {
+      font-size: clamp(0.75rem, 1vw, 0.9rem);
+      color: var(--text-muted);
+      line-height: 1.5;
+      max-width: 220px;
+    }
+
+    /* ============================================================
+       LAYOUT 9: Detailed Analysis (bullets with sub-items)
+       ============================================================ */
+    .layout-detail .detail-body {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 2rem 3rem;
+      flex: 1;
+      margin-top: 0.5rem;
+      overflow: hidden;
+    }
+
+    .detail-col {
+      display: flex;
+      flex-direction: column;
+      gap: 1.2rem;
+    }
+
+    .detail-block {
+      padding: 1rem 1.2rem;
+      border-radius: 10px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+    }
+
+    .detail-block h3 {
+      font-size: clamp(0.95rem, 1.3vw, 1.1rem);
+      margin-bottom: 0.6rem;
+      color: var(--text);
+    }
+
+    .detail-block ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .detail-block ul li {
+      position: relative;
+      padding-left: 1.1rem;
+      padding-bottom: 0.4rem;
+      font-size: clamp(0.78rem, 1vw, 0.9rem);
+      line-height: 1.5;
+    }
+
+    .detail-block ul li::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0.55rem;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--primary);
+    }
+
+    .detail-block ul li:last-child {
+      padding-bottom: 0;
+    }
+
+    /* ============================================================
+       LAYOUT 10: Closing / CTA
+       ============================================================ */
+    .layout-closing {
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+    }
+
+    .layout-closing h1 {
+      margin-bottom: 1rem;
+    }
+
+    .layout-closing .closing-sub {
+      font-size: clamp(1rem, 1.5vw, 1.3rem);
+      color: var(--text-muted);
+      max-width: 45vw;
+      margin-bottom: 2.5rem;
+    }
+
+    .layout-closing .cta-btn {
+      display: inline-block;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--bg);
+      background: var(--primary);
+      padding: 0.9rem 2.2rem;
+      border-radius: 100px;
+      text-decoration: none;
+      letter-spacing: 0.02em;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .layout-closing .cta-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(30, 43, 250, 0.25);
+    }
+
+    .layout-closing .closing-contact {
+      margin-top: 3rem;
+      font-size: 0.85rem;
+      color: var(--text-light);
+    }
+
+    .layout-closing .closing-decoration {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 500px;
+      height: 500px;
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .layout-closing .closing-decoration-2 {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 360px;
+      height: 360px;
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      opacity: 0.3;
+      pointer-events: none;
+    }
+
+    /* Keyboard hint */
+    .keyboard-hint {
+      position: fixed;
+      bottom: 2.5vh;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 0.7rem;
+      color: var(--text-light);
+      z-index: 100;
+      opacity: 0.6;
+    }
+
+    /* Responsive adjustments for very small heights */
+    @media (max-height: 700px) {
+      .slide { padding: 2.5vh 3vw; }
+      .layout-agenda .agenda-grid { gap: 0.8rem 2rem; }
+      .agenda-item { padding: 0.8rem; }
+      .metric-card { padding: 1rem; }
+      .layout-bars .bars-container { gap: 0.5rem; }
+      .bar-item { padding: 0.4rem 0; }
+      .detail-block { padding: 0.8rem 1rem; }
+    }
+
+    /* ============================================================
+       Layouts cho report kỹ thuật: dùng cùng font, màu và nhịp của mẫu
+       ============================================================ */
+    .slide-content h2 { margin-bottom: 2.2vh; flex-shrink: 0; }
+    .two-col { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 3vw; align-items: center; }
+    .two-col .col-text, .two-col .col-side { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 1.6vh; }
+    .two-col.fig-first { grid-template-columns: 1.55fr 1fr; }
+    .two-col.fig-right { grid-template-columns: 1fr 1.75fr; }
+    .two-col.narrow-table { grid-template-columns: 1.1fr 1fr; }
+    .two-col.wide-left { grid-template-columns: 1.5fr 1fr; }
+    ul.points { list-style: none; display: flex; flex-direction: column; gap: 1.5vh; }
+    ul.points li { position: relative; padding-left: 1.4rem; font-size: clamp(1rem, 1.62vw, 1.7rem); line-height: 1.42; color: var(--text); }
+    ul.points li::before { content: ''; position: absolute; left: 0; top: 0.58em; width: 7px; height: 7px; border-radius: 50%; background: var(--primary); }
+    ul.points li b { font-weight: 600; color: var(--primary); }
+    ul.points.tight { gap: 0.8vh; margin-top: 1.6vh; }
+    ul.points code, .data-table code, .note-box code { font-size: 0.92em; color: var(--primary); }
+    .fig-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 1.4vh 1.2vw; display: flex; flex-direction: column; align-items: center; min-height: 0; }
+    .fig-card img { display: block; width: 100%; height: auto; max-height: 66vh; object-fit: contain; }
+    .fig-card { flex-shrink: 1; }
+    .fig-card.fig-wide img { max-height: 38vh; }
+    .two-col.stack .fig-card img { max-height: 28vh; }
+    .fig-card figcaption { font-size: clamp(0.72rem, 0.9vw, 0.85rem); color: var(--text-muted); margin-top: 0.8vh; text-align: center; }
+    .data-table { width: 100%; border-collapse: collapse; }
+    .data-table th { font-family: 'Space Grotesk', sans-serif; font-size: clamp(0.9rem, 1.3vw, 1.3rem); font-weight: 600; color: var(--primary); text-align: left; padding: 1vh 0.8vw; border-bottom: 2px solid var(--primary); }
+    .layout-agenda .agenda-item h3 { font-size: clamp(1.05rem, 1.75vw, 1.8rem); }
+    .layout-agenda .agenda-item p { font-size: clamp(0.9rem, 1.3vw, 1.3rem); }
+    .data-table td { font-size: clamp(0.95rem, 1.45vw, 1.5rem); line-height: 1.35; color: var(--text); padding: 1.25vh 0.8vw; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .data-table td b { color: var(--primary); font-weight: 600; }
+    .note-box { background: var(--card-bg); border-left: 4px solid var(--primary); border-radius: 0 12px 12px 0; padding: 1.8vh 1.3vw; }
+    .note-box h4 { margin-bottom: 1vh; }
+    .note-box p { color: var(--text); font-size: clamp(1rem, 1.5vw, 1.55rem); line-height: 1.45; }
+    .ask-box { background: var(--primary); border-radius: 12px; padding: 2.4vh 1.6vw; }
+    .ask-box h4 { color: var(--bg); margin-bottom: 1.2vh; }
+    .ask-box ul.points li { color: var(--bg); }
+    .ask-box ul.points li::before { background: var(--bg); }
+    .ask-box ul.points li b { color: var(--bg); }
+    .ask-box.wide { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 3vh 3vw; }
+    .ask-box.wide ul.points { gap: 2.2vh; }
+    .part-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 1.6vw; }
+    .part-card { background: var(--card-bg); border-top: 4px solid var(--primary); border-radius: 0 0 12px 12px; padding: 1.8vh 1.2vw; }
+    .part-card h3 { font-weight: 600; color: var(--primary); }
+    .part-sub { margin: 0.4vh 0 1.2vh; font-size: clamp(0.9rem, 1.2vw, 1.2rem); }
+    ul.chapters { list-style: none; }
+    ul.chapters li { font-size: clamp(0.95rem, 1.4vw, 1.45rem); color: var(--text); padding: 0.75vh 0; border-bottom: 1px solid var(--border); line-height: 1.3; }
+    ul.chapters li:last-child { border-bottom: none; }
+    .foot-note { margin-top: 1.4vh; flex-shrink: 0; }
+    .req-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(4, 1fr); grid-auto-flow: column; gap: 0.6vh 3vw; }
+    .req-item { border-bottom: 1px solid var(--border); padding: 0.6vh 0; display: flex; flex-direction: column; justify-content: center; }
+    .req-item h3 { font-weight: 600; color: var(--primary); font-size: clamp(1rem, 1.5vw, 1.55rem); }
+    .req-item p { font-size: clamp(0.95rem, 1.35vw, 1.4rem); line-height: 1.35; }
+    .req-item p { color: var(--text); }
+    .code-card { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 1.6vh 1.2vw; overflow: hidden; }
+    .code-card code { font-family: ui-monospace, 'DejaVu Sans Mono', monospace; font-size: clamp(0.68rem, 1vw, 1.05rem); line-height: 1.45; color: var(--text); white-space: pre; }
+    .report-shots { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(5, 1fr); gap: 1vw; align-items: start; }
+    .report-shots figure { display: flex; flex-direction: column; align-items: center; min-width: 0; }
+    .report-shots img { display: block; width: 100%; height: auto; max-height: 46vh; object-fit: contain; object-position: top; background: #fff; border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 6px 18px rgba(30, 43, 250, 0.1); }
+    .report-shots figcaption { font-size: clamp(0.72rem, 0.95vw, 0.95rem); color: var(--text-muted); margin-top: 0.8vh; text-align: center; }
+    .report-stack { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 2vh; }
+    ul.points.report-points { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8vh 2.5vw; }
+  </style>
+</head>
+<body>
+
+  <div class="deck">
+
+    
+    <div class="slide layout-cover active" data-title="Bìa" data-sec="Mở đầu" data-min="1">
+      <div class="cover-decoration"></div>
+      <div class="cover-dots">
+        <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+      </div>
+      <div class="accent-line"></div>
+      <h1>Reconstructing Real-World Driving Scenes</h1>
+      <p class="subtitle">Báo cáo tiến độ và pipeline tổng quát của project Real2Sim, để mentor góp ý và xác nhận hướng đi.</p>
+      <p class="meta">Lâm Quang Anh Quân &nbsp;·&nbsp; Lương Sỹ Khánh &nbsp;·&nbsp; Đặng Thái Anh &nbsp;·&nbsp; Phạm Minh Hiếu &nbsp;·&nbsp; 11/2026</p>
+      <aside class="notes">Mục tiêu buổi này: trình bày bản report chung và pipeline tổng quát, sau đó xin mentor góp ý.</aside>
+    </div>
+
+    <div class="slide layout-agenda" data-title="Nội dung" data-sec="Mở đầu" data-min="1">
+      <div class="slide-header"><h4>Nội dung</h4><span class="tag">Tổng quan</span></div>
+      <div class="slide-content">
+        <div class="accent-line"></div>
+        <div class="agenda-grid"><div class="agenda-item"><span class="agenda-num">01</span><div><h3>Bản report chung</h3><p>Vì sao có report, cấu trúc và trạng thái hiện tại</p></div></div><div class="agenda-item"><span class="agenda-num">02</span><div><h3>Yêu cầu và phạm vi</h3><p>Goal, đặc tả, deliverables, scope cần xác nhận</p></div></div><div class="agenda-item"><span class="agenda-num">03</span><div><h3>Tool thử nghiệm</h3><p>Vấn đề khi so sánh nhiều approach, cách chuẩn hóa</p></div></div><div class="agenda-item"><span class="agenda-num">04</span><div><h3>Pipeline tổng quát</h3><p>Các hệ thống Real2Sim và kiến trúc 5 subsystem</p></div></div><div class="agenda-item"><span class="agenda-num">05</span><div><h3>Khối dữ liệu</h3><p>Cần dữ liệu gì, xử lý ra sao, tạo ra được gì</p></div></div><div class="agenda-item"><span class="agenda-num">06</span><div><h3>Tích hợp CARLA</h3><p>map.xodr, những gì cần sinh ra, cách NuRec nối với CARLA</p></div></div></div>
+      </div>
+      <aside class="notes">Đi theo thứ tự: report, yêu cầu, tool, pipeline chung, dữ liệu, CARLA. Mentor có thể hỏi ở bất kỳ slide nào.</aside>
+    </div>
+
+    <div class="slide layout-fig" data-title="Vì sao có report chung" data-sec="1. Bản report chung" data-min="1">
+      <div class="slide-header">
+        <h4>1. Bản report chung</h4>
+        <span class="tag">Phần 1</span>
+      </div>
+      <div class="slide-content">
+        <h2>Nhóm tạo một bản report dùng chung</h2>
+        <div class="report-stack"><ul class="points report-points"><li>Tổng hợp kiến thức và thông tin vào <b>một file duy nhất</b></li><li>Tránh các thành viên làm <b>trùng việc</b> nhau</li><li>Dễ <b>theo dõi tình hình</b> hiện tại của project</li><li>Mỗi thành viên viết chương của mình theo <b>cùng một mẫu</b></li></ul><div class="report-shots"><figure><img src="figures/report-page-1.jpg" alt="Trang bìa"><figcaption>Trang bìa</figcaption></figure><figure><img src="figures/report-page-2.jpg" alt="Mục lục: Ch 1 đến 3"><figcaption>Mục lục: Ch 1 đến 3</figcaption></figure><figure><img src="figures/report-page-3.jpg" alt="Mục lục: Ch 3 đến 7"><figcaption>Mục lục: Ch 3 đến 7</figcaption></figure><figure><img src="figures/report-page-4.jpg" alt="Mục lục: Ch 7 đến 11"><figcaption>Mục lục: Ch 7 đến 11</figcaption></figure><figure><img src="figures/report-page-5.jpg" alt="Mục lục: Ch 11 đến 17"><figcaption>Mục lục: Ch 11 đến 17</figcaption></figure></div></div>
+      </div>
+      <aside class="notes">Report vừa là tài liệu chung để cả nhóm thống nhất, vừa là nơi ghi lại thực nghiệm. Hình bên dưới là trang bìa và mục lục thật của bản PDF. Bấm Z để phóng to khi cần.</aside>
+    </div>
+
+    <div class="slide layout-fig" data-title="Cấu trúc report" data-sec="1. Bản report chung" data-min="2">
+      <div class="slide-header">
+        <h4>1. Bản report chung</h4>
+        <span class="tag">Phần 1</span>
+      </div>
+      <div class="slide-content">
+        <h2>Report gồm 3 part chính</h2>
+        <div class="part-grid"><div class="part-card"><h3>Part I. Shared Foundation</h3><p class="part-sub">Phase 1: cả nhóm đọc và thống nhất</p><ul class="chapters"><li>Ch 1. Bài toán và yêu cầu</li><li>Ch 2. Kiến trúc hệ thống tham khảo</li><li>Ch 3. Tool thử nghiệm pipeline</li><li>Ch 4. Phương pháp và quy trình đánh giá</li><li>Ch 5. Khảo sát và chọn approach</li><li>Ch 6. Kế hoạch nghiên cứu</li></ul></div><div class="part-card"><h3>Part II. Approach Studies</h3><p class="part-sub">Phase 2: mỗi thành viên một chương</p><ul class="chapters"><li>Ch 7. Approach A</li><li>Ch 8. Approach B</li><li>Ch 9. Approach C</li><li>Ch 10. Approach D</li><li>Ch 11. Road logic và CARLA</li></ul></div><div class="part-card"><h3>Part III. Synthesis</h3><p class="part-sub">Phase 3: cả nhóm tổng hợp</p><ul class="chapters"><li>Ch 12. So sánh các approach</li><li>Ch 13. Pipeline cuối</li><li>Ch 14. Triển khai và kiểm chứng tool</li><li>Ch 15. Khả năng tích hợp CARLA</li><li>Ch 16. Kết luận và hướng phát triển</li></ul></div></div><p class="foot-note">Chương 17 tổng hợp các khái niệm: ADAS, resimulation, open-loop, closed-loop.</p>
+      </div>
+      <aside class="notes">Mỗi chương approach dùng chung mẫu 10 mục: từ tổng quan paper, cài đặt, thực nghiệm, kết quả đến khả năng tích hợp.</aside>
+    </div>
+
+    <div class="slide layout-fig" data-title="Trạng thái report" data-sec="1. Bản report chung" data-min="2">
+      <div class="slide-header">
+        <h4>1. Bản report chung</h4>
+        <span class="tag">Phần 1</span>
+      </div>
+      <div class="slide-content">
+        <h2>Trạng thái hiện tại và câu hỏi cho mentor</h2>
+        <div class="two-col wide-left"><div class="col-text"><table class="data-table "><thead><tr><th>Phần</th><th>Trạng thái</th></tr></thead><tbody><tr><td>Ch 1, Ch 3</td><td>Đã có bản nháp</td></tr><tr><td><b>Ch 2</b></td><td><b>Đang chỉnh sửa:</b> xong tới 2.5, tiếp theo 2.6 đến 2.8</td></tr><tr><td>Ch 4, Ch 6</td><td>Bản nháp, chờ chốt dataset và phân công</td></tr><tr><td>Ch 5</td><td>Đã khảo sát 6 framework, chưa chốt 4 approach</td></tr><tr><td>Part II</td><td>Có mẫu chương, Ch 11 đã có phân tích NuRec + CARLA</td></tr><tr><td>Part III</td><td>Mới có khung</td></tr></tbody></table></div><div class="col-side"><div class="ask-box"><h4>Xin mentor góp ý</h4><ul class="points"><li>Cách làm một report chung như vậy có đúng không?</li><li>Cuối cùng cả nhóm nộp một bản report này được không?</li></ul></div></div></div>
+      </div>
+      <aside class="notes">Báo cáo thật trạng thái: Part I chưa xong hẳn, đang viết Chương 2. Sau đó hỏi trực tiếp hai câu trong khung.</aside>
+    </div>
+
+    <div class="slide layout-fig" data-title="Goal" data-sec="2. Yêu cầu và phạm vi" data-min="1">
+      <div class="slide-header">
+        <h4>2. Yêu cầu và phạm vi</h4>
+        <span class="tag">Phần 2</span>
+      </div>
+      <div class="slide-content">
+        <h2>Mục tiêu của project</h2>
+        <div class="two-col "><div class="col-text"><ul class="points"><li>Tìm hiểu các phương pháp <b>tái dựng cảnh 3D</b> hiện có</li><li>Xây dựng pipeline Real-to-Sim <b>mở rộng được, tiết kiệm chi phí, tái lập được</b></li><li>Tái dựng môi trường đường thực và chạy <b>mô phỏng vòng kín trong CARLA</b></li><li>Xây dựng <b>tool</b> để thử nghiệm pipeline của nhiều approach: đổi method trong từng module, đổi thứ tự module</li></ul></div><div class="col-side"><div class="note-box"><h4>Thế nào là kết quả tốt</h4><p>Không nhất thiết là scene đẹp nhất, mà là chứng minh được phương pháp nào tái dựng được dữ liệu pinhole/fisheye + LiDAR, với chất lượng, chi phí và khả năng tích hợp mô phỏng đo được.</p></div></div></div>
+      </div>
+      <aside class="notes">Goal lấy từ mô tả của mentor. Riêng phần tool là phần nhóm bổ sung, cần mentor xác nhận.</aside>
+    </div>
+
+    <div class="slide layout-fig" data-title="Đặc tả yêu cầu" data-sec="2. Yêu cầu và phạm vi" data-min="2">
+      <div class="slide-header">
+        <h4>2. Yêu cầu và phạm vi</h4>
+        <span class="tag">Phần 2</span>
+      </div>
+      <div class="slide-content">
+        <h2>Đặc tả yêu cầu, xếp theo thứ tự công việc</h2>
+        <div class="req-grid"><div class="req-item"><h3>1. Dữ liệu đầu vào</h3><p>Pinhole/fisheye camera + LiDAR. Mức tối thiểu: chỉ có video hoặc ảnh</p></div><div class="req-item"><h3>2. Khảo sát phương pháp</h3><p>Khảo sát và evaluation các promising approach</p></div><div class="req-item"><h3>3. Tool thử nghiệm</h3><p>Chạy thử nhiều approach, đổi method và thứ tự module</p></div><div class="req-item"><h3>4. Kết quả tái dựng</h3><p>Reconstruction pipeline và reconstructed scene demo</p></div><div class="req-item"><h3>5. Đưa vào CARLA</h3><p>Feasibility study, road logic, traffic, closed-loop trên khu vực thật</p></div><div class="req-item"><h3>6. Tiêu chí chất lượng</h3><p>Cost efficiency, scalability, determinism</p></div><div class="req-item"><h3>7. Báo cáo</h3><p>Evaluation và technical report</p></div><div class="req-item"><h3>8. Nice to have</h3><p>Sensor model, vehicle modeling</p></div></div>
+      </div>
+      <aside class="notes">Tám nhóm yêu cầu, sắp theo thứ tự: dữ liệu, khảo sát, tool, tái dựng, mô phỏng, chất lượng, báo cáo, nice to have.</aside>
+    </div>
+
+    <div class="slide layout-fig" data-title="Deliverables" data-sec="2. Yêu cầu và phạm vi" data-min="1">
+      <div class="slide-header">
+        <h4>2. Yêu cầu và phạm vi</h4>
+        <span class="tag">Phần 2</span>
+      </div>
+      <div class="slide-content">
+        <h2>Sản phẩm bàn giao dự kiến</h2>
+        <table class="data-table "><thead><tr><th>Deliverable</th><th>Định dạng</th><th>Điều kiện nghiệm thu đề xuất</th></tr></thead><tbody><tr><td>Tool thử nghiệm pipeline</td><td>Mã nguồn, hướng dẫn chạy</td><td>Đổi được method và thứ tự module, chạy lại được</td></tr><tr><td>Reconstruction pipeline</td><td>Mã nguồn và config</td><td>Chạy được từ dữ liệu đến ảnh render</td></tr><tr><td>Scene demo</td><td>Video và file scene</td><td>Render được đoạn đường đã chọn</td></tr><tr><td>Bảng benchmark</td><td>Bảng số liệu và log</td><td>Cùng dataset, cùng protocol</td></tr><tr><td>CARLA feasibility study</td><td>Một chương trong báo cáo</td><td>Có bảng khả thi, nêu rõ hạn chế</td></tr><tr><td>Technical report</td><td>PDF</td><td>Đủ các chương, được mentor đánh giá</td></tr></tbody></table>
+      </div>
+      <aside class="notes">Điều kiện nghiệm thu là đề xuất của nhóm, cần mentor chỉnh lại.</aside>
+    </div>
+
+    <div class="slide layout-fig" data-title="Scope" data-sec="2. Yêu cầu và phạm vi" data-min="1">
+      <div class="slide-header">
+        <h4>2. Yêu cầu và phạm vi</h4>
+        <span class="tag">Phần 2</span>
+      </div>
+      <div class="slide-content">
+        <h2>Phạm vi: thiết kế đầy đủ, triển khai tăng dần</h2>
+        <div class="two-col "><div class="col-text"><ul class="points"><li><b>Reference architecture:</b> thiết kế toàn bộ hệ thống, không giới hạn bởi 6 tuần</li><li><b>Implementation:</b> phần nhóm thực sự làm hoặc tích hợp</li><li><b>Validation:</b> phần đã chạy thử và có bằng chứng</li><li>Trong 6 tuần, nhóm cam kết <b>M0 đến M2</b>; M3 đến M5 làm theo mức khả thi</li></ul></div><div class="col-side"><table class="data-table "><thead><tr><th>Mức</th><th>Kết quả</th></tr></thead><tbody><tr><td>M0</td><td>Kiến trúc, interface, contract</td></tr><tr><td>M1</td><td>Chạy được dựng cảnh đến đánh giá</td></tr><tr><td>M2</td><td>Benchmark nhiều phương pháp</td></tr><tr><td>M3</td><td>Thế giới sẵn sàng cho mô phỏng</td></tr><tr><td>M4</td><td>Closed-loop simulation</td></tr><tr><td>M5</td><td>Nền tảng mở rộng được</td></tr></tbody></table></div></div>
+      </div>
+      <aside class="notes">M0 đến M5 là các mức nhóm đề xuất, không phải của mentor. Cần xác nhận cam kết M0 đến M2 có đủ không.</aside>
+    </div>
+
+    <div class="slide layout-ask" data-title="Xin xác nhận" data-sec="2. Yêu cầu và phạm vi" data-min="2">
+      <div class="slide-header">
+        <h4>2. Yêu cầu và phạm vi</h4>
+        <span class="tag">Phần 2</span>
+      </div>
+      <div class="slide-content">
+        <h2>Xin mentor xác nhận để nhóm chỉnh sửa, bổ sung</h2>
+        <div class="ask-box wide"><ul class="points"><li>Đặc tả yêu cầu và deliverables đã đúng và đủ chưa?</li><li>Closed-loop là <b>bắt buộc</b> trong 6 tuần, hay chỉ cần đánh giá khả năng tích hợp?</li><li>Tool thử nghiệm có phải là deliverable chính thức không?</li><li>Cam kết M0 đến M2 trong 6 tuần có đạt yêu cầu không?</li><li>Dữ liệu chính là <b>dataset công khai</b> hay log do mentor cung cấp?</li><li>Yêu cầu road logic có cần giao lộ đầy đủ không?</li></ul></div>
+      </div>
+      <aside class="notes">Đây là các câu trả lời ảnh hưởng nhiều nhất đến phạm vi. Ghi lại câu trả lời để cập nhật Chương 1.</aside>
+    </div>
+
+    <div class="slide layout-fig" data-title="Từ yêu cầu đến tool" data-sec="3. Tool thử nghiệm" data-min="1">
+      <div class="slide-header">
+        <h4>3. Tool thử nghiệm</h4>
+        <span class="tag">Phần 3</span>
+      </div>
+      <div class="slide-content">
+        <h2>Từ yêu cầu đến tool thử nghiệm</h2>
+        <div class="two-col fig-right"><div class="col-text"><ul class="points"><li>Yêu cầu: <b>khảo sát nhiều approach</b> rồi chọn hướng tốt nhất</li><li>Muốn chọn đúng thì phải chạy thật và so sánh được</li><li>Vì vậy cần một <b>tool</b> để chạy, thay đổi và đánh giá các pipeline</li><li>Tool là công cụ nghiên cứu, khác với hệ thống Real2Sim cuối cùng</li></ul></div><div class="col-side"><figure class="fig-card "><img src="figures/fig-3-1-tool.svg" alt="Hình 3.1. Cấu trúc tool, các pipeline chỉ là ví dụ ứng viên"><figcaption>Hình 3.1. Cấu trúc tool, các pipeline chỉ là ví dụ ứng viên</figcaption></figure></div></div>
+      </div>
+      <aside class="notes">Phân biệt: hệ thống là thứ nhóm nghiên cứu, tool là công cụ để nghiên cứu nó.</aside>
+    </div>
+
+    <div class="slide layout-fig" data-title="Vấn đề khi tạo tool" data-sec="3. Tool thử nghiệm" data-min="1">
+      <div class="slide-header">
+        <h4>3. Tool thử nghiệm</h4>
+        <span class="tag">Phần 3</span>
+      </div>
+      <div class="slide-content">
+        <h2>Tạo tool như vậy sẽ gặp những vấn đề gì?</h2>
+        <table class="data-table "><thead><tr><th>Vấn đề</th><th>Hậu quả</th></tr></thead><tbody><tr><td>Mỗi approach có format dữ liệu riêng</td><td>Phải viết lại phần đọc dữ liệu cho từng approach</td></tr><tr><td>Thứ tự bước khác nhau, có approach gộp nhiều bước</td><td>Không ép được vào một pipeline cứng</td></tr><tr><td>Output khác nhau: 3DGS, NeRF, mesh</td><td>Các phần phía sau không đọc chung được</td></tr><tr><td>Khả năng khác nhau: pinhole, fisheye, LiDAR</td><td>Không phải method nào cũng làm được mọi việc</td></tr><tr><td>Mỗi người đo một cách</td><td>Kết quả không so sánh được</td></tr><tr><td>Repository có sẵn không tự cắm vào được</td><td>Cần code nối riêng cho từng approach</td></tr></tbody></table>
+      </div>
+      <aside class="notes">Nếu mỗi người chạy theo cách riêng thì cuối project có bốn bộ code, bốn kiểu dữ liệu và bốn cách đo.</aside>
+    </div>
+
+    <div class="slide layout-fig" data-title="Cách chuẩn hóa" data-sec="3. Tool thử nghiệm" data-min="2">
+      <div class="slide-header">
+        <h4>3. Tool thử nghiệm</h4>
+        <span class="tag">Phần 3</span>
+      </div>
+      <div class="slide-content">
+        <h2>Chuẩn hóa cách nối, không chuẩn hóa thuật toán</h2>
+        <div class="two-col "><div class="col-text"><div class="note-box"><h4>Giữ cố định</h4><ul class="points"><li>Format dataset, thời gian, hệ tọa độ</li><li>Cách lưu calibration</li><li>Cấu hình thí nghiệm, metrics, log</li></ul></div><div class="note-box"><h4>Được thay đổi</h4><ul class="points"><li>Pose, reconstruction, renderer</li><li>Trích xuất geometry và road logic</li><li>Adapter của simulator</li></ul></div></div><div class="col-side"><ul class="points"><li><b>Approach registry:</b> danh sách approach, các bước và method</li><li><b>Adapter:</b> code nối một repository vào tool</li><li><b>Contract:</b> mỗi module nhận gì, trả gì</li><li><b>Capability:</b> method tự khai báo làm được gì</li><li><b>Experiment management:</b> cấu hình, thứ tự chạy, log, artifact</li><li><b>Đánh giá chung:</b> cùng script đo cho mọi approach</li></ul></div></div>
+      </div>
+      <aside class="notes">Bên trong mỗi module dùng thuật toán gì cũng được. Chỉ chuẩn hóa ở ranh giới giữa các module.</aside>
+    </div>
+
+    <div class="slide layout-fig" data-title="Phương pháp thiết kế" data-sec="3. Tool thử nghiệm" data-min="1">
+      <div class="slide-header">
+        <h4>3. Tool thử nghiệm</h4>
+        <span class="tag">Phần 3</span>
+      </div>
+      <div class="slide-content">
+        <h2>Thiết kế trước, thử thật, rồi sửa theo kết quả</h2>
+        <div class="two-col fig-right"><div class="col-text"><ul class="points"><li>Không chọn công nghệ ngay từ đầu</li><li>Đi từ yêu cầu, sản phẩm cần có, đến các khối chức năng</li><li>Sau đó mới tìm cách làm và chạy thử</li><li><b>Mũi tên quay lại:</b> kiến trúc là dự đoán, nếu thử không khớp thì sửa kiến trúc</li></ul></div><div class="col-side"><figure class="fig-card "><img src="figures/fig-2-1-design.svg" alt="Hình 2.1. Các bước thiết kế hệ thống"><figcaption>Hình 2.1. Các bước thiết kế hệ thống</figcaption></figure></div></div>
+      </div>
+      <aside class="notes">Ví dụ: có method chỉ hỗ trợ pinhole, có method không nhận LiDAR. Khi đó sửa thiết kế để method khai báo khả năng, không ép chung.</aside>
+    </div>
+
+    <div class="slide layout-fig" data-title="Luồng chung Real2Sim" data-sec="4. Pipeline tổng quát" data-min="1">
+      <div class="slide-header">
+        <h4>4. Pipeline tổng quát</h4>
+        <span class="tag">Phần 4</span>
+      </div>
+      <div class="slide-content">
+        <h2>Các hệ thống Real2Sim cho xe tự lái đi theo một luồng chung</h2>
+        <figure class="fig-card fig-wide"><img src="figures/fig-2-2-flow.svg" alt="Hình 2.2. Luồng chung, đánh giá diễn ra ở nhiều khâu"><figcaption>Hình 2.2. Luồng chung, đánh giá diễn ra ở nhiều khâu</figcaption></figure><ul class="points tight"><li>Mỗi hệ thống có phạm vi và cách làm riêng ở từng khâu</li><li><b>NuRec:</b> mạnh về dựng cảnh và render, tự nó không chạy mô phỏng</li><li><b>HUGSIM:</b> simulator closed-loop riêng, không chạy trên CARLA</li><li><b>Cam2Sim:</b> pipeline trên CARLA, hiện mới có xe đỗ, chưa có traffic động</li></ul>
+      </div>
+      <aside class="notes">Từ đây chuyển sang pipeline chung của hệ thống, không nói về tool nữa. Ba hệ thống cho thấy không có một pipeline bắt buộc.</aside>
+    </div>
+
+    <div class="slide layout-fig" data-title="Kiến trúc 5 subsystem" data-sec="4. Pipeline tổng quát" data-min="2">
+      <div class="slide-header">
+        <h4>4. Pipeline tổng quát</h4>
+        <span class="tag">Phần 4</span>
+      </div>
+      <div class="slide-content">
+        <h2>Pipeline tổng quát: 5 subsystem, 2 giai đoạn</h2>
+        <div class="two-col fig-first"><div class="col-text"><figure class="fig-card "><img src="figures/fig-2-3-architecture.svg" alt="Hình 2.3. Reference architecture"><figcaption>Hình 2.3. Reference architecture</figcaption></figure></div><div class="col-side"><ul class="points"><li><b>Data:</b> dữ liệu cảm biến</li><li><b>World Construction:</b> tạo thế giới tái dựng</li><li><b>Simulation Runtime:</b> xe, giao thông, vật lý, dữ liệu cảm biến</li><li><b>AD Stack:</b> nhận cảm biến, trả lệnh lái</li><li><b>Evaluation:</b> đánh giá xuyên suốt</li><li><b>Offline</b> chạy một lần, <b>online</b> lặp mỗi bước mô phỏng</li></ul></div></div>
+      </div>
+      <aside class="notes">Đây là kiến trúc nhóm đề xuất, mô tả chức năng, không phải pipeline bắt buộc. Đây là bức tranh tổng quát để đạt deliverables.</aside>
+    </div>
+
+    <div class="slide layout-fig" data-title="Luồng xử lý dữ liệu" data-sec="5. Khối dữ liệu" data-min="2">
+      <div class="slide-header">
+        <h4>5. Khối dữ liệu</h4>
+        <span class="tag">Phần 5</span>
+      </div>
+      <div class="slide-content">
+        <h2>Khối Data: biến dữ liệu thô thành dataset chuẩn</h2>
+        <figure class="fig-card fig-wide"><img src="figures/fig-2-4-data-flow.svg" alt="Hình 2.4. Luồng xử lý của subsystem Data"><figcaption>Hình 2.4. Luồng xử lý của subsystem Data</figcaption></figure><ul class="points tight"><li><b>Đường A, dataset có sẵn:</b> dùng luôn calibration, pose, nhãn, phù hợp để benchmark</li><li><b>Đường B, log thô:</b> chỉ có video hoặc ảnh, có thể có LiDAR; hệ thống tự tạo phần còn thiếu</li><li>Cả hai đều qua cùng bước kiểm tra, ra cùng một dataset chuẩn</li><li>Nếu chỉ thiếu một phần thì riêng phần đó đi theo đường B</li></ul>
+      </div>
+      <aside class="notes">Yêu cầu tối thiểu: chỉ có video hoặc ảnh, không có calibration, pose, GPS hay nhãn.</aside>
+    </div>
+
+    <div class="slide layout-fig" data-title="Các loại dữ liệu" data-sec="5. Khối dữ liệu" data-min="2">
+      <div class="slide-header">
+        <h4>5. Khối dữ liệu</h4>
+        <span class="tag">Phần 5</span>
+      </div>
+      <div class="slide-content">
+        <h2>Từ dữ liệu tạo ra được những gì?</h2>
+        <div class="two-col fig-first"><div class="col-text"><figure class="fig-card "><img src="figures/fig-2-5-data-types.svg" alt="Hình 2.5. Các loại dữ liệu và những gì tạo ra được"><figcaption>Hình 2.5. Các loại dữ liệu và những gì tạo ra được</figcaption></figure></div><div class="col-side"><ul class="points"><li><b>Cốt lõi:</b> camera và LiDAR, đo trực tiếp, không tự tạo được</li><li><b>Bổ sung:</b> có thì dùng ngay, thiếu thì tự tạo hoặc bỏ qua</li><li><b>Tự tạo được:</b> tính ra từ dữ liệu cốt lõi</li><li>Chỉ cần camera là pipeline vẫn chạy được</li><li>LiDAR giúp có tỉ lệ thật và hình học chính xác</li></ul></div></div>
+      </div>
+      <aside class="notes">Đọc sơ đồ từ trái sang phải. Tỉ lệ thật là để đưa pose về đơn vị mét. Mesh là tùy chọn.</aside>
+    </div>
+
+    <div class="slide layout-fig" data-title="Feasibility với CARLA" data-sec="6. Tích hợp CARLA" data-min="1">
+      <div class="slide-header">
+        <h4>6. Tích hợp CARLA</h4>
+        <span class="tag">Phần 6</span>
+      </div>
+      <div class="slide-content">
+        <h2>Chỉ có 3DGS thì chưa chạy được trong CARLA</h2>
+        <div class="two-col "><div class="col-text"><ul class="points"><li>Cảnh 3DGS chỉ dùng để <b>render ảnh</b></li><li>CARLA không biết đâu là làn đường, giao lộ, vật cản trong cảnh</li><li>Import file 3DGS vào CARLA không làm camera của CARLA tự render được</li><li>gRPC chỉ để <b>tạo ảnh</b>, không truyền thông tin va chạm</li><li>Vật lý do CARLA tự tính từ thế giới của nó</li></ul></div><div class="col-side"><table class="data-table "><thead><tr><th>CARLA cần</th><th>Để làm gì</th></tr></thead><tbody><tr><td>Bản đồ đường</td><td>Biết đường đi, sinh waypoint, tạo mặt đường</td></tr><tr><td>Xe và người (actor)</td><td>Giao thông, va chạm</td></tr><tr><td>Đồng hồ mô phỏng</td><td>Chạy từng bước, tất định</td></tr><tr><td>Dữ liệu cảm biến</td><td>Do renderer cung cấp</td></tr></tbody></table></div></div>
+      </div>
+      <aside class="notes">Đây là câu hỏi feasibility: để nối được với CARLA thì cần gì ngoài cảnh 3DGS.</aside>
+    </div>
+
+    <div class="slide layout-fig" data-title="map.xodr là gì" data-sec="6. Tích hợp CARLA" data-min="2">
+      <div class="slide-header">
+        <h4>6. Tích hợp CARLA</h4>
+        <span class="tag">Phần 6</span>
+      </div>
+      <div class="slide-content">
+        <h2>map.xodr là gì?</h2>
+        <div class="two-col "><div class="col-text"><ul class="points"><li>File XML theo chuẩn <b>OpenDRIVE</b>, mô tả đường bằng logic và hình học</li><li><b>Không chứa</b> mesh, point cloud hay Gaussian</li><li><b>Chứa:</b> hình dạng đường, độ cao, làn, bề rộng, hướng đi, giao lộ, biển báo, đèn</li><li><b>Trong CARLA:</b> tạo mạng đường, sinh waypoint, sinh mặt đường</li><li>Là file văn bản nên có thể tạo bằng code</li></ul></div><div class="col-side"><pre class="code-card"><code>&lt;road name="Main Road" length="100.0" id="1" junction="-1"&gt;
+  &lt;planView&gt;                       &lt;!-- hình dạng đường --&gt;
+    &lt;geometry s="0" x="0" y="0" hdg="0" length="100"&gt;
+      &lt;line/&gt;
+    &lt;/geometry&gt;
+  &lt;/planView&gt;
+  &lt;elevationProfile&gt;...&lt;/elevationProfile&gt;  &lt;!-- độ cao --&gt;
+  &lt;lanes&gt;&lt;laneSection s="0"&gt;
+    &lt;right&gt;
+      &lt;lane id="-1" type="driving"&gt;  &lt;!-- làn lái xe --&gt;
+        &lt;width a="3.5"/&gt;
+      &lt;/lane&gt;
+    &lt;/right&gt;
+  &lt;/laneSection&gt;&lt;/lanes&gt;
+&lt;/road&gt;</code></pre></div></div>
+      </div>
+      <aside class="notes">Ví dụ rút gọn một con đường thẳng 100 m. CARLA dùng generate_opendrive_world để tạo thế giới từ file này.</aside>
+    </div>
+
+    <div class="slide layout-fig" data-title="Hệ thống cần sinh ra gì" data-sec="6. Tích hợp CARLA" data-min="2">
+      <div class="slide-header">
+        <h4>6. Tích hợp CARLA</h4>
+        <span class="tag">Phần 6</span>
+      </div>
+      <div class="slide-content">
+        <h2>Vì vậy hệ thống phải sinh ra nhiều hơn 3DGS</h2>
+        <div class="two-col "><div class="col-text"><table class="data-table "><thead><tr><th>Thành phần</th><th>Dùng để</th></tr></thead><tbody><tr><td>Cảnh 3DGS, renderer</td><td>Tạo ảnh theo vị trí camera</td></tr><tr><td><code>map.xodr</code></td><td>Đường và làn trong CARLA</td></tr><tr><td>Track vật thể</td><td>Tạo xe và người trong CARLA</td></tr><tr><td>Quỹ đạo, calibration</td><td>Đặt xe và camera đúng chỗ</td></tr><tr><td>Phép biến đổi tọa độ</td><td>Khớp CARLA với cảnh</td></tr></tbody></table></div><div class="col-side"><div class="note-box"><h4>Tạo map.xodr thế nào?</h4><ul class="points"><li><b>Có GPS:</b> tải OSM, chuyển bằng <code>carla.Osm2Odr</code></li><li><b>Không có GPS:</b> tự tạo từ quỹ đạo xe, bổ sung số làn và bề rộng từ ảnh BEV render từ lớp mặt đường</li><li>Mesh là tùy chọn, vì CARLA sinh mặt đường từ <code>map.xodr</code></li></ul></div></div></div>
+      </div>
+      <aside class="notes">Không có công cụ công khai đi trọn từ quỹ đạo và BEV đến map.xodr, nên nhóm phải tự viết. Giao lộ chưa giải quyết ở hướng này.</aside>
+    </div>
+
+    <div class="slide layout-fig" data-title="Pipeline NuRec" data-sec="6. Tích hợp CARLA" data-min="2">
+      <div class="slide-header">
+        <h4>6. Tích hợp CARLA</h4>
+        <span class="tag">Phần 6</span>
+      </div>
+      <div class="slide-content">
+        <h2>Tham khảo: pipeline của NVIDIA NuRec</h2>
+        <div class="two-col fig-first"><div class="col-text"><figure class="fig-card "><img src="figures/nurec-workflow.jpg" alt="Luồng làm việc của NuRec (ảnh: NVIDIA Developer)"><figcaption>Luồng làm việc của NuRec (ảnh: NVIDIA Developer)</figcaption></figure></div><div class="col-side"><ul class="points"><li><b>Dữ liệu:</b> log thật chuyển sang format NCore</li><li><b>Reconstruction:</b> dựng cảnh, tách nền và vật thể động</li><li><b>Asset Harvester:</b> tạo asset 3D từ vật thể</li><li><b>Fixer:</b> sửa lỗi ảnh, chạy offline hoặc online</li><li><b>USDZ:</b> gói scene, quỹ đạo, track, có thể kèm <code>map.xodr</code></li><li><b>Rendering:</b> gsplat, phục vụ qua gRPC API</li><li><b>Simulation runtime:</b> gửi yêu cầu, nhận dữ liệu cảm biến</li></ul></div></div>
+      </div>
+      <aside class="notes">NuRec không tự tạo map.xodr: scene tự train không có bản đồ, nên phần này nhóm phải tự lo.</aside>
+    </div>
+
+    <div class="slide layout-fig" data-title="NuRec nối với CARLA" data-sec="6. Tích hợp CARLA" data-min="2">
+      <div class="slide-header">
+        <h4>6. Tích hợp CARLA</h4>
+        <span class="tag">Phần 6</span>
+      </div>
+      <div class="slide-content">
+        <h2>NuRec kết nối với CARLA như thế nào?</h2>
+        <div class="two-col fig-first stack"><div class="col-text"><figure class="fig-card "><img src="figures/fig-11-3-nurec-carla.svg" alt="Hình 11.3. Ba thành phần chạy riêng biệt"><figcaption>Hình 11.3. Ba thành phần chạy riêng biệt</figcaption></figure><figure class="fig-card "><img src="figures/fig-11-4-loop.svg" alt="Hình 11.4. Một vòng closed-loop"><figcaption>Hình 11.4. Một vòng closed-loop</figcaption></figure></div><div class="col-side"><ul class="points"><li><b>Python script</b> gọi cả hai bên</li><li>CARLA tạo thế giới từ <code>map.xodr</code>, tạo actor từ track</li><li>Chạy synchronous mode, bước 1/60 giây</li><li>Mỗi tick: lấy vị trí camera từ CARLA, đổi tọa độ, gọi <code>render_rgb</code></li><li>Ví dụ CARLA dùng bộ bám quỹ đạo, chưa nối AD Stack</li><li>Có sẵn <code>apply_ego_control</code> để đưa lệnh lái vào</li><li>Nhóm có thể làm lại cách nối này cho method khác</li></ul></div></div>
+      </div>
+      <aside class="notes">Đọc từ mã nguồn CARLA, nhánh ue4-dev, chưa chạy thử. Phần ảnh đã đi theo xe trong CARLA, còn thiếu thuật toán dùng ảnh để ra lệnh lái.</aside>
+    </div>
+
+    <div class="slide layout-closing" data-title="Xin góp ý" data-sec="Kết" data-min="3">
+      <div class="closing-decoration"></div>
+      <div class="closing-decoration-2"></div>
+      <div class="accent-line" style="margin: 0 auto 1.5rem;"></div>
+      <h1>Xin mentor góp ý</h1>
+      <p class="closing-sub">Cách làm report chung, đặc tả và phạm vi, và hướng tích hợp CARLA.</p>
+      <p class="closing-contact">Lâm Quang Anh Quân &nbsp;·&nbsp; Lương Sỹ Khánh &nbsp;·&nbsp; Đặng Thái Anh &nbsp;·&nbsp; Phạm Minh Hiếu</p>
+      <aside class="notes">Nhắc lại các câu hỏi cần trả lời ngay: nộp chung một report, closed-loop có bắt buộc không, dùng dữ liệu nào.</aside>
+    </div>
+
+  </div>
+
+  <!-- Navigation -->
+  <div class="slide-counter"><span id="current">1</span> / <span id="total">24</span></div>
+  <div class="keyboard-hint">Dùng phím mũi tên để chuyển slide</div>
+  <div class="progress-bar" id="progress"></div>
+  <div class="nav-controls">
+    <button class="nav-btn" id="prevBtn" onclick="changeSlide(-1)" aria-label="Previous slide">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+    </button>
+    <button class="nav-btn" id="nextBtn" onclick="changeSlide(1)" aria-label="Next slide">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+    </button>
+  </div>
+
+  <script>
+    const slides = document.querySelectorAll('.slide');
+    const currentEl = document.getElementById('current');
+    const totalEl = document.getElementById('total');
+    const progressEl = document.getElementById('progress');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+
+    let current = 0;
+    // deck-kit.js reads this to drive notes, menu, deep links and print.
+    window.deckAdapter = { go: (i) => { current = i; updateSlide(); }, index: () => current };
+    const total = slides.length;
+    totalEl.textContent = total;
+
+    function updateSlide() {
+      slides.forEach((slide, i) => {
+        slide.classList.remove('active', 'prev');
+        if (i === current) {
+          slide.classList.add('active');
+        } else if (i < current) {
+          slide.classList.add('prev');
+        }
+      });
+      currentEl.textContent = current + 1;
+      progressEl.style.width = ((current + 1) / total * 100) + '%';
+      prevBtn.disabled = current === 0;
+      nextBtn.disabled = current === total - 1;
+    }
+
+    function changeSlide(dir) {
+      const next = current + dir;
+      if (next >= 0 && next < total) {
+        current = next;
+        updateSlide();
+      }
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+        e.preventDefault();
+        changeSlide(1);
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        e.preventDefault();
+        changeSlide(-1);
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        current = 0;
+        updateSlide();
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        current = total - 1;
+        updateSlide();
+      }
+    });
+
+    // Touch support
+    let touchStartX = 0;
+    let touchEndX = 0;
+
+    document.addEventListener('touchstart', (e) => {
+      touchStartX = e.changedTouches[0].screenX;
+    }, { passive: true });
+
+    document.addEventListener('touchend', (e) => {
+      touchEndX = e.changedTouches[0].screenX;
+      const diff = touchStartX - touchEndX;
+      if (Math.abs(diff) > 50) {
+        changeSlide(diff > 0 ? 1 : -1);
+      }
+    }, { passive: true });
+
+    updateSlide();
+  </script>
+
+  <script src="deck-kit.js"></script>
+</body>
+</html>

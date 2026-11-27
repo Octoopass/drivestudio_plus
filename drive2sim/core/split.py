@@ -21,19 +21,24 @@ Pair = tuple[int, str]  # (chỉ số khung, camera_id)
 
 
 def every_nth_frame_pairs(
-    frame_range: tuple[int, int], cameras: Sequence[str], n: int
+    frame_range: tuple[int, int],
+    cameras: Sequence[str],
+    n: int,
+    test_only_cameras: Sequence[str] = (),
 ) -> tuple[list[Pair], list[Pair]]:
     """Tính các cặp train và test theo chiến lược ``every_nth_frame``.
 
     Các khung ``first + N``, ``first + 2N``, ... là test với mọi camera; các khung còn lại, kể cả
     khung đầu, là train. Quy tắc này trùng với ``split_train_test`` dùng ``test_image_stride``
     trong ``drive2sim/recon/data/driving_dataset.py``, để split của tool và của DriveStudio
-    khớp nhau.
+    khớp nhau. Camera chỉ test (ví dụ camera stereo thứ hai để đo R2) không có mặt ở ``train``,
+    chỉ ở ``test`` tại các khung test.
 
     Args:
         frame_range: Khung đầu và khung cuối của đoạn, ``(first, last)``, tính cả hai đầu.
         cameras: Danh sách ``camera_id`` dùng trong split.
         n: Khoảng cách giữa hai khung test, ``n >= 1``.
+        test_only_cameras: Các camera không bao giờ train; mặc định rỗng (mọi camera đều train).
 
     Returns:
         Bộ ``(train, test)``, mỗi phần là danh sách cặp ``(chỉ số khung, camera_id)``.
@@ -45,11 +50,12 @@ def every_nth_frame_pairs(
     if n < 1:
         raise ValueError("n must be >= 1")
     test_frames = set(range(first + n, last + 1, n))
+    train_cameras = [camera for camera in cameras if camera not in set(test_only_cameras)]
     train = [
         (frame, camera)
         for frame in range(first, last + 1)
         if frame not in test_frames
-        for camera in cameras
+        for camera in train_cameras
     ]
     test = [(frame, camera) for frame in sorted(test_frames) for camera in cameras]
     return train, test
@@ -61,6 +67,7 @@ def make_split(
     frame_range: tuple[int, int],
     strategy: str,
     split_id: Optional[str] = None,
+    test_only_cameras: Sequence[str] = (),
 ) -> Split:
     """Tạo một split theo chiến lược ``every_nth_frame:N``.
 
@@ -74,6 +81,7 @@ def make_split(
         split_id: Tên split; mặc định là ``every<N>_<k>cams`` với ``k`` là số camera
             (CONTRACTS mục 10.1). Người gọi biết split dùng mọi camera của cảnh thì nên truyền
             ``every<N>_allcams``.
+        test_only_cameras: Camera chỉ test, không train; phải là tập con thật sự của ``cameras``.
 
     Returns:
         Split đã kiểm tra theo schema.
@@ -86,7 +94,7 @@ def make_split(
         raise ValueError(
             "make_split builds every_nth_frame splits only; write custom splits by hand"
         )
-    train, test = every_nth_frame_pairs(frame_range, cameras, n)
+    train, test = every_nth_frame_pairs(frame_range, cameras, n, test_only_cameras)
     return Split(
         schema_version=SCHEMA_VERSIONS["split"],
         split_id=split_id or f"every{n}_{len(cameras)}cams",
@@ -94,6 +102,7 @@ def make_split(
         strategy=strategy,
         frame_range=frame_range,
         cameras=list(cameras),
+        test_only_cameras=list(test_only_cameras),
         train=train,
         test=test,
     )
@@ -114,5 +123,7 @@ def matches_strategy(split: Split) -> bool:
     strategy_name, n = parse_strategy(split.strategy)
     if strategy_name != "every_nth_frame" or n is None:
         return True
-    train, test = every_nth_frame_pairs(split.frame_range, split.cameras, n)
+    train, test = every_nth_frame_pairs(
+        split.frame_range, split.cameras, n, split.test_only_cameras
+    )
     return set(train) == set(split.train) and set(test) == set(split.test)

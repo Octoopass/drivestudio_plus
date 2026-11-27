@@ -13,6 +13,8 @@ name: "OmniRe"
 version: 0.1.0
 codebase: drivestudio
 level: L1
+dynamics: boxes
+kind: per_scene
 requires:
   camera_models: [opencv_pinhole, opencv_fisheye, ftheta]   # với ít nhất một renderer
   cuboids: required
@@ -166,3 +168,4 @@ stages:
   - {stage: eval.standard}
   - {stage: export.ply_world}
   - {stage: export.preview}
+  - {stage: eval.ply}

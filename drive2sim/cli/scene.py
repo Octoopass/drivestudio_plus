@@ -9,6 +9,9 @@ File này chứa:
 
 - ``validate_scene``: kiểm tra lại một cảnh, ghi ``reports/validation.json``.
 - ``delete_scene``: xoá cảnh cùng split, cache và run của nó, sau khi hỏi xác nhận.
+- ``rig_scene``: tạo ``reports/rig.json`` (sơ đồ camera, quỹ đạo xe) cho một cảnh.
+- ``lidar_check_scene``: chiếu LiDAR lên ảnh (ảnh chồng, ``reports/lidar_check.json``) rồi kiểm
+  tra lại.
 """
 
 import argparse
@@ -19,11 +22,13 @@ from drive2sim.cli.output import CommandError, UsageError, confirm, emit, format
 from drive2sim.core import files
 from drive2sim.core.schema import Manifest
 from drive2sim.engine import housekeeping, scenes
+from drive2sim.engine.rig import RigError, generate_lidar_check, generate_rig
 from drive2sim.engine.workdir import Workdir
-from drive2sim.ingest import kitti360
+from drive2sim.ingest import kitti360, phenikaa
 from drive2sim.ingest.detect import inspect_source
 from drive2sim.ingest.dispatch import IngestRequestError, plan_ingest, run_ingest
 from drive2sim.ingest.drivestudio import IngestError
+from drive2sim.ingest.reports import revalidate, scene_reports
 from drive2sim.ingest.validate import validate_scene
 
 
@@ -56,6 +61,18 @@ def register(
     delete = actions.add_parser("delete", parents=[common], help="xoá cảnh, split, cache và run")
     delete.add_argument("scene_id")
     delete.set_defaults(handler=delete_scene)
+    rig = actions.add_parser(
+        "rig", parents=[common], help="tạo sơ đồ camera và quỹ đạo xe (reports/rig.json)"
+    )
+    rig.add_argument("scene_id")
+    rig.set_defaults(handler=rig_scene)
+    lidar = actions.add_parser(
+        "lidar-check",
+        parents=[common],
+        help="chiếu LiDAR lên ảnh: ảnh chồng để xem, kiểm tra thô calib",
+    )
+    lidar.add_argument("scene_id")
+    lidar.set_defaults(handler=lidar_check_scene)
 
 
 # Tuỳ chọn của scene ingest, theo thứ tự in ra lệnh (``ingest_arguments``): tên cờ, tên thuộc tính.
@@ -70,6 +87,7 @@ INGEST_FLAGS = (
     ("--num-frames", "num_frames"),
     ("--cameras", "cameras"),
     ("--max-gap", "max_gap"),
+    ("--calib", "calib"),
 )
 
 
@@ -102,8 +120,13 @@ def add_ingest_options(ingest: argparse.ArgumentParser) -> None:
     )
     ingest.add_argument(
         "--cameras",
-        help="KITTI-360: camera cần ghi, cách nhau bằng dấu phẩy; mặc định "
-        "image_00,image_01,image_02,image_03",
+        help="KITTI-360, PHENIKAA: camera cần ghi, cách nhau bằng dấu phẩy; mặc định mọi "
+        "camera (KITTI-360: image_00..image_03; PHENIKAA: camera có đủ ảnh)",
+    )
+    ingest.add_argument(
+        "--calib",
+        help="PHENIKAA: thư mục calib (Camera_Intrinsics.json, Sensor_Extrinsics.json); mặc định "
+        "tìm calib/ cạnh các chuỗi",
     )
     ingest.add_argument(
         "--max-gap",
@@ -222,11 +245,15 @@ def ingest_scene(args: argparse.Namespace) -> int:
         )
     except IngestRequestError as error:
         raise UsageError(str(error)) from None
+    cameras = tuple(args.cameras.split(",")) if args.cameras else None
     options = kitti360.Kitti360Options(
         start_frame=args.start_frame,
         num_frames=args.num_frames,
-        cameras=tuple(args.cameras.split(",")) if args.cameras else kitti360.CAMERAS,
+        cameras=cameras if target.dataset == kitti360.DATASET and cameras else kitti360.CAMERAS,
         max_gap=args.max_gap,
+    )
+    phenikaa_options = phenikaa.PhenikaaOptions(
+        cameras=cameras, calib_dir=Path(args.calib) if args.calib else None
     )
     try:
         scene_dir = run_ingest(
@@ -237,10 +264,15 @@ def ingest_scene(args: argparse.Namespace) -> int:
             interpolate_n=args.interpolate_n,
             workers=args.workers,
             kitti360_options=options,
+            phenikaa_options=phenikaa_options,
         )
     except IngestError as error:
         raise CommandError(str(error)) from None
     info(args, f"đã ghi {workdir.relative(scene_dir)}")
+    # Sơ đồ camera, ảnh chồng LiDAR (cần PyTorch); lỗi ở đây không làm hỏng cảnh vừa ingest
+    # (tạo lại bằng scene rig, scene lidar-check).
+    for warning in scene_reports(scene_dir):
+        info(args, f"cảnh báo: {warning}")
     manifest = files.load(scene_dir / "manifest.yaml", Manifest)
     report_data = json.loads((scene_dir / "reports" / "validation.json").read_text("utf-8"))
     summary = report_data["summary"]
@@ -302,3 +334,75 @@ def delete_scene(args: argparse.Namespace) -> int:
     removed = housekeeping.delete_scene(workdir, args.scene_id)
     emit(args, {"removed": removed}, f"đã xoá {', '.join(removed)}")
     return 0
+
+
+def rig_scene(args: argparse.Namespace) -> int:
+    """Tạo ``reports/rig.json`` của một cảnh (cảnh ingest trước khi có file này).
+
+    Cảnh ingest trên Kaggle chỉ cần pose, calib trên máy (``d2s kaggle scene-files``).
+
+    Returns:
+        Mã thoát ``0``.
+
+    Raises:
+        CommandError: Nếu cảnh không có hoặc không tạo được.
+    """
+    workdir = Workdir.from_env(args.workdir)
+    scene_dir = workdir.scene_dir(args.scene_id)
+    if not (scene_dir / "manifest.yaml").is_file():
+        raise CommandError(f"không có cảnh {args.scene_id}")
+    try:
+        rig = generate_rig(scene_dir)
+    except RigError as error:
+        raise CommandError(str(error)) from None
+    # Báo cáo kiểm tra đọc tilt_deg của rig.json (projection.camera_tilt); cảnh chỉ có trên Kaggle
+    # thì giữ báo cáo của notebook.
+    if not (scene_dir / "kaggle_scene.json").is_file():
+        revalidate(scene_dir)
+    emit(
+        args,
+        rig,
+        f"đã ghi {workdir.relative(scene_dir / 'reports' / 'rig.json')}: "
+        f"{len(rig['cameras'])} camera, {len(rig['trajectory'])} khung",
+    )
+    return 0
+
+
+def lidar_check_scene(args: argparse.Namespace) -> int:
+    """Chiếu LiDAR lên ảnh của một cảnh có ảnh trên máy, rồi kiểm tra lại cảnh.
+
+    Returns:
+        ``0``; ``1`` nếu kiểm tra lại có cảnh báo ``projection.*``.
+
+    Raises:
+        CommandError: Nếu cảnh không có, không có LiDAR, chỉ có trên Kaggle, hoặc không chạy được.
+    """
+    workdir = Workdir.from_env(args.workdir)
+    scene_dir = workdir.scene_dir(args.scene_id)
+    if not (scene_dir / "manifest.yaml").is_file():
+        raise CommandError(f"không có cảnh {args.scene_id}")
+    if (scene_dir / "kaggle_scene.json").is_file():
+        raise CommandError(
+            f"cảnh {args.scene_id} chỉ có trên Kaggle (máy không có ảnh); notebook ingest đã "
+            "chiếu LiDAR, kết quả ở reports/lidar_check.json"
+        )
+    if not files.load(scene_dir / "manifest.yaml", Manifest).available.lidar:
+        raise CommandError(f"cảnh {args.scene_id} không có LiDAR")
+    try:
+        data = generate_lidar_check(scene_dir)
+    except RigError as error:
+        raise CommandError(str(error)) from None
+    revalidate(scene_dir)
+    report = json.loads((scene_dir / "reports" / "validation.json").read_text("utf-8"))
+    warnings = [
+        c
+        for c in report["checks"]
+        if c["check_id"].startswith("projection.") and c["severity"] != "info"
+    ]
+    emit(
+        args,
+        {"lidar_check": data, "warnings": warnings},
+        f"đã chiếu LiDAR lên {len(data['frames'])} khung; ảnh chồng ở "
+        f"{workdir.relative(scene_dir / 'reports' / 'lidar_overlay')}; {len(warnings)} cảnh báo",
+    )
+    return 1 if warnings else 0

@@ -1,0 +1,63 @@
+% ---------- Tiếng Việt + font ----------
+\usepackage{fontspec}
+\usepackage[vietnamese,provide=*]{babel}
+\setmainfont{Noto Serif}
+\setsansfont{Noto Sans}
+\setmonofont{Noto Sans Mono}[Scale=0.9]
+
+% ---------- Bố cục ----------
+\usepackage[margin=2.5cm]{geometry}
+\usepackage[parfill]{parskip}        % tách đoạn bằng một dòng trống, không thụt đầu dòng
+\usepackage{setspace}
+\setstretch{1.25}                    % độ cách dòng của nội dung
+\setlength{\emergencystretch}{3em}     % tránh tràn lề với thuật ngữ tiếng Anh dài
+\usepackage{titlesec}
+\titleformat{\chapter}[hang]{\huge\bfseries\sffamily\color{accent}\raggedright}{\chaptertitlename~\thechapter:}{0.5em}{}
+\usepackage{titletoc}
+\titlecontents{chapter}[0pt]{\addvspace{0.8em}\bfseries\color{accent}}{\chaptertitlename~\thecontentslabel:\ }{}{\titlerule*[0.6em]{.}\contentspage}
+\titleformat{\section}{\Large\bfseries\sffamily\color{accent}}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\large\bfseries\sffamily}{\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}{\normalsize\bfseries\sffamily}{\thesubsubsection}{0.6em}{}
+
+% ---------- Thành phần thường dùng ----------
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\graphicspath{{images/}{images/shared/}{images/approaches/}}             % ảnh để trong thư mục images/
+\setcounter{tocdepth}{1}
+\usepackage{float}                   % [H] = đặt ảnh/bảng đúng chỗ
+\usepackage{booktabs,tabularx}
+\usepackage{enumitem}
+\setlist{nosep, leftmargin=*}
+\newlist{checklist}{itemize}{2}
+\setlist[checklist]{label=$\square$}
+\usepackage{xcolor}
+\usepackage{array}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta}
+\definecolor{accent}{HTML}{1F4E79}
+\usepackage[most]{tcolorbox}
+\usepackage[numbers]{natbib}
+\usepackage[colorlinks=true,linkcolor=accent,citecolor=accent,urlcolor=accent]{hyperref}
+
+% ---------- Khung code ----------
+\usepackage{listings}
+\definecolor{codebg}{HTML}{F6F8FA}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{codebg},
+  frame=single, rulecolor=\color{black!15},
+  numbers=left, numberstyle=\tiny\color{black!45},
+  keywordstyle=\color{accent}\bfseries,
+  commentstyle=\color{black!55}\itshape,
+  stringstyle=\color{red!60!black},
+  breaklines=true, showstringspaces=false,
+  tabsize=4, columns=fullflexible, keepspaces=true,
+  xleftmargin=1.5em, framexleftmargin=1.5em,
+}
+
+% ---------- Hộp ghi chú ----------
+\newtcolorbox{keyidea}[1][Ý chính]{colback=blue!4, colframe=accent, fonttitle=\bfseries\sffamily, title=#1}
+\newtcolorbox{question}[1][Câu hỏi]{colback=orange!5, colframe=orange!70!black, fonttitle=\bfseries\sffamily, title=#1}
+\newtcolorbox{warning}[1][Lưu ý]{colback=red!4, colframe=red!60!black, fonttitle=\bfseries\sffamily, title=#1}
+
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}

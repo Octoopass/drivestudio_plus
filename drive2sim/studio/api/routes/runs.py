@@ -17,6 +17,8 @@ File này chứa:
   dẫn bản xem trước và cờ đã ghi xong.
 - ``GET /api/runs/{run_id}/videos/preview``: bản xem trước trình duyệt phát được của một video
   (``drive2sim/studio/api/preview.py``).
+- ``GET /api/runs/{run_id}/video_sets``: video đánh giá gom theo bộ (test, full) và kênh (gốc,
+  render, sai khác, độ sâu, lớp), kèm khung từng camera nếu có (``engine/videos.py``).
 - ``GET /api/runs/{run_id}/artifacts``: nơi lưu kết quả của từng stage và các file trong đó.
 - ``GET /api/runs/{run_id}/downloads``: file nên tải về máy (PLY, ``scene.usdz`` cho CARLA...).
 - ``GET /api/runs/{run_id}/curve``: đường cong train (PSNR, loss, số Gaussian theo bước).
@@ -60,6 +62,7 @@ from drive2sim.engine.run import (
     reset_stage,
     run_is_active,
 )
+from drive2sim.engine.videos import video_sets
 from drive2sim.engine.workdir import Workdir
 from drive2sim.kaggle import executor as kaggle_executor
 from drive2sim.stages.commands import CAMERAS_FILE
@@ -192,7 +195,7 @@ def start_run(body: CreateRunBody, request: Request) -> dict:
     if body.executor == "local":
         _require_local(request, plan.approach_id, [stage.stage_id for stage in plan.stages])
     else:
-        remote.require_main_codebase(plan.approach_id, body.executor.capitalize())
+        remote.require_remote_codebase(plan.approach_id, body.executor.capitalize())
     run_dir = create_run(plan, state.workdir, scene, split, executor=body.executor)
     if body.executor == "kaggle":
         kaggle.submit_push(state, run_dir.name)
@@ -237,7 +240,7 @@ def get_run(run_id: str, request: Request) -> dict:
     của stage train (``densify_info``), ``null`` khi train chưa bắt đầu.
     """
     run_dir, record = _load(request, run_id)
-    summary = load_summary(run_dir)
+    summary = load_summary(run_dir, record)
     data = record.model_dump(mode="json")
     data["train_params"] = train_params(record)
     data["remote"] = _remote(state_of(request).workdir, record)
@@ -515,6 +518,21 @@ def run_videos(run_id: str, request: Request) -> dict:
                 "ready": preview.is_complete(path),
             }
         )
+    return {"items": items, "total": len(items)}
+
+
+@router.get("/api/runs/{run_id}/video_sets")
+def run_video_sets(run_id: str, request: Request) -> dict:
+    """Video đánh giá của run, gom theo bộ và kênh cho trình phát so sánh.
+
+    Returns:
+        ``{"items": [...], "total": n}`` theo ``engine.videos.video_sets``.
+    """
+    run_dir, _ = _load(request, run_id)
+    workdir = state_of(request).workdir
+    items = video_sets(
+        run_dir / D2S_DIR / "stages", lambda path: f"/files/{workdir.relative(path)}"
+    )
     return {"items": items, "total": len(items)}
 
 

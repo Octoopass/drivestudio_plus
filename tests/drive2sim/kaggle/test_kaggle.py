@@ -10,10 +10,12 @@
 - lệnh CLI ``d2s kaggle status`` và lỗi ``kaggle_failed``.
 """
 
+import io
 import json
 import re
 import shutil
 import subprocess
+import tarfile
 from pathlib import Path
 from typing import Optional
 
@@ -25,7 +27,7 @@ from drive2sim.core.schema import SCHEMA_VERSIONS, Manifest, RunRecord, Split
 from drive2sim.engine.run import D2S_DIR, RUN_FILE
 from drive2sim.engine.workdir import Workdir
 from drive2sim.kaggle import client as client_module
-from drive2sim.kaggle import executor
+from drive2sim.kaggle import executor, packing
 from drive2sim.kaggle.bundle import materialize, read_bundle
 from drive2sim.kaggle.client import KaggleClient, KaggleError
 from tests.drive2sim.samples import MANIFEST, SPLIT
@@ -46,6 +48,8 @@ class FakeKaggle(KaggleClient):
         self.kernels: dict[str, dict] = {}
         self.status = "complete"
         self.user = "alice"  # tài khoản lệnh kaggle đang đăng nhập
+        # Dataset người dùng tự upload (mô hình SMPL), không do tool tạo.
+        self.user_datasets = {"alice/smpl-model", "carol/smpl-model"}
 
     @staticmethod
     def _unused(command: object) -> None:
@@ -60,8 +64,8 @@ class FakeKaggle(KaggleClient):
         return self.user
 
     def dataset_exists(self, slug: str) -> bool:
-        """Dataset đã tạo trong bộ nhớ chưa."""
-        return slug in self.datasets
+        """Dataset đã tạo trong bộ nhớ, hoặc người dùng đã upload, chưa."""
+        return slug in self.datasets or slug in self.user_datasets
 
     def dataset_status(self, slug: str) -> str:
         """Dataset giả xử lý xong ngay."""
@@ -134,8 +138,13 @@ def notebook_bundle(fake: FakeKaggle, kernel: str) -> dict:
     return next(iter(bundles.values()))
 
 
-def fake_kaggle_run(fake: FakeKaggle, kernel: str, status: str, prev: Optional[str]) -> Path:
-    """Giả notebook chạy: dựng thư mục làm việc từ gói, ghi kết quả vào output của notebook."""
+def fake_kaggle_run(
+    fake: FakeKaggle, kernel: str, status: str, prev: Optional[str], pack: bool = False
+) -> Path:
+    """Giả notebook chạy: dựng thư mục làm việc từ gói, ghi kết quả vào output của notebook.
+
+    ``pack``: như notebook mới, gói thêm output vào ``d2s-pack/`` (file rời vẫn giữ).
+    """
     bundle_dir = fake.root / "bundle"
     shutil.rmtree(bundle_dir, ignore_errors=True)
     bundle_dir.mkdir()
@@ -155,6 +164,8 @@ def fake_kaggle_run(fake: FakeKaggle, kernel: str, status: str, prev: Optional[s
     shutil.rmtree(output, ignore_errors=True)
     for part in ("runs", "cache"):
         shutil.copytree(working.root / part, output / part)
+    if pack:
+        packing.pack_output(output)
     return run_dir
 
 
@@ -173,12 +184,48 @@ def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Workdir, Fak
     return make_workdir(tmp_path / "work"), FakeKaggle(tmp_path / "kaggle")
 
 
+def test_smpl_dataset_defaults_to_logged_in_account(
+    setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Không đặt biến: gắn ``<tài khoản đang đăng nhập>/d2s-model-smpl``, đổi theo tài khoản."""
+    monkeypatch.delenv("D2S_KAGGLE_SMPL_DATASET", raising=False)
+    workdir, fake = setup
+    fake.user = "bob"
+    fake.user_datasets = {"alice/d2s-model-smpl", "bob/d2s-model-smpl"}
+    state = executor.push_run(workdir, RUN_ID, client=fake)
+    sources = fake.kernels[state.kernel]["metadata"]["dataset_sources"]
+    assert "bob/d2s-model-smpl" in sources and "alice/d2s-model-smpl" not in sources
+
+
+def test_smpl_dataset_env_overrides_default(
+    setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Biến ghi đè tên mặc định, ví dụ dataset tài khoản khác chia sẻ."""
+    monkeypatch.setenv("D2S_KAGGLE_SMPL_DATASET", "carol/smpl-model")
+    workdir, fake = setup
+    fake.user_datasets = {"alice/d2s-model-smpl", "carol/smpl-model"}
+    state = executor.push_run(workdir, RUN_ID, client=fake)
+    sources = fake.kernels[state.kernel]["metadata"]["dataset_sources"]
+    assert "carol/smpl-model" in sources and "alice/d2s-model-smpl" not in sources
+
+
+@pytest.mark.parametrize("override", ["", "carol/missing"])
+def test_smpl_dataset_missing_refused_before_push(
+    setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch, override: str
+) -> None:
+    """Tài khoản không thấy dataset SMPL: báo trên máy, không đẩy notebook sẽ lỗi trên Kaggle."""
+    monkeypatch.setenv("D2S_KAGGLE_SMPL_DATASET", override)
+    workdir, fake = setup
+    fake.user_datasets = set()
+    expected = override or "alice/d2s-model-smpl"
+    with pytest.raises(KaggleError, match=f"không thấy dataset {expected}"):
+        executor.push_run(workdir, RUN_ID, client=fake)
+    assert fake.kernels == {}
+
+
 def test_push_materialize_pull_and_resume(
     setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    workdir_, fake_ = setup
-    with pytest.raises(KaggleError, match="D2S_KAGGLE_SMPL_DATASET"):
-        executor.push_run(workdir_, RUN_ID, client=fake_)
     monkeypatch.setenv("D2S_KAGGLE_SMPL_DATASET", "alice/smpl-model")
     workdir, fake = setup
     state = executor.push_run(workdir, RUN_ID, client=fake)
@@ -605,7 +652,11 @@ def test_status_commands_time_out_quickly(monkeypatch: pytest.MonkeyPatch) -> No
 def test_wheel_kernel_picks_newest_finished_notebook_of_same_account(
     setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Nguồn wheel: notebook mới nhất đã xong của cùng tài khoản; bỏ notebook chưa xong, đã xoá."""
+    """Nguồn wheel: notebook mới nhất chạy xong (``complete``) của cùng tài khoản.
+
+    Bỏ notebook chưa xong, đã xoá, và notebook lỗi: Kaggle âm thầm bỏ khỏi ``kernel_sources`` mọi
+    notebook có lần chạy cuối lỗi (đã thử với notebook thật, 27/11/2026).
+    """
     workdir, fake = setup
     for run_id, user, kernel, pushed in (
         ("20261112-000000-omnire-0001", "alice", "alice/old-1", "2026-11-12T00:00:00"),
@@ -626,6 +677,8 @@ def test_wheel_kernel_picks_newest_finished_notebook_of_same_account(
         return statuses[slug]
 
     monkeypatch.setattr(fake, "kernel_status", status)
+    assert executor.wheel_kernel(fake, workdir, "alice") == "alice/old-1"
+    statuses["alice/done-1"] = "complete"
     assert executor.wheel_kernel(fake, workdir, "alice") == "alice/done-1"
     assert executor.wheel_kernel(fake, workdir, "carol") is None
 
@@ -697,8 +750,10 @@ def test_push_two_runs_share_one_notebook_and_one_pull(
     calls = []
     original = fake.kernel_output
     monkeypatch.setattr(fake, "kernel_output", lambda *a: calls.append(a) or original(*a))
+    pack_pattern = packing.pack_file_pattern(workdir.cache_dir)
     assert executor.pull_run(workdir, RUN_ID, client=fake).status == "succeeded"
-    assert len(calls) == 1
+    # Một lần thử gói d2s-pack/ (notebook này không có), rồi một lần tải file rời cho cả hai run.
+    assert [call[2] == pack_pattern for call in calls] == [True, False]
     other = files.load(workdir.find_run(second) / D2S_DIR / RUN_FILE, RunRecord)
     assert other.status == "succeeded"
     assert executor.load_state(workdir.find_run(second)).pulled_utc is not None
@@ -725,6 +780,7 @@ def test_rerun_resets_stage_only_after_copying_previous_output(
             run_id=RUN_ID,
             scene_id=SCENE,
             split_id="s",
+            scene_mask_digest=None,
             approach=__import__("types").SimpleNamespace(approach_id="omnire"),
         ),
     )
@@ -752,3 +808,94 @@ def test_rerun_needs_known_stage_and_previous_push(
         executor.push_runs(workdir, [RUN_ID], client=fake, rerun=[record.stages[-1].stage_id])
     with pytest.raises(KaggleError, match="không có stage"):
         executor.push_runs(workdir, [RUN_ID], client=fake, rerun=["nope.stage"])
+
+
+def test_pull_downloads_packs_instead_of_loose_files(
+    setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("D2S_KAGGLE_SMPL_DATASET", "alice/smpl-model")
+    workdir, fake = setup
+    state = executor.push_run(workdir, RUN_ID, client=fake)
+    fake_kaggle_run(fake, state.kernel, "succeeded", None, pack=True)
+    output = fake.root / "output" / state.kernel.split("/")[1]
+    assert (output / packing.PACK_DIR / packing.RUNS_ARCHIVE).is_file()
+    assert (output / packing.PACK_DIR / "cache" / SCENE / f"{CACHE_KEY}.tar").is_file()
+    assert (output / "cache" / SCENE / CACHE_KEY).is_dir()  # file rời giữ cho notebook sau
+    downloaded: list[str] = []
+    original = fake.kernel_output
+
+    def spy(slug: str, destination: Path, file_pattern: Optional[str] = None) -> None:
+        before = set(destination.rglob("*")) if destination.exists() else set()
+        original(slug, destination, file_pattern)
+        downloaded.extend(p.name for p in set(destination.rglob("*")) - before if p.is_file())
+
+    monkeypatch.setattr(fake, "kernel_output", spy)
+    record = executor.pull_run(workdir, RUN_ID, client=fake)
+    assert record.status == "succeeded"
+    assert downloaded and all(name.endswith(".tar") for name in downloaded)  # chỉ tải gói
+    assert (workdir.cache_dir / SCENE / CACHE_KEY / "artifact.json").is_file()
+    assert not list(workdir.root.rglob(packing.PACK_DIR))
+
+
+def test_pack_pattern_skips_local_cache_and_unpack_rejects_escape(tmp_path: Path) -> None:
+    cache = tmp_path / "cache"
+    (cache / "s1" / "a@1").mkdir(parents=True)
+    pattern = packing.pack_file_pattern(cache)
+    assert re.search(pattern, "d2s-pack/runs.tar")
+    assert re.search(pattern, "d2s-pack/cache/s1/b@2.tar")
+    assert not re.search(pattern, "d2s-pack/cache/s1/a@1.tar")  # máy đã có mục này
+    assert not re.search(pattern, "cache/s1/b@2/sky_masks/0_0.png")  # file rời không tải
+    assert re.search(packing.pack_file_pattern(tmp_path / "none"), "d2s-pack/runs.tar")
+
+    bad = tmp_path / "out" / packing.PACK_DIR / packing.RUNS_ARCHIVE
+    bad.parent.mkdir(parents=True)
+    with tarfile.open(bad, "w") as archive:
+        info = tarfile.TarInfo("../evil")
+        info.size = 1
+        archive.addfile(info, io.BytesIO(b"x"))
+    with pytest.raises(ValueError, match="ra ngoài"):
+        packing.unpack_output(tmp_path / "out")
+    assert not (tmp_path / "evil").exists()
+
+
+def test_notebook_completes_when_the_run_fails() -> None:
+    """Run lỗi không làm notebook kết thúc ``error``.
+
+    Kaggle âm thầm bỏ khỏi ``kernel_sources`` notebook có lần chạy cuối lỗi, nên lần đẩy sau
+    không chạy tiếp được từ output đó (đã thử với notebook thật, 27/11/2026). Ô cuối chỉ in
+    cảnh báo.
+    """
+    notebook = json.loads(executor.build_notebook({RUN_ID: {}}, "c0ffee", "https://x/r.git", "b"))
+    last = "".join(notebook["cells"][-1]["source"])
+    assert "run_exit_code" in last and "D2S_RUN_LIGHT" in last
+    assert "SystemExit" not in last and "raise" not in last
+
+
+def test_pull_keeps_a_push_made_while_downloading(
+    setup: tuple[Workdir, FakeKaggle], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Đẩy lại trong lúc Studio đang tải output lần trước: tải xong không xoá lần đẩy mới.
+
+    Đã gặp thật: ``pull_run`` ghi lại ``kaggle.json`` đọc lúc bắt đầu tải, làm số lần đẩy lùi lại
+    và đánh dấu đã tải, nên Studio thôi theo dõi notebook mới.
+    """
+    monkeypatch.setenv("D2S_KAGGLE_SMPL_DATASET", "alice/smpl-model")
+    workdir, fake = setup
+    first = executor.push_run(workdir, RUN_ID, client=fake)
+    fake_kaggle_run(fake, first.kernel, "failed", None)
+    download = fake.kernel_output
+    pushed: list[executor.KaggleState] = []
+
+    def push_while_downloading(
+        slug: str, destination: Path, file_pattern: Optional[str] = None
+    ) -> None:
+        download(slug, destination, file_pattern)
+        if not pushed:
+            pushed.append(executor.push_run(workdir, RUN_ID, client=fake))
+
+    monkeypatch.setattr(fake, "kernel_output", push_while_downloading)
+    executor.pull_run(workdir, RUN_ID, client=fake)
+    state = executor.load_state(workdir.find_run(RUN_ID))
+    assert state.attempt == 2 and state.kernel == pushed[0].kernel
+    assert state.kernels == [first.kernel, pushed[0].kernel]
+    assert state.pulled_utc is None  # lần đẩy mới chưa được tải

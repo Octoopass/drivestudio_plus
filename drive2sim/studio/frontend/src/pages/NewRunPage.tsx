@@ -2,7 +2,7 @@
 // máy, trên Kaggle hay trên Colab, train đầy đủ hay thử nhanh. Mỗi lần đổi lựa chọn, gọi /check để biết lựa chọn nào bị khoá (gạch và ghi
 // lý do) và vẽ trước làn stage sẽ chạy, stage nào dùng lại cache. Bấm chạy thì mở màn hình run.
 import { AlertTriangle, CheckCircle2, Cloud, Cpu, Database, Play, XCircle, Zap } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { asApiError, post, seg, useApi, type ApiError } from "../api/client";
 import type { Approach, CheckResult, List, Manifest, OptionValue, RunRecord, SceneDetail } from "../api/types";
 import { ColabSetup, type ColabSetupStatus } from "../components/ColabSetup";
@@ -16,6 +16,9 @@ import { EnvInstall } from "../components/EnvInstall";
 
 // Pinhole lý tưởng của NCore được coi là pinhole OpenCV, như engine (CONTRACTS 4.2).
 const lensModel = (model: string) => (model === "ideal_pinhole" ? "opencv_pinhole" : model);
+
+// Thứ tự nhóm approach ở Chạy mới (CONTRACTS 4.1, trường `kind`).
+const APPROACH_KINDS = ["per_scene", "feed_forward", "slam"] as const;
 
 const show = (value: OptionValue) => (typeof value === "boolean" ? (value ? "true" : "false") : String(value));
 
@@ -41,6 +44,7 @@ export function NewRunPage({
   const scene = useApi<SceneDetail>(sceneId ? `/api/scenes/${seg(sceneId)}` : null);
   const [splitId, setSplitId] = useState(initialSplit ?? "");
   const [approachId, setApproachId] = useState(initialApproach ?? "");
+  const autoApproach = useRef(!initialApproach); // approach hiện tại do trang tự chọn
   // preset đề xuất (Trợ lý): điền sau khi approach, cảnh và split đã nạp, sau bước về mặc định
   const [pendingPreset, setPendingPreset] = useState(initialPreset);
   // Chỉ các mục cấu hình người dùng đã chọn khác đi; mục không có ở đây lấy giá trị mặc định của approach.
@@ -75,9 +79,17 @@ export function NewRunPage({
   useEffect(() => {
     if (scene.data && !scene.data.splits.includes(splitId)) setSplitId(scene.data.splits[0] ?? "");
   }, [scene.data]);
+  // Tự chọn approach đầu tiên dùng được trên cảnh (không bị khoá vì thiếu box 3D). Cảnh tải xong sau
+  // danh sách approach thì chọn lại nếu approach tự chọn trước đó bị khoá; approach người dùng chọn
+  // hoặc có trong URL thì giữ nguyên.
   useEffect(() => {
-    if (!approachId && approaches.data?.items[0]) setApproachId(approaches.data.items[0].approach_id);
-  }, [approaches.data, approachId]);
+    const items = approaches.data?.items ?? [];
+    if (items.length === 0) return;
+    const current = items.find((a) => a.approach_id === approachId);
+    if (approachId && !(autoApproach.current && current && boxReason(current))) return;
+    const pick = items.find((a) => !boxReason(a)) ?? items[0];
+    if (pick.approach_id !== approachId) setApproachId(pick.approach_id);
+  }, [approaches.data, approachId, scene.data]);
   // Đổi approach, cảnh hay split thì về cấu hình mặc định; nếu mặc định không vẽ được camera của
   // split (ví dụ 3DGS trên split có camera mắt cá) thì chọn sẵn preset đầu tiên vẽ được, thay vì để
   // người dùng gặp lỗi bị khoá.
@@ -151,6 +163,11 @@ export function NewRunPage({
   const trackText = (fit: { tracks: string[] }) => fit.tracks.map((track) => t(`new.track.${track}`)).join(", ");
   const cameraReason = (fit: { camera_models: string[] }) =>
     scene.data && !fits(fit.camera_models) ? t("new.camera.mismatch", { models: usedModels.join(", ") }) : undefined;
+  // Cùng quy tắc với kiểm tra lúc tạo run (engine/resolve.py): approach bắt buộc box 3D mà cảnh không có box.
+  const boxReason = (a: Approach) =>
+    scene.data && a.requires.cuboids === "required" && scene.data.manifest.available.cuboids === "none"
+      ? t("new.boxes.missing.hint")
+      : undefined;
   const choiceCameraReason = (name: string, choice: OptionValue) => {
     const spec = specs[name];
     const index = (spec?.choices as OptionValue[] | undefined)?.indexOf(choice) ?? -1;
@@ -259,28 +276,58 @@ export function NewRunPage({
 
           <Panel title={t("new.section.approach")}>
             {!approaches.data && <Skeleton height={64} />}
-            <div className="choice-list">
-              {(approaches.data?.items ?? []).map((a) => (
-                <button
-                  key={a.approach_id}
-                  className="choice"
-                  aria-pressed={a.approach_id === approachId}
-                  onClick={() => setApproachId(a.approach_id)}
-                  title={cameraReason(a.camera_support)}
-                >
-                  <span className="name">{a.name}</span>
-                  <span className="desc">{t("new.approach.meta", { codebase: a.codebase, level: a.level, stages: a.stages.length })}</span>
-                  <span className="row wrap" style={{ gap: 6 }}>
-                    {a.camera_support.tracks.map((track) => (
-                      <span key={track} className={`tag${usedLenses.has(track as "pinhole" | "fisheye") ? " go" : ""}`}>
-                        {t(`new.track.${track}`)}
+            {APPROACH_KINDS.map((kind) => {
+              const items = (approaches.data?.items ?? []).filter((a) => (a.kind ?? "per_scene") === kind);
+              if (items.length === 0) return null;
+              return (
+                <section key={kind} className="approach-group" data-kind={kind}>
+                  <h4 className="approach-group-title">
+                    {t(`new.kind.${kind}`)}
+                    <InfoTip>{t(`new.kind.${kind}.hint`)}</InfoTip>
+                  </h4>
+                  <div className="choice-list">
+                  {items.map((a) => (
+                    <button
+                      key={a.approach_id}
+                      className="choice"
+                      data-kind={kind}
+                      aria-pressed={a.approach_id === approachId}
+                      onClick={() => {
+                        autoApproach.current = false;
+                        setApproachId(a.approach_id);
+                      }}
+                      disabled={Boolean(boxReason(a)) && a.approach_id !== approachId}
+                      title={boxReason(a) ?? cameraReason(a.camera_support)}
+                    >
+                      <span className="name">
+                        {a.name}
+                        {a.experimental && (
+                          <span className="tag warn" title={t("new.approach.experimental.hint")} style={{ marginLeft: 8 }}>
+                            {t("new.approach.experimental")}
+                          </span>
+                        )}
                       </span>
-                    ))}
-                    {cameraReason(a.camera_support) && <span className="tag warn">{t("new.camera.unfit")}</span>}
-                  </span>
-                </button>
-              ))}
-            </div>
+                      <span className="desc">{t("new.approach.meta", { codebase: a.codebase, level: a.level, stages: a.stages.length })}</span>
+                      <span className="row wrap" style={{ gap: 6 }}>
+                        {a.camera_support.tracks.map((track) => (
+                          <span key={track} className={`tag${usedLenses.has(track as "pinhole" | "fisheye") ? " go" : ""}`}>
+                            {t(`new.track.${track}`)}
+                          </span>
+                        ))}
+                        {a.dynamics && (
+                          <span className="tag" title={t(`new.dynamics.${a.dynamics}.hint`)}>
+                            {t(`new.dynamics.${a.dynamics}`)}
+                          </span>
+                        )}
+                        {cameraReason(a.camera_support) && <span className="tag warn">{t("new.camera.unfit")}</span>}
+                        {boxReason(a) && <span className="tag warn">{t("new.boxes.missing")}</span>}
+                      </span>
+                    </button>
+                  ))}
+                  </div>
+                </section>
+              );
+            })}
             {approach && usedLenses.has("fisheye") && sceneHasPinhole && cameraReason(approach.camera_support.default) && (
               <div style={{ marginTop: 12 }}>
                 <Note>
@@ -413,6 +460,11 @@ export function NewRunPage({
                   }))}
                 />
                 {check.lidar_usage.length === 0 && <p className="muted small">{t("new.plan.no_lidar")}</p>}
+                {(check.data_warnings ?? []).map((w) => (
+                  <p key={w} className="small" style={{ color: "var(--warn, #d97706)" }}>
+                    ⚠ {w}
+                  </p>
+                ))}
               </div>
             )}
             {!check && !checking && !checkError && <p className="muted">{t("new.plan.waiting")}</p>}
@@ -565,7 +617,7 @@ function LocalEnvironment({ approachId, stages }: { approachId: string; stages: 
         ) : (
         <span className="small">
           {t("new.env.install")} <code>{data.install}</code>
-          <InfoTip>{t(data.env === "nurec" ? "new.env.install_hint_nurec" : "new.env.install_hint", { file: data.file ?? "" })}</InfoTip>
+          <InfoTip>{t(data.env === "nurec" || data.env === "xsim" ? `new.env.install_hint_${data.env}` : "new.env.install_hint", { file: data.file ?? "" })}</InfoTip>
         </span>
         )}
         {data.env === "nurec" && (

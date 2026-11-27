@@ -21,12 +21,15 @@ không ghi cùng một khoá cùng lúc.
 ``run.py`` dùng file này khi chạy một stage có ``cacheable = True``.
 """
 
+import hashlib
+import json
 import os
 import shutil
 from pathlib import Path
 from typing import Optional
 
 from drive2sim.core import identifiers
+from drive2sim.core.schema import Split
 
 PARTIAL_SUFFIX = ".partial"
 OWNER_FILE = ".owner"  # pid của tiến trình đang ghi, đặt trong thư mục .partial
@@ -41,7 +44,9 @@ class CacheBusyError(RuntimeError):
     """
 
 
-def input_key_for_scene(scene_id: str, converter_version: str) -> str:
+def input_key_for_scene(
+    scene_id: str, converter_version: str, mask_digest: Optional[str] = None
+) -> str:
     """Tạo khoá đại diện cho dữ liệu chuẩn của một cảnh, dùng khi stage nhận đầu vào ``"scene"``.
 
     Khoá gồm cả phiên bản converter: nếu cảnh được ingest lại bằng converter khác, khoá đổi và
@@ -50,23 +55,29 @@ def input_key_for_scene(scene_id: str, converter_version: str) -> str:
     Args:
         scene_id: Định danh cảnh.
         converter_version: ``source.converter_version`` trong manifest.
+        mask_digest: Dấu vân tay mask của run; None giữ định dạng khoá lịch sử.
 
     Returns:
         Khoá dạng ``"scene:<scene_id>@<converter_version>"``, ví dụ
-        ``"scene:nuscenes_scene-0061@19.9.0"``.
+        ``"scene:nuscenes_scene-0061@19.9.0"``. Run có snapshot thêm ``:masks-<SHA-256>``.
     """
-    return f"scene:{scene_id}@{converter_version}"
+    key = f"scene:{scene_id}@{converter_version}"
+    return f"{key}:masks-{mask_digest}" if mask_digest is not None else key
 
 
-def input_key_for_split(split_id: str) -> str:
+def input_key_for_split(split_id: str, content: Optional[Split] = None) -> str:
     """Tạo khoá đại diện cho một split, dùng khi stage nhận đầu vào ``"split"``.
 
     Args:
         split_id: Định danh split.
+        content: Khi stage phụ thuộc từng cặp ảnh, băm cả nội dung và thứ tự camera.
 
     Returns:
         Khoá dạng ``"split:<split_id>"``, ví dụ ``"split:every8_allcams"``.
     """
+    if content is not None:
+        data = json.dumps(content.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+        return f"split:{split_id}:{hashlib.sha256(data.encode()).hexdigest()}"
     return f"split:{split_id}"
 
 

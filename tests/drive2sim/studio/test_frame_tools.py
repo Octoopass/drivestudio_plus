@@ -62,3 +62,64 @@ def test_needs_fixed_calibration(tmp_path: Path) -> None:
     (tmp_path / "extrinsics" / "0.txt").unlink()
     with pytest.raises(frame_tools.FrameToolError, match="cố định"):
         frame_tools.panorama(tmp_path, manifest, 0, width=512)
+
+
+def test_depth_colours_match_the_loader_scale() -> None:
+    """Cùng thang màu với depth_visualizer (video độ sâu, ảnh chồng của tab Kiểm tra)."""
+    pytest.importorskip("torch")
+    from drive2sim.recon.utils.visualization import depth_visualizer
+
+    depth = np.array([4.0, 8.0, 15.0, 30.0, 60.0, 120.0], np.float32)
+    expected = depth_visualizer(depth[None], np.ones((1, len(depth)), np.float32))[0] * 255
+    ours = frame_tools.depth_colors(depth)[:, ::-1]  # BGR -> RGB
+    assert np.abs(ours.astype(int) - expected.round().astype(int)).max() <= 16
+
+
+def test_points_on_the_ego_car_are_grey(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    manifest = make_scene(tmp_path)
+    masks = tmp_path / "ego_masks"
+    (masks / "kitti360").mkdir(parents=True)
+    cv2.imwrite(str(masks / "kitti360" / "cam0.png"), np.full((100, 200), 255, np.uint8))
+    monkeypatch.setattr("drive2sim.paths.EGO_MASKS_DIR", masks)
+    np.array([[10, 0, 0, 1]], np.float32).tofile(tmp_path / "lidar" / "000.bin")
+    image = decode(frame_tools.lidar_overlay(tmp_path, manifest, 0, "cam0")[0])
+    assert np.array_equal(image[50, 100], frame_tools.EGO_GREY)
+
+
+def test_fast_projection_matches_the_kitti360_loader(tmp_path: Path) -> None:
+    """Phép chiếu nhanh và phép chiếu của loader (dữ liệu train) cho cùng pixel."""
+    pytest.importorskip("torch")
+    import math
+
+    import torch
+
+    from drive2sim.core.schema import Manifest
+    from tests.drive2sim.recon.data.loaders.test_standard_loader import make_scene as kitti_scene
+    from tests.drive2sim.recon.data.loaders.test_standard_loader import make_source
+
+    scene = kitti_scene(tmp_path / "k")
+    source = make_source(scene)
+    manifest = Manifest.model_validate(
+        __import__("yaml").safe_load((scene / "manifest.yaml").read_text())
+    )
+    for position, cam in source.camera_data.items():
+        index = [c.camera_id for c in manifest.cameras].index(str(cam.cam_name))
+        camera = frame_tools._camera(scene, manifest, index)
+        angles = [math.radians(a) for a in (0, 20, 40, 60, 75)]
+        points = np.array(
+            [
+                [5 * math.sin(a) * math.cos(b), 5 * math.sin(a) * math.sin(b), 5 * math.cos(a)]
+                for a in angles
+                for b in (0.3, 1.9, 4.0)
+            ]
+        )
+        # điểm trong hệ camera -> hệ xe (extrinsics camera -> xe) cho phép chiếu nhanh
+        ego = points @ camera["T"][:3, :3].T + camera["T"][:3, 3]
+        uv_fast, ok_fast = frame_tools._project(
+            (ego - camera["T"][:3, 3]) @ camera["T"][:3, :3], camera
+        )
+        pixels, _, ok_loader = cam.project_points(torch.from_numpy(ego).float(), 0)
+        scale = np.array([cam.WIDTH / camera["size"][0], cam.HEIGHT / camera["size"][1]])
+        both = ok_fast & ok_loader.numpy()
+        assert both.sum() >= 3, (position, both)
+        assert np.allclose(uv_fast[both] * scale, pixels.numpy()[both], atol=0.05)

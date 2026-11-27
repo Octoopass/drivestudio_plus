@@ -8,6 +8,9 @@ import type { FrameImages, List, SceneDetail, Split } from "../api/types";
 import { ago, Confirm, Empty, ErrorBox, InfoTip, Loading, Note, PageHead, Panel, Status, Tabs, useToast, yesNo } from "../components/ui";
 import { useI18n } from "../i18n";
 import { lensGroup, lensOf, lensSummary, type Lens } from "../lens";
+import { SceneRig } from "../components/SceneRig";
+import { EgoMaskEditor } from "../components/EgoMaskEditor";
+import { LidarOverlay } from "../components/LidarOverlay";
 import { useLive } from "../live";
 import { go, href } from "../router";
 import { runStatus, type RunItem } from "../runStatus";
@@ -141,6 +144,7 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
           )}
           {tab === "cameras" && (
             <div className="stack" style={{ gap: 10 }}>
+            <SceneRig sceneId={sceneId} />
             <p className="small muted row wrap" style={{ gap: 6 }}>
               {(() => {
                 const group = lensGroup(manifest.cameras.map((c) => c.model));
@@ -202,6 +206,8 @@ export function ScenePage({ sceneId }: { sceneId: string }) {
                     </tbody>
                   </table>
                 </div>
+                {manifest.available.lidar && <LidarOverlay sceneId={sceneId} kaggle={Boolean(kaggle)} onChange={scene.reload} />}
+                {!kaggle && <EgoMaskEditor sceneId={sceneId} />}
               </div>
             ))}
           {tab === "runs" &&

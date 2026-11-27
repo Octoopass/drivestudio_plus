@@ -65,6 +65,9 @@ Trên giao diện có thể cho chọn approach sớm để người dùng biế
 
 ## 6. Dữ liệu
 
+Hiện trạng loader (26/11/2026): KITTI-360 và PHENIKAA cùng dùng loader đọc manifest và khung dữ liệu KITTI. Config run đã lưu với tên loader cũ tiếp tục được hỗ trợ. Các dataset DriveStudio khác vẫn có loader riêng; định dạng chung cho mọi nguồn còn là thiết kế đích (ARCHITECTURE mục 2.4).
+
+
 ### 6.1 Nguồn dữ liệu được hỗ trợ
 
 - Waymo, nuScenes, nuPlan, Argoverse 2, PandaSet, KITTI, PhysicalAI.
@@ -114,7 +117,7 @@ Camera mắt cá KITTI-360 dùng mask thân xe cố định đi kèm package, ch
 Yêu cầu riêng cho chế độ Kaggle:
 
 - Tool tự upload dữ liệu lên Kaggle dưới dạng dataset private, tự sinh notebook, đẩy lên và ra lệnh chạy qua Kaggle API. Người dùng chỉ cần cài API token một lần.
-- Studio hiện trạng thái job và log; khi job xong, tool tự tải kết quả về.
+- Studio hiện trạng thái job và log; khi job xong, tool tự tải kết quả về. Output được gói để tránh tải từng file cache nhỏ; notebook cũ hoặc gói lỗi vẫn tải file rời (CONTRACTS mục 9.2).
 - Kết quả được lưu sau từng bước, kể cả checkpoint giữa chừng. Khi một phiên Kaggle hết giờ, lần chạy sau tiếp tục từ chỗ dở.
 - Bật Studio ngay trong phiên Kaggle qua tunnel chỉ là tính năng phụ, không bảo đảm hoạt động.
 
@@ -155,6 +158,7 @@ Studio là giao diện web chạy trên máy đang dùng. Nhóm A–D chỉ cầ
 - Video của nhiều approach đặt cạnh nhau theo cùng camera, cùng thời điểm.
 - Biểu đồ PSNR theo thời gian train, VRAM, tốc độ render và số Gaussian (đánh dấu các run trên đường Pareto); PSNR theo vùng; phân rã thời gian dựng cảnh theo nhóm stage; đường cong train của nhiều run.
 - Xuất bảng và hình cho báo cáo.
+- Trang Benchmark: chọn một file `benchmarks/<tên>.yaml` trong thư mục làm việc; mỗi nhóm run (track, ô, cảnh, split) là một bảng xếp theo Avg, kèm người thắng và bước đã quyết định (Avg, R2, R3, thời gian train cùng GPU), ngưỡng hoà và nguồn của nó, cảnh báo, và các cột R2, R3, độ sâu, đoạn hỏng, chi phí (CONTRACTS mục 6.5). Chỉ đọc file kết quả của run, không chạy GPU. Studio chưa tạo hay sửa file định nghĩa; viết tay.
 
 **E. Tính năng theo mức của approach** (cần GPU CUDA)
 - L2: đặt quỹ đạo camera mới và render video; đổi mô hình camera khi render.
@@ -164,6 +168,10 @@ Studio là giao diện web chạy trên máy đang dùng. Nhóm A–D chỉ cầ
 Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 
 ## 9. Đánh giá
+
+Với XSIM, worker train lưu checkpoint theo chu kỳ để có thể tiếp tục một run bị gián đoạn. Approach XSIM nhận gói quan sát xuất từ cùng loader DriveStudio như OmniRe và được chấm bằng cùng hàm, ảnh thật và mask, nên số đo so được với approach DriveStudio trên cùng cảnh, split, độ phân giải. Phần train và render native còn chờ kiểm chứng trên GPU.
+
+Khi pipeline có nhiều bước đánh giá, bảng so sánh hiển thị kết quả của bước đánh giá thành công cuối cùng theo thứ tự pipeline.
 
 - Cùng split, cùng độ phân giải, đo trên ảnh 8 bit.
 - PSNR, SSIM, LPIPS; ghi rõ backbone và phiên bản của LPIPS. Đo một lần sau khi train xong, trên mọi ảnh của tập test, rồi lấy trung bình.
@@ -175,6 +183,10 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 - Số iteration, VRAM cao nhất khi train, tốc độ render (FPS) kèm độ phân giải.
 - Số Gaussian của cả model, số Gaussian và dung lượng của file PLY xuất ra.
 - Cấu hình máy đã chạy run (GPU, VRAM của GPU, driver, CPU, RAM, phiên bản PyTorch và CUDA), vì thời gian, VRAM và tốc độ chỉ so được giữa các run chạy trên cùng loại máy.
+- Độ sâu render so với độ sâu LiDAR trên ảnh test (AbsRel, RMSE, `delta < 1,25`), và metric từng ảnh test kèm vị trí camera (CONTRACTS mục 6.3), để tìm đoạn đường hỏng.
+- Camera chỉ test: split có thể có camera không bao giờ train (ví dụ `image_01` của KITTI-360); metric trên camera đó (PSNR, LPIPS, thô và sau chỉnh màu affine từng ảnh) là `shifted` trong `summary.json` (CONTRACTS mục 6.3), và các metric chung chỉ tính trên camera đã train.
+- Export gap của `.ply` nền tĩnh (PSNR render gốc trừ PSNR render từ `.ply`, cùng mask nền tĩnh, stage `eval.ply`); "không áp dụng" cho method không xuất được `.ply`.
+- Benchmark nhiều run (CONTRACTS mục 6.5, `d2s benchmark`): xếp hạng theo Avg trong từng nhóm; run kém run tốt nhất dưới ngưỡng hoà (mặc định 0,3 dB PSNR, hoặc `max(0,3 dB, 2σ)` đo từ ba seed) coi là ngang, rồi phân xử lần lượt bằng PSNR sau chỉnh màu ở camera chỉ test (R2), PSNR của `.ply` nền tĩnh (R3; bỏ qua với PVG, DeformableGS vì `.ply` của chúng chưa phải nền tĩnh), thời gian train (chỉ khi cùng GPU; khác GPU thì không chọn người thắng). Độ sâu so với LiDAR (R4), chi phí mỗi 100 m ở track B (R6), đoạn hỏng theo nhóm camera (R7) báo kèm, không đổi thứ hạng. Đã đo: R1, R4, R7, R8; xong trong code, chưa chạy thật: R2, R3, hiệu chỉnh seed; chưa có: KID khi lệch làn, PSNR quanh chỗ nối chunk (R6); chủ ý không đo: `ghost_ratio`, `static_psnr` như tiêu chí xếp hạng, ATE tự tính.
 - Với mỗi run, ghi rõ LiDAR được dùng ở stage nào, hoặc không dùng.
 - Ghi rõ các mục cấu hình đã dùng, để so sánh theo từng khâu.
 
@@ -191,6 +203,8 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 - Ingest gợi ý thư mục dataset đúng và báo thiếu sweeps trước khi chạy. Run local báo thiếu môi trường kèm cách cài. OmniRe tự bỏ SMPL chỉ khi nhãn xác nhận đoạn frame của split không có người; dữ liệu chưa biết không bị xem là không có người.
 
 - Nhẹ: một tiến trình phục vụ cả API lẫn giao diện; trạng thái lưu trong thư mục, không cần cơ sở dữ liệu.
+- Approach chạy ở môi trường khác (XSIM) nhận dữ liệu qua gói quan sát xuất từ loader chung, không tự đọc lại thư mục cảnh.
+- XSIM hướng tới L1 trên local, Kaggle và Colab. Tiến độ và bằng chứng nằm trong [kế hoạch XSIM](XSIM_INTEGRATION_PLAN.md).
 - Approach từ codebase khác chạy trong môi trường riêng; các approach dòng DriveStudio dùng chung môi trường của repo.
 - Mọi run ghi kết quả theo cùng một định dạng, kèm cấu hình đầy đủ, phiên bản mã nguồn và thông tin phần cứng để chạy lại được.
 - Thêm approach mới chỉ cần khai báo và thêm stage còn thiếu; không sửa engine, Studio hay server.
@@ -207,7 +221,7 @@ Nút của mức mà approach không đạt được ẩn đi, kèm ghi chú.
 
 **Nghiệm thu tầng dữ liệu (sau refactor):**
 1. nuScenes mini đi qua ingest sang dữ liệu chuẩn, có manifest và báo cáo kiểm tra.
-2. Approach `omnire` (preset `paper`) train trên cùng một cảnh bằng đường dữ liệu chuẩn và bằng loader cũ của DriveStudio cho PSNR test chênh không quá một ngưỡng chốt trước.
+2. Đường dữ liệu chuẩn đưa cho model cùng dữ liệu như loader cũ của DriveStudio trên cùng một cảnh. Kiểm bằng cách so từng tensor mà hai loader giữ (pose, intrinsics, ảnh, mask, box, SMPL, LiDAR, độ sâu, chia khung), không bằng PSNR của hai lần train (có yếu tố ngẫu nhiên, tốn giờ GPU, cần ngưỡng): `drive2sim/scripts/data_acceptance.py`. **Đạt 20/11/2026** với nuScenes `scene-0061`, split `front3` (run `28e5`, ref `main`): 74 mảng, 71 giống từng bit; 3 bản đồ độ sâu LiDAR khác ở 25–187 trên khoảng 600 000 pixel, đều do thay đổi cố ý giữ điểm gần nhất (đường mới gần hơn ở mọi pixel đó).
 
 Thứ tự làm thật (`ARCHITECTURE.md` mục 7.4) là bộ khung trước, tầng dữ liệu sau, vì bộ khung bọc được mã DriveStudio hiện có và cho kết quả sớm hơn; hai phần nghiệm thu độc lập nhau.
 
@@ -221,4 +235,39 @@ Thứ tự làm thật (`ARCHITECTURE.md` mục 7.4) là bộ khung trước, t�
 
 1. Định dạng bộ dữ liệu riêng của mentor.
 2. AD stack dùng để chạy thử ở mức L4 (agent có sẵn của CARLA hay planner tự viết) và tiêu chí chấm điểm (va chạm, lệch làn, hoàn thành tuyến hay tiêu chí khác).
-3. Ngưỡng chênh PSNR chấp nhận được ở nghiệm thu tầng dữ liệu.
+3. ~~Ngưỡng chênh PSNR chấp nhận được ở nghiệm thu tầng dữ liệu.~~ Không cần: nghiệm thu so dữ liệu từng bit (mục 13).
+
+
+Công cụ mask thân xe của Studio cho biết camera đang sửa, hướng dẫn điểm xanh/đỏ và báo đang
+nạp ảnh hoặc tạo mask. Người dùng có thể tẩy mask nháp hay mask đã lưu bằng cọ điều chỉnh
+kích thước, xem lại rồi lưu. Mỗi camera dùng một mask cố định cho các khung của cảnh.
+
+
+Khi nạp cảnh trong Studio, tên cảnh đã tồn tại hoặc đang được nạp phải được báo trước khi
+xếp việc. Hộp thoại giữ lựa chọn nguồn để người dùng sửa tên và thử lại. Ô tên nhận tên ngắn và
+hiển thị tên đầy đủ có tiền tố dataset trước khi nạp. Việc nạp thất bại
+không ngăn người dùng tạo yêu cầu tiếp theo.
+
+
+Khi hợp nhất benchmark và XSIM, camera chỉ test phải được giữ ngoài dữ liệu train và metric tổng
+của camera đã train. Kết quả của nhóm camera này được báo riêng để so khả năng tổng hợp góc nhìn.
+Bước đánh giá PLY bổ sung phải giữ khả năng mở báo cáo chính của run.
+
+
+### Tính nhất quán sau tích hợp (26/11/2026)
+
+- Lưu, xoá hoặc xác nhận không có thân xe ảnh hưởng các run mới. Mỗi run giữ một snapshot mask
+  để resume trên local/Kaggle/Colab không đổi dữ liệu giám sát khi người dùng sửa cảnh về sau.
+  Mask nháp và ảnh trung vị không ảnh hưởng cache; run cũ chưa có snapshot giữ hành vi lịch sử.
+- Mask thân xe ưu tiên bản của cảnh, xác nhận không dùng, rồi asset. Mask cảm biến không hợp lệ
+  theo khung vẫn được giữ riêng. NuRec dùng mask chính thức qua cùng rectifier với RGB; MCGS
+  dùng mask hiệu lực và khử méo RGB/mask pinhole theo cùng bản đồ OpenCV trước khi chấm.
+- `test_only_cameras` không vào context NuRec hoặc refinement. Refinement chỉ dùng các cặp
+  `split.train`; điểm test của camera có train vào `overall`, camera chỉ test vào `shifted`,
+  kể cả PSNR/LPIPS khớp màu. Nếu `image_00` chỉ test thì approach báo lý do không chạy được.
+  NuRec vẫn dùng khung test theo thời gian của camera context trong lượt suy luận ban đầu.
+- Protocol `0.6` chuẩn hoá phần ngoài mask ngay trong scorer chung. Benchmark không xếp hạng
+  chung NuRec protocol `0.5` cũ với scorer chung; kết quả lịch sử không bị sửa.
+- Chuyển camera trong editor rồi quay lại vẫn hiện bản nháp đang có. Bỏ nháp xoá file nháp
+  trên server; tẩy dùng đúng overlay đang hiển thị. Nhiều tab sửa cùng camera được phát hiện
+  bằng revision và tải lại khi có xung đột.

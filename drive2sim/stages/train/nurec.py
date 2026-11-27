@@ -24,10 +24,11 @@ import os
 import shutil
 import time
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import ClassVar, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from drive2sim.core.schema import Manifest, Split
 from drive2sim.engine import machine
 from drive2sim.engine.registry import register_stage
 from drive2sim.engine.stage import Stage, StageContext
@@ -247,12 +248,21 @@ def _vertex_count(ply: Path) -> int:
 class TrainNurecStage(Stage):
     """Dựng cảnh từ clip NCore bằng Instant NuRec."""
 
-    version: ClassVar[str] = "0.3.0"
+    version: ClassVar[str] = "0.2.0"
     cacheable: ClassVar[bool] = False
     uses_lidar: ClassVar[bool] = False
     inputs: ClassVar[dict[str, str]] = {"clip": "ncore_clip"}
     outputs: ClassVar[dict[str, str]] = {"model": "model"}
     Params: ClassVar[type[BaseModel]] = TrainNurecParams
+
+    @classmethod
+    def unavailable_reason(
+        cls, manifest: Manifest, split: Optional[Split] = None
+    ) -> Optional[str]:
+        """Báo sớm khi camera tham chiếu NuRec bị dành riêng cho đánh giá."""
+        if split is not None and "image_00" in split.test_only_cameras:
+            return "NuRec cần image_00 làm context; camera này đang được chọn chỉ test"
+        return None
 
     def run(
         self, ctx: StageContext, inputs: dict[str, Path], params: BaseModel
@@ -274,7 +284,10 @@ class TrainNurecStage(Stage):
             )
         record = json.loads((inputs["clip"] / CLIP_FILE).read_text(encoding="utf-8"))
         clip = inputs["clip"] / record["clip"]
-        cameras = context_cameras(record["sensors"], params.model)
+        cameras = context_cameras(
+            {c: s for c, s in record["sensors"].items() if c not in ctx.split.test_only_cameras},
+            params.model,
+        )
         chunks = chunks_for(params, record["frame_ids"])
         params = params.model_copy(update={"max_chunks": chunks})
         raw_dir = ctx.output_dir / RAW_DIR

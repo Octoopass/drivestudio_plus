@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 from drive2sim.engine.workdir import Workdir
-from drive2sim.ingest import kitti360
+from drive2sim.ingest import kitti360, phenikaa
 from drive2sim.ingest.detect import INGEST_SUPPORTED, SourceReport
 from drive2sim.ingest.drivestudio import ingest_drivestudio
 
@@ -113,6 +113,7 @@ def run_ingest(
     interpolate_n: int = 4,
     workers: int = 4,
     kitti360_options: Optional[kitti360.Kitti360Options] = None,
+    phenikaa_options: Optional[phenikaa.PhenikaaOptions] = None,
 ) -> Path:
     """Ingest chuỗi đã chọn.
 
@@ -126,6 +127,7 @@ def run_ingest(
         workers: Số tiến trình song song của script.
         kitti360_options: KITTI-360: khung đầu, số khung, camera, khoảng hở tối đa; mặc định
             ``Kitti360Options()``. Dataset khác bỏ qua.
+        phenikaa_options: PHENIKAA: camera, thư mục calib; mặc định ``PhenikaaOptions()``.
 
     Returns:
         Thư mục cảnh ``data/<scene_id>/``.
@@ -133,6 +135,10 @@ def run_ingest(
     Raises:
         IngestError: Nếu ingest lỗi (xem ``ingest_drivestudio``, ``ingest_kitti360``).
     """
+    if target.dataset == phenikaa.DATASET:
+        return phenikaa.ingest_phenikaa(
+            raw_dir, workdir, target.sequence, scene_id=scene_id, options=phenikaa_options
+        )
     if target.dataset == kitti360.DATASET:
         return kitti360.ingest_kitti360(
             raw_dir, workdir, target.sequence, scene_id=scene_id, options=kitti360_options
