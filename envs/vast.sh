@@ -12,10 +12,13 @@
 #   bash envs/vast.sh pull [<run_id>]       # kéo runs/ và cache/ về; chạy giữa chừng được
 #   bash envs/vast.sh exec <lệnh>           # chạy lệnh bất kỳ trong thư mục làm việc trên máy thuê
 #   bash envs/vast.sh setup-extra           # cài thêm MCGS-SLAM và Instant NuRec (nền, có log)
-#   bash envs/vast.sh wave <1|2|3> [tuỳ chọn của setup_benchmark_week04 queue]
+#   bash envs/vast.sh wave <1|2|3|4> [tuỳ chọn của setup_benchmark_week04 queue]
 #                                           # benchmark tuần 04: dựng hàng đợi một đợt rồi chạy nền,
 #                                           # mỗi GPU một worker (envs/bench_queue.sh); BENCH_GPUS=0,1
-#   bash envs/vast.sh wave-status [<1|2|3>] # run đã xong, đang chờ của đợt, nvidia-smi
+#   bash envs/vast.sh wave-status [<1|2|3|4>] # run đã xong, đang chờ của đợt, nvidia-smi
+#
+# D2S_W1_INDEX (cảnh W1 của benchmark tuần 04, chỉ số trong waymo_train_list.txt), nếu đặt ở máy này
+# hoặc trong .vast.env, được chuyển sang mọi lệnh chạy trên máy thuê.
 #
 # Image nên có CUDA toolkit (nvcc) 12.x, ví dụ pytorch/pytorch:2.4.1-cuda12.1-cudnn9-devel, vì
 # envs/install_main.sh build gsplat-geer, nvdiffrast, pytorch3d từ mã nguồn với torch 2.4.1+cu121.
@@ -44,6 +47,7 @@ remote() {
   local prelude='source "$(conda info --base)/etc/profile.d/conda.sh" 2>/dev/null || true; '
   prelude+="cd '$VAST_DIR'; export D2S_WORKDIR='$VAST_DIR'; "
   prelude+='conda activate drive2sim 2>/dev/null || true; '
+  [ -n "${D2S_W1_INDEX:-}" ] && prelude+="export D2S_W1_INDEX='$D2S_W1_INDEX'; "
   if [ "$DRY" = 1 ]; then echo "ssh ${SSH_OPTS[*]} $VAST_HOST bash -lc <<< $cmd"; return 0; fi
   ssh "${SSH_OPTS[@]}" "$VAST_HOST" bash -lc "$(printf '%q' "$prelude$cmd")"
 }
@@ -152,7 +156,7 @@ cmd_setup_extra() {
 cmd_wave() {
   # Benchmark tuần 04 (docs/experiments/benchmark_week04.md): queue của setup_benchmark_week04 ghi
   # hàng đợi trên máy thuê (cần cảnh đã ingest ở đó để biết số chunk), rồi bench_queue.sh chạy nền.
-  local wave="${1:?cần số đợt 1, 2 hoặc 3}"; shift
+  local wave="${1:?cần số đợt 1, 2, 3 hoặc 4}"; shift
   local opts="" gpus=""
   # Không có tham số thì để opts rỗng: printf '%q ' không đối số in ra '' (một đối số rỗng), và
   # setup_benchmark_week04.py từ chối nó ("unrecognized arguments").

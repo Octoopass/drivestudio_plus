@@ -9,7 +9,7 @@
 #   bash envs/week04_vast.sh creds             # chép token Kaggle và SMPL_NEUTRAL.pkl lên máy thuê
 #   bash envs/week04_vast.sh data-kitti        # tải raw KITTI-360 0003 từ Kaggle, ingest A2 và cảnh dài (nền)
 #   bash envs/week04_vast.sh waymo-auth        # gcloud auth login (tương tác, mở link trong trình duyệt)
-#   bash envs/week04_vast.sh data-waymo        # tải segment W1, ingest (nền)
+#   bash envs/week04_vast.sh data-waymo        # tải các segment ứng viên W1, ingest, in waymo-stats (nền)
 #   bash envs/week04_vast.sh finish            # split, lidar-check, in hàng đợi đợt 1 (chạy trước mặt)
 #   bash envs/week04_vast.sh smoke             # run --quick OmniRe trên W1 để bắt lỗi GPU (~10 phút)
 #   bash envs/week04_vast.sh status            # các mốc đã xong và dòng cuối của mỗi log
@@ -141,8 +141,11 @@ cmd_finish() {
 
 cmd_smoke() {
   need_host
-  vast run omnire --scene waymo_segment-10455472356147194054_1560_000_1580_000_with_camera_labels \
-    --split every8_5cams --set fastgs=true --quick
+  # W1 theo D2S_W1_INDEX (mặc định ứng viên đầu, 2: giữ khớp WAYMO_W1_CANDIDATES[0] của
+  # setup_benchmark_week04); dòng index+1 của waymo_train_list.txt
+  local index="${D2S_W1_INDEX:-2}" segment
+  segment="$(sed -n "$((index + 1))p" "$REPO/drive2sim/assets/scene_lists/waymo_train_list.txt")"
+  vast run omnire --scene "waymo_$segment" --split every8_5cams --set fastgs=true --quick
 }
 
 cmd_status() {

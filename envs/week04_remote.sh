@@ -4,7 +4,8 @@
 #
 #   bash envs/week04_remote.sh extras   # chờ env drive2sim xong, cài MCGS-SLAM, Instant NuRec, venv Waymo
 #   bash envs/week04_remote.sh kitti    # tải raw KITTI-360 0003 (output notebook Kaggle), ingest 2 cảnh
-#   bash envs/week04_remote.sh waymo    # tải segment W1 bằng gsutil, ingest bằng venv Waymo
+#   bash envs/week04_remote.sh waymo    # tải các segment ứng viên W1 bằng gsutil, ingest bằng venv
+#                                       # Waymo, in waymo-stats để chọn D2S_W1_INDEX
 #   bash envs/week04_remote.sh finish   # split, lidar-check, in hàng đợi đợt 1
 #
 # Mỗi bước in <BƯỚC>_DONE khi xong, <BƯỚC>_FAILED khi lỗi; chạy lại thì bỏ qua phần đã có.
@@ -19,9 +20,10 @@ LONG_SCENE="kitti360_0003_long"
 # frame_ids.txt của cảnh 200 khung đã dùng (ingest trên Kaggle 25/11, khung gốc 1–220): ingest lại
 # ở đây phải ra đúng cảnh đó, không thì split và số liệu cũ không còn so được.
 SHORT_FRAME_IDS_MD5="46efb9e5c7cdcc1f9747903cf68b2fd2"
-WAYMO_SEGMENT="segment-10455472356147194054_1560_000_1580_000_with_camera_labels"
-WAYMO_SCENE_INDEX=23   # chỉ số trong waymo_train_list.txt
 WAYMO_VENV="${WAYMO_VENV:-$PWD/.venv-waymo}"
+# W1 và các ứng viên lấy từ setup_benchmark_week04 (một nguồn; D2S_W1_INDEX đổi W1). Bỏ trống
+# W1_CANDIDATES thì tải mọi ứng viên; đặt "41 46" để chỉ tải vài segment.
+w1_py() { "${1:-python}" -c "from drive2sim.scripts import setup_benchmark_week04 as w; $2"; }
 
 step="${1:-}"
 fail() { echo "${step^^}_FAILED: $*"; exit 1; }
@@ -80,26 +82,32 @@ kitti() {
 }
 
 waymo() {
-  local dest="$RAW/waymo"
+  local dest="$RAW/waymo" py="$WAYMO_VENV/bin/python" index segment indices
   [ -x "$WAYMO_VENV/bin/d2s" ] || fail "chưa có venv Waymo: chạy bước extras trước"
   gcloud auth list --filter=status:ACTIVE --format='value(account)' | grep -q . ||
     fail "gcloud chưa đăng nhập: chạy 'bash envs/week04_vast.sh waymo-auth' trên máy mình"
-  if [ ! -f "$dest/$WAYMO_SEGMENT.tfrecord" ]; then
-    "$WAYMO_VENV/bin/python" -m drive2sim.recon.preprocess.waymo.download \
-      --scene_ids "$WAYMO_SCENE_INDEX" --target_dir "$dest"
-  fi
-  [ -f "$dest/$WAYMO_SEGMENT.tfrecord" ] || fail "không thấy $dest/$WAYMO_SEGMENT.tfrecord sau khi tải"
-  if ! has_scene "waymo_$WAYMO_SEGMENT"; then
-    # d2s của venv Waymo: ingest gọi script tiền xử lý bằng chính Python đó (cần tensorflow)
-    "$WAYMO_VENV/bin/d2s" scene ingest "$dest" --sequence "$WAYMO_SEGMENT" --workdir "$PWD"
-  fi
+  indices="${W1_CANDIDATES:-$(w1_py "$py" 'print(*w.WAYMO_W1_CANDIDATES)')}"
+  # W1 đang chọn luôn được tải, kể cả khi không nằm trong danh sách ứng viên
+  indices="$(printf '%s\n' $indices "$(w1_py "$py" 'print(w.WAYMO_INDEX)')" | sort -nu | tr '\n' ' ')"
+  for index in $indices; do
+    segment="$(w1_py "$py" "print(w.waymo_segment($index))")"
+    if [ ! -f "$dest/$segment.tfrecord" ]; then
+      "$py" -m drive2sim.recon.preprocess.waymo.download --scene_ids "$index" --target_dir "$dest"
+    fi
+    [ -f "$dest/$segment.tfrecord" ] || fail "không thấy $dest/$segment.tfrecord sau khi tải"
+    if ! has_scene "waymo_$segment"; then
+      # d2s của venv Waymo: ingest gọi script tiền xử lý bằng chính Python đó (cần tensorflow)
+      "$WAYMO_VENV/bin/d2s" scene ingest "$dest" --sequence "$segment" --workdir "$PWD"
+    fi
+  done
+  "$py" -m drive2sim.scripts.setup_benchmark_week04 waymo-stats || true
   echo WAYMO_DONE
 }
 
 finish() {
   python -m drive2sim.scripts.setup_benchmark_week04 splits
   local scene
-  for scene in "$LONG_SCENE" "waymo_$WAYMO_SEGMENT"; do
+  for scene in "$LONG_SCENE" "$(w1_py python 'print(w.WAYMO_SCENE)')"; do
     has_scene "$scene" && d2s scene lidar-check "$scene" | tail -n 3
   done
   echo "--- hàng đợi đợt 1 (bench_queue.sh kiểm từng dòng bằng approach check trước khi chạy):"
