@@ -133,7 +133,7 @@ def _read_pinhole_values(scene_root: Path, camera_index: int) -> list[float]:
 class PrepMcgsStage(Stage):
     """Xuất ảnh pinhole (không có khung test) và ``calib.yml`` cho MCGS-SLAM."""
 
-    version: ClassVar[str] = "0.1.0"
+    version: ClassVar[str] = "0.1.1"
     cacheable: ClassVar[bool] = True
     uses_lidar: ClassVar[bool] = False
     inputs: ClassVar[dict[str, str]] = {"split": "split"}

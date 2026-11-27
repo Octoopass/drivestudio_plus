@@ -11,6 +11,11 @@
 #   bash envs/vast.sh status                # log mới nhất và nvidia-smi
 #   bash envs/vast.sh pull [<run_id>]       # kéo runs/ và cache/ về; chạy giữa chừng được
 #   bash envs/vast.sh exec <lệnh>           # chạy lệnh bất kỳ trong thư mục làm việc trên máy thuê
+#   bash envs/vast.sh setup-extra           # cài thêm MCGS-SLAM và Instant NuRec (nền, có log)
+#   bash envs/vast.sh wave <1|2|3> [tuỳ chọn của setup_benchmark_week04 queue]
+#                                           # benchmark tuần 04: dựng hàng đợi một đợt rồi chạy nền,
+#                                           # mỗi GPU một worker (envs/bench_queue.sh); BENCH_GPUS=0,1
+#   bash envs/vast.sh wave-status [<1|2|3>] # run đã xong, đang chờ của đợt, nvidia-smi
 #
 # Image nên có CUDA toolkit (nvcc) 12.x, ví dụ pytorch/pytorch:2.4.1-cuda12.1-cudnn9-devel, vì
 # envs/install_main.sh build gsplat-geer, nvdiffrast, pytorch3d từ mã nguồn với torch 2.4.1+cu121.
@@ -20,7 +25,12 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-: "${VAST_HOST:?đặt VAST_HOST=root@<ip>}"
+# .vast.env: máy do envs/week04_vast.sh rent thuê (VAST_HOST, VAST_PORT); biến đặt sẵn được ưu tiên
+if [ -z "${VAST_HOST:-}" ] && [ -f "$REPO/.vast.env" ]; then
+  # shellcheck disable=SC1091
+  source "$REPO/.vast.env"
+fi
+: "${VAST_HOST:?đặt VAST_HOST=root@<ip> (hoặc chạy envs/week04_vast.sh rent)}"
 VAST_PORT="${VAST_PORT:-22}"
 VAST_DIR="${VAST_DIR:-/workspace/d2s}"     # thư mục code và thư mục làm việc trên máy thuê
 LOCAL_WORKDIR="${D2S_WORKDIR:-$REPO}"       # thư mục làm việc trên máy này
@@ -124,6 +134,42 @@ cmd_pull() {
 
 cmd_exec() { remote "$*"; }
 
+cmd_setup_extra() {
+  # MCGS-SLAM (#8) và Instant NuRec (#9) dùng env riêng ngoài conda env drive2sim.
+  remote 'nohup bash -c "
+    set -e
+    bash envs/install_mcgs.sh
+    bash envs/install_nurec.sh
+    echo SETUP_EXTRA_DONE
+  " > setup-extra.log 2>&1 &'
+  echo "đang cài ở nền; xong khi setup-extra.log có SETUP_EXTRA_DONE (vast.sh exec tail setup-extra.log)"
+}
+
+cmd_wave() {
+  # Benchmark tuần 04 (docs/experiments/benchmark_week04.md): queue của setup_benchmark_week04 ghi
+  # hàng đợi trên máy thuê (cần cảnh đã ingest ở đó để biết số chunk), rồi bench_queue.sh chạy nền.
+  local wave="${1:?cần số đợt 1, 2 hoặc 3}"; shift
+  local opts="" gpus=""
+  # Không có tham số thì để opts rỗng: printf '%q ' không đối số in ra '' (một đối số rỗng), và
+  # setup_benchmark_week04.py từ chối nó ("unrecognized arguments").
+  [ $# -gt 0 ] && opts="$(printf '%q ' "$@")"
+  [ -n "${BENCH_GPUS:-}" ] && gpus="--gpus $(printf '%q' "$BENCH_GPUS")"
+  remote "mkdir -p logs benchmarks/queues &&
+    python -m drive2sim.scripts.setup_benchmark_week04 queue --wave $wave $opts --out benchmarks/queues/wave$wave.tsv &&
+    nohup bash envs/bench_queue.sh benchmarks/queues/wave$wave.tsv $gpus > logs/wave$wave.out 2>&1 &
+    sleep 2; cat logs/wave$wave.out"
+  echo "đợt $wave chạy nền; theo dõi: bash envs/vast.sh wave-status $wave"
+}
+
+cmd_wave_status() {
+  local wave="${1:-}" pattern='logs/queue-wave*'
+  [ -n "$wave" ] && pattern="logs/queue-wave$wave"
+  remote "for d in $pattern; do [ -d \"\$d\" ] || continue; echo \"== \$d\";
+            echo \"xong:\"; cut -f1-4 \"\$d/done\"; echo \"chờ: \$(wc -l < \"\$d/pending\") run\"; done;
+          tail -n 3 logs/wave*.out 2>/dev/null; echo ---;
+          nvidia-smi --query-gpu=index,utilization.gpu,memory.used,memory.total --format=csv,noheader"
+}
+
 command="${1:-}"; shift || true
 case "$command" in
   check) cmd_check ;;
@@ -133,5 +179,8 @@ case "$command" in
   status) cmd_status ;;
   pull) cmd_pull "$@" ;;
   exec) cmd_exec "$@" ;;
-  *) sed -n 2,19p "${BASH_SOURCE[0]}"; exit 2 ;;
+  setup-extra) cmd_setup_extra ;;
+  wave) cmd_wave "$@" ;;
+  wave-status) cmd_wave_status "$@" ;;
+  *) sed -n 2,24p "${BASH_SOURCE[0]}"; exit 2 ;;
 esac

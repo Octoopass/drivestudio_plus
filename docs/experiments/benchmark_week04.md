@@ -54,7 +54,7 @@ d2s benchmark benchmarks/week04.yaml --out benchmarks/week04.json
 | A-L | `every8_5cams` (W1) | PVG, DeformableGS renderer 3DGS (có LiDAR) |
 | A-0 | `every8_5cams` (W1) | PVG, DeformableGS renderer 3DGS với `lidar=false` |
 | A-LB | `every8_stereo_fisheye2` | OmniRe 3DGUT + FastGS; OmniRe 3DGEER + FastGS |
-| A-L | `every8_stereo_fisheye2` | PVG, DeformableGS với renderer 3DGUT (#7) |
+| A-L | `every8_stereo_fisheye2` | PVG, DeformableGS với renderer 3DGEER (#7; renderer fisheye chốt 27/11) |
 | A-LB, A-L | `every8_stereo_a3` | OmniRe (mọi cấu hình); PVG, DeformableGS |
 | B | `every8_pinhole2` | MCGS-SLAM |
 | C | `every8_mixed3` | Instant NuRec |
@@ -62,9 +62,64 @@ d2s benchmark benchmarks/week04.yaml --out benchmarks/week04.json
 
 Nhiều run khớp một ô thì lấy run mới nhất và in các run bị bỏ. Nhóm chưa có run thì bỏ khỏi file; dưới hai seed thì không có khối `calibration` (`d2s benchmark` dùng ngưỡng hoà mặc định 0,3 dB).
 
-## 3. Chưa làm được trong đợt này
+## 3. Kế hoạch chạy trên GPU thuê
 
-- **#7 (A-L với fisheye, A2)**: từ 26/11 PVG và DeformableGS có renderer 3DGUT, 3DGEER (tắt CamPose), nên #7 chạy được với `--set renderer=3dgut --set campose=false`; chưa chạy thật trên GPU. A2 A-L vì vậy so method thắng A-L ở cấu hình khác A1 (không CamPose).
+Chạy trên **một máy vast.ai 2× RTX 4090** (lý do và cấu hình máy ở cuối mục). Các run ưu tiên 1 chia ba đợt theo run thắng mà đợt sau cần; mỗi đợt là một hàng đợi, mỗi GPU một worker lấy run kế tiếp (`envs/bench_queue.sh`, run dài trước). GPU-giờ là ước lượng của Sheet (RTX 4090), sửa lại sau run đầu.
+
+| Đợt | Run | Cần trước | GPU-giờ | Thời gian trên 2 GPU |
+|---|---|---|---|---|
+| 0. Chuẩn bị | cài env (main, MCGS, NuRec), ingest W1 và cảnh dài, split | — | ~0 (CPU, mạng) | ~2 giờ |
+| 1 | #1, #2, #3, #5, #6, #8 (+ #9 khi đã chọn cách chia đoạn NuRec; + #13 nếu đã port BezierGS) | đợt 0 | 13,6 (+2,5) | ~7,3 giờ |
+| 2 | #4, #7, chạy lại #6, #8 (+ #12 ưu tiên 2) | thắng A-L giữa #2 và #3 (PVG, chốt 27/11) | ~4–5 (+1,7) | 1 GPU, xem `benchmark_week04_wave2.md` |
+| 3 | #10, 6 chunk của #11 | cấu hình thắng A-LB sau #1–#7 | 6,2 | ~3,3 giờ |
+
+Tổng khoảng 25 GPU-giờ cho ưu tiên 1 trừ #9 (27,2 nếu có #9), khoảng 14 giờ chạy và 17 giờ thuê máy kể cả chuẩn bị và hai lần chọn run thắng.
+
+#5, #6 (A-LB fisheye) không đợi #1 như cột "Phụ thuộc" của Sheet: cấu hình đã cố định, nên chạy ngay ở đợt 1 cho đỡ phí GPU; nếu #1 lỗi vì môi trường thì #5, #6 cũng lỗi sớm, `approach check` ở đầu hàng đợi bắt phần lớn lỗi cấu hình.
+
+### Các bước
+
+`envs/week04_vast.sh` làm từ lúc thuê máy tới lúc chạy được đợt 1; phần trên máy thuê ở `envs/week04_remote.sh`. Chạy trên máy mình, ở gốc repo, nhánh `feat/bench-week04`. Cần: `vastai` CLI có API key, khoá SSH công khai đã thêm ở console.vast.ai, token Kaggle của tài khoản đọc được notebook `kascnte/d2s-raw-kitti360-0003`, file `SMPL_NEUTRAL.pkl`, tài khoản Google đã nhận điều khoản Waymo.
+
+```bash
+vastai search offers 'gpu_name=RTX_4090 num_gpus=2 verified=true rentable=true reliability>0.98 cpu_ram>=64 disk_space>=200 inet_down>=500' -o dph_total
+bash envs/week04_vast.sh rent <offer id>     # thuê, chờ SSH, ghi .vast.env (các lệnh sau tự đọc)
+bash envs/week04_vast.sh bootstrap           # rsync, git, uv, Kaggle CLI, gcloud; kiểm GPU
+bash envs/week04_vast.sh setup               # nền: env drive2sim (~30–60 phút), rồi MCGS, NuRec, venv Waymo
+SMPL_PKL=<đường dẫn SMPL_NEUTRAL.pkl> bash envs/week04_vast.sh creds
+bash envs/week04_vast.sh data-kitti          # nền: tải raw KITTI-360 0003 (~8 GB), ingest A2 (200 khung) và cảnh dài
+bash envs/week04_vast.sh waymo-auth          # tương tác: gcloud auth login
+bash envs/week04_vast.sh data-waymo          # nền, sau khi setup xong (cần venv Waymo): tải segment W1, ingest
+bash envs/week04_vast.sh status              # mốc *_DONE của từng bước
+bash envs/week04_vast.sh finish              # split, lidar-check, in hàng đợi đợt 1
+bash envs/week04_vast.sh smoke               # run --quick OmniRe trên W1 (~10 phút), không vào bảng xếp hạng
+```
+
+Cảnh KITTI-360 trên máy mình là cảnh ingest trên Kaggle (`d2s kaggle ingest`): ảnh, LiDAR nằm ở output notebook Kaggle, máy chỉ giữ file nhỏ, nên không chép được sang máy thuê và `d2s kaggle ingest` cũng không cho run chạy trên máy thuê. Vì vậy `data-kitti` tải raw rồi ingest lại bằng `d2s scene ingest` trên máy thuê, với cùng tham số (cảnh 200 khung: `--num-frames 200`), và dừng nếu `frame_ids.txt` khác cảnh đã dùng. Waymo cần TensorFlow 2.11 và `waymo-open-dataset`, không hợp với env chính, nên ingest bằng venv riêng `.venv-waymo`.
+
+Ba đợt (đợt 2 theo `docs/experiments/benchmark_week04_wave2.md`: một GPU, `BENCH_GPUS=0`, chạy lại #6, #8):
+
+```bash
+bash envs/vast.sh wave 1                       # thêm --nurec khi đã chọn cách chia đoạn, --p2 cho #13
+bash envs/vast.sh wave-status 1                # QUEUE_DONE trong logs/wave1.out là xong
+bash envs/vast.sh exec 'python -m drive2sim.scripts.setup_benchmark_week04 definition && d2s benchmark benchmarks/week04.yaml'
+bash envs/vast.sh wave 2 --al-winner pvg       # hoặc deformablegs, theo nhóm A-L ở trên; --p2 thêm #12
+bash envs/vast.sh wave 3 --alb-winner "omnire renderer=3dgs fastgs=true"   # cấu hình thắng A-LB
+bash envs/vast.sh pull                         # kéo runs/, cache/ về; rồi definition + d2s benchmark ở máy mình
+```
+
+Run lỗi được ghi vào `logs/queue-wave<N>/failed`; chạy lại: `bash envs/vast.sh exec 'nohup bash envs/bench_queue.sh logs/queue-wave<N>/failed > logs/retry.out 2>&1 &'`. Cập nhật cột "Trạng thái", "Run ID" của Sheet sau mỗi đợt. Kéo kết quả về (`pull`) sau mỗi đợt, rồi xoá máy thuê ngay khi xong vì dữ liệu có license riêng.
+
+### GPU nên thuê
+
+- **Loại:** RTX 4090 24 GB. Env dùng torch 2.4.1+cu121 nên RTX 50xx (Blackwell) không chạy; 3090 chậm hơn khoảng 1,5–2 lần (ước lượng) mà giá chỉ rẻ hơn một chút; A100, H100 đắt gấp 2–4 lần mà các run đã đo chỉ dùng dưới 9 GB VRAM (OmniRe nuScenes 6,9 GB, MCGS 8,8 GB trên T4); W1 ảnh lớn hơn nhưng vẫn trong 24 GB (ước lượng, xem VRAM đỉnh của #1).
+- **Số lượng: 2 GPU trên cùng một máy.** Một máy thì cài env, ingest một lần và dùng chung cache (mask, SMPL). Đợt 2 chỉ có 2 run, và giữa các đợt máy chờ nhóm chọn run thắng, nên 4 GPU nhanh hơn (khoảng 12 giờ thuê) nhưng tốn hơn (khoảng 4 × 12 = 48 GPU-giờ trả tiền cho 25 GPU-giờ dùng). 1 GPU rẻ nhất nhưng mất khoảng 30 giờ. Chỉ chọn 4 GPU nếu cần kết quả trong một ngày.
+- **Cấu hình máy:** RAM ≥ 64 GB, ≥ 16 vCPU, đĩa ≥ 200 GB (ba env, cảnh dài, Waymo, khoảng 20 run), mạng ≥ 500 Mbps, driver hỗ trợ CUDA ≥ 12.1, độ tin cậy ≥ 0,98; image `pytorch/pytorch:2.4.1-cuda12.1-cudnn9-devel`; chế độ riêng tư.
+- **Chi phí:** ở giá trung vị RTX 4090 trên vast.ai khoảng 0,5 USD/giờ mỗi GPU (giá xem ngày 26/11/2026, thay đổi theo giờ), 2 GPU × ~17 giờ ≈ 17 USD; 4 GPU ≈ 24 USD; 1 GPU ≈ 15 USD.
+
+## 4. Chưa làm được trong đợt này
+
+- **#7 (A-L với fisheye, A2)**: từ 26/11 PVG và DeformableGS có renderer 3DGUT, 3DGEER (tắt CamPose); từ 27/11 #7 chạy với `--set renderer=3dgeer --set campose=false` (renderer fisheye chốt là 3DGEER); chưa chạy thật trên GPU. A2 A-L vì vậy so method thắng A-L ở cấu hình khác A1 (không CamPose).
 - **R3 của PVG, DeformableGS**: `export_ply.py` ghi tham số gốc của node `Background` (`_means`, `_opacities`). Với PVG đó là tâm chưa cộng dao động và độ đục chưa nhân suy giảm theo thời gian, nên mọi Gaussian (cả vệt của xe chạy) hiện cùng lúc; với DeformableGS là tâm chưa qua mạng biến dạng. Từ 26/11 `d2s benchmark` đánh dấu các run này `export_static: false` (bảng ghi `†`) và bỏ bước R3 khi phân xử các ô A-L, A-0; R3 cũng đổi từ export gap sang `ply_psnr` (PSNR tuyệt đối của `.ply` trên vùng nền tĩnh), gap chỉ báo kèm (CONTRACTS mục 6.5). PVG đã có cách xuất nền tĩnh: chỉ giữ Gaussian sống từ 20 khung trở lên (tham số gốc của PVG là mỗi Gaussian ở đỉnh của nó, nên không cần chọn thời điểm). **Kiểm trên run #2 (PVG trên W1) trước khi bỏ `pvg` khỏi `TIME_VARYING_METHODS`:** xem `time_varying` trong `eval.ply/background/scene.json` (số giữ, số bỏ, phân vị độ dài đời), ảnh render `.ply` không còn vệt xe, và `ply_psnr` không kém `native_psnr` quá khoảng 2 dB; nếu vẫn kém thì giữ cờ và ghi R3 là không áp dụng cho PVG. DeformableGS còn lại: biến dạng ở một thời điểm, làm sau khi có checkpoint của #3.
 - **#11 trong bảng xếp hạng**: `d2s benchmark` chưa có nhóm "chunked" gộp `frames.jsonl` của các chunk (ARCHITECTURE mục 2.17), nên 6 run chunk chạy được nhưng chưa vào `week04.yaml`.
 - **#14 (SplatAD)**: chưa có approach trong tool, nên không có lệnh ở đây.

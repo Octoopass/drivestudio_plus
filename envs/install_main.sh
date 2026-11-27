@@ -190,6 +190,13 @@ if want 4; then
       git -C "$REPO" submodule update --init --recursive third_party/gsplat-geer
     else
       step "4/8 gsplat-geer $GSPLAT_VERSION (fork, kèm trong gói)"
+      # Repo chép bằng rsync (envs/vast.sh bỏ .git, nặng hàng trăm MB) có thư mục submodule glm
+      # rỗng; gói phát hành thì có sẵn. Thiếu thì lấy glm 1.0.1 như nhánh clone Bosch bên dưới.
+      SUB_GLM="$SUB_DIR/gsplat/cuda/csrc/third_party/glm"
+      if [ ! -f "$SUB_GLM/glm/gtc/type_ptr.hpp" ]; then
+        rm -rf "$SUB_GLM"
+        git clone --quiet --depth 1 --branch 1.0.1 https://github.com/g-truc/glm.git "$SUB_GLM"
+      fi
     fi
     build "$SUB_DIR" --no-build-isolation
   else
@@ -237,7 +244,8 @@ if want 8; then
   if [ -e "$REPO/.git" ]; then
     git -C "$REPO" submodule update --init --depth 1 third_party/Humans4D
   elif [ ! -f "$REPO/third_party/Humans4D/setup.py" ]; then
-    # gói nén không kèm submodule: clone đúng commit mà repo ghim
+    # Gói nén không kèm submodule, hoặc repo chép bằng rsync không có .git (xem bước 4): clone đúng
+    # commit mà repo ghim.
     rm -rf "$REPO/third_party/Humans4D"
     git clone --quiet "$HUMANS4D_REPO" "$REPO/third_party/Humans4D"
     git -C "$REPO/third_party/Humans4D" checkout --quiet "$HUMANS4D_COMMIT"

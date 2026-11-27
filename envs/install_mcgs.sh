@@ -123,6 +123,29 @@ if [ "$FROM" -le 4 ]; then
       "$PY" -m pip wheel -v --no-deps --no-build-isolation -w "$WHEELS" "$DIR/thirdparty/lietorch"
     fi
   fi
+  # `bdist_wheel -k` giữ build/bdist.* qua lần setup() thứ hai nên wheel lietorch mang cả
+  # droid_backends-*.dist-info, pip từ chối cài ("multiple .dist-info directories found"). Đóng gói lại
+  # wheel lietorch chỉ với dist-info của chính nó (.so của droid_backends vẫn nằm trong wheel).
+  "$PY" - "$WHEELS"/lietorch-*.whl <<'PYEOF'
+import sys
+import zipfile
+
+path = sys.argv[1]
+with zipfile.ZipFile(path) as src:
+    infos = {name.split("/")[0] for name in src.namelist() if name.split("/")[0].endswith(".dist-info")}
+    drop = tuple(sorted(info + "/" for info in infos if not info.startswith("lietorch-")))
+    if drop:
+        entries = [(item, src.read(item.filename)) for item in src.infolist()]
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as out:
+            for item, data in entries:
+                if item.filename.startswith(drop):
+                    continue
+                if item.filename.endswith(".dist-info/RECORD"):
+                    lines = data.decode().splitlines(keepends=True)
+                    data = "".join(line for line in lines if not line.startswith(drop)).encode()
+                out.writestr(item, data)
+        print("đã bỏ", ", ".join(drop), "khỏi", path)
+PYEOF
   git rev-parse HEAD > "$WHEELS/mcgs_commit.txt"
   "$PY" -m pip install -q --no-deps --force-reinstall "$WHEELS"/*.whl
 fi

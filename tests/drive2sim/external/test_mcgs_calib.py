@@ -44,9 +44,12 @@ def test_kitti_stereo_baseline() -> None:
         "image_01": [552.6, 552.6, 682.0, 238.8],
     }
     doc = calib_document(layout, intrinsics, rig)
-    assert layout == ["image_00", "image_01"]
+    # đối tác stereo lặp ở cuối: MCGS-SLAM chỉ chạy được khi có hơn hai thư mục (run #8 tuần 04)
+    assert layout == ["image_00", "image_01", "image_01"]
     assert doc["baseline"] == pytest.approx([-0.59, 0, 0, 0, 0, 0, 1])
-    assert doc["T_cami_cam0"] == [[0, 0, 0, 0, 0, 0, 1]] and doc["timescale"] == 1
+    assert doc["T_cami_cam0"][0] == [0, 0, 0, 0, 0, 0, 1] and doc["timescale"] == 1
+    assert doc["T_cami_cam0"][1] == pytest.approx(doc["baseline"])  # như calib/100613.yml
+    assert len(doc["intrinsic"]) == 3
     assert doc["camera"] == "pinhole"
     assert doc["intrinsic"][0] == [552.6, 552.6, 682.0, 238.8]  # không hệ số méo → 4 cột
 
