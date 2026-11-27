@@ -247,11 +247,16 @@ def test_reference_and_partner_are_set_by_params(tmp_path: Path) -> None:
 # ---------------------------------------------------------------- train.mcgs
 
 
-def write_prep(directory: Path, layout: list[str]) -> None:
+def write_prep(directory: Path, layout: list[str], frames: int = 10) -> None:
     """Thư mục ``mcgs_input`` giả: ``calib.yml`` và ``mcgs_prep.json`` đủ cho ``train.mcgs``."""
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "calib.yml").write_text("camera: pinhole\n", encoding="utf-8")
-    prep = {"layout": layout, "held_out": True, "reference_camera": layout[0]}
+    prep = {
+        "layout": layout,
+        "held_out": True,
+        "reference_camera": layout[0],
+        "frames": list(range(frames)),
+    }
     (directory / "mcgs_prep.json").write_text(json.dumps(prep), encoding="utf-8")
 
 
@@ -265,6 +270,16 @@ def test_build_command_full_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert cmd[-2:] == ["--prgbd", "--jdsa"]
     assert cmd[cmd.index("--imagedir") + 1].endswith("images/image_00")
     assert cmd[cmd.index("--output") + 1] == str(tmp_path / "out")
+
+
+def test_build_command_buffer_holds_every_frame(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bộ đệm video lớn hơn số khung, nếu không global BA chết ở ``video.nets[ii]``."""
+    monkeypatch.setenv("D2S_MCGS_DIR", str(tmp_path / "mcgs"))
+    write_prep(tmp_path / "in", ["image_00", "image_01", "image_01"], frames=864)
+    cmd = train_mcgs.build_command(tmp_path / "in", tmp_path / "out", "full")
+    assert int(cmd[cmd.index("--buffer") + 1]) > 864
 
 
 def test_build_command_repeats_the_partner_directory(
