@@ -162,7 +162,7 @@ def test_test_only_camera_is_left_out(tmp_path: Path) -> None:
     ]
     out = run_prep(tmp_path, cameras, test_only=("image_01",))
     prep = read_prep(out)
-    assert prep["layout"] == ["image_00", "image_02"] and prep["cameras"] == [
+    assert prep["layout"] == ["image_00", "image_02", "image_02"] and prep["cameras"] == [
         "image_00",
         "image_02",
     ]
@@ -207,7 +207,8 @@ def test_fisheye_camera_of_the_split_is_skipped_by_default(tmp_path: Path) -> No
         ("image_01", "opencv_pinhole"),
         ("image_02", "opencv_fisheye"),
     ]
-    assert read_prep(run_prep(tmp_path, cameras))["layout"] == ["image_00", "image_01"]
+    layout = read_prep(run_prep(tmp_path, cameras))["layout"]
+    assert layout == ["image_00", "image_01", "image_01"]
 
 
 def test_single_pinhole_camera_is_refused(tmp_path: Path) -> None:
@@ -222,8 +223,10 @@ def test_calib_file_parses(tmp_path: Path) -> None:
     assert {"intrinsic", "camera", "baseline", "T_cami_cam0", "timescale"} <= set(calib)
     assert calib["camera"] == "pinhole" and calib["timescale"] == 1
     assert calib["baseline"] == pytest.approx([-0.59, 0, 0, 0, 0, 0, 1])
-    assert calib["T_cami_cam0"] == [[0, 0, 0, 0, 0, 0, 1]]
-    assert calib["intrinsic"] == [[30.0, 30.0, 16.0, 12.0]] * 2
+    # đối tác stereo lặp ở cuối (MCGS-SLAM chỉ chạy nhánh nhiều camera): hàng 1 = baseline
+    assert calib["T_cami_cam0"][0] == [0, 0, 0, 0, 0, 0, 1]
+    assert calib["T_cami_cam0"][1] == pytest.approx(calib["baseline"])
+    assert calib["intrinsic"] == [[30.0, 30.0, 16.0, 12.0]] * 3
     assert read_prep(out)["reference_camera"] == "image_00"
 
 
