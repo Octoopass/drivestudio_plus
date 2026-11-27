@@ -87,6 +87,19 @@ run on Kaggle or Colab. See [docs/install.md](docs/install.md) (Vietnamese); ins
 [Releases](https://github.com/thaianh20021/drive2sim/releases) page. The manual steps
 below remain valid.
 
+**Installer packages (v0.3.0).** Download the package for your OS from
+[Releases](https://github.com/thaianh20021/drive2sim/releases/tag/v0.3.0), unpack it and run the
+installer inside. No git needed.
+
+| OS | Package | Install |
+|---|---|---|
+| Linux | [drive2sim-v0.3.0-linux.tar.gz](https://github.com/thaianh20021/drive2sim/releases/download/v0.3.0/drive2sim-v0.3.0-linux.tar.gz) (57 MB, includes submodules) | `tar -xzf drive2sim-v0.3.0-linux.tar.gz && bash drive2sim-v0.3.0/envs/install.sh` |
+| macOS | [drive2sim-v0.3.0-macos.tar.gz](https://github.com/thaianh20021/drive2sim/releases/download/v0.3.0/drive2sim-v0.3.0-macos.tar.gz) (4 MB) | `tar -xzf drive2sim-v0.3.0-macos.tar.gz && bash drive2sim-v0.3.0/envs/install.sh` |
+| Windows | [drive2sim-v0.3.0-windows.zip](https://github.com/thaianh20021/drive2sim/releases/download/v0.3.0/drive2sim-v0.3.0-windows.zip) (4.5 MB) | Unzip, then in PowerShell: `powershell -ExecutionPolicy Bypass -File drive2sim-v0.3.0\envs\install.ps1` |
+
+Checksums: [SHA256SUMS.txt](https://github.com/thaianh20021/drive2sim/releases/download/v0.3.0/SHA256SUMS.txt). Afterwards start Studio with `drive2sim-studio`
+and open <http://127.0.0.1:8765>.
+
 Clone the source first. Run the commands below from the resulting `drive2sim` folder:
 
 ```bash
