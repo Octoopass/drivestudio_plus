@@ -102,22 +102,32 @@ def smpl_for_keyframes(
     usable = np.flatnonzero(valid[index.numpy()])
     if not len(usable):
         return None
-    quats = toast.Quat.from_matrix(torch.from_numpy(rotations).float()).std().data
-    times = keyframes.float().view(1, -1).expand(24, -1)
+    quats = toast.Quat.from_matrix(torch.from_numpy(rotations).float()).std().data[index]
+    times = keyframes.float()
+    mask = torch.from_numpy(valid)[index]
+    # Mỗi khớp một lần gọi với thời gian một chiều (K,), thay vì cả 24 khớp với (24, K) như
+    # xsim.data.utils.smpl: với query hai chiều, sample_trajectory (torch backend, pytoast 6dadc76)
+    # gán out_quats[invalid_mask, 0] = 1 bằng mask bool hai chiều kèm chỉ số nguyên, PyTorch báo
+    # IndexError (gặp trên Kaggle, PyTorch 2.8). Mọi khớp chung mask nên kết quả như nhau (đã so
+    # trên cảnh PHENIKAA thật: lệch 0).
+    joints = []
     with toast.use_backend("torch"):
-        sampled = toast.sample_trajectory(
-            query_times=times,
-            seq_times=times,
-            seq_quats=quats[index].permute(1, 0, 2),
-            seq_mask=torch.from_numpy(valid)[index].view(1, -1).expand(24, -1),
-            extrapolate=False,
-            use_only_valid_keyframes=True,
-            return_mask=True,
-        )[0]
+        for joint in range(quats.shape[1]):
+            joints.append(
+                toast.sample_trajectory(
+                    query_times=times,
+                    seq_times=times,
+                    seq_quats=quats[:, joint],
+                    seq_mask=mask,
+                    extrapolate=False,
+                    use_only_valid_keyframes=True,
+                    return_mask=True,
+                )[0]
+            )
     first = int(index[int(usable[0])])
     return SMPLData(
         betas=torch.from_numpy(betas[first]).float(),
-        joint_q=sampled.permute(1, 0, 2).contiguous(),
+        joint_q=torch.stack(joints, dim=1).contiguous(),
     )
 
 
