@@ -174,8 +174,10 @@ def test_calibration_needs_two_seeds() -> None:
 
 def test_wave_one_needs_no_winner_and_runs_long_jobs_first() -> None:
     queue = week04.build_queue("1")
-    assert [c.number for c in queue] == ["1", "2", "3", "5", "6", "8"]
-    assert queue[0].argv() == [
+    assert [c.number for c in queue] == ["5", "1", "2", "3", "6", "8"]  # run dài trước
+    hours = [week04.EST_GPU_HOURS[c.number] for c in queue]
+    assert hours == sorted(hours, reverse=True)
+    assert next(c for c in queue if c.number == "1").argv() == [
         "omnire",
         "--scene",
         week04.WAYMO_SCENE,

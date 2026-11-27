@@ -25,15 +25,15 @@ Tài liệu liên quan: `docs/experiments/benchmark_week04_wave2_results.md` (k�
 
 | Đợt | # | Approach, `--set` | Cảnh, split | Ô | GPU-giờ (ước lượng) |
 |---|---|---|---|---|---|
-| 3 | 10 | omnire `renderer=3dgeer fastgs=true` | `kitti360_0003_long`, `every8_stereo_a3` | A3 A-LB | 1,2 |
-| 3 | 11 ×6 | như #10 | `kitti360_0003_long`, `every8_stereo_c1` … `c6` | B, chunked | 5,0 |
-| 4 | 1 | omnire `fastgs=true` | W1 mới, `every8_5cams` | W1 A-LB | 3,9 |
-| 4 | 2 | pvg | W1 mới | W1 A-L | 3,8 |
-| 4 | 3 | deformablegs | W1 mới | W1 A-L | 3,8 |
-| 4 | 4 | pvg `train.drivestudio.lidar=false` | W1 mới | W1 A-0 | 1,5 |
+| 3 | 10 | omnire `renderer=3dgeer fastgs=true` | `kitti360_0003_long`, `every8_stereo_a3` | A3 A-LB | 0,7 |
+| 3 | 11 ×6 | như #10 | `kitti360_0003_long`, `every8_stereo_c1` … `c6` | B, chunked | 3,6 (0,6 mỗi chunk) |
+| 4 | 1 | omnire `fastgs=true` | W1 mới, `every8_5cams` | W1 A-LB | 1,5 |
+| 4 | 2 | pvg | W1 mới | W1 A-L | 1,0 |
+| 4 | 3 | deformablegs | W1 mới | W1 A-L | 1,0 |
+| 4 | 4 | pvg `train.drivestudio.lidar=false` | W1 mới | W1 A-0 | 0,5 |
 | 4 | 8 | mcgs `prep.mcgs.cameras=FRONT,FRONT_LEFT,FRONT_RIGHT` | W1 mới | B | 0,6 |
 
-  Tổng khoảng 22 GPU-giờ. Các số của đợt 4 là số W1 cũ nhân 1,3 (khung nhiều hơn), sửa lại sau run đầu. Chạy một GPU lần lượt thì mất khoảng 24 giờ thuê cả dựng máy, khoảng 14 USD ở 0,575 USD/giờ (giá thật đợt 2).
+  Tổng khoảng 9 GPU-giờ (đợt 3 khoảng 4,3, đợt 4 khoảng 4,6). Số lấy từ run chạy một mình ở đợt 1, 2 (`EST_GPU_HOURS`, sửa 27/11): số cũ của Sheet gồm cả thời gian bị dừng khi hai run chạy song song, và số bước train cố định 30.000 nên cảnh nhiều khung hơn chủ yếu chỉ làm lâu phần eval. Sửa lại sau run đầu. Chạy một GPU lần lượt thì mất khoảng 11 giờ thuê kể cả dựng máy, khoảng 6–7 USD ở 0,575 USD/giờ (giá thật đợt 2).
 - **Một GPU, một worker** là mặc định. Lý do: ở đợt 1, container vast.ai bị giới hạn khoảng 61 lõi CPU và hai run song song bị throttle (`benchmark_week04_wave2.md` mục 1). Chỉ dùng máy 2 GPU (đợt 3 trên GPU 0, đợt 4 trên GPU 1) khi K muốn xong trong khoảng nửa ngày, và phải kiểm throttle như mục 5.3.
 - Máy đợt 2 (offer `62286745`) có thể chưa huỷ, và đã có env, cảnh KITTI-360, venv Waymo.
 
@@ -161,7 +161,7 @@ Tài liệu liên quan: `docs/experiments/benchmark_week04_wave2_results.md` (k�
 
 ## 7. Nếu còn thời gian và tiền (K quyết)
 
-- #13 BezierGS trên W1 mới (`queue --wave 4 --p2` thêm dòng #13, khoảng 3,9 GPU-giờ). Chỉ chạy khi `d2s approach check beziergs --scene <W1> --split every8_5cams` qua.
+- #13 BezierGS trên W1 mới (`queue --wave 4 --p2` thêm dòng #13, khoảng 2 GPU-giờ, chưa đo). Chỉ chạy khi `d2s approach check beziergs --scene <W1> --split every8_5cams` qua.
 - #12 PVG trên A3 (`queue --wave 2 --p2` có dòng #12. Đợt 2 có cả #4, #6, #7, #8 cũ, nên chỉ lấy riêng dòng #12 như cách tách ở 5.1).
 - SplatAD (#14): chưa có approach. Không làm trong đợt này nếu K không giao riêng.
 

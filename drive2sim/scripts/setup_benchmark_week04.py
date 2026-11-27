@@ -486,21 +486,24 @@ def print_commands(workdir: Workdir) -> int:
 
 
 EST_GPU_HOURS = {
-    "1": 3.9,  # W1 mới cả segment (~198 khung, W1 cũ 150): ước lượng cũ nhân 1,3
-    "2": 3.8,
-    "3": 3.8,
-    "4": 1.5,  # #4 đợt 2 (W1 cũ): 1172 s train; nhân 1,3 và cộng eval
+    "1": 1.5,  # OmniRe ~0,135 s/bước × 30.000 (đợt 1, chạy một mình) + init, SMPL, eval 5 camera
+    "2": 1.0,  # PVG ~0,08 s/bước × 30.000 + eval
+    "3": 1.0,  # như PVG (chưa đo riêng)
+    "4": 0.5,  # đo ở đợt 2 (76e9): train 1172 s + eval
     "5": 2.15,
-    "6": 0.7,  # đo ở đợt 1 (393f): train 0,58 giờ + eval
-    "7": 2.0,
-    "8": 0.6,  # đợt 2 trên cảnh dài: 1539 s; W1 ngắn hơn nhưng ba camera 1920×1280
+    "6": 0.7,  # đo ở đợt 1 (393f): train 0,58 giờ + eval; đợt 2 (7a64): train 1639 s
+    "7": 1.4,  # đo ở đợt 2 (fa62): train 4250 s
+    "8": 0.6,  # đo ở đợt 2 (3902, cảnh dài): 1539 s; W1 ngắn hơn nhưng ba camera 1920×1280
     "9": 2.5,
-    "10": 1.2,
-    "11": 5.0 / CHUNK_COUNT,
-    "12": 1.7,
-    "13": 3.9,
+    "10": 0.7,  # như #6 (OmniRe 3DGEER + FastGS, ~220 khung)
+    "11": 0.6,  # một chunk ~153 khung, như #6
+    "12": 1.0,
+    "13": 2.0,  # BezierGS chưa đo
 }
-"""GPU-giờ ước lượng trên RTX 4090 (cột GPU-giờ của Sheet; #11 tính cho một chunk, #13 đoán)."""
+"""GPU-giờ ước lượng của một run trên RTX 4090, chạy một mình (sửa 27/11/2026 theo số đo đợt 1, 2;
+số cũ của Sheet gồm cả thời gian bị dừng khi hai run chạy song song). Số bước train cố định
+30.000 nên số khung của cảnh chủ yếu làm đổi thời gian eval, không đổi thời gian train. #11 tính
+cho một chunk."""
 
 WAVE_RUNS = {
     "1": ("1", "2", "3", "5", "6", "8"),
