@@ -9,7 +9,7 @@ Gaussians không cần.
 Kết quả là artifact loại ``smpl`` trong ``cache/`` (stage có cache). Script chạy trên một thư mục
 cảnh ảo dựng bằng symlink (``drive2sim/stages/scene_view.py``), nên dữ liệu chuẩn không bị sửa.
 
-File này chứa ``build_command``, ``link_smpl_model`` và ``PrepSmplStage``.
+File này chứa ``pinhole_cameras``, ``build_command``, ``link_smpl_model`` và ``PrepSmplStage``.
 
 Cần GPU, gói ``hmr2`` (``third_party/Humans4D``) và ``phalp`` (``envs/install_main.sh`` bước 8),
 file ``SMPL_NEUTRAL.pkl`` (``drive2sim.paths.find_smpl_model``) và cảnh có box 3D.
@@ -48,7 +48,10 @@ OUTPUT_NAME = "humanpose"
 SMPL_DATASETS = set(DRIVESTUDIO_DATASETS)
 # Dataset theo khung KITTI: lớp người trong instances_info.json là HUMAN_CLASSES, nên đếm được
 # người để bỏ qua 4D-Humans khi cảnh không có ai.
-KITTI_LAYOUT_DATASETS = frozenset({"kitti", "kitti360"})
+KITTI_LAYOUT_DATASETS = frozenset({"kitti", "kitti360", "phenikaa"})
+# Dataset mà số và thứ tự camera khác nhau giữa các cảnh: smpl/run.py nhận chỉ số camera pinhole
+# của cảnh qua --cameras thay vì CAMERA_LIST cố định.
+CAMERAS_FROM_MANIFEST = frozenset({"phenikaa"})
 VIEW_DIR = "view"
 # Chỗ PHALP và 4D-Humans tìm SMPL, tính từ ~/.cache. Thiếu file thì PHALP tự wget một link đã chết
 # (github.com/classner/up, 404) rồi bỏ qua cảnh, script vẫn thoát 0.
@@ -96,21 +99,32 @@ def link_smpl_model(model: Path, cache_dir: Path) -> list[Path]:
     return created
 
 
-def build_command(dataset: str, view_root: Path) -> list[str]:
+def pinhole_cameras(manifest: Manifest) -> list[int]:
+    """Chỉ số các camera pinhole, theo thứ tự trong manifest (tên file ``<khung>_<chỉ số>``)."""
+    return [i for i, camera in enumerate(manifest.cameras) if camera.model == "opencv_pinhole"]
+
+
+def build_command(dataset: str, view_root: Path, cameras: Optional[list[int]] = None) -> list[str]:
     """Dựng câu lệnh ``python -m drive2sim.recon.preprocess.smpl.run``.
 
     Args:
         dataset: Dataset gốc trong manifest, ví dụ ``nuscenes``.
         view_root: Thư mục chứa cảnh ảo, truyền làm ``--data_root``.
+        cameras: Chỉ số camera cần dựng SMPL (``--cameras``); bắt buộc với dataset trong
+            ``CAMERAS_FROM_MANIFEST``, ``None`` thì script dùng ``CAMERA_LIST`` của dataset.
 
     Returns:
         Câu lệnh dạng danh sách.
 
     Raises:
-        ValueError: Nếu dataset chưa có bước chiếu box người của DriveStudio.
+        ValueError: Nếu dataset chưa có bước chiếu box người của DriveStudio, hoặc cần
+            ``cameras`` mà không có.
     """
     if dataset not in SMPL_DATASETS:
         raise ValueError(f"prep.smpl chưa hỗ trợ dataset {dataset}")
+    if dataset in CAMERAS_FROM_MANIFEST and not cameras:
+        raise ValueError(f"prep.smpl với dataset {dataset} cần chỉ số camera pinhole")
+    extra = ["--cameras", *(str(i) for i in cameras)] if cameras else []
     return [
         sys.executable,
         "-m",
@@ -121,6 +135,7 @@ def build_command(dataset: str, view_root: Path) -> list[str]:
         DRIVESTUDIO_DATASETS[dataset],
         "--scene_ids",
         str(int(VIEW_SCENE)),
+        *extra,
     ]
 
 
@@ -167,6 +182,15 @@ class PrepSmplStage(Stage):
             )
             ctx.progress(1.0, "cảnh không có người, bỏ qua SMPL")
             return {"smpl": ctx.output_dir}
+        cameras = pinhole_cameras(ctx.scene.manifest) if dataset in CAMERAS_FROM_MANIFEST else None
+        if cameras == []:
+            # 4D-Humans và phép chiếu box chỉ dùng camera pinhole: cảnh chỉ có mắt cá thì người
+            # được dựng bằng node biến dạng, như người chỉ hiện ở camera mắt cá của KITTI-360.
+            (ctx.output_dir / LOG_FILE).write_text(
+                f"cảnh {dataset} không có camera pinhole: bỏ qua bước dựng SMPL\n", "utf-8"
+            )
+            ctx.progress(1.0, "cảnh không có camera pinhole, bỏ qua SMPL")
+            return {"smpl": ctx.output_dir}
         # Cảnh nằm ở <thư mục làm việc>/data/<cảnh>/ (trên Kaggle: dưới /kaggle/input, khi đó
         # find_smpl_model tìm trong các dataset đã gắn).
         model = find_smpl_model(ctx.scene.root.parent.parent)
@@ -179,7 +203,7 @@ class PrepSmplStage(Stage):
         view_root = ctx.output_dir / VIEW_DIR
         view = build_view(ctx.scene.root, view_root, exclude=[OUTPUT_NAME])
         ctx.progress(0.0, "sinh SMPL bằng 4D-Humans")
-        command = build_command(ctx.scene.manifest.source.dataset, view_root)
+        command = build_command(dataset, view_root, cameras)
         run_logged(command, ctx.output_dir / LOG_FILE, should_stop=ctx.should_stop)
         collect_outputs(view, ctx.output_dir, [OUTPUT_NAME])
         shutil.rmtree(view_root)

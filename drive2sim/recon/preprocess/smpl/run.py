@@ -93,6 +93,9 @@ if __name__ == "__main__":
         default=12,
         help="FPS for the visualization video if verbose is True",
     )
+    # drive2sim: chỉ số camera cần dựng SMPL, thay CAMERA_LIST của dataset; bắt buộc với phenikaa
+    # (số và thứ tự camera khác nhau giữa các cảnh).
+    parser.add_argument("--cameras", type=int, nargs="+", default=None)
     args = parser.parse_args()
     
     if args.dataset == "waymo":
@@ -111,9 +114,15 @@ if __name__ == "__main__":
         from drive2sim.recon.preprocess.nuplan.human import project_human_boxes, CAMERA_LIST
     elif args.dataset == "physicalai":
         from drive2sim.recon.preprocess.physicalai.human import project_human_boxes, CAMERA_LIST
+    elif args.dataset == "phenikaa":
+        from drive2sim.recon.preprocess.phenikaa.human import project_human_boxes, CAMERA_LIST
     else:
-        raise ValueError(f"Unknown dataset {args.dataset}, please choose from waymo, pandaset, argoverse, nuscenes, kitti, kitti360, nuplan, physicalai")
-    
+        raise ValueError(f"Unknown dataset {args.dataset}, please choose from waymo, pandaset, argoverse, nuscenes, kitti, kitti360, nuplan, physicalai, phenikaa")
+    if args.cameras is not None:
+        CAMERA_LIST = args.cameras
+    if CAMERA_LIST is None:
+        raise ValueError(f"dataset {args.dataset} cần --cameras (chỉ số camera pinhole)")
+
     if args.scene_ids is not None:
         scene_ids_list = args.scene_ids
     elif args.split_file is not None:
