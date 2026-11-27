@@ -161,6 +161,14 @@ CATALOG: list[dict] = [
         "size": "~20 MB", "minutes": 1,
     },
     {
+        "id": "sdk-phenikaa", "group": "Dữ liệu", "name": "laspy (LiDAR PHENIKAA)",
+        "dataset": "phenikaa",
+        "desc": "Đọc LiDAR .laz của PHENIKAA khi ingest (kèm bộ giải nén lazrs).",
+        "links": [["GitHub", "https://github.com/laspy/laspy"]],
+        "check": ("import", ["laspy", "lazrs"]), "install": ("pip", ["laspy[lazrs]==2.7.0"]),
+        "size": "~5 MB", "minutes": 1,
+    },
+    {
         "id": "uv", "group": "Công cụ", "name": "uv (quản lý Python)",
         "desc": "Cài Instant NuRec và Colab CLI.",
         "links": [["Docs", "https://docs.astral.sh/uv/"]],
