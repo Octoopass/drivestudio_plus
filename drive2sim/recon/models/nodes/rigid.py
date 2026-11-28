@@ -138,15 +138,17 @@ class RigidNodes(VanillaGaussians):
                 assert self.xys_grad_norm is not None and self.vis_counts is not None and self.max_2Dsize is not None
                 
                 avg_grad_norm = self.xys_grad_norm / self.vis_counts
-                high_grads = (avg_grad_norm > self.ctrl_cfg.densify_grad_thresh).squeeze()
+                # reshape(-1) thay squeeze(): lớp chỉ còn 1 Gaussian thì squeeze cho mask vô hướng và
+                # _scales[mask] thêm một chiều (split_gaussians lỗi repeat); xem test_rigid_single_point
+                high_grads = (avg_grad_norm > self.ctrl_cfg.densify_grad_thresh).reshape(-1)
                 high_grads = self.fastgs_filter_densify(high_grads)
                 
                 splits = (
                     self.get_scaling.max(dim=-1).values > \
                         self.ctrl_cfg.densify_size_thresh * self.scene_scale
-                ).squeeze()
+                ).reshape(-1)
                 if self.step < self.ctrl_cfg.stop_screen_size_at:
-                    splits |= (self.max_2Dsize > self.ctrl_cfg.split_screen_size).squeeze()
+                    splits |= (self.max_2Dsize > self.ctrl_cfg.split_screen_size).reshape(-1)
                 splits &= high_grads
                 nsamps = self.ctrl_cfg.n_split_samples
                 (
@@ -162,7 +164,7 @@ class RigidNodes(VanillaGaussians):
                 dups = (
                     self.get_scaling.max(dim=-1).values <= \
                         self.ctrl_cfg.densify_size_thresh * self.scene_scale
-                ).squeeze()
+                ).reshape(-1)
                 dups &= high_grads
                 (
                     dup_means,
@@ -229,7 +231,7 @@ class RigidNodes(VanillaGaussians):
         """
         n_bef = self.num_points
         # cull transparent ones
-        culls = (self.get_opacity.data < self.ctrl_cfg.cull_alpha_thresh).squeeze()
+        culls = (self.get_opacity.data < self.ctrl_cfg.cull_alpha_thresh).reshape(-1)
         if self.ctrl_cfg.cull_out_of_bound:
             culls = culls | self.get_out_of_bound_mask()
         if self.step > self.ctrl_cfg.reset_alpha_interval:
@@ -237,12 +239,12 @@ class RigidNodes(VanillaGaussians):
             toobigs = (
                 torch.exp(self._scales).max(dim=-1).values > 
                 self.ctrl_cfg.cull_scale_thresh * self.scene_scale
-            ).squeeze()
+            ).reshape(-1)
             culls = culls | toobigs
             if self.step < self.ctrl_cfg.stop_screen_size_at:
                 # cull big screen space
                 assert self.max_2Dsize is not None
-                culls = culls | (self.max_2Dsize > self.ctrl_cfg.cull_screen_size).squeeze()
+                culls = culls | (self.max_2Dsize > self.ctrl_cfg.cull_screen_size).reshape(-1)
         culls = self.fastgs_extra_culls(culls)
         self._means = Parameter(self._means[~culls].detach())
         self._scales = Parameter(self._scales[~culls].detach())
@@ -446,6 +448,8 @@ class RigidNodes(VanillaGaussians):
     
     def compute_reg_loss(self) -> Dict[str, torch.Tensor]:
         loss_dict = super().compute_reg_loss()
+        if self.num_points == 0:
+            return loss_dict  # kthvalue, mean trên tensor rỗng lỗi hoặc NaN
         scaling_reg = self.reg_cfg.get("scaling_reg", None)
         if scaling_reg is not None:
             w = scaling_reg.w
@@ -567,7 +571,7 @@ class RigidNodes(VanillaGaussians):
         direct_color = self.colors[pts_mask]
         
         activated_opacities = self.get_opacity[pts_mask]
-        mask = activated_opacities.squeeze() > alpha_thresh
+        mask = activated_opacities.reshape(-1) > alpha_thresh
         return {
             "positions": means[mask],
             "colors": direct_color[mask],

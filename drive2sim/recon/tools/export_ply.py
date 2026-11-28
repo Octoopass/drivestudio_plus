@@ -34,9 +34,10 @@ def gaussians_from_state(sd):
     if scales.shape[1] == 1:          # ball gaussians
         scales = scales.repeat(1, 3)
     quats = torch.nn.functional.normalize(sd["_quats"].float(), dim=-1)
-    f_dc = sd["_features_dc"].float().reshape(len(means), -1)                 # (N,3)
+    # flatten(start_dim=1) thay reshape(N, -1): lớp bị prune hết (N=0) thì -1 mơ hồ và reshape lỗi
+    f_dc = sd["_features_dc"].float().flatten(start_dim=1)                    # (N,3)
     f_rest = sd["_features_rest"].float()                                     # (N,K,3)
-    f_rest = f_rest.transpose(1, 2).reshape(len(means), -1)                   # INRIA order: (N,3*K)
+    f_rest = f_rest.transpose(1, 2).flatten(start_dim=1)                      # INRIA order: (N,3*K)
     opac = sd["_opacities"].float().reshape(-1, 1)                            # logit
     return dict(means=means, scales=scales, quats=quats, f_dc=f_dc, f_rest=f_rest, opac=opac)
 

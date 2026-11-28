@@ -452,6 +452,9 @@ class VanillaGaussians(nn.Module):
     
     def compute_reg_loss(self):
         loss_dict = {}
+        if self.num_points == 0:
+            # lớp bị cull hết (FastGS prune RigidNodes trên cảnh dài): mean trên tensor rỗng cho NaN
+            return loss_dict
         sharp_shape_reg_cfg = self.reg_cfg.get("sharp_shape_reg", None)
         if sharp_shape_reg_cfg is not None:
             w = sharp_shape_reg_cfg.w
