@@ -90,10 +90,14 @@ segment xe chạy nhanh nên đi xa nhất trong 20 giây của một segment Wa
 WAYMO_W1_PREVIOUS = 23
 """W1 của đợt 1, 2 (``segment-10455472356147194054``, khung 0–149): quãng đường ngắn, thay ngày
 27/11/2026; run cũ trên cảnh đó giữ nguyên, không vào file định nghĩa mới."""
-WAYMO_INDEX = int(os.environ.get("D2S_W1_INDEX", str(WAYMO_W1_CANDIDATES[0])))
-"""Chỉ số W1 trong ``waymo_train_list.txt``; đổi bằng biến môi trường ``D2S_W1_INDEX`` (đặt cả ở
-máy thuê và máy mình, vì ``definition`` nhận run theo ``scene_id``). Mặc định là ứng viên đầu, tạm
-thời cho tới khi chọn bằng ``waymo-stats``."""
+WAYMO_W1_CHOSEN = 83
+"""W1 đã chọn (28/11/2026, đợt 3): ``segment-11839652018869852123_2565_000_2585_000``, 198 khung,
+575 m, 29,2 m/s, 13 xe chạy, không có người, trời sáng. Dài nhất trong 8 ứng viên; 41 (568 m) bị
+lóa nắng, 46 (567 m, 76 vật chạy) ngắn hơn 8 m và hơi tối."""
+WAYMO_INDEX = int(os.environ.get("D2S_W1_INDEX", str(WAYMO_W1_CHOSEN)))
+"""Chỉ số W1 trong ``waymo_train_list.txt``; mặc định ``WAYMO_W1_CHOSEN``, đổi bằng biến môi
+trường ``D2S_W1_INDEX`` (đặt cả ở máy thuê và máy mình, vì ``definition`` nhận run theo
+``scene_id``). Run W1 của đợt 1, 2 nằm trên cảnh khác nên ``definition`` bỏ qua."""
 
 
 def waymo_segment(index: int) -> str:
@@ -448,24 +452,27 @@ def print_commands(workdir: Workdir) -> int:
 
 
 EST_GPU_HOURS = {
-    "1": 1.5,  # OmniRe ~0,135 s/bước × 30.000 (đợt 1, chạy một mình) + init, SMPL, eval 5 camera
-    "2": 1.0,  # PVG ~0,08 s/bước × 30.000 + eval
-    "3": 1.0,  # như PVG (chưa đo riêng)
-    "4": 0.5,  # đo ở đợt 2 (76e9): train 1172 s + eval
+    "1": 0.65,  # đo ở đợt 3 (182d, W1 mới): train 1120 s + eval 558 s + mask, SMPL
+    "2": 0.8,  # đo ở đợt 3 (c88f): train 1741 s
+    "3": 1.65,  # đo ở đợt 3 (95e6): train 4910 s, VRAM 22 GB
+    "4": 0.7,  # đo ở đợt 3 (5267): train 1620 s; đợt 2 (76e9, cảnh cũ) 0,5
     "5": 2.15,
     "6": 0.7,  # đo ở đợt 1 (393f): train 0,58 giờ + eval; đợt 2 (7a64): train 1639 s
     "7": 1.4,  # đo ở đợt 2 (fa62): train 4250 s
-    "8": 0.6,  # đo ở đợt 2 (3902, cảnh dài): 1539 s; W1 ngắn hơn nhưng ba camera 1920×1280
+    "8": 0.15,  # đo ở đợt 3 (9b77, W1): 7 phút; đợt 2 (3902, cảnh dài) 1539 s
     "9": 2.5,
-    "10": 0.7,  # như #6 (OmniRe 3DGEER + FastGS, ~220 khung)
-    "11": 1.3,  # một khối 864 khung: 30.000 bước như #6, eval 216 ảnh, nhiều Gaussian hơn
+    "10": 0.9,  # đo ở đợt 3 (67b7): train 2954 s, 220 khung
+    "11": 0.6,  # đo ở đợt 3 (938c): train 1484 s + eval 280 s, mask và SMPL đã có trong cache;
+    # lần đầu trên cảnh dài thêm khoảng 0,75 giờ cho mask và SMPL
     "12": 1.0,
     "13": 2.0,  # BezierGS chưa đo
-    "15": 0.8,  # một khối 320 khung
-    "16": 0.65,  # một chunk 176 khung, như #6
+    "15": 1.0,  # đo ở đợt 3 (85bd): train 3265 s, một khối 320 khung
+    "16": 1.1,  # đo ở đợt 3 (2f64, f7f0): chunk 1 0,7 giờ, chunk 2 1,06 giờ; 176 khung mỗi chunk
 }
-"""GPU-giờ ước lượng của một run trên RTX 4090, chạy một mình (sửa 27/11/2026 theo số đo đợt 1, 2;
-số cũ của Sheet gồm cả thời gian bị dừng khi hai run chạy song song). Số bước train cố định
+"""GPU-giờ của một run trên RTX 4090, chạy một mình (sửa 28/11/2026 theo số đo đợt 3: thời gian từ
+lúc bắt đầu tới lúc xong trong hàng đợi, gồm train, eval và các bước mask, SMPL; #5, #6, #7, #9,
+#12, #13 còn là số đợt 1, 2 hoặc ước lượng; số cũ của Sheet gồm cả thời gian bị dừng khi hai run
+chạy song song). Số bước train cố định
 30.000 nên số khung của cảnh chủ yếu làm đổi thời gian eval, không đổi thời gian train. #16 tính
 cho một chunk."""
 
