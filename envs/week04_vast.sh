@@ -141,9 +141,9 @@ cmd_finish() {
 
 cmd_smoke() {
   need_host
-  # W1 theo D2S_W1_INDEX (mặc định ứng viên đầu, 2: giữ khớp WAYMO_W1_CANDIDATES[0] của
-  # setup_benchmark_week04); dòng index+1 của waymo_train_list.txt
-  local index="${D2S_W1_INDEX:-2}" segment
+  # W1 theo D2S_W1_INDEX (mặc định 83: giữ khớp WAYMO_W1_CHOSEN của setup_benchmark_week04);
+  # dòng index+1 của waymo_train_list.txt
+  local index="${D2S_W1_INDEX:-83}" segment
   segment="$(sed -n "$((index + 1))p" "$REPO/drive2sim/assets/scene_lists/waymo_train_list.txt")"
   vast run omnire --scene "waymo_$segment" --split every8_5cams --set fastgs=true --quick
 }
