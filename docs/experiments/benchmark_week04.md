@@ -176,3 +176,15 @@ python -m drive2sim.scripts.setup_benchmark_week04 definition && d2s benchmark b
 ```
 
 Chưa kiểm trên máy thật: `prep.mcgs` với ba camera Waymo và VRAM ở độ phân giải gốc; ingest các segment ứng viên; VRAM và thời gian của #11 trên 864 khung; `approach check` trên W1 mới (`bench_queue.sh` kiểm đầu hàng đợi).
+
+## 7. Đợt 3 đã chạy (27–28/11/2026)
+
+Kết quả, so chunk với một khối và lỗi gặp: `benchmark_week04_wave3_results.md`.
+
+- **W1 đã chọn: chỉ số 83**, `segment-11839652018869852123_2565_000_2585_000`, 198 khung, 575 m,
+  29,2 m/s, 13 xe chạy, không có người, trời sáng. Chọn bằng `waymo-stats` trong 8 ứng viên (41 bị
+  lóa nắng, 46 ngắn hơn 8 m). `WAYMO_INDEX` mặc định giờ là 83 (`WAYMO_W1_CHOSEN`); không cần
+  `D2S_W1_INDEX` nữa. `EST_GPU_HOURS` sửa theo số đo.
+- Đã chạy đủ #1, #2, #3, #4, #8, #10, #11, #15, #16 (hai chunk). #11 chạy thành công ở lần thứ 3,
+  sau hai bản sửa trong `drive2sim/recon/` (FastGS prune `RigidNodes` về 0 điểm; chưa commit).
+- #8 MCGS-SLAM trên W1: ATE 78,6 m, PSNR 13,2 dB, dưới ngưỡng của plan; chưa đổi cấu hình.

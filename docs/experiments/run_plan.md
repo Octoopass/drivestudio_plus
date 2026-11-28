@@ -341,6 +341,28 @@ train là thời gian thật.
 | `20261127-033252-pvg-fa62` | A2 A-L | PVG 3DGEER, `campose=false` | KITTI-360 0003 (200 khung), `every8_stereo_fisheye2` | 19,24 | 0,703 | 0,303 | 1 giờ 10 phút 50 | 6,9 GB |
 | `20261127-072153-mcgs-3902` | B2 | MCGS-SLAM `full`, `--buffer` 865 | KITTI-360 0003 dài (864 khung), `every8_pinhole2` | 10,25 | 0,388 | 0,638 | 25 phút 39 | không đo |
 
+### Benchmark tuần 04, đợt 3 (27–28/11/2026, vast.ai RTX 4090, 30.000 bước)
+
+Chi tiết, so chunk và lỗi gặp ở `benchmark_week04_wave3_results.md`. W1 mới là Waymo chỉ số 83
+(`segment-11839652018869852123_2565_000_2585_000`, 198 khung, 575 m). Chạy một run mỗi lúc nên
+thời gian train là thời gian thật. GPU: RTX 4090.
+
+| Run | Ô | Approach, cấu hình | Cảnh, split | PSNR | SSIM | LPIPS | Train | VRAM đỉnh |
+|---|---|---|---|---:|---:|---:|---:|---:|
+| `20261127-151558-omnire-182d` | W1 A-LB | OmniRe, FastGS | Waymo W1 mới, `every8_5cams` | 25,92 | 0,799 | 0,381 | 18 phút 40 | 2,8 GB |
+| `20261127-155423-pvg-c88f` | W1 A-L | PVG | Waymo W1 mới, `every8_5cams` | 24,01 | 0,755 | 0,470 | 29 phút 01 | 6,1 GB |
+| `20261127-164106-deformablegs-95e6` | W1 A-L | DeformableGS | Waymo W1 mới, `every8_5cams` | 24,04 | 0,764 | 0,442 | 1 giờ 21 phút 50 | 22,1 GB |
+| `20261127-215609-pvg-5267` | W1 A-0 | PVG, `lidar=false` | Waymo W1 mới, `every8_5cams` | 25,02 | 0,767 | 0,402 | 27 phút 00 | 5,6 GB |
+| `20261127-150833-mcgs-9b77` | W1 B | MCGS-SLAM `full`, FRONT, FRONT_LEFT, FRONT_RIGHT | Waymo W1 mới, `every8_5cams` | 13,23 | 0,648 | 0,771 | 6,8 phút | 0,4 GB |
+| `20261127-191729-omnire-67b7` | A3 A-LB | OmniRe 3DGEER, FastGS | KITTI-360 0003 dài, `every8_stereo_a3` | 27,45 | 0,852 | 0,126 | 49 phút 14 | 2,5 GB |
+| `20261127-225543-omnire-938c` | B2 | OmniRe 3DGEER, FastGS (`RigidNodes` về 0 điểm) | KITTI-360 0003 dài (864 khung), `every8_stereo_long` | 20,74 | 0,651 | 0,417 | 24 phút 44 | 2,7 GB |
+| `20261127-181810-omnire-85bd` | thử: một khối | OmniRe 3DGEER, FastGS | KITTI-360 0003 dài, `every8_stereo_t320` | 25,03 | 0,804 | 0,199 | 54 phút 25 | 2,6 GB |
+| `20261127-201027-omnire-2f64` | thử: chunk 1 | OmniRe 3DGEER, FastGS | KITTI-360 0003 dài, `every8_stereo_t320_c1` | 28,00 | 0,861 | 0,093 | 38 phút 50 | 2,5 GB |
+| `20261127-205220-omnire-f7f0` | thử: chunk 2 | OmniRe 3DGEER, FastGS | KITTI-360 0003 dài, `every8_stereo_t320_c2` | 23,73 | 0,798 | 0,159 | 1 giờ 00 phút 38 | 2,5 GB |
+
+Hai chunk gộp (#16): PSNR 25,74, SSIM 0,829, LPIPS 0,127, train 99,5 phút. Run hỏng của #11:
+`20261127-140512-omnire-95ca`, `20261127-223742-omnire-7ac1`. MCGS-SLAM trên W1: ATE 78,6 m.
+
 ### Giới hạn 90 độ của renderer và run 3DGEER 1000 bước (19–21/11/2026)
 
 - **Cả 3DGUT và 3DGEER không vẽ gì từ 90 độ lệch trục trở ra:** gsplat bỏ mọi Gaussian có tâm
