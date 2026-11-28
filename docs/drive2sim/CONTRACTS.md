@@ -193,7 +193,7 @@ LiDAR chiếu lên ảnh để kiểm tra calib, pose (`drive2sim/recon/tools/li
 
 ### 4.1 File khai báo
 
-`drive2sim/approaches/<approach_id>.yaml`. Approach là danh sách stage chạy lần lượt; các khâu thay thế được cho nhau là *mục cấu hình*, quyết định trước khi chạy (`ARCHITECTURE.md` mục 2.5).
+`drive2sim/approaches/<approach_id>.yaml`. Mỗi file là một **phương pháp** (OmniRe, PVG...), thuộc một **hướng tiếp cận** ghi ở `kind` (SPEC mục 3); tên `approach` trong định danh, file và API được giữ vì lý do lịch sử. Approach là danh sách stage chạy lần lượt; các khâu thay thế được cho nhau là *mục cấu hình*, quyết định trước khi chạy (`ARCHITECTURE.md` mục 2.5).
 
 ```yaml
 schema_version: d2s-approach/0.3

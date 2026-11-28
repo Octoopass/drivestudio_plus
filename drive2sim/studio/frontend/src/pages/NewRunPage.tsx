@@ -282,7 +282,8 @@ export function NewRunPage({
               return (
                 <section key={kind} className="approach-group" data-kind={kind}>
                   <h4 className="approach-group-title">
-                    {t(`new.kind.${kind}`)}
+                    {/* Hướng tiếp cận (kind) chứa các phương pháp (approach_id trong code). */}
+                    <span className="muted">{t("new.kind.label")}:</span> {t(`new.kind.${kind}`)}
                     <InfoTip>{t(`new.kind.${kind}.hint`)}</InfoTip>
                   </h4>
                   <div className="choice-list">

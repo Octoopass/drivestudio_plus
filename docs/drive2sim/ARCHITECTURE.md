@@ -177,6 +177,8 @@ theo từng mốc. Không thay loader, định dạng cảnh hay cách chọn ca
 
 ### 2.5 Approach là danh sách stage, có mục cấu hình, ràng buộc và preset
 
+**Thuật ngữ (28/11/2026).** Với người dùng, *hướng tiếp cận* là `kind` (tối ưu theo từng cảnh, feed-forward, SLAM) và *phương pháp* là một thuật toán cụ thể (OmniRe, PVG, Instant NuRec...). File và định danh trong code giữ tên `approach` (một file approach là một **phương pháp**), vì đổi tên sẽ phá `run.json` cũ, API, gói job Kaggle, Colab và test mà không thêm gì cho người dùng; Studio và phần chữ của CLI hiển thị "phương pháp" và "hướng tiếp cận" (SPEC mục 3).
+
 **Khái niệm.**
 - *Stage* là một lớp Python đăng ký theo tên (ví dụ `init.depth`), khai báo phiên bản, tham số, kiểu artifact vào và ra, có dùng LiDAR không, có được cache không (CONTRACTS mục 5.1).
 - *Approach* là file `drive2sim/approaches/<id>.yaml` gồm: danh sách stage chạy lần lượt; *mục cấu hình* (`options`) cho những khâu thay thế được cho nhau; *ràng buộc* (`constraints`) giữa các mục cấu hình; *preset* là tổ hợp cấu hình đặt sẵn; cùng track, mức năng lực, điều kiện dữ liệu (CONTRACTS mục 4) và loại phương pháp `kind` (`per_scene`, `feed_forward`, `slam`; chỉ để trang Chạy mới chia nhóm approach, engine không đọc).
@@ -1121,4 +1123,18 @@ adapter; trường `disabled` thêm một điều kiện vào các điểm vào 
 cài môi trường). **Phương án khác.** Xoá XSIM (mất công tích hợp, khó bật lại); giữ hiện mà chỉ
 cảnh báo (người dùng vẫn tốn GPU vào run sẽ hết VRAM); đổi cấu hình densify sang MCMC có trần (không
 còn là XSIM gốc, chưa đo chất lượng).
+
+### Thuật ngữ: hướng tiếp cận và phương pháp (28/11/2026)
+
+**Quyết định.** Người dùng thấy hai tầng: *hướng tiếp cận* (`kind`: tối ưu theo từng cảnh,
+feed-forward, SLAM) chứa các *phương pháp* (OmniRe, Street Gaussians, BezierGS, PVG, DeformableGS,
+Instant NuRec, MCGS-SLAM). Studio đổi chữ "Approach" thành "Phương pháp" ("Method" trong bản tiếng
+Anh) và ghi "Hướng tiếp cận:" trên tiêu đề nhóm ở trang Chạy mới; `d2s approach list` có cột "hướng
+tiếp cận" và xếp theo nó. Định danh, file, API và lệnh CLI giữ tên `approach`.
+
+**Lý do.** Trước đây chữ *approach* của tool chỉ thứ mà bài báo và người đọc gọi là *method*, còn
+cách giải bài toán lại không có tên riêng, nên dễ hiểu nhầm trên Studio và trong báo cáo.
+**Nhược điểm.** Code và tài liệu kỹ thuật vẫn dùng `approach` cho phương pháp, phải đọc ghi chú
+thuật ngữ (SPEC mục 3). **Phương án khác.** Đổi tên toàn bộ (`approach_id` → `method_id`, thư mục,
+API, `run.json`): phá dữ liệu và API cũ, không chọn.
 
