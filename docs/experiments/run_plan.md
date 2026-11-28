@@ -7,6 +7,9 @@ Ký hiệu:
 - **Ảnh train / test**: số ảnh của split.
 - **Độ phân giải**: kích thước ảnh lúc train (ảnh gốc thu nhỏ theo `downscale_when_loading` của config dataset).
 - **FGS** = FastGS, **FrGS** = Faster-GS; CamPose tắt ở mọi run.
+- **VRAM đo được:** dùng GiB, làm tròn một chữ số: `peak_vram_mb / 1024`. Dù tên trường
+  là `mb`, code train ghi `max_memory_allocated() // (1024 * 1024)`, tức MiB. Các số còn ghi
+  GB là số lịch sử chưa có dữ liệu gốc local để quy đổi, không coi là cùng đơn vị với GiB.
 - GPU: Kaggle T4 16 GB, trừ khi ghi khác. Mỗi cấu hình chạy một lần: chênh PSNR dưới khoảng 0,1 dB chưa đủ để kết luận.
 - **Code:** run `2d33`, `8d9c`, `453a`, `f8a6`, `6b85`, `ca4b`, `ac56` chạy code trước commit `5bfcd3d` (gom Gaussian theo node chưa tối ưu, `docs/methods/omnire_node_gather.md`); run đẩy sau commit đó chạy code mới, nhanh hơn mỗi bước mà kết quả không đổi. Khi so thời gian train, chỉ so các run cùng loại code.
 
@@ -19,18 +22,18 @@ Cảnh dùng:
 | Run | Trạng thái | Approach | Renderer | FGS | FrGS | Dataset, cảnh | Split (camera) | Ảnh train / test | Độ phân giải | Iter | PSNR | SSIM | LPIPS | PSNR người / xe / động | Thời gian train | VRAM đỉnh | Gaussian |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | (chạy thử, 14/11) | Xong (Quadro T2000 4 GB) | Street GS | 3DGS | có | có | nuScenes `scene-0061` | CAM_FRONT | | 400×225 (thu 4 lần) | 3 000 | 27,3 | | | | 389 s | 2,4 GB | |
-| `20261114-122510-omnire-2d33` | Xong | OmniRe | 3DGS | | | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 25,15 | 0,786 | 0,251 | 24,43 / 24,98 / 24,91 | 3 giờ 39 phút | 6,6 GB | 1,52 triệu |
-| `20261114-123142-omnire-8d9c` | Xong | OmniRe | 3DGS | | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 25,20 | 0,785 | 0,251 | 24,38 / 25,04 / 24,81 | 3 giờ 18 phút | 6,9 GB | 1,52 triệu |
-| `20261114-123155-omnire-453a` | Xong | OmniRe | 3DGS | có | | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 25,02 | 0,777 | 0,268 | 24,09 / 24,73 / 24,61 | 2 giờ 47 phút | 4,4 GB | 0,55 triệu |
-| `20261114-123210-omnire-f8a6` | Xong | OmniRe | 3DGS | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 25,01 | 0,778 | 0,269 | 24,15 / 24,75 / 24,62 | 2 giờ 29 phút | 4,7 GB | 0,55 triệu |
-| `20261115-124649-omnire-6b85` | Xong (`quynhctrc`) | OmniRe | 3DGEER | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 21,66 | 0,744 | 0,317 | 23,39 / 24,42 / 24,09 | 2 giờ 34 phút | 3,6 GB | 0,44 triệu |
+| `20261114-122510-omnire-2d33` | Xong | OmniRe | 3DGS | | | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 25,15 | 0,785 | 0,251 | 24,43 / 24,98 / 24,91 | 3 giờ 39 phút | 6,5 GiB | 1,52 triệu |
+| `20261114-123142-omnire-8d9c` | Xong | OmniRe | 3DGS | | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 25,20 | 0,785 | 0,251 | 24,38 / 25,04 / 24,81 | 3 giờ 18 phút | 6,8 GiB | 1,52 triệu |
+| `20261114-123155-omnire-453a` | Xong | OmniRe | 3DGS | có | | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 25,02 | 0,777 | 0,268 | 24,09 / 24,73 / 24,61 | 2 giờ 47 phút | 4,3 GiB | 0,55 triệu |
+| `20261114-123210-omnire-f8a6` | Xong | OmniRe | 3DGS | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 25,01 | 0,778 | 0,269 | 24,15 / 24,75 / 24,62 | 2 giờ 29 phút | 4,6 GiB | 0,55 triệu |
+| `20261115-124649-omnire-6b85` | Xong (`quynhctrc`) | OmniRe | 3DGEER | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 21,66 | 0,744 | 0,317 | 23,39 / 24,42 / 24,09 | 2 giờ 34 phút | 3,6 GiB | 0,44 triệu |
 | `20261115-132753-omnire-ac56` | Xong (`quanlam`): mốc để chỉnh ngưỡng, ghi thống kê densify (`docs/methods/densify_3dgut.md`) | OmniRe | 3DGS | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 2 000 | | | | | | | |
 | `20261115-132747-omnire-ca4b` | Xong (`quynhctrc`): 3DGUT nhánh Bosch densify ít hơn 3DGS 60–380 lần (`docs/methods/densify_3dgut.md`) | OmniRe | 3DGUT | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 2 000 | | | | | | | |
 | `20261115-183826-omnire-b8a9` | Xong (`quynhctrc`): 3DGEER densify mỗi 100 bước như 3DGS (`refine_interval=100`, Bosch để 300), so đường học với `f8a6`, `6b85` | OmniRe | 3DGEER | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 3 000 | 20,56 | 0,710 | 0,380 | 22,08 / 22,22 / 22,10 | 17 phút | | 1,32 triệu |
 | `20261116-013741-omnire-90dd` | Xong (`quynhctrc`, lần 2; lần 1 lỗi `linalg.solve` ở bước khoảng 600, đã sửa `dc94395`): 3DGUT `ut_densify=screen`, so tỉ lệ densify với `ca4b`, `ac56` (docs/methods/densify_3dgut.md) | OmniRe | 3DGUT | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 2 000 | 21,24 | 0,700 | 0,431 | | 10,5 phút | | 1,07 triệu |
 | `20261116-013718-omnire-a8a9` | Xong (`quynhctrc`): 3DGEER densify mỗi 50 bước (`refine_interval=50`), so với 3DGS `f8a6` | OmniRe | 3DGEER | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 21,77 | 0,752 | 0,300 | 23,91 / 24,46 / 24,33 | 2 giờ 43 phút | 4,3 GB | 0,54 triệu |
-| `20261116-043455-streetgs-ccec` | Xong (`haicaumuoi`): Street GS + FastGS | Street GS | 3DGS | có | không | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 25,02 | 0,779 | 0,264 | 22,94 / 24,48 / 24,01 | 1 giờ 11 phút | 3,4 GB | 0,43 triệu |
-| `20261116-043522-streetgs-ecaa` | Xong (`haicaumuoi`): Street GS + FastGS + Faster-GS | Street GS | 3DGS | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 24,96 | 0,779 | 0,264 | 22,57 / 24,38 / 23,76 | 1 giờ 3 phút | 3,7 GB | 0,43 triệu |
+| `20261116-043455-streetgs-ccec` | Xong (`haicaumuoi`): Street GS + FastGS | Street GS | 3DGS | có | không | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 25,02 | 0,779 | 0,264 | 22,94 / 24,48 / 24,01 | 1 giờ 11 phút | 3,3 GiB | 0,43 triệu |
+| `20261116-043522-streetgs-ecaa` | Xong (`haicaumuoi`): Street GS + FastGS + Faster-GS | Street GS | 3DGS | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 24,96 | 0,779 | 0,264 | 22,57 / 24,38 / 23,76 | 1 giờ 3 phút | 3,6 GiB | 0,43 triệu |
 | `20261116-064932-omnire-60e5` | Xong (`quynhctrc`): 3DGUT gốc (`ut_densify=native`) 30k, có profile, so với 3DGS `f8a6`; mask, SMPL dùng lại cache | OmniRe | 3DGUT | có | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 23,99 | 0,750 | 0,333 | 23,98 / 24,10 / 24,20 | 2 giờ 26 phút | 3,5 GB | 0,33 triệu |
 | `20261116-154844-omnire-a022` | Xong (`quynhctrc`, chung notebook với `44d8`): densify MCMC (`densify=mcmc`), SMPL bản phát hành; mốc sạch là `8d9c` | OmniRe | 3DGS | | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 23,56 | 0,716 | 0,403 | 22,39 / 20,82 / 21,76 | 2 giờ 31 phút | 3,8 GB | 1,18 triệu |
 | `20261116-154843-omnire-44d8` | Xong (`quynhctrc`, chung notebook với `a022`): densify MCMC; chưa có mốc 3DGUT sạch (`60e5` có FastGS) | OmniRe | 3DGUT | | có | nuScenes `scene-0061` | `front3` | 516 / 57 | 800×450 | 30 000 | 23,19 | 0,711 | 0,415 | 22,38 / 20,21 / 21,32 | 2 giờ 39 phút | 3,6 GB | 1,18 triệu |
@@ -44,11 +47,11 @@ Ghi chú:
 - Ngưỡng densify của 3DGUT: `docs/methods/densify_3dgut.md`.
 - Run `6b85` (3DGEER) thấp hơn run `f8a6` (3DGS, cùng FastGS + Faster-GS) 3,35 dB, và PSNR trên ảnh train cũng thấp (~21–22 dB ở cuối, run `2d33` ~26,5 dB): model học thiếu, không phải học vẹt. Số Gaussian nền gần như không tăng (0,96 triệu lúc đầu, cao nhất ~1,02 triệu ở bước 3000; run `2d33` lên 2,8 triệu) rồi giảm còn 0,29 triệu. Nghi densify của nhánh `geer` (ngưỡng 0,01 trên `geer_gradient`) quá ít; **chưa kiểm chứng**, cần so với log của `f8a6` (cùng FastGS) và thống kê densify của 3DGEER.
 - So với `f8a6` (cùng FastGS + Faster-GS): 3DGEER bản Bosch densify mỗi 300 bước (`refine_interval`), 3DGS mỗi 100. Run `b8a9` (3DGEER, densify mỗi 100 bước, 3000 bước) thu hẹp phần lớn khoảng cách ở 3000 bước đầu. PSNR train trung bình cộng dồn tới bước 3000: `f8a6` 20,41, `6b85` 19,65, `b8a9` 20,19 (khoảng cách 0,76 → 0,22 dB); Gaussian nền: 1,30 / 1,02 / 1,16 triệu. Còn ~0,2–0,3 dB có từ bước 500, trước khi densify bắt đầu (cả ba run cùng 0,96 triệu Gaussian): phần này do renderer, không do densify. Chưa biết khoảng cách ở 30 000 bước khi densify cùng nhịp; cần run đủ.
-- Run `a8a9` (3DGEER densify mỗi 50 bước, 30 000 bước) so với `6b85` (mỗi 300): PSNR 21,77 so với 21,66, SSIM 0,752 so với 0,744, LPIPS 0,300 so với 0,317; đổi lại train lâu hơn 6% (2 giờ 43 phút so với 2 giờ 34 phút), VRAM thêm 0,7 GB (4,3 so với 3,6 GB), Gaussian thêm 23%. Vẫn thấp hơn 3DGS `f8a6` 3,2 dB, nên mật độ densify không phải nguyên nhân chính. Mỗi cấu hình mới chạy một lần, chưa đo độ dao động giữa các lần chạy. Từ 16/11/2026 `omnire_geer.yaml` dùng `refine_interval: 50` làm mặc định (Street GS + 3DGEER giữ 300, chưa thử).
-- Run `60e5` (3DGUT gốc 30k) so với 3DGS `f8a6` (cùng FastGS + Faster-GS): PSNR 23,99 so với 25,01 (−1,0 dB), SSIM 0,750 so với 0,778, LPIPS 0,333 so với 0,269; vùng người, xe, vật động kém 0,2–0,7 dB. Thời gian train gần như bằng (2 giờ 26 phút so với 2 giờ 29 phút), VRAM ít hơn (3,5 so với 4,7 GB), Gaussian ít hơn 40% (0,33 so với 0,55 triệu): 3DGUT densify ít hơn hẳn (docs/methods/densify_3dgut.md), nên phần kém là chất lượng chứ không phải tốc độ. Lần dùng lại cache thật đầu tiên trên Kaggle: mask và SMPL lấy từ output `90dd`, bỏ được khoảng 99 phút GPU.
+- Run `a8a9` (3DGEER densify mỗi 50 bước, 30 000 bước) so với `6b85` (mỗi 300): PSNR 21,77 so với 21,66, SSIM 0,752 so với 0,744, LPIPS 0,300 so với 0,317; đổi lại train lâu hơn 6% (2 giờ 43 phút so với 2 giờ 34 phút), VRAM thêm khoảng 0,6 GiB (4,2 so với 3,6 GiB), Gaussian thêm 23%. Vẫn thấp hơn 3DGS `f8a6` 3,2 dB, nên mật độ densify không phải nguyên nhân chính. Mỗi cấu hình mới chạy một lần, chưa đo độ dao động giữa các lần chạy. Từ 16/11/2026 `omnire_geer.yaml` dùng `refine_interval: 50` làm mặc định (Street GS + 3DGEER giữ 300, chưa thử).
+- Run `60e5` (3DGUT gốc 30k) so với 3DGS `f8a6` (cùng FastGS + Faster-GS): PSNR 23,99 so với 25,01 (−1,0 dB), SSIM 0,750 so với 0,778, LPIPS 0,333 so với 0,269; vùng người, xe, vật động kém 0,2–0,7 dB. Thời gian train gần như bằng (2 giờ 26 phút so với 2 giờ 29 phút), VRAM ít hơn (3,4 so với 4,6 GiB), Gaussian ít hơn 40% (0,33 so với 0,55 triệu): 3DGUT densify ít hơn hẳn (docs/methods/densify_3dgut.md), nên phần kém là chất lượng chứ không phải tốc độ. Lần dùng lại cache thật đầu tiên trên Kaggle: mask và SMPL lấy từ output `90dd`, bỏ được khoảng 99 phút GPU.
 - Profile `60e5` (30 bước ở bước 2 000 và 20 000, GPU T4): 243 rồi 181 ms mỗi bước; rasterizer 3DGUT chiếm 24% rồi 14% (bước 20 000: backward 17 ms, forward 4 ms), Adam 13%, phần còn lại 62–73% là các phép PyTorch của model (chép bộ nhớ trên GPU 24 ms, phép tính từng phần tử khoảng 45 ms). Kỹ thuật kernel của Faster-GS (sort hai bước, backward theo từng Gaussian) chỉ tác động lên phần rasterizer: giảm một nửa backward cũng chỉ nhanh khoảng 5% mỗi bước. **Kết luận: không port kernel Faster-GS sang 3DGUT**; nếu cần nhanh hơn thì tối ưu phần model dùng chung mọi renderer (chép bộ nhớ, gom Gaussian theo node); việc cần làm với 3DGUT là chất lượng (densify).
 
-- MCMC (`a022` so với mốc sạch `8d9c`, cùng 3DGS + Faster-GS, không FastGS): PSNR 23,56 so với 25,20 (−1,6 dB), SSIM 0,716 so với 0,785, LPIPS 0,403 so với 0,251; train nhanh hơn (2 giờ 31 phút so với 3 giờ 18 phút), VRAM ít hơn (3,8 so với 6,9 GB). Mỗi node chạm đúng mức trần (nền 1 000 000, xe 50 000, vật biến dạng 10 000; SMPL 124 020 không densify), tổng 1,18 triệu so với 1,52 triệu của `8d9c`.
+- MCMC (`a022` so với mốc sạch `8d9c`, cùng 3DGS + Faster-GS, không FastGS): PSNR 23,56 so với 25,20 (−1,6 dB), SSIM 0,716 so với 0,785, LPIPS 0,403 so với 0,251; train nhanh hơn (2 giờ 31 phút so với 3 giờ 18 phút), VRAM ít hơn (3,7 so với 6,8 GiB). Mỗi node chạm đúng mức trần (nền 1 000 000, xe 50 000, vật biến dạng 10 000; SMPL 124 020 không densify), tổng 1,18 triệu so với 1,52 triệu của `8d9c`.
 - Mức trần không phải nguyên nhân chính: `f8a6` chỉ có 0,39 triệu Gaussian nền và 29 nghìn Gaussian xe mà đạt 25,01 dB, PSNR xe 24,75. Phần kém nhất của MCMC là xe (20,82 so với 25,04 ở `8d9c`) và vùng động (21,76 so với 24,81); nền kém ít hơn (PSNR vùng không phải trời 23,48 so với 25,21). Giả thuyết chưa kiểm: nhiễu MCMC và phép dời Gaussian áp trong hệ toạ độ riêng của từng xe với cùng hệ số như nền, hoặc dời Gaussian giữa các xe khác nhau (lấy mẫu chung cho mọi xe). Run MCMC chỉ cho nền không chạy: xem ảnh thì nền cũng mất chi tiết rõ, nên giả thuyết "nền ổn, chỉ xe hỏng" không đứng.
 - `44d8` (3DGUT + MCMC) so với `60e5` (3DGUT + FastGS) không sạch vì khác cả FastGS; xe cũng tụt mạnh nhất (20,21 so với 24,10).
 - **19/11/2026: gỡ MCMC khỏi lựa chọn của OmniRe** (không còn `densify` trong `omnire.yaml`; code, test giữ cho run cũ, thử lại bằng `--set train.drivestudio.densify=mcmc`). 3DGEER + MCMC không chạy: với FastGS, 3DGEER giữ số Gaussian nền bằng 3DGS (0,39 triệu ở cuối `a8a9` và `f8a6`) mà vẫn thấp hơn 3,2 dB, nên số và vị trí Gaussian (thứ duy nhất MCMC đổi) không phải chỗ nghẽn; Bosch khuyên dùng quy tắc gốc cho 3DGEER, và script MCMC trong `gsplat-geer` là của 3DGUT từ gsplat gốc (`docs/methods/densify_mcmc.md`).
@@ -210,13 +213,13 @@ renderer: nuScenes `scene-0061`, `front3`, 30.000 bước, Kaggle T4.
 | PSNR người / xe / vật động | 24,15 / 24,73 / 24,64 | 23,90 / 24,39 / 24,25 |
 | PSNR vùng không phải trời | 24,57 | 21,80 |
 | PSNR theo camera (FRONT, FRONT_LEFT, FRONT_RIGHT) | 24,54 / 24,23 / 25,09 | 21,47 / 21,03 / 22,62 |
-| Gaussian cuối, VRAM đỉnh, train | 0,41 triệu, 3,5 GB, 150 phút | 0,54 triệu, 4,3 GB, 160 phút |
+| Gaussian cuối, VRAM đỉnh, train | 0,41 triệu, 3,4 GiB, 150 phút | 0,54 triệu, 4,2 GiB, 160 phút |
 
 - 3DGEER kém 2,9 dB, gần hết ở nền tĩnh: vùng người, xe, vật động chỉ kém 0,25–0,4 dB. Khớp
   `6b85` (3DGEER, 21,66). Densify của nhánh 3DGEER khác hẳn (`densify_grad_thresh` 0,01 so
   với 0,0005 của 3DGUT; `refine_interval` 50); nghi đây là chỗ nền học thiếu, **chưa kiểm
   chứng** và không làm tiếp (21/11/2026).
-- FastGS giữ 3DGEER vừa T4 (4,3 GB).
+- FastGS giữ 3DGEER vừa T4 (4,2 GiB).
 
 ## Fisheye (pinhole + mắt cá)
 
@@ -301,10 +304,10 @@ lại từ `checkpoint_final.pth` (`d2s kaggle push --rerun eval.standard`). K�
 
 | Run | Renderer | Split | PSNR | SSIM | LPIPS | PSNR xe | Gaussian | Train | VRAM đỉnh | FPS render |
 |---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `e3e3` | 3DGEER | `every10_fisheye2` | 22,90 | 0,746 | **0,220** | 22,20 | 194k | 2 giờ 30 | 3,5 GB | 11,3 |
-| `146b` | 3DGUT | `every10_fisheye2` | **23,08** | **0,760** | 0,224 | **22,74** | 272k | **2 giờ 16** | **3,1 GB** | 11,3 |
-| `0b27` | 3DGEER | `every10_mixed4` | 21,37 | 0,765 | **0,214** | **21,45** | 218k | 2 giờ 01 | 3,4 GB | 12,9 |
-| `e627` | 3DGUT | `every10_mixed4` | **23,72** | **0,769** | 0,234 | 21,14 | 208k | **1 giờ 37** | **3,1 GB** | **14,9** |
+| `e3e3` | 3DGEER | `every10_fisheye2` | 22,90 | 0,746 | **0,220** | 22,20 | 194k | 2 giờ 30 | 3,4 GiB | 11,3 |
+| `146b` | 3DGUT | `every10_fisheye2` | **23,08** | **0,760** | 0,224 | **22,74** | 272k | **2 giờ 16** | **3,0 GiB** | 11,3 |
+| `0b27` | 3DGEER | `every10_mixed4` | 21,37 | 0,765 | **0,214** | **21,45** | 218k | 2 giờ 01 | 3,4 GiB | 12,9 |
+| `e627` | 3DGUT | `every10_mixed4` | **23,72** | **0,769** | 0,234 | 21,14 | 208k | **1 giờ 37** | **3,0 GiB** | **14,9** |
 
 Theo từng camera (PSNR / SSIM / LPIPS):
 
@@ -329,10 +332,26 @@ Nhận xét:
 - SSIM, LPIPS ở đây không so được với số protocol 0.2 cũ của `0b27`, `e627`
   (0,823/0,183 và 0,829/0,198); PSNR không đổi giữa hai protocol.
 
+### Chạy lại fisheye với vùng che 88° (21/11/2026)
+
+Run `20261121-030815-omnire-82bc`, cảnh `kitti360_drive0003_v3`, OmniRe + 3DGUT + FastGS +
+Faster-GS, CamPose tắt, split `every10_fisheye2`, khung 0–199: 362 ảnh train / 38 test,
+ảnh 700×700, 30.000 bước, Kaggle T4. Nguồn: `eval.standard/summary.json` trong thư mục run;
+protocol 0.3. Artifact đầy đủ đã tải về máy ngày 28/11/2026, gồm checkpoint và các gói export.
+
+| Run | PSNR | SSIM | LPIPS | PSNR image_02 / image_03 | PSNR xe / động | Gaussian | Train | VRAM đỉnh | FPS render |
+|---|---:|---:|---:|---|---|---:|---|---:|---:|
+| `82bc` | 22,84 | 0,763 | 0,223 | 23,27 / 22,41 | 22,71 / 22,71 | 266.003 | 1 giờ 59 phút (7146,802 s) | 3,0 GiB | 12,1 |
+
+So với `146b`, PSNR tổng thấp hơn 0,24 dB nhưng tập pixel khác nhau: `82bc` chấm thêm vành
+83–88°. Chưa thể kết luận chất lượng trên cùng vùng ảnh tăng hay giảm nếu chưa đo lại cùng
+mask hoặc cùng dải góc. Xem thêm báo cáo tuần 03, mục run đầy đủ với vùng che 88°.
+
 ### Benchmark tuần 04, đợt 2 (27/11/2026, vast.ai RTX 4090, 30.000 bước)
 
 Chi tiết và so sánh ở `benchmark_week04_wave2_results.md`. Chạy một run mỗi lúc nên thời gian
-train là thời gian thật.
+train là thời gian thật. VRAM trong bảng đợt 2 giữ nguyên đơn vị GB được ghi trong báo cáo
+nguồn; chưa có `summary.json` local để quy đổi và xác minh theo GiB.
 
 | Run | Ô | Approach, cấu hình | Cảnh, split | PSNR | SSIM | LPIPS | Train | VRAM đỉnh |
 |---|---|---|---|---:|---:|---:|---:|---:|
