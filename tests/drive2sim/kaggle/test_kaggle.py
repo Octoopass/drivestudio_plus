@@ -363,6 +363,29 @@ def test_resume_picks_newest_attempt_that_has_the_run(tmp_path: Path) -> None:
     assert found is not None and found.relative_to(tmp_path).parts[0] == "d2s-abc-2"
 
 
+def test_resume_finds_attempts_mounted_under_notebooks(tmp_path: Path) -> None:
+    """Kaggle gắn output ở input/notebooks/<user>/<tên>/ (đo 28/11/2026): vẫn chọn lần mới nhất.
+
+    Trước đây chỉ xét thành phần đầu (luôn là ``notebooks``) nên mọi lần đẩy hoà nhau và lần cũ
+    nhất theo tên (chưa có checkpoint) được chọn: train XSIM chạy lại từ bước 1.
+    """
+    from types import SimpleNamespace
+
+    from drive2sim.kaggle.bundle import _find_previous_run
+
+    record = SimpleNamespace(
+        scene_id=SCENE, run_id=RUN_ID, approach=SimpleNamespace(approach_id="omnire")
+    )
+    for attempt in (5, 7):
+        base = tmp_path / "notebooks" / "alice" / f"seq-xsim-64ad-{attempt}"
+        run = base / "runs" / SCENE / "omnire" / RUN_ID / D2S_DIR
+        run.mkdir(parents=True)
+        (run / RUN_FILE).write_text("{}")
+    kernels = ["alice/seq-xsim-64ad-7", "alice/seq-xsim-64ad-5"]
+    found = _find_previous_run(tmp_path, record, kernels)  # type: ignore[arg-type]
+    assert found is not None and "seq-xsim-64ad-7" in found.parts
+
+
 def test_skip_local_cache_pattern(tmp_path: Path) -> None:
     workdir = Workdir(tmp_path)
     pattern = executor.skip_local_cache(workdir)  # chưa có cache: vẫn bỏ wheel đã build

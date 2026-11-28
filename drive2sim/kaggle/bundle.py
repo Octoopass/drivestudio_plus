@@ -112,7 +112,9 @@ def _find_previous_run(
 ) -> Optional[Path]:
     """Tìm thư mục run trong output đã gắn của lần đẩy mới nhất có kết quả của run này.
 
-    Kaggle gắn output của notebook ``<user>/<tên>`` ở ``<input_root>/<tên>/``. Lần đẩy gần nhất có
+    Kaggle gắn output của notebook ``<user>/<tên>`` ở ``<input_root>/notebooks/<user>/<tên>/``
+    (đo trên Kaggle 28/11/2026; trước đây là ``<input_root>/<tên>/``), nên tên notebook được tìm
+    trong mọi thành phần đường dẫn trước ``runs/``, không chỉ thành phần đầu. Lần đẩy gần nhất có
     thể không có gì (ví dụ lỗi ngay lúc cài môi trường), nên duyệt theo thứ tự ``kernels`` (mới
     nhất trước) và lấy lần đầu tiên có ``run.json`` của run; thư mục không thuộc ``kernels`` xét
     sau cùng.
@@ -122,8 +124,9 @@ def _find_previous_run(
     order = [kernel.split("/")[-1] for kernel in kernels]
 
     def rank(path: Path) -> int:
-        top = path.relative_to(input_root).parts[0]
-        return order.index(top) if top in order else len(order)
+        parts = path.relative_to(input_root).parts
+        mount = set(parts[: parts.index("runs")])
+        return next((i for i, name in enumerate(order) if name in mount), len(order))
 
     return min(found, key=rank) if found else None
 
