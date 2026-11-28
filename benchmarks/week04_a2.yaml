@@ -1,0 +1,15 @@
+schema_version: d2s-benchmark/0.2
+entries:
+- bench_track: A
+  cell: A-LB
+  scene_id: kitti360_2013_05_28_drive_0003_sync
+  split_id: every8_stereo_fisheye2
+  runs:
+  - 20261126-185145-omnire-f4be
+  - 20261127-045255-omnire-7a64
+- bench_track: A
+  cell: A-L
+  scene_id: kitti360_2013_05_28_drive_0003_sync
+  split_id: every8_stereo_fisheye2
+  runs:
+  - 20261127-033252-pvg-fa62

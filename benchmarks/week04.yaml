@@ -1,0 +1,51 @@
+schema_version: d2s-benchmark/0.3
+entries:
+- bench_track: A
+  cell: A-LB
+  scene_id: waymo_segment-11839652018869852123_2565_000_2585_000_with_camera_labels
+  split_id: every8_5cams
+  runs:
+  - 20261127-151558-omnire-182d
+- bench_track: A
+  cell: A-L
+  scene_id: waymo_segment-11839652018869852123_2565_000_2585_000_with_camera_labels
+  split_id: every8_5cams
+  runs:
+  - 20261127-155423-pvg-c88f
+  - 20261127-164106-deformablegs-95e6
+- bench_track: A
+  cell: A-0
+  scene_id: waymo_segment-11839652018869852123_2565_000_2585_000_with_camera_labels
+  split_id: every8_5cams
+  runs:
+  - 20261127-215609-pvg-5267
+- bench_track: A
+  cell: A-LB
+  scene_id: kitti360_0003_long
+  split_id: every8_stereo_a3
+  runs:
+  - 20261127-191729-omnire-67b7
+- bench_track: B
+  scene_id: waymo_segment-11839652018869852123_2565_000_2585_000_with_camera_labels
+  split_id: every8_5cams
+  runs:
+  - 20261127-150833-mcgs-9b77
+- bench_track: B
+  scene_id: kitti360_0003_long
+  split_id: every8_stereo_long
+  runs:
+  - 20261127-225543-omnire-938c
+- bench_track: B
+  scene_id: kitti360_0003_long
+  split_id: every8_stereo_t320
+  runs:
+  - 20261127-181810-omnire-85bd
+chunked:
+- bench_track: B
+  label: '#16 thử: 2 chunk trên 320 khung (so với #15 một khối)'
+  scene_id: kitti360_0003_long
+  chunks:
+  - split_id: every8_stereo_t320_c1
+    run_id: 20261127-201027-omnire-2f64
+  - split_id: every8_stereo_t320_c2
+    run_id: 20261127-205220-omnire-f7f0
