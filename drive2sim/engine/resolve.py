@@ -68,6 +68,25 @@ class ResolveError(ValueError):
     """
 
 
+class ApproachDisabledError(ResolveError):
+    """Approach bị tắt (trường ``disabled`` của file approach): không tạo, chạy hay đẩy run.
+
+    Là ``ResolveError`` nên ứng với mã lỗi ``invalid_request`` và mã thoát CLI ``2``.
+    """
+
+
+def require_enabled(approach: Approach) -> None:
+    """Từ chối approach bị tắt, kèm lý do ghi trong file approach.
+
+    Raises:
+        ApproachDisabledError: Nếu ``approach.disabled`` có giá trị.
+    """
+    if approach.disabled:
+        raise ApproachDisabledError(
+            f"approach {approach.approach_id} đã tắt trong tool: {approach.disabled}"
+        )
+
+
 @dataclass(frozen=True)
 class BlockReason:
     """Một lý do khiến approach hoặc một lựa chọn không chạy được trên cảnh này.
@@ -724,10 +743,13 @@ def resolve(
         ``Plan`` gồm giá trị của mọi mục cấu hình và danh sách stage cố định.
 
     Raises:
-        ResolveError: Nếu yêu cầu hoặc file approach sai (mã thoát ``2``).
+        ResolveError: Nếu yêu cầu hoặc file approach sai (mã thoát ``2``), hoặc approach bị tắt
+            (``ApproachDisabledError``).
         BlockedError: Nếu dữ liệu hoặc tổ hợp lựa chọn không cho phép chạy (mã thoát ``3``);
             chứa mọi lý do tìm được.
     """
+    # Approach bị tắt không tạo được run mới (approach check, run start, Studio cùng đi qua đây).
+    require_enabled(approach)
     if split.scene_id != manifest.scene_id:
         raise ResolveError(
             f"split {split.split_id} thuộc cảnh {split.scene_id}, không phải {manifest.scene_id}"

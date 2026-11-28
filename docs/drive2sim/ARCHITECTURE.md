@@ -862,7 +862,7 @@ KITTI-360 và PHENIKAA đã dùng chung `StandardPixelSource`; có ánh xạ tê
 | Việc | Trạng thái | Commit |
 |---|---|---|
 | Nhập nguồn PHENIKAA: calib riêng, camera thiếu ảnh, tên camera viết thường; Studio nhận calib, camera và khoảng khung KITTI-360; thư viện ingest trong bản cài Studio | Đã triển khai và có test hồi quy; nghiệm thu local bằng dataset giả lập từ 30 khung PHENIKAA, không train | |
-| XSIM | Môi trường riêng (`envs/install_xsim.sh`), đầu vào là gói quan sát chung (`prep.observations`), chấm bằng scorer chung; Kaggle và Colab cài thêm venv XSIM. Chưa nghiệm thu GPU. | |
+| XSIM | **Tạm dừng, đã tắt trong tool (28/11/2026, `disabled` trong `approaches/xsim.yaml`)**: pipeline chạy hết trên Kaggle tới `train.xsim` (loss giảm đều) nhưng T4 16 GB hết VRAM ở bước densify khoảng 7.000–7.800/40.000; xem [kế hoạch XSIM](XSIM_INTEGRATION_PLAN.md) mục 12. Code, môi trường riêng (`envs/install_xsim.sh`), gói quan sát chung (`prep.observations`) và scorer chung được giữ. | `0cf5106`, `19e3d5b`, `ab087e3` |
 | Bàn giao `d2s pack`, ingest và môi trường thân thiện, SMPL theo split | Code và test local hoàn tất; chưa nghiệm thu train GPU cho thay đổi loader; gói 11 run thật đã ghi trên USB và kiểm đủ 15.708 mã băm sau giải nén; Studio đọc 11 run, đã render thử một frame bằng GPU có sẵn | |
 | Kaggle: gói output thành tar theo run và mục cache | Code và test local hoàn tất; có đường tải file rời cho notebook cũ và khi gói lỗi; chưa chạy bước gói trên Kaggle thật | |
 | Docs thiết kế (SPEC, ARCHITECTURE, CONTRACTS) | Xong, cập nhật theo từng quyết định | |
@@ -1099,3 +1099,26 @@ không đổi. Build và sinh kiểu Studio qua. Playwright headless với API t
 kiểm mở nháp, bỏ nháp trên server, tẩy đúng nguồn saved, quay lại camera vẫn có nháp, từ chối
 revision cũ và lưu thành mask chính thức; không có lỗi JavaScript. Đây là kiểm chứng local,
 không thay thế train/render bằng dữ liệu thật trên GPU hoặc thực thi cloud.
+
+### Tạm dừng XSIM, tắt approach thay vì xoá (28/11/2026)
+
+**Quyết định.** Không dùng XSIM trong tool ở giai đoạn này. Approach `xsim` được tắt bằng trường
+`disabled` của file approach (CONTRACTS mục 4.1): ẩn khỏi Studio, CLI, Trợ lý; mọi đường tạo, chạy
+tiếp, xuất lại, đẩy run và cài môi trường riêng đều từ chối kèm lý do. Code (`external/xsim/`,
+stage `prep.observations`, `train.xsim`, `eval.xsim`, `envs/install_xsim.sh`) và run cũ được giữ.
+
+**Lý do.** Sau khi sửa các lỗi tích hợp (MPLBACKEND, SMPL PHENIKAA, `workdir` của stage, biến môi
+trường của config gốc, bản vá pytoast, chạy tiếp trên Kaggle), XSIM train được trên Kaggle nhưng hết
+VRAM của T4 (14,56 GB dùng được) ở bước densify khoảng 7.000–7.800/40.000 trên cả hai split
+PHENIKAA. Chiến lược densify `Eval3D` của cấu hình gốc không giới hạn số Gaussian; README XSIM cần
+GPU từ 24 GB; Kaggle không cấp L4 (yêu cầu `NvidiaL4` vẫn chạy T4). XSIM là method mô phỏng cảm biến
+(camera cùng LiDAR, cảnh sửa được); mục tiêu hiện tại của tool là dựng lại ảnh camera, nơi OmniRe
+nhẹ hơn và đã chạy ổn.
+
+**Ưu điểm.** Không mất công tích hợp đã làm; bật lại bằng cách bỏ một dòng; approach khác, run và
+API khác không đổi. **Nhược điểm.** Code XSIM vẫn phải giữ biên dịch được và test vẫn chạy phần
+adapter; trường `disabled` thêm một điều kiện vào các điểm vào (`resolve`, `execute_run`, push,
+cài môi trường). **Phương án khác.** Xoá XSIM (mất công tích hợp, khó bật lại); giữ hiện mà chỉ
+cảnh báo (người dùng vẫn tốn GPU vào run sẽ hết VRAM); đổi cấu hình densify sang MCMC có trần (không
+còn là XSIM gốc, chưa đo chất lượng).
+

@@ -1,6 +1,7 @@
 # Kế hoạch tích hợp XSIM vào drive2sim
 
 Ngày lập: 21/11/2026. Branch: `feat/xsim-integration`, tách từ `drive2sim` tại `cd993b7`.
+Trạng thái (28/11/2026): **tạm dừng, approach `xsim` đã tắt trong tool** (ẩn, không tạo hay chạy run; code và run cũ được giữ). XSIM train được trên Kaggle nhưng T4 16 GB hết VRAM ở bước densify khoảng 7.000/40.000; xem mục 12.
 Trạng thái (25/11/2026): **đã patch đủ đường local, Kaggle, Colab với đầu vào chung (`prep.observations`) và chấm điểm chung. Chưa cài môi trường, chưa chạy train/eval trên GPU, chưa chạy `prep.observations` trên cảnh thật**. Mục 11 ghi thay đổi của đợt này.
 
 Mục 1–7 ghi phạm vi và thứ tự triển khai. Mục 8 ghi bằng chứng theo revision đã kiểm, mục 9 ghi kết quả thử và mục 10 liệt kê các điều kiện nghiệm thu.
@@ -731,3 +732,67 @@ Còn mở, chưa sửa:
 - `summary.json` của XSIM chưa có thời gian train, số Gaussian, VRAM train và PSNR theo vùng
   người, xe, vật động.
 
+
+## 12. Chạy thử trên Kaggle và quyết định tạm dừng (26–28/11/2026)
+
+Hai run trên PHENIKAA `residential-area` (200 khung, 6 camera, có người và box): `every10_fisheye2`
+(run `20261126-153154-xsim-9cac`) và `every10_pinhole4` (`20261126-153155-xsim-64ad`), mặc định
+40.000 bước, Kaggle T4.
+
+### 12.1 Lỗi đã sửa, theo thứ tự gặp
+
+| Lỗi | Nguyên nhân (đã đo) | Sửa |
+|---|---|---|
+| Cài venv XSIM hỏng ở bước kiểm import | Kernel Jupyter đặt `MPLBACKEND` inline, venv XSIM không có backend đó | `75c6b8f`: `MPLBACKEND=Agg` cho installer, worker, probe |
+| `prep.smpl`: `Unknown dataset phenikaa` | PHENIKAA có trong danh sách SMPL nhưng `smpl/run.py` không có nhánh | `879e2aa`: dùng phép chiếu box của KITTI trên camera pinhole của cảnh (`--cameras`) |
+| `prep.observations` bị giết (mã `-9`) | Hai run chung một máy hết RAM | Đẩy mỗi run một notebook |
+| `train.xsim`: `relative_to` sai gốc | Cảnh đọc qua thư mục ảo `.runtime/<run>/scene_view/000`, worker suy workdir từ cảnh | `a06ea2a`: `StageContext.workdir` |
+| Chạy lại không dùng output lần trước | Kaggle bỏ `kernel_sources` lỗi; notebook kết thúc `error` khi run lỗi | `4f9c242`: notebook kết thúc `complete`, chỉ gắn nguồn `complete` |
+| `IndexError` của pytoast khi nạp SMPL | `out_quats[invalid_mask, 0] = 1` với mask bool hai chiều | `f6c3eb8`: gọi từng khớp (adapter) |
+| Config gốc đòi `WAYMO_ROOT_PATH` | `provider.yaml` dùng biến môi trường bắt buộc, adapter không dựng provider Waymo | `0cf5106`: giá trị giữ chỗ |
+| Cùng `IndexError` trong `init_loader` của XSIM | Như trên, ở chỗ gọi của XSIM | `19e3d5b`: `patches/pytoast.patch` áp vào submodule trước khi build |
+| Chạy lại từ bước 1 dù có checkpoint | Kaggle gắn output ở `input/notebooks/<user>/<tên>/`, code chỉ xét thành phần đầu nên chọn output cũ nhất | `ab087e3` |
+
+### 12.2 Kết quả: train được, hết VRAM
+
+- Sau các sửa trên, `train.xsim` chạy: loss 2,36 ở bước 1 xuống khoảng 0,36–0,43 ở bước 7.000–7.800.
+- Cả hai split hết VRAM của T4 (`total capacity of 14.56 GiB`) **trong lúc densify**
+  (`eval3d_strategy.densify` → `split_by_mask`): `pinhole4` ở bước 7.000, `fisheye2` ở 7.800; lặp lại
+  ở lần chạy sau (cùng bước). Tốc độ khoảng 0,9 giây mỗi bước, 40.000 bước khoảng 10 giờ.
+- Checkpoint ở khoảng bước 7.000 nặng 2,5 GB (trọng số, trạng thái Adam, bộ đệm sampler).
+- Đẩy với `--accelerator NvidiaL4` vẫn chạy trên `Tesla T4` (log `nvidia-smi`, `TORCH_CUDA_ARCH_LIST=7.5`):
+  tài khoản không được cấp L4 (chưa kiểm vì sao).
+
+### 12.3 Vì sao nặng
+
+- Chiến lược densify của cấu hình gốc (`nodes/gaussian/strategy/eval3d_static.yaml`): densify tới
+  bước 20.000, reset độ mờ mỗi 4.000 bước rồi nghỉ 1.000 bước, **không có trần số Gaussian**. Từ bước
+  5.000 densify chạy lại và số Gaussian tăng tới khi hết bộ nhớ. XSIM có chiến lược MCMC có trần
+  (`mcmc_static` 5 triệu, `mcmc_rigid` 2 triệu, `mcmc_deformable` 300 nghìn) nhưng cấu hình mặc
+  định không dùng.
+- Mỗi Gaussian có thêm 13 kênh đặc trưng (`features/raw.yaml`) cho decoder CNN; Adam giữ hai mô-men
+  cho mọi tham số.
+- Ảnh pinhole 960×768, mắt cá 960×540 (thu nhỏ 2 lần); khởi tạo từ LiDAR của cả 200 sweep.
+- README XSIM: train cần GPU từ 24 GB, suy luận từ 12 GB.
+
+### 12.4 Quyết định (28/11/2026)
+
+Không dùng XSIM trong tool ở giai đoạn này. Approach `xsim` bị tắt bằng trường `disabled`
+(CONTRACTS mục 4.1): ẩn khỏi Studio, CLI, Trợ lý; tạo, chạy tiếp, xuất lại, đẩy run và cài môi trường
+riêng đều từ chối. Code, bản vá, test adapter và run cũ được giữ.
+
+XSIM là **method** (thuật toán của bài báo, codebase ngoài) được tool bọc thành **approach** (chuỗi
+`prep.masks_segformer` → `prep.smpl` → `prep.observations` → `train.xsim` → `eval.xsim`); khác OmniRe,
+approach không chỉnh được bên trong method (renderer, densify). Method này hợp với **mô phỏng cảm
+biến**: log nhiều camera và nhiều LiDAR, cần render lại cả camera lẫn LiDAR và sửa được cảnh (vật động
+có quỹ đạo, dùng cho mô phỏng vòng kín), rig trộn pinhole và mắt cá, có GPU từ 24 GB. Không hợp khi
+chỉ cần ảnh camera từ góc mới (OmniRe, PVG nhẹ hơn, đã có số), GPU dưới 24 GB, hoặc không có LiDAR.
+Tool hiện chỉ đánh giá RGB; xuất LiDAR của XSIM chưa nối.
+
+### 12.5 Để bật lại
+
+1. Có GPU từ 24 GB (vast.ai RTX 4090, Colab có trả phí) hoặc chấp nhận cấu hình khác bản gốc (MCMC
+   có trần, hoặc `downscale=4`) và ghi rõ trong tên preset, kết quả.
+2. Bỏ dòng `disabled` trong `drive2sim/approaches/xsim.yaml`.
+3. Đẩy lại hai run trên; chúng chạy tiếp từ checkpoint khoảng bước 7.000 (output `64ad-7`, `9cac-6`
+   trên Kaggle) nếu output còn.

@@ -872,6 +872,11 @@ class Approach(VersionedFile):
             train, eval đầy đủ trên GPU); Studio và ``d2s approach list`` gắn nhãn "thử nghiệm".
             Chỉ để hiển thị, engine không đọc. Thêm sau ``d2s-approach/0.3`` mà không tăng phiên
             bản (không bắt buộc, mặc định ``False``).
+        disabled: Lý do approach bị tắt, hoặc ``None`` khi đang dùng. Approach bị tắt không hiện
+            trong danh sách (Studio, ``d2s approach list``, Trợ lý), không tạo được run mới, run
+            đã có không chạy tiếp được và môi trường riêng của nó không cài qua tool; code và run
+            cũ được giữ, xem và tải về được. Thêm sau ``d2s-approach/0.3`` mà không tăng phiên
+            bản (không bắt buộc).
         dynamics: Cách dựng vật chuyển động (``Dynamics``): ``boxes`` (node riêng theo box 3D),
             ``time`` (Gaussian đổi theo thời gian, không cần box), ``option`` (tuỳ mục cấu hình,
             mặc định tắt), ``static`` (bản đồ tĩnh). Studio hiện thành nhãn trên thẻ approach. Chỉ
@@ -899,6 +904,7 @@ class Approach(VersionedFile):
     level: Level
     kind: ApproachKind = "per_scene"
     experimental: bool = False
+    disabled: Optional[str] = None
     dynamics: Optional[Dynamics] = None
     requires: Requires
     options: dict[str, OptionSpec] = {}

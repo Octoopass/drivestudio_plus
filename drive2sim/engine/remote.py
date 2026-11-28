@@ -53,11 +53,14 @@ def require_remote_codebase(approach_id: str, where: str) -> bool:
         ``True`` nếu job phải cài thêm môi trường XSIM.
 
     Raises:
-        ValueError: Nếu approach chạy bằng codebase khác ``REMOTE_CODEBASES``.
+        ValueError: Nếu approach chạy bằng codebase khác ``REMOTE_CODEBASES``, hoặc approach bị
+            tắt (``ApproachDisabledError``).
     """
-    from drive2sim.engine.approaches import load_approach
+    from drive2sim.engine.approaches import load_approach, require_enabled
 
-    codebase = load_approach(approach_id).codebase
+    approach = load_approach(approach_id)
+    require_enabled(approach)  # approach bị tắt: không đẩy run lên Kaggle, Colab
+    codebase = approach.codebase
     if codebase not in REMOTE_CODEBASES:
         raise ValueError(
             f"approach {approach_id} chạy bằng codebase ngoài ({codebase}), {where} chưa dựng "

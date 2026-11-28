@@ -209,7 +209,7 @@ Khi pipeline có nhiều bước đánh giá, bảng so sánh hiển thị kết
 
 - Nhẹ: một tiến trình phục vụ cả API lẫn giao diện; trạng thái lưu trong thư mục, không cần cơ sở dữ liệu.
 - Approach chạy ở môi trường khác (XSIM) nhận dữ liệu qua gói quan sát xuất từ loader chung, không tự đọc lại thư mục cảnh.
-- XSIM hướng tới L1 trên local, Kaggle và Colab. Tiến độ và bằng chứng nằm trong [kế hoạch XSIM](XSIM_INTEGRATION_PLAN.md).
+- XSIM hướng tới L1 trên local, Kaggle và Colab. **Tạm dừng từ 28/11/2026**: approach `xsim` bị tắt (ẩn, không tạo hay chạy run) vì train cần GPU từ 24 GB; tiến độ, bằng chứng và điều kiện bật lại nằm trong [kế hoạch XSIM](XSIM_INTEGRATION_PLAN.md) mục 12.
 - Approach từ codebase khác chạy trong môi trường riêng; các approach dòng DriveStudio dùng chung môi trường của repo.
 - Mọi run ghi kết quả theo cùng một định dạng, kèm cấu hình đầy đủ, phiên bản mã nguồn và thông tin phần cứng để chạy lại được.
 - Thêm approach mới chỉ cần khai báo và thêm stage còn thiếu; không sửa engine, Studio hay server.
