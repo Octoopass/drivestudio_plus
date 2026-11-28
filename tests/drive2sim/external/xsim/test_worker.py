@@ -129,3 +129,32 @@ def test_smpl_model_is_converted_outside_artifacts(
     assert not env["SMPL_PATH"].startswith(str(tmp_path / "work"))
     assert xsim_worker.smpl_environment(ctx, observations, tmp_path / "work") == env
     assert len(commands) == 1
+
+
+def test_native_config_env_fills_unused_waymo_paths_without_overriding() -> None:
+    """Config gốc XSIM đòi WAYMO_ROOT_PATH...: thiếu thì jetcon từ chối đọc (lỗi trên Kaggle)."""
+    from drive2sim.external.xsim import NATIVE_CONFIG_ENV, set_native_config_env
+
+    environ = {"WAYMO_CACHE_PATH": "/data/cache"}
+    set_native_config_env(environ)
+    assert set(NATIVE_CONFIG_ENV) == {
+        "WAYMO_ROOT_PATH",
+        "WAYMO_CACHE_PATH",
+        "WAYMO_SMPL_DATA_PATH",
+    }
+    assert environ["WAYMO_ROOT_PATH"].startswith("/nonexistent/")
+    assert environ["WAYMO_CACHE_PATH"] == "/data/cache"
+
+
+def test_pytoast_patch_replaces_the_failing_mask_assignment() -> None:
+    """Bản vá pytoast bỏ out_quats[invalid_mask, 0] = 1 (IndexError trên Kaggle, PyTorch 2.8)."""
+    from drive2sim import paths
+
+    patch = (paths.PACKAGE_DIR / "external" / "xsim" / "patches" / "pytoast.patch").read_text()
+    assert "-        out_quats[invalid_mask, 0] = 1" in patch
+    assert (
+        "+        out_quats = torch.where(invalid_mask.unsqueeze(-1), identity, out_quats)"
+        in patch
+    )
+    install = (paths.PACKAGE_DIR.parent / "envs" / "install_xsim.sh").read_text()
+    assert 'apply "$PYTOAST_PATCH"' in install

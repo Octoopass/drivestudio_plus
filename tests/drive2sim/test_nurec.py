@@ -226,7 +226,9 @@ def test_remote_executors_refuse_external_codebases() -> None:
     with pytest.raises(ValueError, match="codebase ngoài"):
         remote.require_remote_codebase("nurec", "Colab")
     assert remote.require_remote_codebase("streetgs", "Kaggle") is False
-    assert remote.require_remote_codebase("xsim", "Kaggle") is True
+    # XSIM bị tắt (approaches/xsim.yaml, disabled): không đẩy lên Kaggle, Colab nữa.
+    with pytest.raises(ValueError, match="đã tắt"):
+        remote.require_remote_codebase("xsim", "Kaggle")
 
 
 def test_install_flow_knows_nurec_and_skips_python_version(tmp_path: Path) -> None:

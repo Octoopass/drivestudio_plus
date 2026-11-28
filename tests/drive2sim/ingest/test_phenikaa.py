@@ -217,3 +217,56 @@ def test_existing_scene_is_rejected_before_reading_source(tmp_path: Path) -> Non
     workdir.scene_dir("phenikaa_complex-city").mkdir(parents=True)
     with pytest.raises(IngestError, match="đã có"):
         ingest_phenikaa(tmp_path / "source-does-not-exist", workdir, "COMPLEX CITY")
+
+
+def test_skipped_cameras_are_reported_in_validation(tmp_path: Path) -> None:
+    """Camera bị bỏ có lý do trong ingest.json và mục ingest.camera_skipped của validation.json."""
+    raw = make_source(tmp_path / "raw", fisheye_frames=2)
+    scene = run_ingest(raw, Workdir(tmp_path / "work"), plan_ingest(inspect_source(raw)))
+    skipped = json.loads((scene / "reports" / "ingest.json").read_text())["cameras_skipped"]
+    assert skipped["CAM_F_L"] == "2/3 ảnh" and skipped["CAM_P_FL"] == "không có thư mục ảnh"
+    checks = json.loads((scene / "reports" / "validation.json").read_text())["checks"]
+    by_camera = {
+        c["details"]["camera"]: c for c in checks if c["check_id"] == "ingest.camera_skipped"
+    }
+    assert (
+        by_camera["CAM_F_L"]["severity"] == "warning"
+        and "2/3 ảnh" in by_camera["CAM_F_L"]["message"]
+    )
+    assert by_camera["CAM_P_FL"]["severity"] == "info"
+
+
+def test_lowercase_camera_folders_ingest(tmp_path: Path) -> None:
+    raw = make_source(tmp_path / "raw")
+    for name in ("CAM_P_F", "CAM_F_L"):
+        (raw / "TEST SEQ" / "camera" / name).rename(raw / "TEST SEQ" / "camera" / name.lower())
+    scene = run_ingest(raw, Workdir(tmp_path / "work"), plan_ingest(inspect_source(raw)))
+    manifest = files.load(scene / "manifest.yaml", Manifest)
+    assert [c.camera_id for c in manifest.cameras] == ["CAM_P_F", "CAM_F_L"]
+    assert (scene / "images" / "002_1.jpg").is_file()
+
+
+def test_missing_lidar_and_unknown_camera_have_clear_errors(tmp_path: Path) -> None:
+    raw = make_source(tmp_path / "raw")
+    target = plan_ingest(inspect_source(raw))
+    with pytest.raises(IngestError, match="tên hợp lệ: CAM_P_F"):
+        run_ingest(
+            raw,
+            Workdir(tmp_path / "w1"),
+            target,
+            phenikaa_options=phenikaa.PhenikaaOptions(cameras=("CAM_X",)),
+        )
+    # Chọn camera viết thường vẫn khớp.
+    scene = run_ingest(
+        raw,
+        Workdir(tmp_path / "w2"),
+        target,
+        phenikaa_options=phenikaa.PhenikaaOptions(cameras=("cam_p_f",)),
+    )
+    skipped = json.loads((scene / "reports" / "ingest.json").read_text())["cameras_skipped"]
+    assert skipped["CAM_F_L"] == "không chọn (--cameras)"
+    import shutil
+
+    shutil.rmtree(raw / "TEST SEQ" / "lidar")
+    with pytest.raises(IngestError, match="không có thư mục lidar/"):
+        run_ingest(raw, Workdir(tmp_path / "w3"), plan_ingest(inspect_source(raw)))

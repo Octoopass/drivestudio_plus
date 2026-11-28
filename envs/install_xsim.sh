@@ -2,7 +2,7 @@
 # Cài XSIM (codebase ngoài, ARCHITECTURE mục 2.9) vào D2S_XSIM_DIR (mặc định ~/.cache/drive2sim/xsim),
 # bốn bước chạy tiếp được:
 #   1. mã nguồn avision-team/XSIM đúng commit chốt, submodule pytoast và xsimgs theo gitlink, áp
-#      drive2sim/external/xsim/patches/runtime.patch;
+#      drive2sim/external/xsim/patches/runtime.patch, và patches/pytoast.patch vào submodule pytoast;
 #   2. venv riêng (.venv, Python 3.11) bằng uv, PyTorch 2.8 CUDA 12.8;
 #   3. build pytoast rồi xsimgs (extension CUDA), cài requirements của XSIM với các gói git đã chốt
 #      commit trong envs/xsim-constraints.txt;
@@ -29,6 +29,9 @@ PY="python3"
 FROM=1
 REVISION=5c86a33a036f3163f78eff5dcd8d3fc75c05d2a3
 PATCH="$REPO/drive2sim/external/xsim/patches/runtime.patch"
+# Bản vá submodule pytoast (gitlink 6dadc76): sample_trajectory gán out_quats[mask, 0] với mask bool
+# nhiều chiều, PyTorch báo IndexError (XSIM init_loader và SMPL, gặp trên Kaggle 27/11/2026).
+PYTOAST_PATCH="$REPO/drive2sim/external/xsim/patches/pytoast.patch"
 CONSTRAINTS="$REPO/envs/xsim-constraints.txt"
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -53,6 +56,9 @@ if [ "$FROM" -le 1 ]; then
   [ "$(git -C "$SRC" rev-parse HEAD)" = "$REVISION" ] || { echo "revision XSIM không khớp" >&2; exit 1; }
   git -C "$SRC" submodule update --quiet --init --recursive
   git -C "$SRC" apply "$PATCH"
+  # Như trên: bỏ bản vá cũ của submodule rồi áp bản hiện tại (pytoast build ở bước 3, không editable).
+  git -C "$SRC/third_party/pytoast" checkout --quiet --force -- .
+  git -C "$SRC/third_party/pytoast" apply "$PYTOAST_PATCH"
 fi
 
 if [ "$FROM" -le 2 ]; then

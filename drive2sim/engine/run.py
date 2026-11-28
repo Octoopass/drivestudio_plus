@@ -41,6 +41,7 @@ from drive2sim import paths
 from drive2sim.core import files, identifiers
 from drive2sim.core.schema import (
     SCHEMA_VERSIONS,
+    Approach,
     ArtifactRecord,
     EnvRecord,
     ErrorInfo,
@@ -64,7 +65,13 @@ from drive2sim.engine.cache import (
 from drive2sim.engine.environment import MissingModuleError
 from drive2sim.engine.machine import current_machine, package_versions, same_machine
 from drive2sim.engine.registry import REGISTRY, StageRegistry
-from drive2sim.engine.resolve import Plan, ResolveError, validate_params, wire_inputs
+from drive2sim.engine.resolve import (
+    Plan,
+    ResolveError,
+    require_enabled,
+    validate_params,
+    wire_inputs,
+)
 from drive2sim.engine.stage import SCENE_INPUT, Scene, StageCancelledError
 from drive2sim.engine.workdir import KAGGLE_SCENE_FILE, Workdir, WorkdirError
 from drive2sim.ingest.ego_masks import mask_digest, snapshot_masks
@@ -928,12 +935,27 @@ def execute_run(
 
     Raises:
         KeyboardInterrupt: Khi người dùng ngắt; run được ghi ``cancelled`` trước.
-        ResolveError: Nếu tham số đã lưu không còn hợp lệ với code hiện tại của stage.
+        ResolveError: Nếu tham số đã lưu không còn hợp lệ với code hiện tại của stage, hoặc
+            approach của run đã bị tắt (``ApproachDisabledError``).
     """
     record = files.load(Path(run_dir) / D2S_DIR / RUN_FILE, RunRecord)
+    require_enabled_approach(record.approach.approach_id)
     runner = _Runner(Path(run_dir), record, workdir, registry, sink)
     runner.machine = record_machine(Path(run_dir))
     return runner.execute()
+
+
+def require_enabled_approach(approach_id: str) -> None:
+    """Từ chối chạy tiếp run của approach bị tắt (``disabled``); run cũ vẫn xem, tải được.
+
+    ``execute_run`` gọi hàm này; nơi sửa ``run.json`` trước khi chạy (đặt lại, chèn stage để xuất
+    lại kết quả) gọi nó trước khi sửa, để run cũ không bị đổi trạng thái rồi mới bị từ chối.
+
+    Run có ``approach_id`` không còn file approach (run thử, approach đã gỡ) không bị chặn ở đây.
+    """
+    path = paths.APPROACHES_DIR / f"{approach_id}.yaml"
+    if path.is_file():
+        require_enabled(files.load(path, Approach))
 
 
 def list_runs(workdir: Workdir, scene_id: Optional[str] = None) -> list[RunRecord]:

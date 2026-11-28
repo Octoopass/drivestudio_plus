@@ -9,10 +9,13 @@ File này chứa:
   tự chọn khi chỉ có một khả năng, báo rõ các lựa chọn khi có nhiều. Từ chối sớm (trước khi chạy
   script) khi dataset nằm ở thư mục con, cha (báo tên thư mục cần truyền) hoặc khi nuScenes thiếu
   ``sweeps/`` mà ingest có nội suy.
+- ``converter_options``: dựng lựa chọn của converter KITTI-360, PHENIKAA (camera, calib, khung)
+  từ tham số người dùng, cho CLI và Studio.
 - ``run_ingest``: gọi converter của dataset: ``ingest_drivestudio`` với tham số riêng của
   dataset (nuScenes: nội suy), hoặc ``ingest_kitti360`` (khung đầu, số khung, camera, khoảng hở).
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -25,6 +28,42 @@ from drive2sim.ingest.drivestudio import ingest_drivestudio
 
 class IngestRequestError(ValueError):
     """Yêu cầu ingest thiếu hoặc sai: dataset không nhận ra, phiên bản hay chuỗi không có."""
+
+
+def converter_options(
+    dataset: str,
+    cameras: Optional[Sequence[str]] = None,
+    calib: Optional[Path] = None,
+    start_frame: int = 0,
+    num_frames: Optional[int] = None,
+    max_gap: int = kitti360.DEFAULT_MAX_GAP,
+) -> tuple[kitti360.Kitti360Options, phenikaa.PhenikaaOptions]:
+    """Lựa chọn của converter KITTI-360 và PHENIKAA từ tham số người dùng.
+
+    ``d2s scene ingest`` và Studio cùng gọi, nên hai nơi nhận cùng tuỳ chọn. Tuỳ chọn không áp
+    dụng cho dataset đang ingest bị bỏ qua (camera của KITTI-360 chỉ dùng khi ingest KITTI-360).
+
+    Args:
+        dataset: Dataset đang ingest.
+        cameras: Camera cần ghi; rỗng là mặc định của converter.
+        calib: PHENIKAA: thư mục calib.
+        start_frame: KITTI-360: số hiệu khung gốc nhỏ nhất.
+        num_frames: KITTI-360: số khung tối đa.
+        max_gap: KITTI-360: khoảng hở tối đa giữa hai khung.
+
+    Returns:
+        ``(Kitti360Options, PhenikaaOptions)``.
+    """
+    chosen = tuple(c.strip() for c in cameras or () if c.strip()) or None
+    kitti = kitti360.Kitti360Options(
+        start_frame=start_frame,
+        num_frames=num_frames,
+        cameras=chosen if dataset == kitti360.DATASET and chosen else kitti360.CAMERAS,
+        max_gap=max_gap,
+    )
+    return kitti, phenikaa.PhenikaaOptions(
+        cameras=chosen, calib_dir=Path(calib).expanduser() if calib else None
+    )
 
 
 @dataclass(frozen=True)
@@ -86,6 +125,13 @@ def plan_ingest(
             f"chưa hỗ trợ ingest {dataset}; hỗ trợ: {', '.join(sorted(INGEST_SUPPORTED))}"
         )
     versions = report.versions
+    if not any(versions.values()):
+        # Ví dụ ép --source-type mà thư mục không có chuỗi nào đúng cấu trúc của dataset đó.
+        detail = f": {'; '.join(report.errors)}" if report.errors else ""
+        raise IngestRequestError(
+            f"không thấy chuỗi nào của {dataset} trong {report.path}{detail}; chạy d2s source "
+            "inspect để xem thư mục có gì"
+        )
     if version is None:
         if len(versions) != 1:
             raise IngestRequestError(

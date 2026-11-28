@@ -16,6 +16,7 @@ from xsim.modeling.nodes import NodeCollection
 from xsim.modeling.scene import Scene
 from xsim.utils.data_move import torch_move
 
+from drive2sim.external.xsim import set_native_config_env
 from drive2sim.external.xsim.checkpoint import restore_checkpoint, save_checkpoint
 from drive2sim.external.xsim.provider import BundleScene
 
@@ -43,6 +44,7 @@ def build_training_pipeline(
     Returns:
         Subset train và cây node trước khi tạo optimizer để có thể nạp checkpoint.
     """
+    set_native_config_env()
     cfg = read(str(native_config))
     dataset_config = dict(cfg.dataset)
     dataset_config["scene"] = {

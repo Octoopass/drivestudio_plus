@@ -28,7 +28,8 @@ Trạng thái: bản nháp, ngày 12/11/2026.
 | Dữ liệu chuẩn | Một định dạng dữ liệu duy nhất mà mọi approach đọc. Mọi nguồn dữ liệu đều được chuyển về định dạng này trước (mục 6.2). |
 | Manifest | File đi kèm dữ liệu chuẩn, ghi cảnh có gì và thiếu gì (LiDAR, box, mô hình camera, mask...). |
 | Stage | Một bước xử lý có đầu vào và đầu ra rõ ràng, ví dụ sinh mask, khởi tạo điểm, train, đánh giá, export. |
-| Approach | Một cách dựng cảnh: danh sách stage chạy lần lượt, kèm mức năng lực và điều kiện về dữ liệu. |
+| Hướng tiếp cận | Cách giải bài toán dựng cảnh, trường `kind` của file phương pháp: **tối ưu theo từng cảnh** (`per_scene`), **feed-forward** (model học sẵn suy ra cảnh trong một lần chạy, `feed_forward`), **SLAM** (vừa ước lượng pose vừa dựng bản đồ, `slam`). Mỗi hướng tiếp cận gồm nhiều phương pháp. |
+| Phương pháp | Một thuật toán dựng cảnh cụ thể thuộc một hướng tiếp cận, ví dụ OmniRe, Street Gaussians, BezierGS, PVG, DeformableGS (tối ưu theo từng cảnh), Instant NuRec (feed-forward), MCGS-SLAM (SLAM): danh sách stage chạy lần lượt, kèm mức năng lực và điều kiện về dữ liệu. Renderer (3DGS, 3DGUT, 3DGEER), FastGS, Faster-GS, CamPose là khâu thay được bên trong phương pháp, không phải phương pháp riêng. **Trong code và định dạng file, phương pháp vẫn mang tên `approach`** vì lý do lịch sử (`approaches/<approach_id>.yaml`, `approach_id`, trường `approach` của `run.json`, `/api/approaches`, `d2s approach`); tài liệu này dùng chữ *approach* theo đúng nghĩa đó. Studio và phần chữ của CLI hiển thị "phương pháp" và "hướng tiếp cận". |
 | Cấu hình approach, mục cấu hình | Cấu hình approach gồm các *mục cấu hình*: mỗi mục là một khâu có nhiều lựa chọn thay thế được cho nhau, ví dụ khởi tạo (LiDAR hay depth), renderer (3DGS, 3DGUT, 3DGEER), hay một thuật toán phụ trợ bật/tắt (FastGS). Chọn trước khi chạy. |
 | Cấu hình sẵn (preset) | Bộ giá trị đặt sẵn cho các mục cấu hình, ví dụ `paper`, `no_lidar`. |
 | Chuẩn bị riêng | Các stage lấy bớt, sinh thêm hoặc đổi dạng dữ liệu chuẩn cho vừa một approach (mục 6.3). |
@@ -62,6 +63,11 @@ Nối CARLA, chỉnh actor, chỉnh quỹ đạo actor và chạy thử AD stack
 Muốn thử lựa chọn khác thì quay lại bước 4, đổi mục cấu hình hoặc tham số rồi chạy lại; stage nào không đổi đầu vào thì dùng lại kết quả cũ.
 
 Trên giao diện có thể cho chọn approach sớm để người dùng biết trước, nhưng việc xử lý dữ liệu luôn đi theo thứ tự trên. Mọi bước đều làm được bằng CLI (`d2s <nhóm> <hành động>`, `CONTRACTS.md` mục 10.4), không bắt buộc qua Studio; Studio và CLI dùng chung một bước kiểm tra điều kiện và ràng buộc.
+
+Khi nhập PHENIKAA, bước xem nguồn phải báo camera thực có ảnh, camera bị bỏ vì thiếu ảnh,
+LiDAR và nhãn box trên đĩa. Nếu thiếu dữ liệu bắt buộc, CLI yêu cầu khắc phục rồi xem lại nguồn;
+Studio khoá nút Nạp. Studio cho chỉ định calib để riêng và camera cần nhập; sửa đường dẫn calib
+phải kiểm tra lại trước khi nạp. Với KITTI-360, Studio cho chọn thêm khung đầu và số khung.
 
 ## 6. Dữ liệu
 
@@ -204,7 +210,7 @@ Khi pipeline có nhiều bước đánh giá, bảng so sánh hiển thị kết
 
 - Nhẹ: một tiến trình phục vụ cả API lẫn giao diện; trạng thái lưu trong thư mục, không cần cơ sở dữ liệu.
 - Approach chạy ở môi trường khác (XSIM) nhận dữ liệu qua gói quan sát xuất từ loader chung, không tự đọc lại thư mục cảnh.
-- XSIM hướng tới L1 trên local, Kaggle và Colab. Tiến độ và bằng chứng nằm trong [kế hoạch XSIM](XSIM_INTEGRATION_PLAN.md).
+- XSIM hướng tới L1 trên local, Kaggle và Colab. **Tạm dừng từ 28/11/2026**: approach `xsim` bị tắt (ẩn, không tạo hay chạy run) vì train cần GPU từ 24 GB; tiến độ, bằng chứng và điều kiện bật lại nằm trong [kế hoạch XSIM](XSIM_INTEGRATION_PLAN.md) mục 12.
 - Approach từ codebase khác chạy trong môi trường riêng; các approach dòng DriveStudio dùng chung môi trường của repo.
 - Mọi run ghi kết quả theo cùng một định dạng, kèm cấu hình đầy đủ, phiên bản mã nguồn và thông tin phần cứng để chạy lại được.
 - Thêm approach mới chỉ cần khai báo và thêm stage còn thiếu; không sửa engine, Studio hay server.

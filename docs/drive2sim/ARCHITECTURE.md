@@ -145,6 +145,14 @@ NCore vẫn dùng ở hai chỗ: là **một nguồn vào** (PhysicalAI, CARLA g
 
 **Nhược điểm.** Dữ liệu chuẩn giữ đủ mọi thứ nên tốn ổ đĩa hơn bản đã lọc cho một approach.
 
+**Bổ sung luồng nhập nguồn (27/11/2026).** CLI và Studio dùng chung `converter_options`
+trong `ingest/dispatch.py` để truyền calib, camera và khoảng khung cho converter hiện có.
+`ingest/detect.py` đọc độ phủ ảnh PHENIKAA từ đĩa; `ingest/validate.py` đưa lý do bỏ camera
+vào báo cáo kiểm tra. Bản cài Studio có extra `ingest` để nhập PHENIKAA không cần PyTorch.
+Ưu điểm: hai giao diện dùng cùng cách dựng tuỳ chọn và người dùng biết camera nào bị bỏ.
+Nhược điểm: cài thêm NumPy, OpenCV headless, SciPy và laspy; xem nguồn phải kiểm tra file ảnh
+theo từng mốc. Không thay loader, định dạng cảnh hay cách chọn camera mặc định của converter.
+
 ### 2.4 Giữ loader riêng của từng dataset; gộp khi có điều kiện
 
 **Khái niệm.** DriveStudio có 7 loader (`drive2sim/recon/data/loaders/<dataset>.py`, 460–720 dòng mỗi file, tổng 3678 dòng) với cùng bộ hàm (`load_calibrations`, `load_cameras`, `load_objects`, `load_lidar`). Đo bằng `diff` so với loader Argoverse: nuPlan khác 92 dòng, KITTI 119, PandaSet 168, nuScenes 248, Waymo 379 (có thêm rolling shutter của patch Bosch), PhysicalAI 671; hàm `load_objects` của 5 trên 6 loader chỉ khác 4 dòng. Phần lớn là mã chép lại.
@@ -168,6 +176,8 @@ NCore vẫn dùng ở hai chỗ: là **một nguồn vào** (PhysicalAI, CARLA g
 **Cách gộp khi tới lúc.** Một loader chung từ mã có sẵn, cộng một bảng quy ước nhỏ cho từng dataset (cách lưu pose, gốc toạ độ, trục camera, hệ số méo, danh sách camera); dữ liệu trên đĩa và script tiền xử lý giữ nguyên; PhysicalAI giữ loader riêng vì khác quá nhiều. Kiểm tra bằng cách cho loader cũ và loader chung đọc cùng một cảnh giả theo khung của từng dataset rồi so từng giá trị (pose, intrinsics, đường dẫn ảnh, box); cần môi trường test có PyTorch bản CPU. Loader cũ chỉ xoá khi phép so khớp hoàn toàn.
 
 ### 2.5 Approach là danh sách stage, có mục cấu hình, ràng buộc và preset
+
+**Thuật ngữ (28/11/2026).** Với người dùng, *hướng tiếp cận* là `kind` (tối ưu theo từng cảnh, feed-forward, SLAM) và *phương pháp* là một thuật toán cụ thể (OmniRe, PVG, Instant NuRec...). File và định danh trong code giữ tên `approach` (một file approach là một **phương pháp**), vì đổi tên sẽ phá `run.json` cũ, API, gói job Kaggle, Colab và test mà không thêm gì cho người dùng; Studio và phần chữ của CLI hiển thị "phương pháp" và "hướng tiếp cận" (SPEC mục 3).
 
 **Khái niệm.**
 - *Stage* là một lớp Python đăng ký theo tên (ví dụ `init.depth`), khai báo phiên bản, tham số, kiểu artifact vào và ra, có dùng LiDAR không, có được cache không (CONTRACTS mục 5.1).
@@ -853,7 +863,8 @@ KITTI-360 và PHENIKAA đã dùng chung `StandardPixelSource`; có ánh xạ tê
 
 | Việc | Trạng thái | Commit |
 |---|---|---|
-| XSIM | Môi trường riêng (`envs/install_xsim.sh`), đầu vào là gói quan sát chung (`prep.observations`), chấm bằng scorer chung; Kaggle và Colab cài thêm venv XSIM. Chưa nghiệm thu GPU. | |
+| Nhập nguồn PHENIKAA: calib riêng, camera thiếu ảnh, tên camera viết thường; Studio nhận calib, camera và khoảng khung KITTI-360; thư viện ingest trong bản cài Studio | Đã triển khai và có test hồi quy; nghiệm thu local bằng dataset giả lập từ 30 khung PHENIKAA, không train | |
+| XSIM | **Tạm dừng, đã tắt trong tool (28/11/2026, `disabled` trong `approaches/xsim.yaml`)**: pipeline chạy hết trên Kaggle tới `train.xsim` (loss giảm đều) nhưng T4 16 GB hết VRAM ở bước densify khoảng 7.000–7.800/40.000; xem [kế hoạch XSIM](XSIM_INTEGRATION_PLAN.md) mục 12. Code, môi trường riêng (`envs/install_xsim.sh`), gói quan sát chung (`prep.observations`) và scorer chung được giữ. | `0cf5106`, `19e3d5b`, `ab087e3` |
 | Bàn giao `d2s pack`, ingest và môi trường thân thiện, SMPL theo split | Code và test local hoàn tất; chưa nghiệm thu train GPU cho thay đổi loader; gói 11 run thật đã ghi trên USB và kiểm đủ 15.708 mã băm sau giải nén; Studio đọc 11 run, đã render thử một frame bằng GPU có sẵn | |
 | Kaggle: gói output thành tar theo run và mục cache | Code và test local hoàn tất; có đường tải file rời cho notebook cũ và khi gói lỗi; chưa chạy bước gói trên Kaggle thật | |
 | Docs thiết kế (SPEC, ARCHITECTURE, CONTRACTS) | Xong, cập nhật theo từng quyết định | |
@@ -1090,3 +1101,40 @@ không đổi. Build và sinh kiểu Studio qua. Playwright headless với API t
 kiểm mở nháp, bỏ nháp trên server, tẩy đúng nguồn saved, quay lại camera vẫn có nháp, từ chối
 revision cũ và lưu thành mask chính thức; không có lỗi JavaScript. Đây là kiểm chứng local,
 không thay thế train/render bằng dữ liệu thật trên GPU hoặc thực thi cloud.
+
+### Tạm dừng XSIM, tắt approach thay vì xoá (28/11/2026)
+
+**Quyết định.** Không dùng XSIM trong tool ở giai đoạn này. Approach `xsim` được tắt bằng trường
+`disabled` của file approach (CONTRACTS mục 4.1): ẩn khỏi Studio, CLI, Trợ lý; mọi đường tạo, chạy
+tiếp, xuất lại, đẩy run và cài môi trường riêng đều từ chối kèm lý do. Code (`external/xsim/`,
+stage `prep.observations`, `train.xsim`, `eval.xsim`, `envs/install_xsim.sh`) và run cũ được giữ.
+
+**Lý do.** Sau khi sửa các lỗi tích hợp (MPLBACKEND, SMPL PHENIKAA, `workdir` của stage, biến môi
+trường của config gốc, bản vá pytoast, chạy tiếp trên Kaggle), XSIM train được trên Kaggle nhưng hết
+VRAM của T4 (14,56 GB dùng được) ở bước densify khoảng 7.000–7.800/40.000 trên cả hai split
+PHENIKAA. Chiến lược densify `Eval3D` của cấu hình gốc không giới hạn số Gaussian; README XSIM cần
+GPU từ 24 GB; Kaggle không cấp L4 (yêu cầu `NvidiaL4` vẫn chạy T4). XSIM là method mô phỏng cảm biến
+(camera cùng LiDAR, cảnh sửa được); mục tiêu hiện tại của tool là dựng lại ảnh camera, nơi OmniRe
+nhẹ hơn và đã chạy ổn.
+
+**Ưu điểm.** Không mất công tích hợp đã làm; bật lại bằng cách bỏ một dòng; approach khác, run và
+API khác không đổi. **Nhược điểm.** Code XSIM vẫn phải giữ biên dịch được và test vẫn chạy phần
+adapter; trường `disabled` thêm một điều kiện vào các điểm vào (`resolve`, `execute_run`, push,
+cài môi trường). **Phương án khác.** Xoá XSIM (mất công tích hợp, khó bật lại); giữ hiện mà chỉ
+cảnh báo (người dùng vẫn tốn GPU vào run sẽ hết VRAM); đổi cấu hình densify sang MCMC có trần (không
+còn là XSIM gốc, chưa đo chất lượng).
+
+### Thuật ngữ: hướng tiếp cận và phương pháp (28/11/2026)
+
+**Quyết định.** Người dùng thấy hai tầng: *hướng tiếp cận* (`kind`: tối ưu theo từng cảnh,
+feed-forward, SLAM) chứa các *phương pháp* (OmniRe, Street Gaussians, BezierGS, PVG, DeformableGS,
+Instant NuRec, MCGS-SLAM). Studio đổi chữ "Approach" thành "Phương pháp" ("Method" trong bản tiếng
+Anh) và ghi "Hướng tiếp cận:" trên tiêu đề nhóm ở trang Chạy mới; `d2s approach list` có cột "hướng
+tiếp cận" và xếp theo nó. Định danh, file, API và lệnh CLI giữ tên `approach`.
+
+**Lý do.** Trước đây chữ *approach* của tool chỉ thứ mà bài báo và người đọc gọi là *method*, còn
+cách giải bài toán lại không có tên riêng, nên dễ hiểu nhầm trên Studio và trong báo cáo.
+**Nhược điểm.** Code và tài liệu kỹ thuật vẫn dùng `approach` cho phương pháp, phải đọc ghi chú
+thuật ngữ (SPEC mục 3). **Phương án khác.** Đổi tên toàn bộ (`approach_id` → `method_id`, thư mục,
+API, `run.json`): phá dữ liệu và API cũ, không chọn.
+

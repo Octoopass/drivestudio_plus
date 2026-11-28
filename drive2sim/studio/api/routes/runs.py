@@ -59,6 +59,7 @@ from drive2sim.engine.run import (
     load_summary,
     ply_export_stage,
     request_cancel,
+    require_enabled_approach,
     reset_stage,
     run_is_active,
 )
@@ -260,6 +261,7 @@ def resume_run(run_id: str, request: Request) -> dict:
         ``run.json`` hiện tại.
     """
     run_dir, record = _load(request, run_id)
+    require_enabled_approach(record.approach.approach_id)  # approach bị tắt: 400 ngay
     if record.executor == "local":
         _require_local(
             request, record.approach.approach_id, [stage.stage_id for stage in record.stages]
@@ -309,6 +311,8 @@ def export_run(run_id: str, body: ExportBody, request: Request) -> dict:
     """
     state = state_of(request)
     run_dir, current = _load(request, run_id)
+    # Trước reset_stage: approach bị tắt thì không sửa run.json của run cũ.
+    require_enabled_approach(current.approach.approach_id)
     stage_id = EXPORT_STAGES[body.kind]
     stage_ids = [s.stage_id for s in current.stages]
     if body.kind == "ply":  # run Instant NuRec: export.nurec_ply, không phải export.ply_world

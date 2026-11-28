@@ -51,6 +51,23 @@ STEP = re.compile(r"^=== \d\d:\d\d:\d\d (\d+)/(\d+) (.*)$")
 LOG_TAIL = 6000
 
 
+def disabled_env_reason(env: str) -> Optional[str]:
+    """Lý do không cài môi trường riêng ``env``: mọi approach dùng nó đều bị tắt (``disabled``).
+
+    Môi trường chính (``main``) và môi trường còn approach đang dùng thì trả ``None``.
+    """
+    from drive2sim.engine.approaches import list_approach_ids, load_approach
+
+    users = [
+        load_approach(i)
+        for i in list_approach_ids(include_disabled=True)
+        if environment.CODEBASE_ENV.get(load_approach(i).codebase) == env
+    ]
+    if env == "main" or not users or any(not a.disabled for a in users):
+        return None
+    return "; ".join(f"approach {a.approach_id} đã tắt ({a.disabled})" for a in users)
+
+
 class InstallFlow:
     """Chạy ``envs/install_<env>.sh`` ở nền và giữ trạng thái: bước, log cuối, kết quả.
 
@@ -117,6 +134,9 @@ class InstallFlow:
         """
         if env not in SCRIPTS:
             raise ValueError(f"không có môi trường {env}; có: {', '.join(SCRIPTS)}")
+        disabled = disabled_env_reason(env)
+        if disabled:
+            raise ValueError(f"môi trường {env} không cài qua tool: {disabled}")
         if not sys.platform.startswith("linux"):
             raise ValueError(
                 f"môi trường {env} chỉ cài được trên Linux có GPU NVIDIA (Windows: dùng WSL2); "

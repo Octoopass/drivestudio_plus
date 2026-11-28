@@ -79,17 +79,21 @@ export function NewRunPage({
   useEffect(() => {
     if (scene.data && !scene.data.splits.includes(splitId)) setSplitId(scene.data.splits[0] ?? "");
   }, [scene.data]);
-  // Tự chọn approach đầu tiên dùng được trên cảnh (không bị khoá vì thiếu box 3D). Cảnh tải xong sau
-  // danh sách approach thì chọn lại nếu approach tự chọn trước đó bị khoá; approach người dùng chọn
-  // hoặc có trong URL thì giữ nguyên.
+  // Tự chọn phương pháp đầu tiên (theo thứ tự hiện trên trang: hướng tiếp cận rồi tên) dùng được
+  // trên cảnh và split: không bị khoá vì thiếu box 3D và vẽ được camera của split. Cảnh hay split
+  // tải xong hoặc đổi sau thì chọn lại nếu phương pháp tự chọn trước đó không còn dùng được; phương
+  // pháp người dùng chọn hoặc có trong URL thì giữ nguyên.
   useEffect(() => {
-    const items = approaches.data?.items ?? [];
+    const items = APPROACH_KINDS.flatMap((kind) =>
+      (approaches.data?.items ?? []).filter((a) => (a.kind ?? "per_scene") === kind),
+    );
     if (items.length === 0) return;
+    const usable = (a: Approach) => !boxReason(a) && !cameraReason(a.camera_support);
     const current = items.find((a) => a.approach_id === approachId);
-    if (approachId && !(autoApproach.current && current && boxReason(current))) return;
-    const pick = items.find((a) => !boxReason(a)) ?? items[0];
+    if (approachId && !(autoApproach.current && current && !usable(current))) return;
+    const pick = items.find(usable) ?? items.find((a) => !boxReason(a)) ?? items[0];
     if (pick.approach_id !== approachId) setApproachId(pick.approach_id);
-  }, [approaches.data, approachId, scene.data]);
+  }, [approaches.data, approachId, scene.data, splitId]);
   // Đổi approach, cảnh hay split thì về cấu hình mặc định; nếu mặc định không vẽ được camera của
   // split (ví dụ 3DGS trên split có camera mắt cá) thì chọn sẵn preset đầu tiên vẽ được, thay vì để
   // người dùng gặp lỗi bị khoá.
@@ -282,7 +286,8 @@ export function NewRunPage({
               return (
                 <section key={kind} className="approach-group" data-kind={kind}>
                   <h4 className="approach-group-title">
-                    {t(`new.kind.${kind}`)}
+                    {/* Hướng tiếp cận (kind) chứa các phương pháp (approach_id trong code). */}
+                    <span className="muted">{t("new.kind.label")}:</span> {t(`new.kind.${kind}`)}
                     <InfoTip>{t(`new.kind.${kind}.hint`)}</InfoTip>
                   </h4>
                   <div className="choice-list">

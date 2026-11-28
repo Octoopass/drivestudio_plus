@@ -28,8 +28,9 @@ from pydantic import BaseModel
 
 from drive2sim import paths
 from drive2sim.core import files
-from drive2sim.core.schema import SCHEMA_VERSIONS, Manifest, Summary
+from drive2sim.core.schema import SCHEMA_VERSIONS, Manifest, RunRecord, Summary
 from drive2sim.engine.registry import StageRegistry
+from drive2sim.engine.run import D2S_DIR, RUN_FILE
 from drive2sim.engine.stage import Stage, StageContext
 from drive2sim.engine.workdir import Workdir
 from drive2sim.kaggle import client as kaggle_client
@@ -761,3 +762,120 @@ def test_draft_discard_rejects_stale_revision(client: TestClient) -> None:
     result = client.delete(url, params={"revision": ego_mask_tool.revision(root, camera)})
     assert result.status_code == 200 and not draft.exists()
     assert result.json()["revision"] == ego_mask_tool.revision(root, camera)
+
+
+def test_ingest_passes_calib_and_cameras_to_the_converter(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Studio nhận các tuỳ chọn của scene ingest: calib để riêng, chọn camera (PHENIKAA)."""
+    from drive2sim.studio.api.routes import sources
+    from tests.drive2sim.ingest.test_phenikaa_inspect import make_tree
+
+    raw = make_tree(tmp_path / "raw", calib=False)
+    calib = make_tree(tmp_path / "elsewhere") / "calib"
+    report = client.post("/api/sources/inspect", json={"path": str(raw)}).json()
+    assert report["dataset"] == "phenikaa" and report["suggested_args"][0] == "--calib"
+    assert any("--calib" in error for error in report["errors"])
+    fixed = client.post("/api/sources/inspect", json={"path": str(raw), "calib": str(calib)})
+    assert fixed.json()["errors"] == []
+
+    seen: dict = {}
+
+    def fake_ingest(raw_dir: Path, workdir: object, target: object, **kwargs: object) -> Path:
+        seen.update(kwargs)
+        scene = tmp_path / "scene"
+        scene.mkdir(exist_ok=True)
+        return scene
+
+    monkeypatch.setattr(sources, "run_ingest", fake_ingest)
+    monkeypatch.setattr(sources, "scene_reports", lambda directory: None)
+    job = client.post(
+        "/api/sources/ingest",
+        json={"path": str(raw), "calib": str(calib), "cameras": ["CAM_P_F"]},
+    )
+    assert job.status_code == 202
+    client.app.state.studio.jobs.wait_idle()
+    assert seen["phenikaa_options"].calib_dir == calib
+    assert seen["phenikaa_options"].cameras == ("CAM_P_F",)
+    bad = client.post("/api/sources/ingest", json={"path": str(raw), "num_frames": 0})
+    assert bad.status_code == 400
+
+
+def test_ingest_passes_kitti360_frame_range_and_cameras(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from drive2sim.studio.api.routes import sources
+    from tests.drive2sim.ingest.test_kitti360 import make_raw
+
+    raw = make_raw(tmp_path / "raw")
+    seen: dict = {}
+
+    def fake_ingest(raw_dir: Path, workdir: object, target: object, **kwargs: object) -> Path:
+        seen.update(kwargs)
+        scene = tmp_path / "scene"
+        scene.mkdir()
+        return scene
+
+    monkeypatch.setattr(sources, "run_ingest", fake_ingest)
+    monkeypatch.setattr(sources, "scene_reports", lambda directory: None)
+    response = client.post(
+        "/api/sources/ingest",
+        json={"path": str(raw), "cameras": ["image_00"], "start_frame": 8, "num_frames": 3},
+    )
+    assert response.status_code == 202
+    client.app.state.studio.jobs.wait_idle()
+    options = seen["kitti360_options"]
+    assert options.cameras == ("image_00",)
+    assert options.start_frame == 8 and options.num_frames == 3
+
+
+def test_disabled_approach_is_hidden_and_its_api_refuses(client: TestClient) -> None:
+    """Approach bị tắt (như XSIM): ẩn khỏi danh sách, các API của nó trả 400.
+
+    API chi tiết, kiểm tra, môi trường, tạo run và cài môi trường riêng đều từ chối; approach
+    khác vẫn dùng được.
+    """
+    off = (
+        TOY.replace("approach_id: toy", "approach_id: toyoff")
+        .replace("codebase: drivestudio", "codebase: external:xsim")
+        .replace("level: L1", "level: L1\ndisabled: tạm dừng để thử")
+    )
+    (paths.APPROACHES_DIR / "toyoff.yaml").write_text(off)
+    split_id = create_split(client)
+    ids = [a["approach_id"] for a in client.get("/api/approaches").json()["items"]]
+    assert ids == ["toy"]
+    body = {"scene_id": SCENE, "split_id": split_id}
+    for response in (
+        client.get("/api/approaches/toyoff"),
+        client.get("/api/approaches/toyoff/environment"),
+        client.post("/api/approaches/toyoff/check", json=body),
+        client.post("/api/runs", json={"approach_id": "toyoff", **body}),
+        client.post("/api/environment/install", json={"env": "xsim"}),
+    ):
+        assert response.status_code == 400, response.text
+        assert "tắt" in response.json()["error"]["message"]
+    assert client.post("/api/approaches/toy/check", json=body).status_code == 200
+    assert client.get("/api/approaches/toy").status_code == 200
+    # Run cũ của approach bị tắt: xem được, nhưng chạy tiếp, xuất lại bị từ chối mà không sửa run.
+    run_id = "20261128-000000-toyoff-abcd"
+    run_dir = client.app.state.studio.workdir.run_dir(SCENE, "toyoff", run_id)
+    record = {
+        "schema_version": "d2s-run/0.1",
+        "run_id": run_id,
+        "scene_id": SCENE,
+        "split_id": split_id,
+        "approach": {"approach_id": "toyoff", "version": "0.1.0", "options": {}},
+        "level": "L1",
+        "executor": "local",
+        "status": "failed",
+        "stages": [{"stage_id": "train.toy", "status": "failed", "params": {}}],
+    }
+    files.dump(RunRecord.model_validate(record), run_dir / D2S_DIR / RUN_FILE)
+    before = (run_dir / D2S_DIR / RUN_FILE).read_text()
+    assert client.get(f"/api/runs/{run_id}").status_code == 200
+    for response in (
+        client.post(f"/api/runs/{run_id}/resume"),
+        client.post(f"/api/runs/{run_id}/export", json={"kind": "ply"}),
+    ):
+        assert response.status_code == 400 and "tắt" in response.json()["error"]["message"]
+    assert (run_dir / D2S_DIR / RUN_FILE).read_text() == before

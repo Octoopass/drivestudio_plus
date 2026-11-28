@@ -19,8 +19,12 @@ dev = ["pytest>=7", "httpx>=0.24"]
 studio = ["fastapi>=0.110", "uvicorn>=0.29"]
 # Chạy run trên Kaggle: tool gọi lệnh kaggle (đã kiểm cờ với Kaggle CLI 2.2.5).
 kaggle = ["kaggle>=2.2,<3"]
-# Ingest PHENIKAA: đọc LiDAR .laz (drive2sim/ingest/phenikaa.py); cần thêm numpy, OpenCV.
-phenikaa = ["laspy[lazrs]>=2.5"]
+# Ingest trên máy không có môi trường GPU (bản cài "chỉ Studio"): converter PHENIKAA cần numpy,
+# OpenCV (khử méo ảnh pinhole), SciPy (nối box qua các khung), laspy (LiDAR .laz). Bản headless
+# vì máy chủ không màn hình thường thiếu libGL. Môi trường chính đã có các gói này
+# (requirements.txt), không cần extra.
+ingest = ["numpy", "opencv-python-headless", "scipy", "laspy[lazrs]>=2.5"]
+phenikaa = ["drive2sim[ingest]"]
 # Heavy dependencies (PyTorch, gsplat-geer, ...) are installed from requirements.txt.
 
 [tool.setuptools.packages.find]

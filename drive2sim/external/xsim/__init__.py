@@ -2,7 +2,8 @@
 
 XSIM (avision-team/XSIM) và renderer xsimgs chạy trong một venv riêng (Python 3.11, PyTorch 2.8
 CUDA 12.8), gọi qua tiến trình con ``drive2sim.external.xsim.worker``. Mã gốc được giữ nguyên ở
-revision chốt, chỉ thêm bản vá ``patches/runtime.patch``. Dữ liệu đưa vào XSIM là gói quan sát do
+revision chốt, chỉ thêm bản vá ``patches/runtime.patch`` (và ``patches/pytoast.patch`` cho
+submodule pytoast). Dữ liệu đưa vào XSIM là gói quan sát do
 stage ``prep.observations`` xuất từ đường dữ liệu chung của tool (CONTRACTS mục 5.4), nên XSIM nhận
 cùng ảnh, mask, pose, LiDAR, box và SMPL như các approach DriveStudio.
 
@@ -13,6 +14,8 @@ dựng ``<thư mục>/XSIM`` (mã nguồn) và ``<thư mục>/.venv`` (Python c�
 File này chỉ dùng thư viện chuẩn, để engine và Studio gọi được khi máy không có XSIM:
 - ``REVISION``: commit XSIM đã chốt.
 - ``WORKER_ENV``: biến môi trường cho tiến trình chạy Python của venv XSIM.
+- ``NATIVE_CONFIG_ENV``, ``set_native_config_env``: biến mà config gốc của XSIM đòi nhưng adapter
+  không dùng (đường dẫn dữ liệu Waymo), đặt giá trị giữ chỗ trước khi đọc config.
 - ``OBSERVATIONS_INDEX``: tên file chỉ mục của gói quan sát.
 - ``xsim_dir``, ``source_dir``, ``xsim_python``: đường dẫn của bản cài.
 - ``environment_checks``: các mục kiểm tra cho ``engine.environment.environment_check``.
@@ -37,6 +40,22 @@ RECOMMENDED_VRAM_MB = 24 * 1024
 # matplotlib.pyplot; kernel Jupyter (Kaggle, Colab) đặt MPLBACKEND trỏ tới backend inline mà venv
 # XSIM không có, nên matplotlib báo lỗi ngay khi import. Worker không vẽ lên màn hình: dùng Agg.
 WORKER_ENV = {"MPLBACKEND": "Agg"}
+# configs/waymo_default.yaml import configs/data/waymo/provider.yaml, nơi đường dẫn dữ liệu Waymo
+# đọc từ biến môi trường bắt buộc ("${env:WAYMO_ROOT_PATH}"); thiếu biến thì jetcon từ chối đọc cả
+# file (gặp trên Kaggle 27/11/2026). Adapter tự đưa BundleScene vào và không dựng provider Waymo,
+# nên các đường dẫn này không được dùng: đặt giá trị giữ chỗ không tồn tại, dùng nhầm thì lỗi rõ.
+NATIVE_CONFIG_ENV = {
+    "WAYMO_ROOT_PATH": "/nonexistent/drive2sim-xsim-unused",
+    "WAYMO_CACHE_PATH": "/nonexistent/drive2sim-xsim-unused",
+    "WAYMO_SMPL_DATA_PATH": "/nonexistent/drive2sim-xsim-unused",
+}
+
+
+def set_native_config_env(environ: Optional[dict] = None) -> None:
+    """Đặt ``NATIVE_CONFIG_ENV`` vào môi trường trước khi đọc config gốc; giữ giá trị đã có."""
+    target = os.environ if environ is None else environ
+    for key, value in NATIVE_CONFIG_ENV.items():
+        target.setdefault(key, value)
 
 
 def xsim_dir() -> Path:

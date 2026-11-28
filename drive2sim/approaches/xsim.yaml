@@ -12,6 +12,11 @@ dynamics: boxes
 # Đã nối đủ đường local, Kaggle, Colab nhưng chưa có run train, eval XSIM nào chạy xong trên GPU
 # (docs/drive2sim/XSIM_INTEGRATION_PLAN.md): Studio gắn nhãn "thử nghiệm". Bỏ khi đã nghiệm thu.
 experimental: true
+# Tắt trong tool từ 28/11/2026 (docs/drive2sim/XSIM_INTEGRATION_PLAN.md mục "Quyết định tạm dừng"):
+# train trên Kaggle T4 16 GB hết VRAM ở bước densify khoảng 7.000-7.800/40.000 (chiến lược Eval3D
+# không giới hạn số Gaussian, README XSIM cần GPU >= 24 GB), Kaggle không cấp L4. Code và run cũ
+# được giữ; bỏ dòng dưới để bật lại khi có GPU đủ lớn.
+disabled: "train cần GPU >= 24 GB (trên Kaggle T4 hết VRAM ở bước ~7.000); tạm dừng 28/11/2026"
 requires:
   camera_models: [opencv_pinhole, opencv_fisheye]
   cuboids: optional

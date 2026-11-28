@@ -52,6 +52,10 @@ def fingerprint(job: JobSpec, root: Path, source: Path) -> str:
     revision = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True)
     digest.update(revision.strip().encode())
     digest.update(subprocess.check_output(["git", "-C", str(source), "diff", "HEAD"]))
+    # Bản vá submodule pytoast (patches/pytoast.patch): diff của XSIM chỉ ghi submodule "-dirty".
+    pytoast = source / "third_party" / "pytoast"
+    if (pytoast / ".git").exists():
+        digest.update(subprocess.check_output(["git", "-C", str(pytoast), "diff", "HEAD"]))
     digest.update(native_config(source).read_bytes())
     here = Path(__file__).parent
     for name in MODEL_MODULES:

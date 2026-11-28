@@ -14,7 +14,14 @@ import argparse
 from drive2sim.cli.output import emit, event_printer
 from drive2sim.core import files
 from drive2sim.core.schema import RunRecord
-from drive2sim.engine.run import D2S_DIR, RUN_FILE, execute_run, ply_export_stage, reset_stage
+from drive2sim.engine.run import (
+    D2S_DIR,
+    RUN_FILE,
+    execute_run,
+    ply_export_stage,
+    require_enabled_approach,
+    reset_stage,
+)
 from drive2sim.engine.workdir import Workdir
 
 STAGES = {
@@ -76,6 +83,10 @@ def export(args: argparse.Namespace) -> int:
     if getattr(args, "max_seconds", None) is not None:
         params["max_seconds"] = args.max_seconds
     stage_id = args.stage_id
+    # Trước reset_stage: approach bị tắt thì không sửa run.json của run cũ.
+    require_enabled_approach(
+        files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord).approach.approach_id
+    )
     if stage_id == "export.ply_world":  # run Instant NuRec có stage PLY riêng
         record = files.load(run_dir / D2S_DIR / RUN_FILE, RunRecord)
         stage_id = ply_export_stage([s.stage_id for s in record.stages])

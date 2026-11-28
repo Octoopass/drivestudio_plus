@@ -103,7 +103,13 @@ def check_scene_id(value: str) -> str:
     Raises:
         ValueError: Nếu tiền tố không phải nguồn dữ liệu được hỗ trợ hoặc có ký tự không hợp lệ.
     """
-    return _check(SCENE_ID_RE, value, "scene_id (expected <dataset>_<sequence_id>)")
+    if not isinstance(value, str) or not SCENE_ID_RE.match(value):
+        # Người dùng gõ tên này (--scene, ô tên cảnh của Studio): nói rõ quy tắc bằng tiếng Việt.
+        raise ValueError(
+            f"scene_id không hợp lệ: {value!r}; cần dạng <dataset>_<tên>, dataset là một trong "
+            f"{', '.join(DATASETS)}, tên chỉ gồm chữ thường, số, '-', '_' (ví dụ phenikaa_nha-a)"
+        )
+    return value
 
 
 def check_stage_id(value: str) -> str:

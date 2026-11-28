@@ -51,8 +51,17 @@ def add_plan_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--quick",
         action="store_true",
-        help=f"chạy thử nhanh: train {QUICK_NUM_ITERS} iteration để kiểm tra approach chạy được",
+        help=f"chạy thử nhanh: train {QUICK_NUM_ITERS} iteration để kiểm tra phương pháp chạy "
+        "được",
     )
+
+
+# Hướng tiếp cận (trường ``kind`` của file approach), theo thứ tự hiện ở Studio.
+KIND_LABELS = {
+    "per_scene": "tối ưu theo từng cảnh",
+    "feed_forward": "feed-forward",
+    "slam": "SLAM",
+}
 
 
 def register(
@@ -65,13 +74,15 @@ def register(
         subparsers: Nơi thêm nhóm lệnh.
         common: Parser chứa tuỳ chọn chung.
     """
-    group = subparsers.add_parser("approach", help="xem approach, kiểm tra trước khi chạy")
-    actions = group.add_subparsers(dest="action", required=True)
-    actions.add_parser("list", parents=[common], help="liệt kê approach").set_defaults(
-        handler=list_approaches
+    group = subparsers.add_parser(
+        "approach", help="xem phương pháp (approach_id), kiểm tra trước khi chạy"
     )
+    actions = group.add_subparsers(dest="action", required=True)
+    actions.add_parser(
+        "list", parents=[common], help="liệt kê phương pháp theo hướng tiếp cận"
+    ).set_defaults(handler=list_approaches)
     show = actions.add_parser(
-        "show", parents=[common], help="xem cấu hình approach, preset, stage"
+        "show", parents=[common], help="xem cấu hình phương pháp, preset, stage"
     )
     show.add_argument("approach_id")
     show.set_defaults(handler=show_approach)
@@ -91,11 +102,17 @@ def list_approaches(args: argparse.Namespace) -> int:
     Returns:
         Mã thoát ``0``.
     """
-    approaches = [load_approach(approach_id) for approach_id in list_approach_ids()]
+    # Hướng tiếp cận (kind) chứa các phương pháp; mỗi file approach là một phương pháp.
+    order = {kind: i for i, kind in enumerate(KIND_LABELS)}
+    approaches = sorted(
+        (load_approach(approach_id) for approach_id in list_approach_ids()),
+        key=lambda a: (order.get(a.kind, len(order)), a.approach_id),
+    )
     rows = [
         [
             a.approach_id,
             a.name,
+            KIND_LABELS.get(a.kind, a.kind),
             ", ".join(camera_support(a)["tracks"]),
             a.level,
             a.codebase,
@@ -106,7 +123,10 @@ def list_approaches(args: argparse.Namespace) -> int:
     emit(
         args,
         [{**a.model_dump(mode="json"), "camera_support": camera_support(a)} for a in approaches],
-        format_table(["approach_id", "tên", "track", "mức", "codebase", "trạng thái"], rows),
+        format_table(
+            ["phương pháp", "tên", "hướng tiếp cận", "track", "mức", "codebase", "trạng thái"],
+            rows,
+        ),
     )
     return 0
 

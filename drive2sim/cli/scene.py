@@ -24,9 +24,14 @@ from drive2sim.core.schema import Manifest
 from drive2sim.engine import housekeeping, scenes
 from drive2sim.engine.rig import RigError, generate_lidar_check, generate_rig
 from drive2sim.engine.workdir import Workdir
-from drive2sim.ingest import kitti360, phenikaa
+from drive2sim.ingest import kitti360
 from drive2sim.ingest.detect import inspect_source
-from drive2sim.ingest.dispatch import IngestRequestError, plan_ingest, run_ingest
+from drive2sim.ingest.dispatch import (
+    IngestRequestError,
+    converter_options,
+    plan_ingest,
+    run_ingest,
+)
 from drive2sim.ingest.drivestudio import IngestError
 from drive2sim.ingest.reports import revalidate, scene_reports
 from drive2sim.ingest.validate import validate_scene
@@ -99,7 +104,12 @@ def add_ingest_options(ingest: argparse.ArgumentParser) -> None:
     ingest.add_argument("--source-type", help="dataset gốc; bỏ trống thì tự nhận dạng")
     ingest.add_argument("--version", help="phiên bản hoặc split, ví dụ v1.0-mini, training")
     ingest.add_argument("--sequence", help="chuỗi (cảnh gốc) cần ingest, ví dụ scene-0061")
-    ingest.add_argument("--scene", dest="scene_id", help="scene_id trong tool; mặc định tự đặt")
+    ingest.add_argument(
+        "--scene",
+        dest="scene_id",
+        help="scene_id trong tool, dạng <dataset>_<tên> (chữ thường, số, '-', '_'), ví dụ "
+        "phenikaa_nha-a; mặc định <dataset>_<chuỗi>",
+    )
     ingest.add_argument(
         "--interpolate-n",
         type=int,
@@ -237,7 +247,7 @@ def ingest_scene(args: argparse.Namespace) -> int:
     workdir = Workdir.from_env(args.workdir)
     try:
         target = plan_ingest(
-            inspect_source(args.path),
+            inspect_source(args.path, Path(args.calib) if args.calib else None),
             args.source_type,
             args.version,
             args.sequence,
@@ -245,15 +255,13 @@ def ingest_scene(args: argparse.Namespace) -> int:
         )
     except IngestRequestError as error:
         raise UsageError(str(error)) from None
-    cameras = tuple(args.cameras.split(",")) if args.cameras else None
-    options = kitti360.Kitti360Options(
-        start_frame=args.start_frame,
-        num_frames=args.num_frames,
-        cameras=cameras if target.dataset == kitti360.DATASET and cameras else kitti360.CAMERAS,
-        max_gap=args.max_gap,
-    )
-    phenikaa_options = phenikaa.PhenikaaOptions(
-        cameras=cameras, calib_dir=Path(args.calib) if args.calib else None
+    options, phenikaa_options = converter_options(
+        target.dataset,
+        args.cameras.split(",") if args.cameras else None,
+        Path(args.calib) if args.calib else None,
+        args.start_frame,
+        args.num_frames,
+        args.max_gap,
     )
     try:
         scene_dir = run_ingest(
@@ -276,6 +284,12 @@ def ingest_scene(args: argparse.Namespace) -> int:
     manifest = files.load(scene_dir / "manifest.yaml", Manifest)
     report_data = json.loads((scene_dir / "reports" / "validation.json").read_text("utf-8"))
     summary = report_data["summary"]
+    # Camera converter bỏ (thiếu ảnh, không chọn): in ra để người dùng biết vì sao cảnh có ít
+    # camera hơn thư mục nguồn (reports/ingest.json, mục ingest.camera_skipped).
+    for check in report_data["checks"]:
+        if check["check_id"].startswith("ingest.") or check["severity"] != "info":
+            label = {"error": "lỗi", "warning": "cảnh báo"}.get(check["severity"], "lưu ý")
+            info(args, f"{label}: {check['message']}")
     emit(
         args,
         {"manifest": manifest.model_dump(mode="json"), "validation": report_data},

@@ -238,6 +238,7 @@ export interface SourceReport {
   errors: string[];
   missing_sweeps: string[];
   candidates: { path: string; dataset: string; relation: "child" | "parent" }[];
+  suggested_args: string[];
 }
 
 export interface CacheEntry {

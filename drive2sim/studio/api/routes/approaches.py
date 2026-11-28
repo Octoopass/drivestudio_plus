@@ -16,7 +16,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict
 
 from drive2sim.core.schema import Approach, OptionValue, Split
-from drive2sim.engine.approaches import list_approach_ids, load_approach
+from drive2sim.engine.approaches import list_approach_ids, load_approach, require_enabled
 from drive2sim.engine.environment import environment_check
 from drive2sim.engine.registry import produces_artifact
 from drive2sim.engine.resolve import (
@@ -111,8 +111,13 @@ def list_approaches() -> dict:
 
 @router.get("/{approach_id}")
 def get_approach(approach_id: str) -> dict:
-    """Trả về nội dung file approach: mục cấu hình, preset, ràng buộc, stage."""
-    return _approach_json(load_approach(approach_id))
+    """Trả về nội dung file approach: mục cấu hình, preset, ràng buộc, stage.
+
+    Approach bị tắt (``disabled``) trả ``400``: Studio chỉ đọc chi tiết approach ở trang Chạy mới.
+    """
+    approach = load_approach(approach_id)
+    require_enabled(approach)
+    return _approach_json(approach)
 
 
 @router.get("/{approach_id}/environment")
@@ -132,6 +137,7 @@ def environment(approach_id: str, request: Request, stages: Optional[str] = None
         thể lệch; hoặc SMPL có thể cần), ``missing`` (thiếu, run sẽ lỗi), kèm lệnh cài.
     """
     approach = load_approach(approach_id)
+    require_enabled(approach)  # bị tắt: không mời cài môi trường riêng của nó
     chosen = [s for s in (stages or "").split(",") if s]
     return environment_check(
         approach.codebase,
